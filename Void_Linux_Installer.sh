@@ -108,7 +108,9 @@
 #     zsh/fish/mksh (installed from the official repos and set as the primary
 #     user's login shell via useradd -s). The binary path and its providing
 #     package are carried through chroot_env and the resume state file so a
-#     resumed run restores the choice.
+#     resumed run restores the choice. (v3.3.0-beta7 [ZSHRC]: when the choice
+#     is zsh, a minimal ~/.zshrc is pre-created for the primary user so the
+#     first login doesn't hit zsh's zsh-newuser-install wizard.)
 #   - Desktop (v3.2.0): a real install-time choice, $DESKTOP_ENV — KDE
 #     Plasma (default, primary tested path), Cinnamon via cinnamon-all,
 #     GNOME via the full `gnome` metapackage, Xfce via `xfce4`, MATE via
@@ -3074,6 +3076,38 @@ USER_GROUPS="adm,video,audio"
 [ "$ACCOUNT_MODEL" != "debian" ] && USER_GROUPS="wheel,${USER_GROUPS}"
 [ "$INSTALL_VIRT" = "true" ] && USER_GROUPS="${USER_GROUPS},kvm,libvirt"
 useradd -m -G "$USER_GROUPS" -s "$USER_SHELL" -c "$TARGET_USER" "$TARGET_USER"
+
+# AI (Big Pickle) ADDITION — v3.3.0-beta7 [ZSHRC]: when zsh is the login
+# shell, pre-create a minimal ~/.zshrc so the user's first interactive
+# session doesn't dump them into zsh's zsh-newuser-install wizard. Void's
+# zsh package ships NO /etc/zsh/newuser.zshrc.recommended (a user then picks
+# "create blank .zshrc", "recommended by admin", or "quit + touch ~/.zshrc"
+# — the "instructions to touch ~/.zshrc" message), and useradd -m leaves the
+# home dir with no zsh startup files — so every fresh zsh login previously
+# fired the wizard. The mere presence of ~/.zshrc suppresses it (the
+# zsh/newuser module halts once any of .zshenv/.zprofile/.zshrc/.zlogin
+# exists). Written with the user's ownership to match useradd -m. Only
+# created when zsh is the chosen shell — bash/fish/mksh are unaffected.
+if [ "$USER_SHELL" = "/bin/zsh" ]; then
+    cat > "/home/${TARGET_USER}/.zshrc" << INNER_EOF
+# Minimal default ~/.zshrc — created by Void_Linux_Installer so the
+# zsh-newuser-install wizard doesn't fire on first login. Edit freely.
+# History.
+HISTFILE=~/.zsh_history
+HISTSIZE=10000
+SAVEHIST=10000
+setopt SHARE_HISTORY
+setopt HIST_IGNORE_DUPS
+# Completion.
+autoload -Uz compinit
+compinit
+# Aliases.
+alias ll='ls -lah'
+alias la='ls -A'
+alias l='ls -lh'
+INNER_EOF
+    chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.zshrc"
+fi
 
 if [ "$ACCOUNT_MODEL" = "ubuntu" ]; then
     passwd -l root

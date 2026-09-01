@@ -129,6 +129,12 @@ neither the target nor the live medium.
     (`yubikey-personalization`) on the live medium and in the target.
     NOTE: the boot-unlock path is real-hardware UNPROVEN — validate a
     possession-only install on the target medium before relying on it.
+    Also new in beta7: `[ZSHRC]` — when zsh is the chosen login shell,
+    a minimal `~/.zshrc` is pre-created for the primary user so the
+    first login doesn't hit zsh's `zsh-newuser-install` wizard (Void's
+    zsh package ships no recommended-rc, so it dumps you with the
+    "instructions to touch ~/.zshrc" prompt; the mere presence of the
+    file suppresses the wizard).
   - Localization, timezone, and session/seat stack (elogind vs. turnstile +
     seatd + acpid).
   - Repo mirror auto-derived from timezone with an override menu

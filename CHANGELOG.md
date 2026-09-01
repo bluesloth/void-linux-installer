@@ -112,6 +112,18 @@ Current version: **3.3.0-beta7** (`SCRIPT_VERSION` in the script).
     The module is named `99void-` (> `90crypt`) so its override wins the
     `/sbin/cryptroot-ask` path. This boot path is real-hardware UNPROVEN —
     validate on the target medium before trusting a possession-only install.
+  - **`[ZSHRC]`** (fix) — when zsh is the chosen login shell, a minimal
+    `~/.zshrc` is pre-created for the primary user so the first interactive
+    session doesn't land in zsh's `zsh-newuser-install` wizard. Void's zsh
+    package ships NO `/etc/zsh/newuser.zshrc.recommended` and nothing into
+    `/etc/skel/.zshrc`, and `useradd -m` leaves the home dir with no zsh
+    startup files — so a fresh zsh login previously fired the wizard and
+    dumped the user with the "instructions to touch ~/.zshrc" message (a
+    "[SHELL]" regression: bash needs no rc file, so this only ever bit the
+    zsh path). The mere presence of `~/.zshrc` suppresses it: the
+    `zsh/newuser` module halts once any of `.zshenv`/`.zprofile`/`.zshrc`/
+    `.zlogin` exists. Written with the user's ownership and gated on
+    `USER_SHELL=/bin/zsh` — bash/fish/mksh are unaffected.
 
 ---
 
@@ -784,6 +796,6 @@ Inline markers used throughout the script (and mirrored here):
 - Feature tags: `[LOCALIZE]`, `[MIRROR]`, `[SWAP]`, `[COSMIC]`, `[RESUME]`,
   `[LIMINE-1/2]`, `[LIMINE-MULTI-KERNEL]`, `[LIMINE-SYNC-CRON]`, `[KERNEL-MODE]`,
   `[KERNEL-HOOK]`, `[DISTROBOX-2/3]`, `[CLONE-RETRY]`, `[FAILURE-JOURNAL]`,
-  `[COSMETIC]`, `[SCRUB]`, `[ENCRYPT]`, `[YUBIKEY]`.
+  `[COSMETIC]`, `[SCRUB]`, `[ENCRYPT]`, `[YUBIKEY]`, `[ZSHRC]`.
 - Action words: `ADDITION` (new feature), `CHANGE` (behavioral change),
   `FIX` (bug fix), `EXPANSION` (extended feature).
