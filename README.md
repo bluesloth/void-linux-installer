@@ -73,12 +73,13 @@ neither the target nor the live medium.
     `void-limine-sync` entry remains only as a safety net, demoted from the
     primary mechanism it was in v3.1.0-beta1. Also new in beta4: a real
     **login-shell choice** (`[SHELL]`) — the primary
-  - v3.3.0-beta7: **snapshot date+time in the Limine menu** (`[LIMINE-SNAPDATE]`).
-    The `/+Snapshots` submenu entries show each snapshot's creation
-    date+time from its `info.xml` `<date>`, so timeline snapshots (which
-    have no `<description>`) are distinguishable at a glance instead of all
-    showing the redundant `//snapshot N (#N)`. Limine-only — the GRUB path
-    uses grub-btrfs's own generator and is untouched. Also new in beta4: a real **login-shell choice** (`[SHELL]`) — the primary
+  - v3.3.0-beta7: **snapshot date in the Limine menu** (`[LIMINE-SNAPDATE]`).
+    The `/+Snapshots` submenu entries show each snapshot's creation date
+    from its `info.xml` `<date>`, reformatted to an abbreviated name
+    (e.g. `Dec 4, 2027`), so timeline snapshots (which have no
+    `<description>`) are distinguishable at a glance instead of all showing
+    the redundant `//snapshot N (#N)`. Limine-only — the GRUB path uses
+    grub-btrfs's own generator and is untouched. Also new in beta4: a real **login-shell choice** (`[SHELL]`) — the primary
     user is created with `-s` set to the chosen shell (bash default, or
     zsh/fish/mksh installed from the repos); the choice is persisted across
     resume and echoed in the dry-run plan and final summary. And a **post-ERASE

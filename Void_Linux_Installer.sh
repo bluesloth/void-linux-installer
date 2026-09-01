@@ -4479,11 +4479,20 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
             # entry, so timeline snapshots are distinguishable at a glance.
             snap_date="$(sed -n 's:.*<date>\(.*\)</date>.*:\1:p' "${snap_dir}info.xml" | head -n1)"
             snap_desc="$(sed -n 's:.*<description>\(.*\)</description>.*:\1:p' "${snap_dir}info.xml" | head -n1)"
+            # AI (Big Pickle) CHANGE — v3.3.0-beta7 [LIMINE-SNAPDATE]: reformat the
+            # ISO creation date (YYYY-MM-DD HH:MM:SS) to an abbreviated-name date
+            # (e.g. "Dec 4, 2027"), falling back to the raw string if the date
+            # doesn't parse (so an odd info.xml never breaks the menu).
             if [ -n "$snap_date" ]; then
+                snap_fmt="$(date -d "$snap_date" '+%b %-d, %Y' 2>/dev/null || echo "$snap_date")"
+            else
+                snap_fmt=""
+            fi
+            if [ -n "$snap_fmt" ]; then
                 if [ -n "$snap_desc" ]; then
-                    echo "    //${snap_desc} · ${snap_date} (#${snap_id})"
+                    echo "    //${snap_desc} · ${snap_fmt} (#${snap_id})"
                 else
-                    echo "    //${snap_date} (#${snap_id})"
+                    echo "    //${snap_fmt} (#${snap_id})"
                 fi
             else
                 [ -n "$snap_desc" ] || snap_desc="snapshot ${snap_id}"

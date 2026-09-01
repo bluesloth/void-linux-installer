@@ -132,15 +132,17 @@ Current version: **3.3.0-beta7** (`SCRIPT_VERSION` in the script).
     wizard).
   - **`[LIMINE-SNAPDATE]`** (Limine-only) — the `/+Snapshots` boot submenu
     entries in `void-limine-write-conf` now show the snapshot's creation
-    date+time, read from the `<date>` element snapper writes into each
-    snapshot's `info.xml` (`YYYY-MM-DD HH:MM:SS`), so timeline snapshots
-    are distinguishable at a glance instead of all rendering as the
-    redundant `//snapshot N (#N)`. When a snapshot has a `<description>`
+    date, read from the `<date>` element snapper writes into each
+    snapshot's `info.xml`, so timeline snapshots are distinguishable at a
+    glance instead of all rendering as the redundant `//snapshot N (#N)`.
+    The ISO `YYYY-MM-DD HH:MM:SS` date is reformatted to an abbreviated
+    name date (e.g. `Dec 4, 2027`) via `date -d ... '+%b %-d, %Y'`; if the
+    date doesn't parse (an odd `info.xml`), it falls back to the raw ISO
+    string so the menu never breaks. When a snapshot has a `<description>`
     (not the case for timeline snapshots) the entry renders
     `//<desc> · <date> (#N)`; date-less snapshots keep the old
-    `//<desc> (#N)` fallback. A `/snapshots/.../info.xml` with no `<date>`
-    is covered by the fallback, so the change is purely additive to the
-    Limine menu. The sister GRUB path uses the third-party
+    `//<desc> (#N)` fallback. The change is purely additive to the Limine
+    menu. The sister GRUB path uses the third-party
     `grub-btrfs` `41_snapshots-btrfs` generator and is intentionally
     untouched.
 
