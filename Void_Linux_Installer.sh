@@ -250,7 +250,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta8"
+SCRIPT_VERSION="3.3.0-beta9"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -5372,15 +5372,23 @@ if [ ! -f /var/log/firstboot.log ]; then
         sleep 1
     done
 
-    for i in $(seq 1 15); do
-        if [ -S /run/libvirt/libvirt-sock ]; then
-            break
+    # AI (Big Pickle) ADDITION — v3.3.0-beta9 [RCL-VIRT-WAIT]: only wait for
+    # libvirtd's socket (and tear down libvirt's default NAT bridge) when
+    # virtualization was actually chosen at install time. The libvirt-socket
+    # wait below used to run unconditionally; on a non-virt install
+    # /run/libvirt/libvirt-sock never appears, so every first boot burned a
+    # full 15 seconds sleeping through this loop before rc.local moved on.
+    if [ "__INSTALL_VIRT__" = "true" ]; then
+        for i in $(seq 1 15); do
+            if [ -S /run/libvirt/libvirt-sock ]; then
+                break
+            fi
+            sleep 1
+        done
+        if command -v virsh >/dev/null 2>&1; then
+            virsh net-destroy default >/dev/null 2>&1 || true
+            virsh net-autostart default --disable >/dev/null 2>&1 || true
         fi
-        sleep 1
-    done
-    if command -v virsh >/dev/null 2>&1; then
-        virsh net-destroy default >/dev/null 2>&1 || true
-        virsh net-autostart default --disable >/dev/null 2>&1 || true
     fi
 
     if command -v flatpak >/dev/null 2>&1; then

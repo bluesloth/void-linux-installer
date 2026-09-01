@@ -10,7 +10,22 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta8** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta9** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta9 — first-boot virtualization wait fix (`[RCL-VIRT-WAIT]`)
+
+- **`[RCL-VIRT-WAIT]`** — the first-boot `rc.local` block used to wait up to
+  15 seconds for `/run/libvirt/libvirt-sock` **unconditionally**, then tear
+  down libvirt's default NAT bridge, even on systems that never had
+  virtualization installed (`INSTALL_VIRT=false`). On a non-virt install the
+  socket never appears, so every first boot burned the full 15-second timeout
+  sleeping through the loop before runit moved on. The wait and the `virsh
+  net-destroy`/`net-autostart` teardown are now gated on
+  `__INSTALL_VIRT__="true"` (baked in at generation time, alongside the other
+  `__...__` placeholders). Non-virt installs boot first-time with no artificial
+  delay; virt installs are unaffected.
 
 ---
 
