@@ -4474,9 +4474,21 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
             [ -d "$snap_dir" ] || continue
             snap_id="$(basename "$snap_dir")"
             [ -f "${snap_dir}info.xml" ] || continue
+            # AI (Big Pickle) ADDITION — v3.3.0-beta7 [LIMINE-SNAPDATE]: show the
+            # snapshot creation date+time (from snapper info.xml <date>) in the menu
+            # entry, so timeline snapshots are distinguishable at a glance.
+            snap_date="$(sed -n 's:.*<date>\(.*\)</date>.*:\1:p' "${snap_dir}info.xml" | head -n1)"
             snap_desc="$(sed -n 's:.*<description>\(.*\)</description>.*:\1:p' "${snap_dir}info.xml" | head -n1)"
-            [ -n "$snap_desc" ] || snap_desc="snapshot ${snap_id}"
-            echo "    //${snap_desc} (#${snap_id})"
+            if [ -n "$snap_date" ]; then
+                if [ -n "$snap_desc" ]; then
+                    echo "    //${snap_desc} · ${snap_date} (#${snap_id})"
+                else
+                    echo "    //${snap_date} (#${snap_id})"
+                fi
+            else
+                [ -n "$snap_desc" ] || snap_desc="snapshot ${snap_id}"
+                echo "    //${snap_desc} (#${snap_id})"
+            fi
             echo "    protocol: linux"
             echo "    kernel_path: $(kernel_path_for "$NEWEST_KVER")"
             echo "    kernel_cmdline: ${BASE_CMD/rootflags=subvol=@/rootflags=subvol=@snapshots\/${snap_id}\/snapshot} rd.live.overlay.overlayfs=1"

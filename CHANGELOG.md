@@ -130,6 +130,19 @@ Current version: **3.3.0-beta7** (`SCRIPT_VERSION` in the script).
     be created). bash/mksh are unaffected (bash ships `/etc/skel` dotfiles
     and a system `/etc/bash.bashrc`; mksh has no interactive-first-run
     wizard).
+  - **`[LIMINE-SNAPDATE]`** (Limine-only) — the `/+Snapshots` boot submenu
+    entries in `void-limine-write-conf` now show the snapshot's creation
+    date+time, read from the `<date>` element snapper writes into each
+    snapshot's `info.xml` (`YYYY-MM-DD HH:MM:SS`), so timeline snapshots
+    are distinguishable at a glance instead of all rendering as the
+    redundant `//snapshot N (#N)`. When a snapshot has a `<description>`
+    (not the case for timeline snapshots) the entry renders
+    `//<desc> · <date> (#N)`; date-less snapshots keep the old
+    `//<desc> (#N)` fallback. A `/snapshots/.../info.xml` with no `<date>`
+    is covered by the fallback, so the change is purely additive to the
+    Limine menu. The sister GRUB path uses the third-party
+    `grub-btrfs` `41_snapshots-btrfs` generator and is intentionally
+    untouched.
 
 ---
 
