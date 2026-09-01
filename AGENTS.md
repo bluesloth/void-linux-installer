@@ -93,7 +93,8 @@ Known regressions that have already broken a real install:
    chroot). Keep this persisted/guarded design: do not hardcode a wallpaper
    path that bypasses limine-env, and do not drop the existence check (a
    missing image would otherwise leave a dangling `wallpaper:` line). Because
-   the cron resync rewrites limine.conf regularly, there is deliberately NO
+    the generator resync (kernel hook / snapper plugin) rewrites limine.conf
+    regularly, there is deliberately NO
    hand-uncommented shortcut — the only way to enable a background is to set
    `LIMINE_WALLPAPER=yes` (+ style) in limine-env and place the image on the
    ESP; do not reintroduce a commented template that resyncs would wipe out.
@@ -116,10 +117,12 @@ Known regressions that have already broken a real install:
      it `void-limine-snapper-sync` (letter-prefixed) and it NEVER fired on real
      hardware; the probe only "worked" because it used the digit-prefixed
      `00-void-probe`. Do NOT rename it without the `NN-` prefix. Do NOT delete
-     the plugin "to simplify," and do NOT remove the 15-min
-     `/etc/cron.d/void-limine-sync` fallback entirely — it is the deliberate
-     safety net for menu changes the plugin path could miss. Both fire the same
-     single generator.
+     the plugin "to simplify" — the `00-void-limine-snapper-sync` plugin is now
+     the SOLE snapshot-menu trigger. The former 15-min
+     `/etc/cron.d/void-limine-sync` fallback was REMOVED in v3.3.0-beta8
+     (`[SNPR-EV-NO-CRON]`); do not reintroduce it. The kernel post-install hook
+     and the plugin both fire the same single generator, so menu updates have
+     exactly two real events: a kernel change or a snapshot change.
 11. `[ENCRYPT]` Optional LUKS2 full-disk encryption is a **typed-passphrase-only**
     opt-in (`ENCRYPT=yes`). The passphrase is NEVER persisted — it lives in
     memory, is fed to `cryptsetup luksFormat`/`luksOpen` only via stdin

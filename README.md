@@ -8,8 +8,8 @@ recovery-first, snapshot-friendly system.
 
 | File | Description |
 |------|-------------|
-| `Void_Linux_Installer.sh` | Unified working installer (current version: **v3.3.0-beta7**). Run this. |
-| `CHANGELOG.md` | Reconstructed changelog: records v3.1.0-beta1 → v3.3.0-beta7 from inline markers, plus a clearly-labeled educated estimate of the pre-3.1.0 alpha heritage. |
+| `Void_Linux_Installer.sh` | Unified working installer (current version: **v3.3.0-beta8**). Run this. |
+| `CHANGELOG.md` | Reconstructed changelog: records v3.1.0-beta1 → v3.3.0-beta8 from inline markers, plus a clearly-labeled educated estimate of the pre-3.1.0 alpha heritage. |
 
 ## Usage
 
@@ -54,7 +54,7 @@ neither the target nor the live medium.
     cosmic-greeter (COSMIC only; maintainer warns it is unreliable).
   - Bootloader: **grub** (mature, grub-btrfs menu) or **limine** (experimental,
     static config via `void-limine-write-conf`, synced by a Void-native
-    snapper plugin + a cron safety net). Limine now uses a
+    snapper plugin — now the sole snapshot-menu trigger). Limine now uses a
     single `esp-copy` kernel mode (the former `btrfs-direct` option was
     removed — it read the kernel straight off Btrfs, which Limine does not
     support, so it could never boot). Limine is deployed **NVRAM-free**: the
@@ -77,9 +77,10 @@ neither the target nor the live medium.
     Void's snapper provably fires `/usr/lib/snapper/plugins` (verified on real
     hardware), so a tiny `00-void-limine-snapper-sync` plugin (name must start
     with a digit — snapper ignores letter-prefixed plugins) regenerates the
-    menu the instant a snapshot is created/deleted — the 15-min cron
-    `void-limine-sync` entry remains only as a safety net, demoted from the
-    primary mechanism it was in v3.1.0-beta1. Also new in beta4: a real
+    menu the instant a snapshot is created/deleted — the plugin is now the
+    sole snapshot-menu trigger (v3.3.0-beta8 `[SNPR-EV-NO-CRON]` removed the
+    15-min `/etc/cron.d/void-limine-sync` fallback that had been the primary
+    mechanism in v3.1.0-beta1). Also new in beta4: a real
     **login-shell choice** (`[SHELL]`) — the primary
   - v3.3.0-beta7: **snapshot date in the Limine menu** (`[LIMINE-SNAPDATE]`).
     The `/+Snapshots` submenu entries show each snapshot's creation date

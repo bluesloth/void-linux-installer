@@ -165,13 +165,12 @@
 #       * limine — newer, simpler, single-file portable UEFI binary
 #         deployed directly onto the ESP (EFI/BOOT/BOOTX64.EFI) — no
 #         efibootmgr, no NVRAM entries. Snapshot boot menu is a static
-#         config written by /usr/local/sbin/void-limine-write-conf, a
+#       config written by /usr/local/sbin/void-limine-write-conf, a
 #         standalone script shared by the kernel hook AND a snapper plugin
 #         (/usr/lib/snapper/plugins/00-void-limine-snapper-sync) that fires the
-#         moment a snapshot is created/deleted, with a /etc/cron.d/
-#         void-limine-sync entry (every 15 min) kept as a safety-net fallback
-#         — no grub-btrfs equivalent exists on Void, and Void's snapper DOES
-#         execute its plugin dir (empirically verified; see [SNPR-EV] and
+#         moment a snapshot is created/deleted — no grub-btrfs equivalent
+#         exists on Void, and Void's snapper DOES execute its plugin dir
+#         (empirically verified; see [SNPR-EV] and
 #         Debug/snpr_ev/probe_void_snapper_plugin.sh). 4GiB ESP. Treat as
 #         experimental — see §1/§3.19-§3.26 of the companion CHANGELOG.
 #         v3.3.0-beta3 [LIMINE-WALLPAPER] optionally adds a boot-screen
@@ -204,7 +203,7 @@
 #      [BOOTLOADER=limine only] There is no generator to forget to re-run
 #      in the first place — limine.conf is written directly by
 #      /usr/local/sbin/void-limine-write-conf whenever it's invoked (kernel
-#      hook or cron.d — see [LIMINE-SYNC-CRON]).
+#      hook or snapper plugin — see [LIMINE-SYNC-CRON]).
 #   2. `xbps-trigger kernel-hooks` is NOT a real command — it doesn't exist
 #      in xbps at all. Use `xbps-reconfigure -f <kernel-pkg>` instead.
 #   3. `/var/service/*` symlinks fail during first-boot rc.local because
@@ -222,8 +221,8 @@
 #   5. Do not merge or cross-wire the GRUB and Limine code paths — they are
 #      deliberately two separate branches (search "$BOOTLOADER") with no
 #      shared config-generation logic. grub-btrfs/41_snapshots-btrfs only
-#      applies under BOOTLOADER=grub; void-limine-write-conf and its cron.d
-#      entry only apply under BOOTLOADER=limine. Neither should leak into
+#      applies under BOOTLOADER=grub; void-limine-write-conf and its snapper
+#      plugin only apply under BOOTLOADER=limine. Neither should leak into
 #      the other's branch.
 #   6. [BOOTLOADER=limine, LIMINE-WALLPAPER] The Limine wallpaper is a
 #      persisted opt-in: choice + style live in /etc/void-installer/limine-env,
@@ -232,8 +231,9 @@
 #      that ESP file exists. Do not hardcode a wallpaper path, do not drop the
 #      existence guard (a missing image must not leave a dangling wallpaper
 #      line), do not forget it works with Void's plain BOOTX64.EFI, and do NOT
-#      reintroduce a commented wallpaper template in limine.conf — the cron
-#      resync rewrites the file every 15 min, so the only durable enable path
+#      reintroduce a commented wallpaper template in limine.conf — the
+#      generator resync (kernel hook / snapper plugin) rewrites the file, so
+#      the only durable enable path
 #      is LIMINE_WALLPAPER=yes in limine-env + an image on the ESP.
 # =============================================================================
 set -eE
@@ -250,7 +250,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta7"
+SCRIPT_VERSION="3.3.0-beta8"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -4235,37 +4235,34 @@ fi
 # — invoked from TWO independent trigger points that both call the exact
 # same file, so there is only one copy of the generation logic to keep in
 # sync:
-#   1. The kernel post-install/post-remove hook (unchanged trigger,
-#      handles the ESP kernel/initramfs copy in esp-copy mode, then calls
-#      this script for the config itself).
-#   2. A new /etc/cron.d/void-limine-sync entry, every 15 minutes,
-#      regenerating limine.conf alone (cheap — a few KB of text) so any
-#      timeline snapshot snapper creates on its own schedule shows up in
-#      the menu within 15 minutes, without waiting on a kernel update.
-# Chosen over a runit-supervised inotify watcher: a cron.d file can't be
-# silently clobbered by a package update the way a long-running service
-# can regress across runit/dracut/kernel changes, and there's no
-# supervision-correctness (double-fork, signal handling, restart-on-crash)
-# to get wrong — cron either runs the (idempotent, cheap) job or it
-# doesn't, worst case the menu is a few minutes stale.
+#   1. The kernel post-install/post-remove hook (handles the ESP
+#      kernel/initramfs copy in esp-copy mode, then calls this script for
+#      the config itself).
+#   2. The 00-void-limine-snapper-sync snapper plugin ([SNPR-EV], installed
+#      later in this same Limine branch), which regenerates limine.conf the
+#      instant snapper creates or deletes a snapshot.
+# Chosen over a runit-supervised inotify watcher: a kernel hook + snapper
+# plugin pair can't be silently clobbered by a package update the way a
+# long-running service can regress across runit/dracut/kernel changes, and
+# there's no supervision-correctness (double-fork, signal handling,
+# restart-on-crash) to get wrong.
+#
+# v3.3.0-beta8 ([SNPR-EV-NO-CRON]): the former /etc/cron.d/void-limine-sync
+# 15-min safety-net generator was REMOVED. With the snapper plugin proven to
+# fire reliably, the cron's only remaining value was a theoretical guard
+# against snapshot operations that bypass snapper's own plugin runner — and
+# rewriting limine.conf to the ESP every 15 minutes forever (flash wear,
+# disk wakeups, menu churn) for a fallback that never needed to fire was not
+# worth it. Menu updates now come from exactly two real events: a kernel
+# install/remove (the hook) or a snapper snapshot create/delete (the
+# plugin). A snapshot created outside snapper (e.g. a raw `btrfs subvolume
+# snapshot`) will not show until one of those fires, which is accepted.
 #
 # Both trigger points, and the initial install-time call below, read their
 # parameters (KERNEL_MODE, BTRFS_UUID, the two SYSPREFIX values) from a
 # small persisted state file rather than any install-time bash environment
 # — the standalone script has to work standing alone, long after this
 # chroot phase and this shell are gone.
-#
-# AI (Big Pickle) SUPERSEDED — v3.3.0-beta4 [SNPR-EV]: the opening premise of
-# this v3.1.0-beta1 comment ("Void's snapper build ships no general
-# pre/post-snapshot hook mechanism") was REFUTED on target hardware: Void's
-# snapper DOES execute /usr/lib/snapper/plugins (probe observed both
-# create-snapshot-* and delete-snapshot-* hooks firing). So the 15-min cron
-# is demoted to a safety-net fallback, and the primary snapshot-menu path is
-# now the event-driven 00-void-limine-snapper-sync plugin (installed later in
-# this same Limine branch). The cron's "worst case a few minutes stale"
-# bound no longer applies to the common path — the menu now tracks snapshots
-# at the moment they happen. The historical rationale above is preserved for
-# the record; the design that replaced the no-hook premise is [SNPR-EV].
 mkdir -p /etc/void-installer
 cat > /etc/void-installer/limine-env << INNER_EOF
 KERNEL_MODE="${KERNEL_MODE}"
@@ -4277,13 +4274,13 @@ SYSPREFIX_BTRFS="${SYSPREFIX_BTRFS}"
 HIBERNATION_ENABLED="${ENABLE_HIBERNATION}"
 # AI (Big Pickle) ADDITION — v3.3.0-beta3 [LIMINE-WALLPAPER]: persisted so
 # void-limine-write-conf keeps re-emitting the wallpaper lines on every
-# kernel update / cron resync (the regenerated limine.conf overwrites the
+# kernel update / snapper-plugin resync (the regenerated limine.conf overwrites the
 # file each time, so this must be state the generator can re-read).
 LIMINE_WALLPAPER="${LIMINE_WALLPAPER}"
 LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE}"
 # AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: persisted so
 # void-limine-write-conf re-emits the rd.luks.uuid=/rd.luks.name= kernel
-# params on every kernel update / cron resync (the generated limine.conf is
+# params on every kernel update / snapper-plugin resync (the generated limine.conf is
 # rewritten each time, so the LUKS knowledge must be state the generator can
 # re-read, exactly like the wallpaper choice above). LUKS_UUID is the
 # ciphertext container's header UUID — public (it is in rd.luks.uuid= on the
@@ -4292,7 +4289,7 @@ ENCRYPT="${ENCRYPT}"
 LUKS_UUID="${LUKS_UUID}"
 # AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: persisted so
 # void-limine-write-conf re-emits the rd.luks.name=void-root keyscript unlock
-# params on every kernel update / cron resync, consistent with how the
+# params on every kernel update / snapper-plugin resync, consistent with how the
 # encryption params above are carried. Only PUBLIC values are baked — SLOT and
 # CHALLENGE are not credentials (the HMAC response is; it is NEVER persisted).
 # Unset/empty when YubiKey unlock is off.
@@ -4391,14 +4388,13 @@ chmod 0644 /usr/local/sbin/void-limine-env.inc
 cat > /usr/local/sbin/void-limine-write-conf << 'INNER_EOF'
 #!/bin/bash
 # [LIMINE-SYNC-CRON] Single generator for limine.conf — shared verbatim by
-# the kernel post-install/post-remove hook and the cron.d entry, so both
-# trigger points can never drift out of sync with each other. Safe to run
-# at any time, any number of times: purely reads current system state
-# (installed kernel version, current snapshot list, current swapfile
-# resume offset) and rewrites the same file. No `exit` used for the
-# "nothing to do" cases, only for genuine failures, since this runs
-# unattended from cron and a silent partial failure is worse than a loud
-# one.
+# the kernel post-install/post-remove hook and the 00-void-limine-snapper-sync
+# snapper plugin, so both trigger points can never drift out of sync with
+# each other. Safe to run at any time, any number of times: purely reads
+# current system state (installed kernel version, current snapshot list,
+# current swapfile resume offset) and rewrites the same file. No `exit`
+# used for the "nothing to do" cases, only for genuine failures, since this
+# runs unattended and a silent partial failure is worse than a loud one.
 set -eEo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
 
@@ -4484,7 +4480,7 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
     # drive (the ESP here — the image lived at /boot/efi/limine-splash.<ext>).
     # Guarded on existence so a missing file (declined, or ESP copy removed)
     # never leaves a dangling wallpaper line. NOTE: this file is regenerated on
-    # every kernel update / 15-min cron resync, so there is deliberately NO
+    # every kernel update / snapshot change, so there is deliberately NO
     # hand-uncommented shortcut here — the ONLY durable way to enable a
     # background is to set LIMINE_WALLPAPER=yes (and LIMINE_WALLPAPER_STYLE)
     # in /etc/void-installer/limine-env and place the image on the ESP, which
@@ -4512,7 +4508,7 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
         echo "# in /etc/void-installer/limine-env and place an image on the ESP as"
         echo "#   boot():/limine-splash.<ext>  (BMP/PNG/JPEG/QOI)"
         echo "# void-limine-write-conf re-emits the live wallpaper:/wallpaper_style"
-        echo "# lines here on the next kernel sync / 15-min cron resync."
+        echo "# lines here on the next kernel sync or snapshot create/delete."
         echo "# wallpaper: boot():/limine-splash.png"
         echo "# wallpaper_style: ${LIMINE_WALLPAPER_STYLE:-stretched}"
     fi
@@ -4523,8 +4519,8 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
     echo "# and caused every kernel-mode boot attempt to PANIC with 'Failed to"
     echo "# open kernel with path... Is the path correct?')."
     echo "# Regenerated by void-limine-write-conf — do not hand-edit, it"
-    echo "# will be overwritten on the next kernel update or cron run"
-    echo "# (see /etc/cron.d/void-limine-sync)."
+    echo "# will be overwritten on the next kernel update or snapshot"
+    echo "# create/delete."
 
     echo ""
     # AI (Big Pickle) CHANGE — v3.3.0-beta2.1 [LIMINE-HDR]: the kernels are
@@ -4713,9 +4709,8 @@ mkdir -p /etc/kernel.d/post-install
 cat > /etc/kernel.d/post-install/50-sync-limine-kernels.sh << 'INNER_EOF'
 #!/bin/sh
 # [KERNEL-HOOK] Delegates to void-limine-sync-kernels (ESP copy/cleanup,
-# esp-copy mode only) then void-limine-write-conf (menu generation) —
-# both shared with the cron.d trigger, see [LIMINE-SYNC-CRON] and
-# [LIMINE-MULTI-KERNEL].
+# esp-copy mode only) then void-limine-write-conf (menu generation) — see
+# [LIMINE-SYNC-CRON] and [LIMINE-MULTI-KERNEL].
 set -eu
 export PATH="/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin"
 /usr/local/sbin/void-limine-sync-kernels
@@ -4724,29 +4719,6 @@ INNER_EOF
 chmod +x /etc/kernel.d/post-install/50-sync-limine-kernels.sh
 cp /etc/kernel.d/post-install/50-sync-limine-kernels.sh /etc/kernel.d/post-remove/50-sync-limine-kernels.sh 2>/dev/null || \
     { mkdir -p /etc/kernel.d/post-remove; cp /etc/kernel.d/post-install/50-sync-limine-kernels.sh /etc/kernel.d/post-remove/50-sync-limine-kernels.sh; }
-
-# AI (Claude, Sonnet 5, Medium) ADDITION — v3.1.0-beta1 [LIMINE-SYNC-CRON]: the actual
-# durability fix for Open Item #2 — a plain /etc/cron.d drop-in survives
-# xbps package updates untouched (nothing owns or overwrites it), needs no
-# supervision/restart logic, and its failure mode is bounded (menu at most
-# ~15 minutes stale) rather than silent-forever. Only regenerates
-# limine.conf (cheap, a few KB) — it deliberately does NOT re-copy the
-# kernel/initramfs on every run; that stays tied to actual kernel package
-# transactions via the hook above, so this cron job never does needless
-# multi-hundred-MB copies on a timer.
-cat > /etc/cron.d/void-limine-sync << 'INNER_EOF'
-# Regenerates /boot/efi/EFI/BOOT/limine.conf every 15 minutes so snapper
-# timeline snapshots (hourly/daily/weekly, created independently of any
-# kernel update) show up in the Limine /Snapshots menu promptly instead of
-# only at the next kernel install/remove. See void-limine-write-conf.
-# [SNPR-EV] This cron entry is now the SAFETY-NET fallback: the
-# 00-void-limine-snapper-sync snapper plugin (below) already regenerates the
-# menu the moment a snapshot is created/deleted, so this timer only covers
-# menu changes the plugin path might miss (e.g. a manual snapshot taken via
-# a tool that bypasses snapper's own plugin runner).
-*/15 * * * * root /usr/local/sbin/void-limine-write-conf >/dev/null 2>&1
-INNER_EOF
-chmod 644 /etc/cron.d/void-limine-sync
 
 # AI (Big Pickle) ADDITION — v3.3.0-beta4 [SNPR-EV]: event-driven snapshot-menu
 # sync. Empirically verified on the target hardware (see Debug/snpr_ev/probe_void_snapper_plugin.sh):
@@ -4757,7 +4729,20 @@ chmod 644 /etc/cron.d/void-limine-sync
 # premise for the 15-min cron). So instead of waiting up to 15 minutes for a
 # timeline snapshot to appear, we now attach a tiny Void-native plugin that
 # calls the SAME /usr/local/sbin/void-limine-write-conf, so the menu updates
-# the instant snapper creates or deletes a snapshot.
+# the instant snapper creates or deletes a snapshot. Also see the
+# [LIMINE-SYNC-CRON] block up top for the menu-generation architecture.
+#
+# AI (Big Pickle) SUPERSEDED — v3.3.0-beta8 [SNPR-EV-NO-CRON]: the /etc/cron.d/
+# void-limine-sync 15-min safety-net fallback was REMOVED. The plugin has fired
+# reliably in practice; the cron's only remaining value was a theoretical guard
+# against snapshot operations that bypass snapper's own plugin runner (e.g. a
+# raw `btrfs subvolume snapshot`), and that cost — rewriting limine.conf to the
+# ESP every 15 minutes forever (flash wear, disk wakeups, menu churn) for a
+# fallback that never needed to fire — outweighed the benefit. Menu updates now
+# come from exactly two real events: a kernel install/remove (the hook below)
+# or a snapper snapshot create/delete (this plugin). A snapshot created
+# outside snapper will not show until one of those fires, which is the
+# accepted trade-off.
 #
 # Design:
 #   - Drop it in /usr/lib/snapper/plugins (snapper's plugin dir, confirmed by
@@ -4775,8 +4760,8 @@ chmod 644 /etc/cron.d/void-limine-sync
 #   - Runs as root (snapperd is supervised under runit, linked into
 #     runsvdir/default — see below), so it can write /boot/efi. It reuses the
 #     shared void-limine-write-conf so there is still exactly one copy of the
-#     menu-generation logic (kernel hook, cron, and now this plugin all call
-#     the same script).
+#     menu-generation logic (kernel hook and this plugin both call the same
+#     script).
 #   - `set -e` + intent-to-exit-0 so a plugin that cannot regenerate (e.g. no
 #     bootable kernel yet, bootloader removed) still lets snapper finish its
 #     transaction instead of turning snapshot creation into a failure.
@@ -5501,7 +5486,7 @@ if [ "$BOOTLOADER" = "limine" ]; then
 # initial sync earlier in this block predates the final, fully-featured
 # initramfs build; without this second call the ESP would ship the
 # smaller pre-custom-module initramfs xbps-reconfigure produced as a side
-# effect. Uses the same shared scripts the kernel hook and cron.d entry
+# effect. Uses the same shared scripts the kernel hook and snapper plugin
 # use (see [LIMINE-SYNC-CRON] and [LIMINE-MULTI-KERNEL]).
 /usr/local/sbin/void-limine-sync-kernels
 /usr/local/sbin/void-limine-write-conf

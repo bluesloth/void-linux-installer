@@ -10,7 +10,27 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta7** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta8** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta8 — cron safety-net removal (`[SNPR-EV-NO-CRON]`)
+
+- **`[SNPR-EV-NO-CRON]`** — the 15-min `/etc/cron.d/void-limine-sync`
+  safety-net generator (introduced at v3.1.0-beta1 as `[LIMINE-SYNC-CRON]`,
+  retained as a demoted safety net at v3.3.0-beta4) was **removed**. With the
+  `00-void-limine-snapper-sync` plugin proven to fire reliably on real
+  hardware (the `[SNPR-EV]` investigation), the cron's only remaining value
+  was a theoretical guard against snapshot operations that bypass snapper's
+  own plugin runner — at the ongoing cost of rewriting limine.conf to the ESP
+  every 15 minutes forever (flash wear, disk wakeups, menu churn) for a
+  fallback that never needed to fire. Limine's snapshot menu is now updated
+  by exactly two real events: a kernel install/remove (the `[KERNEL-HOOK]`
+  post-install/post-remove hook) and a snapper snapshot create/delete (the
+  plugin). A snapshot created outside snapper (e.g. a raw
+  `btrfs subvolume snapshot`) will not appear in the menu until one of those
+  fires — accepted. The `/etc/cron.d` entry is gone; do not reintroduce it.
+  GRUB is unaffected (it never had the cron).
 
 ---
 
@@ -47,8 +67,9 @@ Current version: **3.3.0-beta7** (`SCRIPT_VERSION` in the script).
     rd.luks params because grub-btrfs copies the main boot entry's cmdline;
     the Limine snapshot sub-entries inherit them from `BASE_CMD`. The
     `[ENCRYPT]` knowledge is persisted to limine-env (`ENCRYPT`, `LUKS_UUID`)
-    exactly like the wallpaper choice, so every cron/kernel-hook resync
-    re-emits it.
+    exactly like the wallpaper choice, so every kernel-hook/snapper-plugin
+    resync re-emits it (the cron resync was later removed in v3.3.0-beta8
+    `[SNPR-EV-NO-CRON]`).
   - **Resume-aware** — the `ENCRYPT=yes` flag is persisted in the resume
     state file, but the passphrase is NOT (it is in-memory only). A crashed-
     then-resumed run restores `ENCRYPT` from state, finds the mapper closed,
@@ -264,14 +285,18 @@ Current version: **3.3.0-beta7** (`SCRIPT_VERSION` in the script).
     the initial build named it `void-limine-snapper-sync` and it never fired
     on the target box (the probe "worked" only because it was `00-void-probe`).
     See `Debug/snpr_ev/SNPR_EV_findings.md` for the full investigation.
-  - The 15-min `/etc/cron.d/void-limine-sync` entry is **kept as a safety net**
-    for any menu change the plugin path might miss, but is demoted from the
+  - The 15-min `/etc/cron.d/void-limine-sync` entry was **kept as a safety
+    net** for any menu change the plugin path might miss, but demoted from the
     primary mechanism. The old v3.1.0-beta1 comment is preserved (striking its
     false "no hook" premise is a history edit) and explicitly marked SUPERSEDED
-    for the record.
-  - Scope decision (user-confirmed): keep the cron fallback rather than
-    deleting it; the change is additive, off by default for GRUB, and
+    for the record. **LATER REMOVED — v3.3.0-beta8 (`[SNPR-EV-NO-CRON]`):** once
+    the plugin proved to fire reliably on real hardware, the cron fallback was
+    deleted and the plugin became the sole snapshot-menu trigger.
+  - Scope decision at the time (user-confirmed): keep the cron fallback rather
+    than deleting it; the change was additive, off by default for GRUB, and
     self-contained — no vendored `limine-snapper-sync`, no new dependency.
+    This decision was reversed in v3.3.0-beta8 (`[SNPR-EV-NO-CRON]`) when the
+    fallback was removed.
 - **`[NODATACOW]`** (fix) — the churn-heavy var subvolumes
   `@srv`/`@cache`/`@log`/`@spool`/`@tmp` are now actually made
   `nodatacow,compress=none`. Previously the installer relied on a pre-mount
@@ -389,9 +414,11 @@ Current version: **3.3.0-beta7** (`SCRIPT_VERSION` in the script).
   fixed name `/boot/efi/limine-splash.<ext>` (`boot():/limine-splash.<ext>`),
   and records the choice in `/etc/void-installer/limine-env`. `void-limine-write-conf`
   re-emits `wallpaper:`/`wallpaper_style:` on every resync (kernel update +
-  cron), guarded on the ESP file actually existing, so a declined install or a
+  snapper-plugin event; the cron resync was later removed —
+  `[SNPR-EV-NO-CRON]`), guarded on the ESP file actually existing, so a
+  declined install or a
   user-removed image never breaks the menu. Declining keeps the plain default
-  menu untouched. Because the cron resync rewrites `limine.conf` regularly,
+  menu untouched. Because the generator resync rewrites `limine.conf` regularly,
   there is deliberately NO hand-uncommented shortcut in the generated file —
   the only durable way to enable a background afterward is to set
   `LIMINE_WALLPAPER=yes` (+ style) in `/etc/void-installer/limine-env` and
@@ -836,6 +863,7 @@ Inline markers used throughout the script (and mirrored here):
 - Feature tags: `[LOCALIZE]`, `[MIRROR]`, `[SWAP]`, `[COSMIC]`, `[RESUME]`,
   `[LIMINE-1/2]`, `[LIMINE-MULTI-KERNEL]`, `[LIMINE-SYNC-CRON]`, `[KERNEL-MODE]`,
   `[KERNEL-HOOK]`, `[DISTROBOX-2/3]`, `[CLONE-RETRY]`, `[FAILURE-JOURNAL]`,
-  `[COSMETIC]`, `[SCRUB]`, `[ENCRYPT]`, `[YUBIKEY]`, `[ZSHRC]`.
+  `[COSMETIC]`, `[SCRUB]`, `[SNPR-EV]`, `[SNPR-EV-NO-CRON]`, `[ENCRYPT]`,
+  `[YUBIKEY]`, `[ZSHRC]`.
 - Action words: `ADDITION` (new feature), `CHANGE` (behavioral change),
   `FIX` (bug fix), `EXPANSION` (extended feature).
