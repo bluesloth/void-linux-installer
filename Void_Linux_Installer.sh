@@ -4496,6 +4496,25 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
             echo "wallpaper_style: ${LIMINE_WALLPAPER_STYLE:-stretched}"
             break
         done
+    else
+        # AI (Big Pickle) CHANGE — v3.3.0-beta7 [LIMINE-WALLPAPER-OPT-OUT]: when the
+        # user declines the wallpaper at install, keep a commented section here so
+        # limine.conf still documents the option (Limine ignores '#' lines, so this
+        # is harmless). This is regenerated on every resync, so it is NOT a
+        # hand-uncommented enable path — the only durable way to enable is to set
+        # LIMINE_WALLPAPER=yes (and LIMINE_WALLPAPER_STYLE) in
+        # /etc/void-installer/limine-env and place an image on the ESP as
+        # boot():/limine-splash.<ext>, which void-limine-write-conf then re-emits
+        # live above.
+        echo "# Boot wallpaper disabled at install. To enable, set"
+        echo "#   LIMINE_WALLPAPER=yes  (and optionally LIMINE_WALLPAPER_STYLE="
+        echo "#     stretched | tiled | centered)"
+        echo "# in /etc/void-installer/limine-env and place an image on the ESP as"
+        echo "#   boot():/limine-splash.<ext>  (BMP/PNG/JPEG/QOI)"
+        echo "# void-limine-write-conf re-emits the live wallpaper:/wallpaper_style"
+        echo "# lines here on the next kernel sync / 15-min cron resync."
+        echo "# wallpaper: boot():/limine-splash.png"
+        echo "# wallpaper_style: ${LIMINE_WALLPAPER_STYLE:-stretched}"
     fi
     echo ""
     echo "# Paths below use guid(<PARTUUID>) addressing — no disk-enumeration-"

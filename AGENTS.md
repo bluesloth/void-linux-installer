@@ -98,6 +98,11 @@ Known regressions that have already broken a real install:
    `LIMINE_WALLPAPER=yes` (+ style) in limine-env and place the image on the
    ESP; do not reintroduce a commented template that resyncs would wipe out.
    Limine `wallpaper:` works with Void's plain `BOOTX64.EFI` (not limine-gui-only).
+   `[LIMINE-WALLPAPER-OPT-OUT]` (v3.3.0-beta7): when the user declines the
+   wallpaper, `void-limine-write-conf` still emits a HARMLEESS commented
+   `# wallpaper:` section documenting how to enable — because the generator
+   itself re-emits it on every resync, it does NOT create a hand-uncommented
+   enable shortcut and is consistent with the guarded design above.
  10. `[SNPR-EV]` Void's snapper **does** execute `/usr/lib/snapper/plugins`
      (empirically verified on target hardware — `Debug/snpr_ev/probe_void_snapper_plugin.sh`;
      this refutes the old v3.1.0-beta1 `[LIMINE-SYNC-CRON]` "no hook" premise).

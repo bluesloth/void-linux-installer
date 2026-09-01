@@ -157,6 +157,13 @@ Current version: **3.3.0-beta7** (`SCRIPT_VERSION` in the script).
     choice. Designed around the Void live CD's default tooling — it uses
     only `bash`/`find`/`sort`, with no fzf/dialog/whiptail dependency to
     add to the live-CD package sync.
+  - **`[LIMINE-WALLPAPER-OPT-OUT]`** (Limine-only) — if the wallpaper is
+    declined at install, `void-limine-write-conf` still emits a harmless
+    commented `# wallpaper:` section in limine.conf documenting how to
+    enable (via `LIMINE_WALLPAPER=yes` in limine-env + an image on the
+    ESP). Because the generator re-emits it on every resync, it does NOT
+    create a hand-uncommented enable path; the live-emit guard (only when
+    the ESP image exists) is unchanged.
 
 ---
 
