@@ -1126,19 +1126,80 @@ if [ "$BOOTLOADER" = "limine" ]; then
         esac
     done
     if [ "$LIMINE_WALLPAPER" = "yes" ]; then
+        # AI (Big Pickle) CHANGE — v3.3.0-beta7 [LIMINE-WALLPAPER-BROWSE]: instead of
+        # only a typed-path prompt, the installer can now BROWSE to the image with a
+        # pure-bash numbered `ls` menu (no fzf/dialog — the Void live CD ships
+        # neither). Start in /run/media (where a USB stick holding the image is
+        # typically mounted) if present, else /root. `..` goes up a level; typing a
+        # path (absolute or relative) is still accepted as an escape hatch.
+        if [ -d /run/media ]; then
+            WP_DIR="/run/media"
+        else
+            WP_DIR="/root"
+        fi
         while true; do
-            ask "Path to wallpaper image on this live system: "
-            read -r WP_SRC
-            if [ -n "$WP_SRC" ] && [ -f "$WP_SRC" ]; then
-                WP_EXT="${WP_SRC##*.}"
-                case "${WP_EXT,,}" in
-                    bmp|png|jpg|jpeg|qoi)
-                        LIMINE_WALLPAPER="yes"
-                        break ;;
-                    *) echo "Unsupported extension '${WP_EXT}'. Use BMP/PNG/JPEG/QOI." >&2 ;;
-                esac
-            else
-                echo "File not found: ${WP_SRC:-<empty>}" >&2
+            ok_supported_img=0
+            while true; do
+                echo ""
+                echo "  Browsing: ${C_BOLD}${C_CYN}/${WP_DIR#/}${C_RST}"
+                echo "  Enter ${C_BOLD}..${C_RST} to go up a level, an absolute/relative path to jump there,"
+                printf '  or the number of a wallpaper image below. Press %sCtrl-C%s to abort.\n' "${C_BOLD}" "${C_RST}"
+                _wp_items=()
+                if [ "$WP_DIR" != "/" ]; then
+                    _wp_items+=( ".." )
+                fi
+                while IFS= read -r _wp_ent; do
+                    if [ -d "$_wp_ent" ] || [[ "$_wp_ent" =~ \.(bmp|png|jpg|jpeg|qoi)$ ]]; then
+                        _wp_items+=( "$_wp_ent" )
+                    fi
+                done < <(find "$WP_DIR" -maxdepth 1 -mindepth 1 \( -type d -o -type f \) -printf '%p\n' 2>/dev/null | sort)
+                if [ "${#_wp_items[@]}" -eq 1 ] && [ "${_wp_items[0]}" = ".." ]; then
+                    echo "  (no image files or subdirectories here)"
+                fi
+                for _i in "${!_wp_items[@]}"; do
+                    _wp_ent="${_wp_items[$_i]}"
+                    if [ -d "$_wp_ent" ]; then
+                        echo "  ${C_BLU}${C_BOLD}$((_i + 1))${C_RST}) ${_wp_ent##*/}/"
+                    else
+                        echo "  ${C_BOLD}$((_i + 1))${C_RST}) ${C_GRN}${_wp_ent##*/}${C_RST}"
+                    fi
+                done
+                printf '\n%s' "${C_BOLD}${C_YLW}-- Select wallpaper [dir | number | path ( .. = up)]${C_RST} "
+                read -r WP_SRC
+                if [ -z "$WP_SRC" ]; then
+                    echo "  Please enter a directory, number, or path." >&2
+                    continue
+                fi
+                if [ "$WP_SRC" = ".." ]; then
+                    WP_DIR="$(dirname "$WP_DIR")"
+                    continue
+                fi
+                if [[ "$WP_SRC" =~ ^[0-9]+$ ]]; then
+                    _sel=$((WP_SRC - 1))
+                    if [ "$_sel" -lt 0 ] || [ "$_sel" -ge "${#_wp_items[@]}" ]; then
+                        echo "  '${WP_SRC}' is not a valid choice." >&2
+                        continue
+                    fi
+                    WP_SRC="${_wp_items[$_sel]}"
+                fi
+                if [ -d "$WP_SRC" ]; then
+                    WP_DIR="$WP_SRC"
+                    continue
+                fi
+                if [ -f "$WP_SRC" ]; then
+                    WP_EXT="${WP_SRC##*.}"
+                    case "${WP_EXT,,}" in
+                        bmp|png|jpg|jpeg|qoi)
+                            ok_supported_img=1
+                            break ;;
+                        *) echo "  Unsupported extension '${WP_EXT}'. Use BMP/PNG/JPEG/QOI." >&2 ;;
+                    esac
+                else
+                    echo "  File not found: ${WP_SRC:-<empty>}" >&2
+                fi
+            done
+            if [ "$ok_supported_img" -eq 1 ]; then
+                break
             fi
         done
         # Style; stretched is Limine's default and the safest with an image

@@ -117,7 +117,11 @@
 - Only if `BOOTLOADER=limine`:
   - **`[*]` Enable Limine wallpaper? [y/N]**
   - If `y`:
-    - **`[*]` Path to wallpaper image on this live system** (copied onto the ESP)
+    - **Wallpaper browser** (copied onto the ESP) — a numbered `ls` menu of
+      directories and BMP/PNG/JPEG/QOI images starting at `/run/media`
+      (USB stick) if present, else `/root`. Enter `..` to go up, a number
+      to pick an image, or type an absolute/relative path as an escape
+      hatch.
     - **`[*]` Wallpaper style [1=stretched/2=tiled/3=centered] [1]**
 
 ---

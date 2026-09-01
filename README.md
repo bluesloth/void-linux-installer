@@ -65,6 +65,11 @@ neither the target nor the live medium.
     guarded so a missing image never breaks the menu). Declining keeps the
     default look; enable later durably via `LIMINE_WALLPAPER=yes` in
     `/etc/void-installer/limine-env` + placing the image on the ESP.
+    v3.3.0-beta7 (`[LIMINE-WALLPAPER-BROWSE]`): the path prompt is now a
+    numbered `ls` browser (`..` to go up, pick by number, or type a path),
+    starting at `/run/media` for a mounted USB stick — so you can walk to
+    the image instead of typing the path from memory. Pure bash, no
+    extra live-CD packages.
   - v3.3.0-beta4: **event-driven Limine snapshot-menu sync** (`[SNPR-EV]`).
     Void's snapper provably fires `/usr/lib/snapper/plugins` (verified on real
     hardware), so a tiny `00-void-limine-snapper-sync` plugin (name must start

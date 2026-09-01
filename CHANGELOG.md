@@ -146,6 +146,17 @@ Current version: **3.3.0-beta7** (`SCRIPT_VERSION` in the script).
     menu. The sister GRUB path uses the third-party
     `grub-btrfs` `41_snapshots-btrfs` generator and is intentionally
     untouched.
+  - **`[LIMINE-WALLPAPER-BROWSE]`** (Limine-only) — the wallpaper path
+    prompt no longer forces you to type the full path from memory. A
+    pure-bash numbered `ls` browser (`..` to go up, a number to pick, or a
+    typed absolute/relative path as an escape hatch) lets you walk the
+    live system to the image. It starts at `/run/media` (where a USB
+    stick holding the image is typically mounted) if present, else
+    `/root`. Only directories and BMP/PNG/JPEG/QOI images are listed, so
+    the menu numbers are always contiguous and every entry is a real
+    choice. Designed around the Void live CD's default tooling — it uses
+    only `bash`/`find`/`sort`, with no fzf/dialog/whiptail dependency to
+    add to the live-CD package sync.
 
 ---
 
