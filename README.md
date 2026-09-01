@@ -115,15 +115,20 @@ neither the target nor the live medium.
     deferred follow-up to `[ENCRYPT]`. Prompts to program an OTP slot with
     `ykpersonalize` (`-ochal-resp -ochal-hmac -ohmac-lt64`), binds
     HMAC-SHA1(slot_secret, random 40-hex challenge) as an *additional* LUKS
-    key slot, and ships a dracut `keyscript=` (`void-reveal-yubikey-key`)
-    that re-challenges the YubiKey at boot and feeds the response to
-    luksOpen — no typed passphrase. With `YK_FALLBACK=yes` the typed
+    key slot, and ships a dracut module (`99void-yubikey`) that installs a
+    `/sbin/cryptroot-ask` override executing `void-reveal-yubikey-key` to
+    re-challenge the YubiKey at boot and feed the response to luksOpen — no
+    typed passphrase. (A bare crypttab `keyscript=` is NOT enough: dracut
+    ignores it and treats the keyfile field as static.) With
+    `YK_FALLBACK=yes` the typed
     passphrase slot is kept as a boot fallback; `YK_FALLBACK=no`
     (possession-only) removes it, but that tightens to Limine + YubiKey
     (GRUB's LUKS2/Argon2i cryptodisk path is unreliable). The HMAC response
     is memory-only — never persisted (challenge + slot are public; the
     YubiKey's possession is the credential). Requires `ykpers`
     (`yubikey-personalization`) on the live medium and in the target.
+    NOTE: the boot-unlock path is real-hardware UNPROVEN — validate a
+    possession-only install on the target medium before relying on it.
   - Localization, timezone, and session/seat stack (elogind vs. turnstile +
     seatd + acpid).
   - Repo mirror auto-derived from timezone with an override menu

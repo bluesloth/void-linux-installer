@@ -141,8 +141,19 @@ Known regressions that have already broken a real install:
     (possession-only) is FORCED back to `yes` under `BOOTLOADER=grub` —
     GRUB's LUKS2/Argon2i `cryptodisk` path is unreliable, so a possession-only
     bootloader must be guaranteed to read the volume (Limine is the safe
-    pairing). The dracut `60void-yubikey` module is only built and added to
-    90-system.conf when `YK_MODE=hmac-sha1`.
+    pairing). The dracut `99void-yubikey` module is only built and added to
+    90-system.conf when `YK_MODE=hmac-sha1`. CRITICAL: the module MUST keep
+    installing its `/sbin/cryptroot-ask` override — upstream dracut/dracut-ng
+    does NOT execute the Debian-style `keyscript=` crypttab option (it treats
+    the third-field `luksfile` as a static keyfile via `readkey`/`cat` and
+    ignores `keyscript=`), so without the override the boot always prompts for
+    the typed passphrase and a possession-only install (slot 0 removed) is
+    UNBOOTABLE. Do not "simplify" the keyscript branch back to a plain crypttab
+    `keyscript=` line or drop `inst_script ... /sbin/cryptroot-ask`. The module
+    is named `99void-yubikey` (99 > 90crypt) specifically so its override wins
+    the `/sbin/cryptroot-ask` path in the initramfs; do not renumber it below
+    `90crypt`. This boot unlock path is real-hardware UNPROVEN — validate on
+    the target medium before trusting a possession-only install.
 
 ## System/init constraints
 
@@ -167,8 +178,10 @@ Known regressions that have already broken a real install:
   any changed pipeline is the fallback.
 - The generated helper scripts under `/usr/local/sbin`
   (`void-limine-env.inc`, `void-limine-write-conf`, `void-limine-sync-kernels`)
-  and the snapper plugin under `/usr/lib/snapper/plugins`
-  (`00-void-limine-snapper-sync`)
+  the snapper plugin under `/usr/lib/snapper/plugins`
+  (`00-void-limine-snapper-sync`),
+  and the dracut YubiKey module under `/usr/lib/dracut/modules.d/99void-yubikey`
+  (`module-setup.sh`, `cryptroot-ask.sh`)
   are written inside `<< 'INNER_EOF'` heredocs, so the installer's own
   `bash -n` does NOT parse them; after changing any such heredoc, extract
   and `bash -n` the generated file directly (awk out the block between the

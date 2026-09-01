@@ -93,11 +93,25 @@ Current version: **3.3.0-beta7** (`SCRIPT_VERSION` in the script).
     response is). Same secret-free rule as the passphrase.
   - **Package/dracut gating** — `ykpers` (`yubikey-personalization`) is
     installed on the live medium and into the target ONLY when
-    `YK_MODE=hmac-sha1`; the dracut `60void-yubikey` module (which `inst`s
-    the keyscript + `ykchalresp` + libusb into the initramfs) is only built
-    and added to 90-system.conf then. The resume path re-challenges the
-    key (falling back to the passphrase only when a fallback slot exists,
-    else FATAL — possession-only).
+    `YK_MODE=hmac-sha1`; the dracut `99void-yubikey` module (which `inst`s
+    the keyscript + `ykchalresp` + libusb into the initramfs AND installs a
+    `/sbin/cryptroot-ask` override) is only built and added to 90-system.conf
+    then. The resume path re-challenges the key (falling back to the
+    passphrase only when a fallback slot exists, else FATAL — possession-only).
+  - **CRITICAL boot-unlock override** — upstream dracut/dracut-ng does NOT
+    execute the Debian-style `keyscript=` crypttab option (it `cat`s the
+    third-field `luksfile` as a static keyfile and ignores `keyscript=` in
+    the options field), so the stock `/sbin/cryptroot-ask` would never run
+    the keyscript — the boot would always prompt for a typed passphrase,
+    making a possession-only (slot-0-removed) install UNBOOTABLE. The
+    `99void-yubikey` module ships a faithful mirror of upstream
+    `cryptroot-ask.sh` that ADDS a `keyscript=` exec branch (piping the
+    keyscript's stdout to `cryptsetup luksOpen`, retrying briefly so a
+    hot-plugged/slow-recognized YubiKey has time to appear, and falling
+    through to the passphrase prompt on failure to preserve `YK_FALLBACK=yes`).
+    The module is named `99void-` (> `90crypt`) so its override wins the
+    `/sbin/cryptroot-ask` path. This boot path is real-hardware UNPROVEN —
+    validate on the target medium before trusting a possession-only install.
 
 ---
 

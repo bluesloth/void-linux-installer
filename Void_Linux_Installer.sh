@@ -4771,13 +4771,31 @@ fi
 
 # AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: when YubiKey unlock is
 # enabled, dracut must ship the keyscript + `ykchalresp` (and its libusb
-# runtime) inside the initramfs, otherwise cryptroot-ask could not run
-# /usr/local/sbin/void-reveal-yubikey-key at boot. Written as a dedicated
-# module so the initramfs is self-contained. ykpers is a plain C + libusb
-# tool, so `inst` + `inst_libdir_file` cover it — no heavyweight runtime.
+# runtime) inside the initramfs, otherwise the boot unlock cannot run
+# /usr/local/sbin/void-reveal-yubikey-key. Written as a dedicated `99void-`
+# module (runs AFTER 90crypt's module-setup.sh, so its `/sbin/cryptroot-ask`
+# override wins over 90crypt's) so the initramfs is self-contained. ykpers is
+# a plain C + libusb tool, so `inst` + `inst_libdir_file` cover it — no
+# heavyweight runtime.
+# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: the boot-unlock path
+# REQUIRES a custom `/sbin/cryptroot-ask` override because upstream dracut
+# (and dracut-ng) does NOT execute the Debian-style `keyscript=` crypttab
+# option — it treats the third-field `luksfile` as a static keyfile (via
+# `readkey`, a `cat`) and silently ignores `keyscript=` in the options field.
+# So the stock cryptroot-ask would never run void-reveal-yubikey-key and
+# would always prompt for the typed passphrase — a possession-only install
+# (YK_FALLBACK=no, slot 0 removed) would be UNBOOTABLE. This module installs
+# `cryptroot-ask.sh` (a faithful mirror of upstream that ADDS a `keyscript=`
+# exec branch feeding the keyscript's stdout to `cryptsetup luksOpen`) over
+# 90crypt's, so the YubiKey unlock actually runs at boot. When the keyscript
+# fails (YubiKey absent/wrong) it falls through to the typed-passphrase
+# prompt, preserving the YK_FALLBACK=yes behavior. Because this module's
+# `check()` requires `ykchalresp`, it only activates when YubiKey unlock is
+# enabled — a plain ENCRYPT-only install keeps upstream cryptroot-ask and is
+# unaffected (no regression).
 if [ "$YK_MODE" = "hmac-sha1" ]; then
-    mkdir -p /usr/lib/dracut/modules.d/60void-yubikey
-    cat > /usr/lib/dracut/modules.d/60void-yubikey/module-setup.sh << 'INNER_EOF'
+    mkdir -p /usr/lib/dracut/modules.d/99void-yubikey
+    cat > /usr/lib/dracut/modules.d/99void-yubikey/module-setup.sh << 'INNER_EOF'
 #!/bin/bash
 
 check() {
@@ -4794,10 +4812,250 @@ install() {
     inst /usr/local/sbin/void-reveal-yubikey-key /usr/local/sbin/void-reveal-yubikey-key
     inst_binary ykchalresp /usr/bin/ykchalresp
     inst_libdir_file "libusb-*.so*" "libusb-*.so.*"
+    inst_script "$moddir/cryptroot-ask.sh" /sbin/cryptroot-ask
 }
 INNER_EOF
-    chmod 0755 /usr/lib/dracut/modules.d/60void-yubikey/module-setup.sh
-    echo 'add_dracutmodules+=" 60void-yubikey "' >> /etc/dracut.conf.d/90-system.conf
+    cat > /usr/lib/dracut/modules.d/99void-yubikey/cryptroot-ask.sh << 'INNER_EOF'
+#!/bin/sh
+# [YUBIKEY] dracut initqueue unlock handler for LUKS volumes, installed over
+# 90crypt's /sbin/cryptroot-ask by the 99void-yubikey module. It is a mirror
+# of upstream dracut's cryptroot-ask.sh (dracutdevs/dracut master) that ADDS
+# a `keyscript=<path>` exec branch: when the target device's crypttab entry
+# carries that Debian-style option, the keyscript is run and its stdout is
+# piped to `cryptsetup luksOpen`. This is exactly what the plain upstream
+# handler omits (it `cat`s the third-field luksfile as a static keyfile and
+# ignores `keyscript=` in the options field), so without this override a
+# YubiKey-crypttab-enabled volume would never unlock via the key's
+# challenge-response — it would always prompt for the typed passphrase. When
+# the keyscript outputs nothing/fails (YubiKey absent or wrong), we fall
+# through to the typed-passphrase prompt, preserving the YK_FALLBACK=yes
+# behavior (a fallback slot must exist for that prompt to succeed).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+NEWROOT=${NEWROOT:-"/sysroot"}
+
+# Don't ask if we already have root.
+[ -f "$NEWROOT"/proc ] && exit 0
+
+. /lib/dracut-lib.sh
+
+mkdir -p -m 0700 /run/cryptsetup
+
+# If device name is /dev/dm-X, convert to /dev/mapper/name.
+if [ "${1##/dev/dm-}" != "$1" ]; then
+    device="/dev/mapper/$(dmsetup info -c --noheadings -o name "$1")"
+else
+    device="$1"
+fi
+
+# Default luksname - luks-UUID.
+luksname=$2
+
+# is_keysource - ask for a passphrase even if an rd.luks.key argument is set.
+is_keysource=${3:-0}
+
+# Number of tries.
+numtries=${4:-10}
+
+# Resolve the target's crypttab entry (name, dev, luksfile, luksoptions).
+if [ -f /etc/crypttab ] && getargbool 1 rd.luks.crypttab -d -n rd_NO_CRYPTTAB; then
+    while read -r name dev luksfile luksoptions || [ -n "$name" ]; do
+        # Skip blank lines and comments.
+        if [ -z "$name" -o "${name#\#}" != "$name" ]; then
+            continue
+        fi
+
+        # PARTUUID used in crypttab.
+        if [ "${dev%%=*}" = "PARTUUID" ]; then
+            if [ "luks-${dev##PARTUUID=}" = "$luksname" ]; then
+                luksname="$name"
+                break
+            fi
+        # UUID used in crypttab.
+        elif [ "${dev%%=*}" = "UUID" ]; then
+            if [ "luks-${dev##UUID=}" = "$luksname" ]; then
+                luksname="$name"
+                break
+            fi
+        # ID used in crypttab.
+        elif [ "${dev%%=*}" = "ID" ]; then
+            if [ "luks-${dev##ID=}" = "$luksname" ]; then
+                luksname="$name"
+                break
+            fi
+        # Path used in crypttab.
+        else
+            cdev=$(readlink -f "$dev")
+            mdev=$(readlink -f "$device")
+            if [ "$cdev" = "$mdev" ]; then
+                luksname="$name"
+                break
+            fi
+        fi
+    done < /etc/crypttab
+    unset name dev
+fi
+
+# Check if the destination already exists (opened or already being asked).
+[ -b /dev/mapper/"$luksname" ] && exit 0
+asked_file=/tmp/cryptroot-asked-$luksname
+[ -f "$asked_file" ] && exit 0
+
+[ -d /sys/module/dm_crypt ] || modprobe dm_crypt
+
+. /lib/dracut-crypt-lib.sh
+
+info "luksOpen $device $luksname $luksfile $luksoptions"
+
+OLD_IFS="$IFS"
+IFS=,
+# shellcheck disable=SC2086
+set -- $luksoptions
+IFS="$OLD_IFS"
+
+cryptsetupopts=""
+allowdiscards=""
+keyscript=""
+
+while [ $# -gt 0 ]; do
+    case $1 in
+        noauto)
+            exit 0
+            ;;
+        swap)
+            exit 0
+            ;;
+        tmp)
+            exit 0
+            ;;
+        allow-discards)
+            allowdiscards="--allow-discards"
+            ;;
+        header=*)
+            cryptsetupopts="${cryptsetupopts} --${1}"
+            ;;
+        keyscript=*)
+            # [YUBIKEY] Capture the keyscript path for the boot unlock.
+            keyscript="${1#keyscript=}"
+            ;;
+    esac
+    shift
+done
+
+# Parse for allow-discards.
+if strstr "$(cryptsetup --help)" "allow-discards"; then
+    if discarduuids=$(getargs "rd.luks.allow-discards"); then
+        discarduuids=$(str_replace "$discarduuids" 'luks-' '')
+        if strstr " $discarduuids " " ${luksdev##luks-}"; then
+            allowdiscards="--allow-discards"
+        fi
+    elif getargbool 0 rd.luks.allow-discards; then
+        allowdiscards="--allow-discards"
+    fi
+fi
+
+if strstr "$(cryptsetup --help)" "allow-discards"; then
+    cryptsetupopts="$cryptsetupopts $allowdiscards"
+fi
+
+unset allowdiscards
+
+# Fallback to the passphrase prompt (see the keyscript branch below).
+ask_passphrase=1
+
+# [YUBIKEY] If the crypttab entry carries `keyscript=<path>`, run the
+# keyscript and pipe its stdout to luksOpen. This is the boot-time YubiKey
+# hmac-sha1 unlock: void-reveal-yubikey-key challenges the key with the
+# persisted 40-hex CHALLENGE and prints the HMAC response (the LUKS key).
+# Retry briefly so a YubiKey that udev hasn't recognized yet (hot-plug at
+# boot, or a slow hub) has time to appear — mirroring upstream's bounded
+# retry for missing keydevs. If the keyscript ultimately produces nothing /
+# fails (key absent or wrong), we fall through to the passphrase prompt:
+# with YK_FALLBACK=yes a typed-passphrase slot exists and success is
+# possible; with YK_FALLBACK=no (possession-only) there is none by design.
+if [ -n "$keyscript" ] && [ -x "$keyscript" ]; then
+    _keyscript_tries=${YTries:-10}
+    while [ "$_keyscript_tries" -gt 0 ]; do
+        if "$keyscript" | cryptsetup -d - $cryptsetupopts luksOpen "$device" "$luksname"; then
+            ask_passphrase=0
+            break
+        fi
+        _keyscript_tries=$((_keyscript_tries - 1))
+        [ -b /dev/mapper/"$luksname" ] && break
+        sleep 1
+    done
+    unset _keyscript_tries
+elif [ -n "$luksfile" -a "$luksfile" != "none" -a -e "$luksfile" ]; then
+    # shellcheck disable=SC2086
+    if readkey "$luksfile" / "$device" \
+        | cryptsetup -d - $cryptsetupopts luksOpen "$device" "$luksname"; then
+        ask_passphrase=0
+    fi
+elif [ "$is_keysource" -ne 0 ]; then
+    info "Asking for passphrase because $device is a keysource."
+else
+    while [ -n "$(getarg rd.luks.key)" ]; do
+        if tmp=$(getkey /tmp/luks.keys "$device"); then
+            keydev="${tmp%%:*}"
+            keypath="${tmp#*:}"
+        else
+            if [ "$numtries" -eq 0 ]; then
+                warn "No key found for $device.  Fallback to passphrase mode."
+                break
+            fi
+            sleep 1
+            info "No key found for $device.  Will try $numtries time(s) more later."
+            initqueue --unique --onetime --settled \
+                --name cryptroot-ask-"$luksname" \
+                "$(command -v cryptroot-ask)" "$device" "$luksname" "$is_keysource" "$((numtries - 1))"
+            exit 0
+        fi
+        unset tmp
+
+        info "Using '$keypath' on '$keydev'"
+        # shellcheck disable=SC2086
+        readkey "$keypath" "$keydev" "$device" \
+            | cryptsetup -d - $cryptsetupopts luksOpen "$device" "$luksname" \
+            && ask_passphrase=0
+        unset keypath keydev
+        break
+    done
+fi
+
+if [ $ask_passphrase -ne 0 ]; then
+    luks_open="$(command -v cryptsetup) $cryptsetupopts luksOpen"
+    _timeout=$(getargs "rd.luks.timeout")
+    _timeout=${_timeout:-0}
+    ask_for_password --ply-tries 5 \
+        --ply-cmd "$luks_open -T1 $device $luksname" \
+        --ply-prompt "Password ($device)" \
+        --tty-tries 1 \
+        --tty-cmd "$luks_open -T5 -t $_timeout $device $luksname"
+    unset luks_open
+    unset _timeout
+fi
+
+if [ "$is_keysource" -ne 0 -a "${luksname##luks-}" != "$luksname" ]; then
+    luks_close="$(command -v cryptsetup) close"
+    {
+        printf -- '[ -e /dev/mapper/%s ] && ' "$luksname"
+        printf -- '%s "%s"\n' "$luks_close" "$luksname"
+    } >> "$hookdir/cleanup/31-crypt-keysource.sh"
+    unset luks_close
+fi
+
+unset device luksname luksfile
+
+# Mark device as asked.
+: >> "$asked_file"
+
+need_shutdown
+udevsettle
+
+exit 0
+INNER_EOF
+    chmod 0755 /usr/lib/dracut/modules.d/99void-yubikey/cryptroot-ask.sh
+    chmod 0755 /usr/lib/dracut/modules.d/99void-yubikey/module-setup.sh
+    echo 'add_dracutmodules+=" 99void-yubikey "' >> /etc/dracut.conf.d/90-system.conf
 fi
 
 mkdir -p /usr/lib/dracut/modules.d/95snapshot-overlay
