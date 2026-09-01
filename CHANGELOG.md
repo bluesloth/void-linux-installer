@@ -136,7 +136,8 @@ Current version: **3.3.0-beta7** (`SCRIPT_VERSION` in the script).
     snapshot's `info.xml`, so timeline snapshots are distinguishable at a
     glance instead of all rendering as the redundant `//snapshot N (#N)`.
     The ISO `YYYY-MM-DD HH:MM:SS` date is reformatted to an abbreviated
-    name date (e.g. `Dec 4, 2027`) via `date -d ... '+%b %-d, %Y'`; if the
+    name date + time (e.g. `Dec 4, 2027 15:04`) via
+    `date -d ... '+%b %-d, %Y %H:%M'`; if the
     date doesn't parse (an odd `info.xml`), it falls back to the raw ISO
     string so the menu never breaks. When a snapshot has a `<description>`
     (not the case for timeline snapshots) the entry renders
