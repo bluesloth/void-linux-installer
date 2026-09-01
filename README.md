@@ -8,8 +8,8 @@ recovery-first, snapshot-friendly system.
 
 | File | Description |
 |------|-------------|
-| `Void_Linux_Installer.sh` | Unified working installer (current version: **v3.3.0-beta4**). Run this. |
-| `CHANGELOG.md` | Reconstructed changelog: records v3.1.0-beta1 → v3.3.0-beta4 from inline markers, plus a clearly-labeled educated estimate of the pre-3.1.0 alpha heritage. |
+| `Void_Linux_Installer.sh` | Unified working installer (current version: **v3.3.0-beta6**). Run this. |
+| `CHANGELOG.md` | Reconstructed changelog: records v3.1.0-beta1 → v3.3.0-beta6 from inline markers, plus a clearly-labeled educated estimate of the pre-3.1.0 alpha heritage. |
 
 ## Usage
 
@@ -93,6 +93,24 @@ neither the target nor the live medium.
     fstab swap entries) and `TARGET_PASS_HASH` (persisted so a resumed run can
     re-apply the target user's password hash via `chpasswd` instead of aborting
     on the empty-metadata guard).
+  - v3.3.0-beta5: **monthly btrfs integrity scrub** (`[SCRUB]`). A
+    `/etc/cron.monthly/btrfs-scrub` job scrubs every Btrfs filesystem once
+    a month — deduped by device (`/proc/self/mountinfo` major:minor) so
+    subvolume mounts aren't scrubbed once each, never forced so a manual
+    scrub is never raced, results date-stamped and logged to
+    `/var/log/btrfs-scrub.log`. This is the physical-corruption complement
+    to Snapper's logical-damage protection (bitrot detection + Btrfs
+    repair).
+  - v3.3.0-beta6: **optional LUKS2 full-disk encryption** (`[ENCRYPT]`).
+    An opt-in toggle (`[y/N]`) wraps partition 2 in a LUKS2 container
+    (`/dev/mapper/void-root`); the ESP/stay-bootloader unencrypted. The
+    passphrase is typed at every boot (dracut `crypt` module). The Btrfs
+    subvolume topology, swapfile/hibernation, Snapper, and scrub all run
+    unchanged on the mapper. `BTRFS_UUID` (filesystem) and `LUKS_UUID`
+    (container) are distinct — the former drives fstab/root/resume, the
+    latter crypttab + `rd.luks.uuid=`/`rd.luks.name=` on both GRUB and
+    Limine. `cryptsetup` + the dracut `crypt` module are only installed
+    when encryption is on. YubiKey unlock is a deferred follow-up.
   - Localization, timezone, and session/seat stack (elogind vs. turnstile +
     seatd + acpid).
   - Repo mirror auto-derived from timezone with an override menu

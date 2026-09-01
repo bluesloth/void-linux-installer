@@ -115,6 +115,17 @@ Known regressions that have already broken a real install:
      `/etc/cron.d/void-limine-sync` fallback entirely — it is the deliberate
      safety net for menu changes the plugin path could miss. Both fire the same
      single generator.
+11. `[ENCRYPT]` Optional LUKS2 full-disk encryption is a **typed-passphrase-only**
+    opt-in (`ENCRYPT=yes`). The passphrase is NEVER persisted — it lives in
+    memory, is fed to `cryptsetup luksFormat`/`luksOpen` only via stdin
+    (`--key-file=- <<<"..."; ` `read -s` twice + match check), and is `unset`
+    right after `luksOpen`. Be careful with the two UUIDs: `BTRFS_UUID`
+    (read from the mapper `$BTRFS_DEV`) is the Btrfs fs UUID that drives
+    fstab/root/resume, while `LUKS_UUID` (read from partition `$PART_SYS`) is
+    the ciphertext container UUID that drives crypttab and the
+    `rd.luks.uuid=... rd.luks.name=...=void-root` kernel params. Do NOT
+    conflate them, and do NOT persist any passphrase to install-config,
+    limine-env, resume state, or chroot_env.
 
 ## System/init constraints
 

@@ -10,7 +10,86 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta4** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta6** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta6 — optional LUKS2 full-disk encryption
+
+- **`[ENCRYPT]`** — an opt-in, prompt-gated full-disk encryption toggle
+  (`[y/N]`, default off), marking the biggest capability gap in the
+  recovery-first design: Snapper and `btrfs scrub` protect against damage a
+  user *makes* (logical/accidental and bitrot respectively), but nothing
+  previously protected the system from a *stolen disk*. With encryption on,
+  partition 2 (the Btrfs filesystem) becomes a LUKS2 container (`cryptsetup
+  luksFormat --type luks2`), and the entire machine is rebuilt inside the
+  opened mapper device `/dev/mapper/void-root`:
+  - **Passphrase-driven, typed at every boot** — the user sets a passphrase
+    (typed twice, hidden via `read -s`, matching-checked) during install.
+    It is fed to `luksFormat`/`luksOpen` via stdin (`--key-file=-`), so it
+    never appears on the command line or in the process list, and is unset
+    from memory as soon as the volume is open. At boot, dracut's `crypt`
+    module prompts for it before root is mounted. YubiKey/key-based unlock
+    is a **deliberately deferred** follow-up; today the only method is the
+    typed passphrase.
+  - **One cross-cutting rule, three careful placements** — `BTRFS_UUID`
+    (the Btrfs filesystem's UUID, read from the mapper `$BTRFS_DEV`) and
+    `LUKS_UUID` (the ciphertext container's UUID, read from `$PART_SYS`)
+    are different: `BTRFS_UUID` drives fstab, `root=`/`resume=`, and the
+    swapfile; `LUKS_UUID` drives `/etc/crypttab`
+    (`void-root UUID=$LUKS_UUID none luks`) and the `rd.luks.uuid=` /
+    `rd.luks.name=` kernel params. The swapfile and its resume offset live
+    inside the LUKS volume, so hibernation resumes after the passphrase
+    unlocks it (`resume=` stays on the Btrfs filesystem UUID).
+  - **Bootloader parity** — both GRUB (`/etc/default/grub` `GRUB_CMD`) and
+    Limine (`void-limine-write-conf` `BASE_CMD`) bake in `rd.luks.uuid=` +
+    `rd.luks.name=` when encrypted. The GRUB snapshot entries inherit the
+    rd.luks params because grub-btrfs copies the main boot entry's cmdline;
+    the Limine snapshot sub-entries inherit them from `BASE_CMD`. The
+    `[ENCRYPT]` knowledge is persisted to limine-env (`ENCRYPT`, `LUKS_UUID`)
+    exactly like the wallpaper choice, so every cron/kernel-hook resync
+    re-emits it.
+  - **Resume-aware** — the `ENCRYPT=yes` flag is persisted in the resume
+    state file, but the passphrase is NOT (it is in-memory only). A crashed-
+    then-resumed run restores `ENCRYPT` from state, finds the mapper closed,
+    and re-prompts for the passphrase before mounting.
+  - **Package/dracut gating** — `cryptsetup` is installed into the target
+    and the dracut `crypt` module is appended to 90-system.conf ONLY when
+    `ENCRYPT=yes`; an unencrypted install gets neither. Confirmed in the
+    CONFIRM step, dry-run plan, and post-install summary as `Encryption:
+    LUKS2 full-disk (passphrase required at boot)` / `none`.
+
+---
+
+## v3.3.0-beta5 — monthly btrfs integrity scrub
+
+- **`[SCRUB]`** — the physical-corruption half of the recovery story,
+  complementing Snapper (which guards against logical/accidental damage).
+  Snapper's timelined snapshots and the dracut overlay protect the system
+  from bad changes a user *makes*; nothing previously protected it from a
+  disk silently *losing* data to bitrot. A new
+  `/etc/cron.monthly/btrfs-scrub` job (written inside the shared chroot
+  tail, right after the existing `fstrim-nvme` cron.weekly entry and using
+  the same cronie-provided mechanism) runs `btrfs scrub start -B -d` and
+  appends a date-stamped, per-filesystem record to
+  `/var/log/btrfs-scrub.log`:
+  - **One scrub per filesystem, not per subvol mount** — every subvolume
+    mount of a Btrfs filesystem shares the same underlying `major:minor`, so
+    the mount list is read from `/proc/self/mountinfo`, deduped on field 3
+    with `sort -k1,1 -u`, and scrubbed once per unique device. A second
+    scrub of the same fs would otherwise be refused by Btrfs anyway; this
+    just makes the run clean instead of logging a needless failure.
+  - **Never forced (`-f` deliberately omitted)** — if a manual scrub is
+    already in flight, `btrfs scrub start` fails fast and the exit code is
+    logged, so the monthly pass never races a running scrub onto the same
+    volume.
+  - **Guarded & self-limiting** — bails out cleanly (exit 0, no log noise)
+    if no Btrfs filesystem is mounted, and refuses to run if the `btrfs`
+    binary is missing (exit 1 to stderr, the cron-mail failure path).
+  - This is a provisioning-only addition: the job is installed
+    unconditionally inside the shared chroot tail (both bootloaders, every
+    desktop option), needs no prompt, no state-file entry, and has nothing
+    to echo in the dry-run plan or final summary.
 
 ---
 
@@ -651,6 +730,6 @@ Inline markers used throughout the script (and mirrored here):
 - Feature tags: `[LOCALIZE]`, `[MIRROR]`, `[SWAP]`, `[COSMIC]`, `[RESUME]`,
   `[LIMINE-1/2]`, `[LIMINE-MULTI-KERNEL]`, `[LIMINE-SYNC-CRON]`, `[KERNEL-MODE]`,
   `[KERNEL-HOOK]`, `[DISTROBOX-2/3]`, `[CLONE-RETRY]`, `[FAILURE-JOURNAL]`,
-  `[COSMETIC]`.
+  `[COSMETIC]`, `[SCRUB]`, `[ENCRYPT]`.
 - Action words: `ADDITION` (new feature), `CHANGE` (behavioral change),
   `FIX` (bug fix), `EXPANSION` (extended feature).

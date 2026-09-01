@@ -33,6 +33,25 @@
 #     — is a top-level sibling, none nested inside another). Flat, not
 #     nested, so
 #     each one can be snapshotted/rolled back independently.
+#     AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: optionally, partition
+#     2 (the Btrfs filesystem) sits inside a LUKS2 container instead of being
+#     a raw partition. The ESP (partition 1) stays unencrypted (bootloaders
+#     and their configs read it before any passphrase exists). When enabled,
+#     `cryptsetup luksFormat`/`luksOpen` create a mapper device
+#     (`/dev/mapper/void-root`), and the ENTIRE machine below — mkfs.btrfs,
+#     the flat subvolume topology, fstab, swapfile/hibernation, Snapper,
+#     fstrim, scrub — operates on the mapper device exactly as it does on a
+#     raw partition today, so the rest of the pipeline needs no rework. The
+#     one cross-cutting rule is that BTRFS_UUID (the `blkid` of the Btrfs
+#     filesystem) MUST be read from the opened mapper device, never from the
+#     LUKS container partition (whose UUID is the ciphertext container's, not
+#     the filesystem's), or every boot path below would use the wrong UUID.
+#     Passphrase is typed at boot by dracut's `crypt` module after
+#     `rd.luks.uuid=` on the kernel cmdline (both bootloaders). The swapfile
+#     and its resume offset live inside the LUKS volume, so hibernation
+#     resumes after the passphrase unlocks the volume. The passphrase is held
+#     in memory during the chroot phase only, never persisted. YubiKey /
+#     key-based unlock is a planned follow-up (deferred).
 #   - Most subvolumes use noatime+zstd:1 compression. Several are
 #     deliberately nodatacow+compress=none instead: @swap (COW + compression
 #     both break swapfiles), @libvirt (COW hurts qcow2/raw VM disk
@@ -112,6 +131,14 @@
 #     snapshot boot is read-only with a writable RAM overlay rather than
 #     mutating the snapshot itself. Snapshot-boot MENU generation depends
 #     on which bootloader was chosen (next bullet).
+#     AI (Big Pickle) ADDITION — v3.3.0-beta5 [SCRUB]: the physical half of
+#     that same recovery story — a monthly /etc/cron.monthly/btrfs-scrub
+#     job catches silent checksum failures (bitrot) and lets Btrfs repair
+#     them, complementing Snapper (logical/accidental damage). It scrubs
+#     once per btrfs FILESYSTEM (the mount list is deduped by major:minor
+#     since every subvolume mount is a view of the same fs) and logs to
+#     /var/log/btrfs-scrub.log. Never forced: a manually-running scrub
+#     makes the monthly pass fail fast and record why instead of racing it.
 #   - Bootloader (v3.2.0-beta1): a real per-install CHOICE, $BOOTLOADER,
 #     between two fully separate code paths in Stage 2:
 #       * grub   — mature, real-hardware-tested path carried from 3.0.x.
@@ -205,7 +232,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta4"
+SCRIPT_VERSION="3.3.0-beta6"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -840,6 +867,56 @@ else
     SWAPFILE_SIZE=""
 fi
 export SWAPFILE_SIZE
+
+# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: optional LUKS2 full-disk
+# encryption of partition 2 (the Btrfs filesystem). The ESP stays
+# unencrypted. When enabled, the user types a passphrase (twice, hiding it)
+# so it never lands on screen; YubiKey/key-based unlock is a deferred
+# follow-up, so today the only unlock method is the typed passphrase.
+# ENCRYPT (yes/no) is persisted in the resume state file; the passphrase is
+# NOT — it lives only in this process's memory for the duration of the chroot
+# phase and is unset as soon as luksFormat/luksOpen are done, so a crashed-
+# then-resumed run re-prompts for it.
+ENCRYPT="no"
+echo ""
+echo "${C_BOLD}${C_BLU}Encrypt disk?${C_RST}"
+echo ""
+echo "  Encrypt partition 2 (the root filesystem) with LUKS2. Every subvolume"
+echo "  (root, home, snapshots, swap, ...) lives inside the encrypted volume."
+echo "  A passphrase is required at every boot; the ESP/bootloader stays"
+echo "  unencrypted so it can find the system before the passphrase exists."
+echo ""
+ask "Enable full-disk encryption (LUKS2)? [y/N]: "
+read -r ENCRYPT_INPUT
+case "$ENCRYPT_INPUT" in
+    [yY]*)
+        ENCRYPT="yes"
+        while :; do
+            echo ""
+            echo "Enter a passphrase for the encrypted disk (hidden input):"
+            read -r -s ENCRYPT_PASSPHRASE
+            echo
+            if [ -z "$ENCRYPT_PASSPHRASE" ]; then
+                echo "Passphrase cannot be empty. Try again." >&2
+                continue
+            fi
+            echo "Enter the passphrase again to confirm:"
+            read -r -s ENCRYPT_PASSPHRASE_CONFIRM
+            echo
+            if [ "$ENCRYPT_PASSPHRASE" != "$ENCRYPT_PASSPHRASE_CONFIRM" ]; then
+                echo "Passphrases do not match. Try again." >&2
+                continue
+            fi
+            break
+        done
+        unset ENCRYPT_PASSPHRASE_CONFIRM
+        ;;
+    *)
+        ENCRYPT="no"
+        ENCRYPT_PASSPHRASE=""
+        ;;
+esac
+export ENCRYPT
 
 # AI (Claude, Sonnet 5, Medium) ADDITION: Whether PipeWire autostarts during a read-only
 # snapshot/overlay boot is now a real install-time choice instead of an
@@ -1907,6 +1984,7 @@ fi
 echo "${C_BOLD}  Locale / Zone    :${C_RST} ${LOCALE} / ${TIMEZONE}"
 echo "${C_BOLD}  Repo (primary)   :${C_RST} ${REPO_PRIMARY}"
 echo "${C_BOLD}  Swap             :${C_RST} ${_rev_swap}${ENABLE_HIBERNATION:+  (hibernation: ${ENABLE_HIBERNATION})}"
+echo "${C_BOLD}  Encryption       :${C_RST} $([ "$ENCRYPT" = "yes" ] && echo "LUKS2 full-disk (passphrase required at boot)" || echo "none")"
 if [ "$ACCOUNT_MODEL" = "hybrid" ]; then
     _rev_acct="hybrid (root password + user sudo)"
 elif [ "$ACCOUNT_MODEL" = "debian" ]; then
@@ -2039,6 +2117,7 @@ fi
                LIMINE_WALLPAPER LIMINE_WALLPAPER_STYLE \
                SESSION_STACK ENABLE_SNAPSHOT_AUDIO \
                LOCALE LOCALE_CODESET TIMEZONE SWAP_BACKEND SWAPFILE_MODE ENABLE_HIBERNATION SWAPFILE_SIZE \
+               ENCRYPT \
                REPO_PRIMARY REPO_BACKUP1 REPO_BACKUP2 \
                DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
                INSTALL_FLATPAK INSTALL_FIREFOX INSTALL_CHROMIUM \
@@ -2081,6 +2160,7 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "  Locale / Timezone     : ${LOCALE:-<unset>} / ${TIMEZONE:-<unset>}"
     echo "  Repo (primary)        : ${REPO_PRIMARY:-<unset>}"
     echo "  Swap / Hibernation    : ${SWAP_BACKEND:-<unset>} / ${ENABLE_HIBERNATION:-<unset>}"
+    echo "  Encryption            : ${ENCRYPT:-no}${ENCRYPT:+$([ "$ENCRYPT" = "yes" ] && echo " (LUKS2 full-disk, passphrase at boot)" || true)}"
     echo "  Accounts model        : ${ACCOUNT_MODEL:-<unset>}"
     echo "=============================================================="
     echo "  Nothing was written to disk. Re-run WITHOUT --dry-run to install for real."
@@ -2095,6 +2175,21 @@ fi
 # filesystem creation below run ONLY on a fresh install. A resumed run reuses
 # the existing partition table and filesystems (the installer's own, from the
 # interrupted run) — the target's *contents* are reset separately further on.
+#
+# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: when encryption is
+# enabled, partition 2 ($PART_SYS) holds a LUKS2 container. Everything the
+# installer acts on is the opened MAPPER device ($BTRFS_DEV), never the raw
+# container. On a fresh install the container is created (luksFormat) then
+# opened (luksOpen). On a resumed run the container already exists but the
+# mapper is closed (it was never opened / was torn down by the crash), so it
+# is re-opened with a fresh passphrase prompt — the passphrase was never
+# persisted, so the user re-types it. In both cases $BTRFS_DEV points at
+# /dev/mapper/void-root when encrypted, else at the raw $PART_SYS — and every
+# mkfs/mount below uses $BTRFS_DEV, so the encrypted and unencrypted paths
+# are structurally identical from here on.
+BTRFS_DEV="$PART_SYS"
+CRYPT_DEV="/dev/mapper/void-root"
+
 if [ "$RESUME" != "1" ]; then
     # Clear disk maps and slice target partitions
     sgdisk -Z "$DISK" && sgdisk -og "$DISK"
@@ -2104,17 +2199,50 @@ if [ "$RESUME" != "1" ]; then
     partprobe "$DISK"
     sleep 2
 
+    if [ "$ENCRYPT" = "yes" ]; then
+        # Fresh: create the LUKS2 container from the typed passphrase. Fed
+        # via stdin so it never appears on the command line or in the
+        # process list. The ESP is formatted after this.
+        echo ""
+        echo "==> Formatting partition 2 as a LUKS2 container (cryptsetup)"
+        cryptsetup luksFormat --type luks2 -q --key-file=- "$PART_SYS" <<<"$ENCRYPT_PASSPHRASE"
+        echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV}"
+        cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"
+        BTRFS_DEV="$CRYPT_DEV"
+        # The passphrase has served its purpose (luksFormat+luksOpen). Drop
+        # it from memory now so it cannot linger through the chroot phase.
+        unset ENCRYPT_PASSPHRASE
+        jl "LUKS2 container created+opened for $PART_SYS -> $BTRFS_DEV"
+    fi
+
     # Apply filesystems
     mkfs.fat -F32 -n EFI "$PART_EFI"
-    mkfs.btrfs -f -L VOID "$PART_SYS"
-    mount -v "$PART_SYS" /mnt
+    mkfs.btrfs -f -L VOID "$BTRFS_DEV"
+    mount -v "$BTRFS_DEV" /mnt
 else
     # Resume: defensively clear any leftover mount on /mnt (e.g. from a crash
     # that never ran the cleanup trap), then mount the top-level Btrfs tree
     # (subvolid=5 — explicitly NOT the default subvolume) so the subvolumes
     # can be deleted/recreated below.
     umount -l /mnt 2>/dev/null || true
-    mount -v -o subvolid=5 "$PART_SYS" /mnt
+
+    if [ "$ENCRYPT" = "yes" ]; then
+        # Resume: the container exists but the mapper is closed. The
+        # passphrase was never persisted, so re-prompt for it (hidden input)
+        # and re-open before mounting the Btrfs tree inside.
+        echo ""
+        echo "Enter the passphrase to unlock ${PART_SYS} (LUKS2):"
+        read -r -s ENCRYPT_PASSPHRASE
+        echo
+        [ -n "$ENCRYPT_PASSPHRASE" ] || { echo "FATAL: empty passphrase." >&2; exit 1; }
+        echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV}"
+        cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"
+        BTRFS_DEV="$CRYPT_DEV"
+        unset ENCRYPT_PASSPHRASE
+        jl "LUKS2 mapper re-opened for resume: $PART_SYS -> $BTRFS_DEV"
+    fi
+
+    mount -v -o subvolid=5 "$BTRFS_DEV" /mnt
 fi
 # AI (Big Pickle) NOTE — Open Item #7 DECIDED (v3.3.0): @grub is KEPT as a
 # dedicated top-level subvolume/mountpoint for BOOTLOADER=grub only (gated at
@@ -2194,7 +2322,7 @@ done
 umount -v /mnt
 
 BTRFS_OPTS="noatime,compress=zstd:1"
-mount -vo $BTRFS_OPTS,subvol=@ "$PART_SYS" /mnt
+mount -vo $BTRFS_OPTS,subvol=@ "$BTRFS_DEV" /mnt
 
 mkdir -vp /mnt/home /mnt/.snapshots /mnt/opt /mnt/srv /mnt/boot/efi
 [ "$BOOTLOADER" = "grub" ] && mkdir -vp /mnt/boot/grub
@@ -2218,28 +2346,28 @@ mkdir -vp /mnt/root
 # effect on a Btrfs subvolume root. The mount/fstab `nodatacow,compress=none`
 # options for @srv/@cache/@log/@spool/@tmp/@libvirt are the real mechanism.
 
-mount -vo $BTRFS_OPTS,subvol=@home "$PART_SYS" /mnt/home
-mount -vo $BTRFS_OPTS,subvol=@opt "$PART_SYS" /mnt/opt
-mount -vo noatime,nodatacow,compress=none,subvol=@srv "$PART_SYS" /mnt/srv
-mount -vo $BTRFS_OPTS,subvol=@snapshots "$PART_SYS" /mnt/.snapshots
-mount -vo noatime,nodatacow,compress=none,subvol=@cache "$PART_SYS" /mnt/var/cache
+mount -vo $BTRFS_OPTS,subvol=@home "$BTRFS_DEV" /mnt/home
+mount -vo $BTRFS_OPTS,subvol=@opt "$BTRFS_DEV" /mnt/opt
+mount -vo noatime,nodatacow,compress=none,subvol=@srv "$BTRFS_DEV" /mnt/srv
+mount -vo $BTRFS_OPTS,subvol=@snapshots "$BTRFS_DEV" /mnt/.snapshots
+mount -vo noatime,nodatacow,compress=none,subvol=@cache "$BTRFS_DEV" /mnt/var/cache
 if [ "$DISPLAY_MANAGER" = "sddm" ]; then
-    mount -vo $BTRFS_OPTS,subvol=@sddm "$PART_SYS" /mnt/var/lib/sddm
+    mount -vo $BTRFS_OPTS,subvol=@sddm "$BTRFS_DEV" /mnt/var/lib/sddm
 elif [ "$DISPLAY_MANAGER" = "lightdm" ]; then
-    mount -vo $BTRFS_OPTS,subvol=@lightdm "$PART_SYS" /mnt/var/lib/lightdm
+    mount -vo $BTRFS_OPTS,subvol=@lightdm "$BTRFS_DEV" /mnt/var/lib/lightdm
 fi
 if [ "$INSTALL_VIRT" = "true" ]; then
-    mount -vo noatime,nodatacow,compress=none,subvol=@libvirt "$PART_SYS" /mnt/var/lib/libvirt
+    mount -vo noatime,nodatacow,compress=none,subvol=@libvirt "$BTRFS_DEV" /mnt/var/lib/libvirt
 fi
-mount -vo noatime,nodatacow,compress=none,subvol=@log "$PART_SYS" /mnt/var/log
-mount -vo noatime,nodatacow,compress=none,subvol=@spool "$PART_SYS" /mnt/var/spool
-mount -vo noatime,nodatacow,compress=none,subvol=@tmp "$PART_SYS" /mnt/var/tmp
-[ "$BOOTLOADER" = "grub" ] && mount -vo $BTRFS_OPTS,subvol=@grub "$PART_SYS" /mnt/boot/grub
+mount -vo noatime,nodatacow,compress=none,subvol=@log "$BTRFS_DEV" /mnt/var/log
+mount -vo noatime,nodatacow,compress=none,subvol=@spool "$BTRFS_DEV" /mnt/var/spool
+mount -vo noatime,nodatacow,compress=none,subvol=@tmp "$BTRFS_DEV" /mnt/var/tmp
+[ "$BOOTLOADER" = "grub" ] && mount -vo $BTRFS_OPTS,subvol=@grub "$BTRFS_DEV" /mnt/boot/grub
 
-[ "$INSTALL_FLATPAK" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@flatpak "$PART_SYS" /mnt/var/lib/flatpak
-[ "$INSTALL_DOCKER" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@docker "$PART_SYS" /mnt/var/lib/docker
-[ "$INSTALL_PODMAN_ROOTFUL" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@containers "$PART_SYS" /mnt/var/lib/containers
-mount -vo $BTRFS_OPTS,subvol=@root "$PART_SYS" /mnt/root
+[ "$INSTALL_FLATPAK" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@flatpak "$BTRFS_DEV" /mnt/var/lib/flatpak
+[ "$INSTALL_DOCKER" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@docker "$BTRFS_DEV" /mnt/var/lib/docker
+[ "$INSTALL_PODMAN_ROOTFUL" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@containers "$BTRFS_DEV" /mnt/var/lib/containers
+mount -vo $BTRFS_OPTS,subvol=@root "$BTRFS_DEV" /mnt/root
 
 # AI (Big Pickle) CHANGE — v3.2.0 [SWAP]: @swap mounted + made nodatacow only
 # when a disk swapfile backend (swapfile or both) was chosen. The mount is
@@ -2247,7 +2375,7 @@ mount -vo $BTRFS_OPTS,subvol=@root "$PART_SYS" /mnt/root
 # subtree), and `btrfs filesystem mkswapfile` later sets nodatacow on the
 # swapfile itself — no `chattr +C` is needed or effective here.
 if [ "$SWAPFILE_MODE" = "true" ]; then
-    mount -vo defaults,noatime,nodatacow,compress=none,subvol=@swap "$PART_SYS" /mnt/var/swap
+    mount -vo defaults,noatime,nodatacow,compress=none,subvol=@swap "$BTRFS_DEV" /mnt/var/swap
 fi
 mount -v "$PART_EFI" /mnt/boot/efi
 
@@ -2279,7 +2407,7 @@ done
 mount -v -t efivarfs efivarfs /mnt/sys/firmware/efi/efivars
 cp /etc/resolv.conf /mnt/etc/
 
-BTRFS_UUID=$(blkid -s UUID -o value "$PART_SYS")
+BTRFS_UUID=$(blkid -s UUID -o value "$BTRFS_DEV")
 EFI_UUID=$(blkid -s UUID -o value "$PART_EFI")
 
     # v3.1.0 corrective addition, confirmed against a real
@@ -2320,6 +2448,19 @@ tmpfs            /tmp             tmpfs defaults,noatime,mode=1777 0 0
 tmpfs            /var/tmp         tmpfs defaults,noatime,mode=1777 0 0
 UUID=$EFI_UUID   /boot/efi        vfat  defaults,noatime 0 2
 EOF
+
+# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: /etc/crypttab tells
+# dracut's `crypt` module how to unlock the container at boot. It maps the
+# plaintext mapper name (void-root) to the LUKS header by the container
+# partition's filesystem UUID (from `blkid` on $PART_SYS — the ciphertext
+# container's own UUID, NOT the Btrfs filesystem UUID inside the mapper,
+# which is $BTRFS_UUID and differs). `none` = no keyfile, so dracut prompts
+# for the passphrase at boot; `luks` = LUKS-based keyslot unlocking. Only
+# written when encryption is enabled.
+if [ "$ENCRYPT" = "yes" ]; then
+    LUKS_UUID=$(blkid -s UUID -o value "$PART_SYS")
+    echo "void-root UUID=$LUKS_UUID none luks" > /mnt/etc/crypttab
+fi
 
 # AI (Big Pickle) CHANGE — v3.2.0 [SWAP]: fstab swap entries now appear only
 # when a disk swapfile backend (swapfile or both) was chosen.
@@ -2402,6 +2543,19 @@ echo "export TIMEZONE=\"$TIMEZONE\"" >> /mnt/tmp/chroot_env.sh
 echo "export SWAP_BACKEND=\"$SWAP_BACKEND\"" >> /mnt/tmp/chroot_env.sh
 echo "export ENABLE_HIBERNATION=\"$ENABLE_HIBERNATION\"" >> /mnt/tmp/chroot_env.sh
 echo "export SWAPFILE_SIZE=\"$SWAPFILE_SIZE\"" >> /mnt/tmp/chroot_env.sh
+# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: the yes/no flag is
+# carried into the chroot so Stage 2 writes crypttab (and dracut/GRUB/Limine
+# provision the crypt path). Deliberately NOT the passphrase — chroot_env.sh
+# must stay secret-free (same rule as the pass hashes below), and the
+# passphrase was already unset after luksOpen anyway.
+echo "export ENCRYPT=\"$ENCRYPT\"" >> /mnt/tmp/chroot_env.sh
+# The LUKS container UUID is public (it is stamped in the on-disk header and
+# appears in rd.luks.uuid= on the kernel cmdline) so it is safe to persist
+# into the chroot for the GRUB/Limine cmdline builders — unlike the
+# passphrase. Computed at fstab/crypttab-write time when encrypted.
+if [ "$ENCRYPT" = "yes" ]; then
+    echo "export LUKS_UUID=\"$LUKS_UUID\"" >> /mnt/tmp/chroot_env.sh
+fi
 # AI (Big Pickle) ADDITION — v3.2.0 [item 9]: SESSION_STACK carried into the
 # chroot so Stage 2 can branch elogind vs turnstile+seatd+acpid and validate.
 echo "export SESSION_STACK=\"$SESSION_STACK\"" >> /mnt/tmp/chroot_env.sh
@@ -2732,6 +2886,11 @@ case "$CPU_VENDOR" in
        MICROCODE_PKG="" ;;
 esac
 install_pkgs ${MICROCODE_PKG} linux-firmware dracut sudo vim nano bash bash-completion curl
+# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: install the userspace
+# cryptsetup/LUKS tooling into the target only when encryption was enabled
+# (the dracut `crypt` module needs the cryptsetup binary + udev rules to
+# unlock the volume at boot). Not installed for the unencrypted default.
+[ "$ENCRYPT" = "yes" ] && install_pkgs cryptsetup
 
 # AI (Claude, Sonnet 5, Medium) ADDITION: sddm/NetworkManager/dbus/elogind
 # are DE-agnostic base bits both options need. wayland/wayland-protocols
@@ -3611,11 +3770,22 @@ grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id="Void
 # AI (Big Pickle) CHANGE — v3.2.0 [SWAP]: resume-from-disk kernel params are
 # only added when hibernation was enabled at install time (and a disk swapfile
 # actually exists). Otherwise GRUB gets a plain cmdline with no resume= params.
+# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: when encryption is
+# enabled, the LUKS container UUID is injected via rd.luks.uuid= + a fixed
+# rd.luks.name= so dracut's `crypt` module opens void-root before root is
+# mounted. `resume=` keeps the Btrfs filesystem UUID — the swapfile lives
+# inside the LUKS volume, so hibernation resumes after the volume is
+# unlocked.
+if [ "$ENCRYPT" = "yes" ]; then
+    LUKS_RD="rd.luks.uuid=${LUKS_UUID} rd.luks.name=${LUKS_UUID}=void-root"
+else
+    LUKS_RD=""
+fi
 if [ "$ENABLE_HIBERNATION" = "true" ] && [ -f /var/swap/swapfile ]; then
     TARGET_OFFSET=$(btrfs inspect-internal map-swapfile -r /var/swap/swapfile)
-    GRUB_CMD="loglevel=3 resume=UUID=${BTRFS_UUID} resume_offset=${TARGET_OFFSET}"
+    GRUB_CMD="loglevel=3 ${LUKS_RD} resume=UUID=${BTRFS_UUID} resume_offset=${TARGET_OFFSET}"
 else
-    GRUB_CMD="loglevel=3"
+    GRUB_CMD="loglevel=3 ${LUKS_RD}"
 fi
 sed -i '/GRUB_CMDLINE_LINUX_DEFAULT/d' /etc/default/grub
 echo "GRUB_CMDLINE_LINUX_DEFAULT=\"$GRUB_CMD\"" >> /etc/default/grub
@@ -3751,6 +3921,15 @@ HIBERNATION_ENABLED="${ENABLE_HIBERNATION}"
 # file each time, so this must be state the generator can re-read).
 LIMINE_WALLPAPER="${LIMINE_WALLPAPER}"
 LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE}"
+# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: persisted so
+# void-limine-write-conf re-emits the rd.luks.uuid=/rd.luks.name= kernel
+# params on every kernel update / cron resync (the generated limine.conf is
+# rewritten each time, so the LUKS knowledge must be state the generator can
+# re-read, exactly like the wallpaper choice above). LUKS_UUID is the
+# ciphertext container's header UUID — public (it is in rd.luks.uuid= on the
+# boot cmdline), never the passphrase. Empty/unset when not encrypted.
+ENCRYPT="${ENCRYPT}"
+LUKS_UUID="${LUKS_UUID}"
 INNER_EOF
 chmod 644 /etc/void-installer/limine-env
 
@@ -3862,11 +4041,22 @@ load_limine_env
 # physical extents even though it's nodatacow, silently invalidating a
 # stale resume_offset baked in at install time. Only applies when the
 # system was installed with hibernation enabled (AI (Big Pickle) [SWAP]).
+# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: when the system was
+# installed encrypted (ENCRYPT=yes in limine-env), the LUKS container UUID is
+# injected via rd.luks.uuid= + rd.luks.name= so dracut's `crypt` module opens
+# void-root before root is mounted. `resume=` stays on the Btrfs filesystem
+# UUID — the swapfile lives inside the LUKS volume, so hibernation resumes
+# after unlock — and `root=UUID=` likewise resolves through the opened mapper.
+if [ "${ENCRYPT}" = "yes" ]; then
+    LUKS_RD="rd.luks.uuid=${LUKS_UUID} rd.luks.name=${LUKS_UUID}=void-root"
+else
+    LUKS_RD=""
+fi
 if [ "${HIBERNATION_ENABLED}" = "true" ] && [ -f /var/swap/swapfile ]; then
     TARGET_OFFSET=$(btrfs inspect-internal map-swapfile -r /var/swap/swapfile 2>/dev/null || echo 0)
-    BASE_CMD="loglevel=3 resume=UUID=${BTRFS_UUID} resume_offset=${TARGET_OFFSET} root=UUID=${BTRFS_UUID} rootflags=subvol=@"
+    BASE_CMD="loglevel=3 ${LUKS_RD} resume=UUID=${BTRFS_UUID} resume_offset=${TARGET_OFFSET} root=UUID=${BTRFS_UUID} rootflags=subvol=@"
 else
-    BASE_CMD="loglevel=3 root=UUID=${BTRFS_UUID} rootflags=subvol=@"
+    BASE_CMD="loglevel=3 ${LUKS_RD} root=UUID=${BTRFS_UUID} rootflags=subvol=@"
 fi
 
 # [LIMINE-MULTI-KERNEL] Enumerate every kernel actually available — always
@@ -4227,12 +4417,72 @@ fi
 INNER_EOF
 chmod +x /etc/cron.weekly/fstrim-nvme
 
+# AI (Big Pickle) ADDITION — v3.3.0-beta5 [SCRUB]: monthly btrfs integrity
+# scrub — the physical-corruption half of the recovery story (Snapper guards
+# against logical/accidental damage; scrub catches silent checksum failures
+# and repairs them). One pass per btrfs filesystem (subvolume mounts all
+# share the same major:minor, so the mount list is deduped on that instead
+# of scrubbing one fs once per subvol mount), logged to
+# /var/log/btrfs-scrub.log. Never forced: if a manual scrub is already
+# running, this monthly pass fails fast and records why rather than racing
+# it. cron.monthly is executed by cronie's stock /etc/crontab (draining
+# missed runs on boot), same mechanism the fstrim-nvme entry above relies on.
+mkdir -p /etc/cron.monthly
+cat > /etc/cron.monthly/btrfs-scrub << 'INNER_EOF'
+#!/bin/sh
+# [SCRUB] Monthly btrfs integrity scrub, logged (appended) to
+# /var/log/btrfs-scrub.log.
+export PATH="/usr/bin:/usr/sbin:/bin:/sbin"
+LOG="/var/log/btrfs-scrub.log"
+
+if ! command -v btrfs >/dev/null 2>&1; then
+    echo "ERROR: btrfs binary missing from the system path." >&2
+    exit 1
+fi
+
+# Bail out cleanly when no btrfs filesystem is mounted (a cheap guard: this
+# installer only ever produces btrfs roots, but nothing should be created
+# on the unlikely non-btrfs box).
+_fslist="$(
+    awk '
+        { for (i = 1; i <= NF; i++) if ($i == "-") { sep = i; break } }
+        $(sep+1) == "btrfs" { print $3 " " $5 }
+    ' /proc/self/mountinfo 2>/dev/null | sort -k1,1 -u
+)"
+[ -n "$_fslist" ] || exit 0
+
+{
+    echo "=== btrfs scrub run: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+    printf '%s\n' "$_fslist" | while read -r _devno _mnt; do
+        # Blocking (-B) with per-device stats (-d). Deliberately NO -f:
+        # btrfs scrub refuses a second concurrent scrub on one filesystem,
+        # so a manually-started run makes this pass fail fast (and the log
+        # records the exit code) instead of racing it.
+        btrfs scrub start -B -d "$_mnt" 2>&1
+        _rc=$?
+        echo "scrub $_mnt (dev $_devno): exit $_rc"
+    done
+} >> "$LOG" 2>&1
+
+exit 0
+INNER_EOF
+chmod +x /etc/cron.monthly/btrfs-scrub
+
 mkdir -p /etc/dracut.conf.d
 cat > /etc/dracut.conf.d/90-system.conf << INNER_EOF
 add_dracutmodules+=" btrfs resume snapshot-overlay udev-rules "
 filesystems+=" btrfs "
 install_items+=" /usr/bin/btrfs /usr/sbin/blkid "
 INNER_EOF
+# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: when encryption is
+# enabled, dracut must also pull in the `crypt` module (LUKS unlocking — it
+# installs its own copy of cryptsetup + udev rules) so the initramfs can
+# prompt for the passphrase and open void-root before mounting root.
+# Appended to the shared 90-system.conf so the crypt knowledge is inherited
+# by every initramfs the kernel-hook regen loop builds.
+if [ "$ENCRYPT" = "yes" ]; then
+    echo 'add_dracutmodules+=" crypt "' >> /etc/dracut.conf.d/90-system.conf
+fi
 
 mkdir -p /usr/lib/dracut/modules.d/95snapshot-overlay
 cat > /usr/lib/dracut/modules.d/95snapshot-overlay/module-setup.sh << 'INNER_EOF'
@@ -4650,6 +4900,7 @@ esac
 unset _SWAP_DISPLAY_SIZE
 echo "${C_BOLD}  Swap:${C_RST}         ${_SWAP_FRIENDLY}"
 echo "${C_BOLD}  Hibernation:${C_RST}  ${ENABLE_HIBERNATION}"
+echo "${C_BOLD}  Encryption:${C_RST}   $([ "$ENCRYPT" = "yes" ] && echo "LUKS2 full-disk (passphrase required at boot)" || echo "none")"
 echo ""
 echo "${C_BOLD}  NEXT STEPS${C_RST}"
 echo "${C_GRN}  1.${C_RST} Remove the live USB, then this system will reboot into your install automatically."
