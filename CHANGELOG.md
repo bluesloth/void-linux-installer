@@ -32,6 +32,13 @@ Current version: **3.3.0-beta8** (`SCRIPT_VERSION` in the script).
   fires — accepted. The `/etc/cron.d` entry is gone; do not reintroduce it.
   GRUB is unaffected (it never had the cron).
 
+- **`[FSTRIM-SCOPE]`** — renamed the weekly fstrim cron from the legacy
+  `fstrim-nvme` to `fstrim-discard`. The old name dated back to when the
+  target disk was hardcoded to `/dev/nvme0n1`; since disk selection became
+  interactive (nvme / mmcblk / sdX), `fstrim -A -q` trims any mounted
+  discard-capable filesystem regardless of bus, so the name should not claim
+  to be NVMe-only. No behavior change.
+
 ---
 
 ## v3.3.0-beta6 — optional LUKS2 full-disk encryption
@@ -196,7 +203,7 @@ Current version: **3.3.0-beta8** (`SCRIPT_VERSION` in the script).
   from bad changes a user *makes*; nothing previously protected it from a
   disk silently *losing* data to bitrot. A new
   `/etc/cron.monthly/btrfs-scrub` job (written inside the shared chroot
-  tail, right after the existing `fstrim-nvme` cron.weekly entry and using
+  tail, right after the existing `fstrim-discard` cron.weekly entry and using
   the same cronie-provided mechanism) runs `btrfs scrub start -B -d` and
   appends a date-stamped, per-filesystem record to
   `/var/log/btrfs-scrub.log`:

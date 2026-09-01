@@ -4832,8 +4832,14 @@ sed -i 's/EMPTY_PRE_POST_CLEANUP="false"/EMPTY_PRE_POST_CLEANUP="true"/g' /etc/s
 mkdir -p /etc/snapper/filters
 echo "var/service/*" >> /etc/snapper/filters/void-runit.txt
 
+# AI (Big Pickle) CHANGE — v3.3.0-beta8 [FSTRIM-SCOPE]: renamed the weekly
+# fstrim cron from the legacy `fstrim-nvme` to `fstrim-discard`. The old name
+# dated back to when the target disk was hardcoded to /dev/nvme0n1; since disk
+# selection became interactive (nvme / mmcblk / sdX), `fstrim -A -q` trims any
+# mounted discard-capable filesystem regardless of bus, so the name should not
+# claim to be NVMe-only. No behavior change.
 mkdir -p /etc/cron.weekly
-cat > /etc/cron.weekly/fstrim-nvme << 'INNER_EOF'
+cat > /etc/cron.weekly/fstrim-discard << 'INNER_EOF'
 #!/bin/sh
 export PATH="/usr/bin:/usr/sbin:/bin:/sbin"
 if command -v fstrim >/dev/null 2>&1; then
@@ -4843,7 +4849,7 @@ else
     exit 1
 fi
 INNER_EOF
-chmod +x /etc/cron.weekly/fstrim-nvme
+chmod +x /etc/cron.weekly/fstrim-discard
 
 # AI (Big Pickle) ADDITION — v3.3.0-beta5 [SCRUB]: monthly btrfs integrity
 # scrub — the physical-corruption half of the recovery story (Snapper guards
@@ -4854,7 +4860,7 @@ chmod +x /etc/cron.weekly/fstrim-nvme
 # /var/log/btrfs-scrub.log. Never forced: if a manual scrub is already
 # running, this monthly pass fails fast and records why rather than racing
 # it. cron.monthly is executed by cronie's stock /etc/crontab (draining
-# missed runs on boot), same mechanism the fstrim-nvme entry above relies on.
+# missed runs on boot), same mechanism the weekly fstrim-discard entry above relies on.
 mkdir -p /etc/cron.monthly
 cat > /etc/cron.monthly/btrfs-scrub << 'INNER_EOF'
 #!/bin/sh
