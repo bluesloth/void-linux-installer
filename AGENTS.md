@@ -160,8 +160,13 @@ Known regressions that have already broken a real install:
     `keyscript=` line or drop `inst_script ... /sbin/cryptroot-ask`. The module
     is named `99void-yubikey` (99 > 90crypt) specifically so its override wins
     the `/sbin/cryptroot-ask` path in the initramfs; do not renumber it below
-    `90crypt`. This boot unlock path is real-hardware UNPROVEN — validate on
-    the target medium before trusting a possession-only install.
+    `90crypt`. CRITICAL (`[YK-KEYSCRIPT-BAKE]`, v3.3.0-beta10): the
+    `void-reveal-yubikey-key` heredoc MUST stay UNQUOTED (`<< INNER_EOF`, like
+    the limine-env heredoc) so its `${YK_SLOT}`/`${YK_CHALLENGE}` placeholders
+    bake at install time — cryptroot-ask execs keyscripts with no environment,
+    so a quoted heredoc leaves unbound vars under `set -u` and a possession-only
+    boot can never unlock. This boot unlock path is real-hardware UNPROVEN —
+    validate on the target medium before trusting a possession-only install.
 
 ## System/init constraints
 

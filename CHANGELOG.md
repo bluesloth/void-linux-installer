@@ -10,7 +10,28 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta9** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta10** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta10 — YubiKey keyscript value-bake fix (`[YK-KEYSCRIPT-BAKE]`)
+
+- **`[YK-KEYSCRIPT-BAKE]`** — the boot keyscript
+  `/usr/local/sbin/void-reveal-yubikey-key` was generated from a **quoted**
+  heredoc (`<< 'INNER_EOF'`) while every other value-baking heredoc in the
+  installer (notably `<etc/void-installer/limine-env`) is **unquoted**
+  (`<< INNER_EOF`). As a result the installed keyscript carried literal
+  unexpanded `YK_SLOT="${YK_SLOT}"` / `YK_CHALLENGE="${YK_CHALLENGE}"` tokens.
+  Nothing feeds those variables into keyscripts at boot — the `99void-yubikey`
+  cryptroot-ask override execs them with no environment — so under `set -u`
+  the keyscript aborted on its first line and a possession-only (`YK_FALLBACK=no`)
+  boot could never unlock (with `YK_FALLBACK=yes` the failure silently degraded
+  to the typed-passphrase prompt, which is exactly why the flaw could hide
+  behind an "unproven boot path" label). The heredoc is now unquoted, matching
+  the limine-env pattern, so the public SLOT and CHALLENGE values bake into the
+  file at install time; the HMAC response is still never stored. Only public
+  values change — the `-${YK_SLOT} "$YK_CHALLENGE"` challenge invocation stays
+  byte-identical to enroll/resume.
 
 ---
 

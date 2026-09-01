@@ -250,7 +250,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta9"
+SCRIPT_VERSION="3.3.0-beta10"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -326,6 +326,7 @@ cleanup_on_failure() {
     # Everything here is guarded (|| true) so the unwind below still runs even
     # if the journal write itself fails.
     # =========================================================================
+    # shellcheck disable=SC2094  # journaled failure trace mirrors the journal's own recent history
     {
         echo "############################################################"
         echo "# Void Linux Installer — FAILURE TRACE — $(date)"
@@ -863,8 +864,8 @@ if [ "$ENABLE_HIBERNATION" = "true" ]; then
     if [ "${_RAM_MB}" -le 0 ] 2>/dev/null || ! [[ "${_RAM_MB}" =~ ^[0-9]+$ ]]; then
         _RAM_MB=8192
     fi
-    _RAM_GB=$(( ( (_RAM_MB + 1023) / 1024 ) ))   # whole GiB of RAM, rounded up
-    _SWAP_GB=$(( ( (_RAM_GB * 5) + 3 ) / 4 ))    # ceil(RAM_GB * 1.25)
+    _RAM_GB=$(( (_RAM_MB + 1023) / 1024 ))   # whole GiB of RAM, rounded up
+    _SWAP_GB=$(( (_RAM_GB * 5 + 3) / 4 ))    # ceil(RAM_GB * 1.25)
     SWAPFILE_SIZE="${_SWAP_GB}g"
     unset _RAM_MB _RAM_GB _SWAP_GB
 elif [ "$SWAPFILE_MODE" = "true" ]; then
@@ -1883,7 +1884,8 @@ fi
 if [ "$RESUME" != "1" ]; then
 DETECTED_NIC=""
 
-for _nic_candidate in $(ls /sys/class/net/ 2>/dev/null); do
+for _nic_candidate in /sys/class/net/*/; do
+    _nic_candidate="${_nic_candidate%/}"
     [ -e "/sys/class/net/${_nic_candidate}/device" ] || continue
     [ -d "/sys/class/net/${_nic_candidate}/wireless" ] && continue
     if [ "$(cat "/sys/class/net/${_nic_candidate}/carrier" 2>/dev/null)" = "1" ]; then
@@ -1893,7 +1895,8 @@ for _nic_candidate in $(ls /sys/class/net/ 2>/dev/null); do
 done
 
 if [ -z "$DETECTED_NIC" ]; then
-    for _nic_candidate in $(ls /sys/class/net/ 2>/dev/null); do
+    for _nic_candidate in /sys/class/net/*/; do
+        _nic_candidate="${_nic_candidate%/}"
         [ -e "/sys/class/net/${_nic_candidate}/device" ] || continue
         [ -d "/sys/class/net/${_nic_candidate}/wireless" ] && continue
         case "$(readlink -f "/sys/class/net/${_nic_candidate}/device" 2>/dev/null)" in
@@ -2222,6 +2225,7 @@ if [ "$DRY_RUN" = "1" ]; then
 else
 for REPO_ATTEMPT in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2"; do
     echo "==> Attempting live-CD package sync against repository: ${REPO_ATTEMPT}"
+    # shellcheck disable=SC2086  # $YK_LIVE_PKGS is a space-separated package list, split on purpose
     if xbps-install -Syu -R "$REPO_ATTEMPT" xbps -y && xbps-install -R "$REPO_ATTEMPT" gptfdisk parted btrfs-progs openssl${YK_LIVE_PKGS} -y; then
         LIVECD_SYNC_OK=1
         echo "==> Live-CD package sync succeeded using: ${REPO_ATTEMPT}"
@@ -2290,13 +2294,14 @@ if [ "$RESUME" != "1" ] && [ "$YK_MODE" = "hmac-sha1" ]; then
     else
         YK_TOUCH_OPT=""
         [ "$YK_TOUCH" = "yes" ] && YK_TOUCH_OPT=" -ochal-btn-trig"
-        if ! ykpersonalize -${YK_SLOT} -ochal-resp -ochal-hmac -ohmac-lt64 -oserial-api-visible${YK_TOUCH_OPT} -y 2>&1; then
+        # shellcheck disable=SC2086  # deliberate split of space-prefixed $YK_TOUCH_OPT into a flag
+        if ! ykpersonalize "-${YK_SLOT}" -ochal-resp -ochal-hmac -ohmac-lt64 -oserial-api-visible${YK_TOUCH_OPT} -y 2>&1; then
             echo "FATAL: ykpersonalize failed to program slot ${YK_SLOT}. Check the YubiKey is plugged in (no hub pass-through) and not read-only." >&2
             exit 1
         fi
         YK_CHALLENGE=$(head -c 20 /dev/urandom | od -An -tx1 | tr -d ' \n' | head -c 40)
         [ -z "$YK_CHALLENGE" ] && { echo "FATAL: could not generate the 40-hex YubiKey challenge." >&2; exit 1; }
-        YK_KEY=$(ykchalresp -${YK_SLOT} "$YK_CHALLENGE" 2>&1)
+        YK_KEY=$(ykchalresp "-${YK_SLOT}" "$YK_CHALLENGE" 2>&1)
         [ -z "$YK_KEY" ] && { echo "FATAL: ykchalresp failed to compute the HMAC response. Enrollment incomplete." >&2; exit 1; }
         echo "==> Slot ${YK_SLOT} programmed and LUKS key envelope computed (key held in memory only)."
         unset YK_TOUCH_OPT YK_ENROLL_CONFIRM
@@ -2477,7 +2482,7 @@ else
         # only way in.
         if [ "$YK_MODE" = "hmac-sha1" ]; then
             YK_KEY_FILE="/tmp/void-yubikey-key"
-            YK_KEY=$(ykchalresp -${YK_SLOT} "$YK_CHALLENGE" 2>&1)
+            YK_KEY=$(ykchalresp "-${YK_SLOT}" "$YK_CHALLENGE" 2>&1)
             [ -n "$YK_KEY" ] || { echo "FATAL: YubiKey unlock failed (ykchalresp did not return a response)." >&2; exit 1; }
             printf '%s' "$YK_KEY" > "$YK_KEY_FILE"
             chmod 600 "$YK_KEY_FILE"
@@ -2591,7 +2596,7 @@ if [ "$RESUME" = "1" ]; then
 fi
 
 for subv in $SUBVOL_LIST; do
-    btrfs subvolume create /mnt/$subv
+    btrfs subvolume create /mnt/"$subv"
 done
 umount -v /mnt
 
@@ -2787,6 +2792,7 @@ echo "UUID=$BTRFS_UUID /root               btrfs noatime,compress=zstd:1,subvol=
 
 : > /mnt/tmp/chroot_env.sh
 chmod 600 /mnt/tmp/chroot_env.sh
+# shellcheck disable=SC2129  # per-line appends, grouped for readability
 echo "export BTRFS_UUID=\"$BTRFS_UUID\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_USER=\"$TARGET_USER\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_HOSTNAME=\"$TARGET_HOSTNAME\"" >> /mnt/tmp/chroot_env.sh
@@ -2851,6 +2857,7 @@ fi
 # the challenge is not itself a credential; the HMAC response (YK_KEY) is
 # never exported to chroot_env (secret-free rule, same as the passphrase).
 if [ "$YK_MODE" = "hmac-sha1" ]; then
+    # shellcheck disable=SC2129  # per-line appends, grouped for readability
     echo "export YK_MODE=\"$YK_MODE\"" >> /mnt/tmp/chroot_env.sh
     echo "export YK_SLOT=\"$YK_SLOT\"" >> /mnt/tmp/chroot_env.sh
     echo "export YK_CHALLENGE=\"$YK_CHALLENGE\"" >> /mnt/tmp/chroot_env.sh
@@ -2859,6 +2866,7 @@ if [ "$YK_MODE" = "hmac-sha1" ]; then
 fi
 # AI (Big Pickle) ADDITION — v3.2.0 [item 9]: SESSION_STACK carried into the
 # chroot so Stage 2 can branch elogind vs turnstile+seatd+acpid and validate.
+# shellcheck disable=SC2129  # per-line appends, grouped for readability
 echo "export SESSION_STACK=\"$SESSION_STACK\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_OCTOXBPS=\"$INSTALL_OCTOXBPS\"" >> /mnt/tmp/chroot_env.sh
 echo "export BOOTLOADER=\"$BOOTLOADER\"" >> /mnt/tmp/chroot_env.sh
@@ -4602,15 +4610,24 @@ chmod 0755 /usr/local/sbin/void-limine-write-conf
 # are baked into the file — the HMAC response is never stored, so possession of
 # the YubiKey is the credential. YK_TOUCH=yes adds a button-trigger wait so the
 # response is only issued after physical confirmation.
+# AI (Big Pickle) FIX — v3.3.0-beta10 [YK-KEYSCRIPT-BAKE]: the heredoc below
+# MUST stay UNQUOTED (<< INNER_EOF), exactly like the limine-env heredoc — its
+# ${YK_SLOT}/${YK_CHALLENGE} placeholders are the install-time values that bake
+# the challenge into the file. A quoted heredoc left the literal unexpanded
+# ${...} tokens in the installed keyscript; nothing passes those vars into
+# keyscripts at boot (cryptroot-ask execs them with no environment), so under
+# `set -u` the keyscript aborted on its first `YK_SLOT="${YK_SLOT}"` line and a
+# possession-only boot could never unlock. The body contains no other
+# $/backtick/backslash, so unquoting is safe.
 if [ "$YK_MODE" = "hmac-sha1" ]; then
     mkdir -p /usr/local/sbin
-    cat > /usr/local/sbin/void-reveal-yubikey-key << 'INNER_EOF'
+    cat > /usr/local/sbin/void-reveal-yubikey-key << INNER_EOF
 #!/bin/sh
 # dracut keyscript — prints the HMAC-SHA1 challenge-response OTP for the YubiKey.
 # Never stores the response; the YubiKey's possession is the LUKS credential.
+# The two public values below (slot and challenge) are baked at install time by
+# the UNQUOTED heredoc; nothing in the initramfs environment could provide them.
 set -u
-YK_SLOT="${YK_SLOT}"
-YK_CHALLENGE="${YK_CHALLENGE}"
 # The challenge is intentionally passed the same way it was at enroll (raw
 # 40-hex string, matching the -ohmac-lt64 slot), so the response that dracut
 # feeds luksOpen is identical to the key that luksAddKey bound at install
