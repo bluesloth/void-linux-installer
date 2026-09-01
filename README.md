@@ -134,7 +134,9 @@ neither the target nor the live medium.
     first login doesn't hit zsh's `zsh-newuser-install` wizard (Void's
     zsh package ships no recommended-rc, so it dumps you with the
     "instructions to touch ~/.zshrc" prompt; the mere presence of the
-    file suppresses the wizard).
+    file suppresses the wizard). The same applies to fish: a minimal
+    `~/.config/fish/config.fish` is pre-created so the first login
+    doesn't fire the `fish_config` wizard. bash/mksh are unaffected.
   - Localization, timezone, and session/seat stack (elogind vs. turnstile +
     seatd + acpid).
   - Repo mirror auto-derived from timezone with an override menu

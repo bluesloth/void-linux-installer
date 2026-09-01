@@ -110,7 +110,9 @@
 #     package are carried through chroot_env and the resume state file so a
 #     resumed run restores the choice. (v3.3.0-beta7 [ZSHRC]: when the choice
 #     is zsh, a minimal ~/.zshrc is pre-created for the primary user so the
-#     first login doesn't hit zsh's zsh-newuser-install wizard.)
+#     first login doesn't hit zsh's zsh-newuser-install wizard; likewise a
+#     minimal ~/.config/fish/config.fish for fish so the first login doesn't
+#     hit the fish_config wizard.)
 #   - Desktop (v3.2.0): a real install-time choice, $DESKTOP_ENV — KDE
 #     Plasma (default, primary tested path), Cinnamon via cinnamon-all,
 #     GNOME via the full `gnome` metapackage, Xfce via `xfce4`, MATE via
@@ -3087,7 +3089,7 @@ useradd -m -G "$USER_GROUPS" -s "$USER_SHELL" -c "$TARGET_USER" "$TARGET_USER"
 # fired the wizard. The mere presence of ~/.zshrc suppresses it (the
 # zsh/newuser module halts once any of .zshenv/.zprofile/.zshrc/.zlogin
 # exists). Written with the user's ownership to match useradd -m. Only
-# created when zsh is the chosen shell — bash/fish/mksh are unaffected.
+# created when zsh is the chosen shell.
 if [ "$USER_SHELL" = "/bin/zsh" ]; then
     cat > "/home/${TARGET_USER}/.zshrc" << INNER_EOF
 # Minimal default ~/.zshrc — created by Void_Linux_Installer so the
@@ -3107,6 +3109,27 @@ alias la='ls -A'
 alias l='ls -lh'
 INNER_EOF
     chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.zshrc"
+fi
+# AI (Big Pickle) ADDITION — v3.3.0-beta7 [ZSHRC]: fish also ships a
+# first-run config wizard (fish_config) that fires on first interactive
+# start when ~/.config/fish/config.fish is absent, plus fish prints a
+# notice that the file will be created. The mere presence of
+# ~/.config/fish/config.fish suppresses both — so when fish is the chosen
+# shell, pre-create a minimal one with the user's ownership to match
+# useradd -m. bash/mksh are unaffected (bash ships /etc/skel dotfiles and
+# a system /etc/bash.bashrc; mksh has no interactive-first-run wizard).
+if [ "$USER_SHELL" = "/usr/bin/fish" ]; then
+    mkdir -p "/home/${TARGET_USER}/.config/fish"
+    cat > "/home/${TARGET_USER}/.config/fish/config.fish" << INNER_EOF
+# Minimal default ~/.config/fish/config.fish — created by
+# Void_Linux_Installer so the fish_config wizard doesn't fire on first
+# login. Edit freely.
+set fish_greeting
+abbr -a ll 'ls -lah'
+abbr -a la 'ls -A'
+abbr -a l 'ls -lh'
+INNER_EOF
+    chown -R "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.config/fish"
 fi
 
 if [ "$ACCOUNT_MODEL" = "ubuntu" ]; then

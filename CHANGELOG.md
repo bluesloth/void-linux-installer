@@ -123,7 +123,13 @@ Current version: **3.3.0-beta7** (`SCRIPT_VERSION` in the script).
     zsh path). The mere presence of `~/.zshrc` suppresses it: the
     `zsh/newuser` module halts once any of `.zshenv`/`.zprofile`/`.zshrc`/
     `.zlogin` exists. Written with the user's ownership and gated on
-    `USER_SHELL=/bin/zsh` — bash/fish/mksh are unaffected.
+    `USER_SHELL=/bin/zsh`. The same treatment now applies when the chosen
+    shell is fish: a minimal `~/.config/fish/config.fish` is pre-created so
+    the first login doesn't fire the `fish_config` wizard (fish's own
+    first-run wizard, which also prints a notice that the config file will
+    be created). bash/mksh are unaffected (bash ships `/etc/skel` dotfiles
+    and a system `/etc/bash.bashrc`; mksh has no interactive-first-run
+    wizard).
 
 ---
 
