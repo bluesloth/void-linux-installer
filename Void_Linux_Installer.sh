@@ -46,12 +46,26 @@
 #     filesystem) MUST be read from the opened mapper device, never from the
 #     LUKS container partition (whose UUID is the ciphertext container's, not
 #     the filesystem's), or every boot path below would use the wrong UUID.
-#     Passphrase is typed at boot by dracut's `crypt` module after
+#     The passphrase is typed at boot by dracut's `crypt` module after
 #     `rd.luks.uuid=` on the kernel cmdline (both bootloaders). The swapfile
 #     and its resume offset live inside the LUKS volume, so hibernation
 #     resumes after the passphrase unlocks the volume. The passphrase is held
-#     in memory during the chroot phase only, never persisted. YubiKey /
-#     key-based unlock is a planned follow-up (deferred).
+#     in memory during the chroot phase only, never persisted.
+#     AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: optionally, a
+#     YubiKey hmac-sha1 challenge-response slot can take over boot unlock
+#     instead of / in addition to the typed passphrase. Enrollment programs
+#     an OTP slot with a random secret and binds HMAC-SHA1(slot_secret,
+#     CHALLENGE) as a LUKS key slot; a dracut `keyscript=` in crypttab
+#     challenges the YubiKey at boot and prints that same response as the
+#     key. YK_FALLBACK=yes keeps the typed-passphrase slot too (YubiKey
+#     fails → dracut prompts), YK_FALLBACK=no removes it (YubiKey-only
+#     unlock — possession-required, nothing to type). YubiKey-only requires
+#     BOOTLOADER=limine (GRUB cryptodisk needs a passphrase slot to read the
+#     encrypted /boot); with GRUB the fallback slot is forced on. The
+#     CHALLENGE (public, in the keyscript/limine-env) is not itself a
+#     credential — the response only exists on the YubiKey, so nothing
+#     that unlocks is ever persisted; the passphrase and the HMAC key are
+#     memory-only.
 #   - Most subvolumes use noatime+zstd:1 compression. Several are
 #     deliberately nodatacow+compress=none instead: @swap (COW + compression
 #     both break swapfiles), @libvirt (COW hurts qcow2/raw VM disk
@@ -232,7 +246,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta6"
+SCRIPT_VERSION="3.3.0-beta7"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -871,8 +885,11 @@ export SWAPFILE_SIZE
 # AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: optional LUKS2 full-disk
 # encryption of partition 2 (the Btrfs filesystem). The ESP stays
 # unencrypted. When enabled, the user types a passphrase (twice, hiding it)
-# so it never lands on screen; YubiKey/key-based unlock is a deferred
-# follow-up, so today the only unlock method is the typed passphrase.
+# so it never lands on screen. Since v3.3.0-beta7 this passphrase can be
+# supplemented or replaced by YubiKey hmac-sha1 unlock ([YUBIKEY]); the
+# passphrase is always captured here so luksFormat has a primary slot to
+# create the container with (and, at boot, YK_FALLBACK=yes lets it stand in
+# if the YubiKey is absent).
 # ENCRYPT (yes/no) is persisted in the resume state file; the passphrase is
 # NOT — it lives only in this process's memory for the duration of the chroot
 # phase and is unset as soon as luksFormat/luksOpen are done, so a crashed-
@@ -917,6 +934,72 @@ case "$ENCRYPT_INPUT" in
         ;;
 esac
 export ENCRYPT
+
+# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: optional YubiKey
+# hmac-sha1 challenge-response unlock, offered only when encryption was
+# enabled. The YubiKey is REQUIRED to be present at install time — enrollment
+# programs a real OTP slot and binds the HMAC response as a LUKS key slot, so
+# it cannot be done later without the key. These prompt-time answers are
+# persisted (state + chroot_env + limine-env); only the CHALLENGE+SLOT+mode
+# are stored — the actual HMAC key and the passphrase are never written.
+# YK_MODE is in {off,hmac-sha1}; YK_FALLBACK in {yes,no}
+# (yes = keep a typed-passphrase slot too; no = YubiKey-only);
+# YK_SLOT in {1,2} (default 1); YK_TOUCH in {yes,no} (require a physical
+# touch on the YubiKey to unlock at boot — default yes for stronger
+# possession confirm). The actual slot programming + key computation happen
+# LATER (after the live-CD sync, once ykpers is available) — see the
+# ADDITION block before CHROOT_START.
+YK_MODE="off"
+YK_FALLBACK="yes"
+YK_SLOT="1"
+YK_TOUCH="no"
+if [ "$ENCRYPT" = "yes" ]; then
+    echo ""
+    echo "${C_BOLD}${C_BLU}YubiKey hmac-sha1 unlock?${C_RST}"
+    echo ""
+    echo "  Optionally bind a YubiKey hmac-sha1 challenge-response slot so the disk"
+    echo "  unlocks by tapping the key at boot instead of (or in addition to) typing"
+    echo "  the passphrase. The YubiKey MUST be plugged in now: enrollment programs"
+    echo "  a real slot and stamps the HMAC response as a LUKS key slot. Slot 1 is"
+    echo "  used by default (also the OTP default); use slot 2 if slot 1 is in use."
+    echo ""
+    ask "Set up YubiKey hmac-sha1 unlock? [y/N]: "
+    read -r YK_INPUT
+    case "$YK_INPUT" in
+        [yY]*)
+            YK_MODE="hmac-sha1"
+            while :; do
+                ask "Which OTP slot to program (1 or 2)? [1]: "
+                read -r YK_SLOT_INPUT
+                case "${YK_SLOT_INPUT:-1}" in
+                    1|2) YK_SLOT="$YK_SLOT_INPUT"; break ;;
+                    *) echo "Please enter 1 or 2." >&2 ;;
+                esac
+            done
+            ask "Require a physical touch on the YubiKey to unlock at boot? [Y/n]: "
+            read -r YK_TOUCH_INPUT
+            case "$YK_TOUCH_INPUT" in
+                [nN]*) YK_TOUCH="no" ;;
+                *)     YK_TOUCH="yes" ;;
+            esac
+            echo ""
+            echo "  Passphrase fallback: with 'yes' (default) the typed passphrase slot is"
+            echo "  kept too, so YubiKey absent/wrong still boots by typing the passphrase."
+            echo "  With 'no' the passphrase slot is removed and the YubiKey is the ONLY"
+            echo "  unlock — possession-required, nothing to type. NOTE: YubiKey-only is"
+            echo "  only supported with the Limine bootloader (GRUB must read the encrypted"
+            echo "  /boot via a passphrase), so with GRUB the fallback is kept regardless."
+            ask "Keep the typed-passphrase fallback (YubiKey OR passphrase)? [Y/n]: "
+            read -r YK_FALLBACK_INPUT
+            case "$YK_FALLBACK_INPUT" in
+                [nN]*) YK_FALLBACK="no" ;;
+                *)     YK_FALLBACK="yes" ;;
+            esac
+            ;;
+    esac
+fi
+export YK_MODE YK_FALLBACK YK_SLOT YK_TOUCH
+unset YK_INPUT YK_SLOT_INPUT YK_TOUCH_INPUT YK_FALLBACK_INPUT
 
 # AI (Claude, Sonnet 5, Medium) ADDITION: Whether PipeWire autostarts during a read-only
 # snapshot/overlay boot is now a real install-time choice instead of an
@@ -965,6 +1048,9 @@ echo "${C_BOLD}${C_BLU}Choose bootloader${C_RST}"
 echo "  ${C_BOLD}1)${C_RST} ${C_GRN}GRUB${C_RST} — mature, battle-tested snapshot-boot support via"
 echo "     grub-btrfs. Extensively real-hardware tested on this script's"
 echo "     3.0.x line, including snapshot boot. 1GiB EFI partition."
+echo "     ${C_RED}NOTE:[YUBIKEY] if YubiKey-only unlock (YK_FALLBACK=no) was"
+echo "     selected, GRUB cannot be used — GRUB cryptodisk must read the"
+echo "     encrypted /boot via a typed passphrase, so fallback is forced on.${C_RST}"
 echo "  ${C_BOLD}2)${C_RST} ${C_YLW}Limine${C_RST} — newer, simpler, single-file UEFI bootloader with no"
 echo "     efibootmgr/NVRAM dependency. Snapshot-boot menu support is a"
 echo "     static config this script writes itself (no grub-btrfs"
@@ -983,6 +1069,22 @@ while true; do
 done
 export BOOTLOADER
 export EFI_PART_SIZE
+
+# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: GRUB cryptodisk must
+# unlock /boot (inside the encrypted @grub) via a typed passphrase at early
+# boot — a YubiKey-only volume (no passphrase LUKS slot) is unreadable by
+# GRUB. YubiKey-only unlock therefore requires BOOTLOADER=limine (whose ESP
+# kernel copies live on the unencrypted ESP). If the user picked GRUB after
+# asking for YubiKey-only, CLAMP the fallback back on here, after the
+# bootloader prompt, so the constraint is reflected in persisted state and
+# in every summary/dry-run below. This is the single canonical place the
+# dependency is resolved (mirrored by the same enforced fact in
+# void-limine-write-conf / crypttab generation later).
+if [ "$BOOTLOADER" = "grub" ] && [ "$YK_MODE" = "hmac-sha1" ] && [ "$YK_FALLBACK" = "no" ]; then
+    echo "==> [YUBIKEY] YubiKey-only unlock needs GRUB to read an encrypted /boot via a"
+    echo "       typed passphrase — keeping the passphrase fallback slot (YK_FALLBACK=yes)."
+    YK_FALLBACK="yes"
+fi
 
 # AI (Big Pickle) ADDITION — v3.3.0-beta3 [LIMINE-WALLPAPER]: optional boot-
 # screen background image for Limine. Void's limine package ships the plain
@@ -1984,7 +2086,7 @@ fi
 echo "${C_BOLD}  Locale / Zone    :${C_RST} ${LOCALE} / ${TIMEZONE}"
 echo "${C_BOLD}  Repo (primary)   :${C_RST} ${REPO_PRIMARY}"
 echo "${C_BOLD}  Swap             :${C_RST} ${_rev_swap}${ENABLE_HIBERNATION:+  (hibernation: ${ENABLE_HIBERNATION})}"
-echo "${C_BOLD}  Encryption       :${C_RST} $([ "$ENCRYPT" = "yes" ] && echo "LUKS2 full-disk (passphrase required at boot)" || echo "none")"
+echo "${C_BOLD}  Encryption       :${C_RST} $([ "$ENCRYPT" = "yes" ] && { [ "$YK_MODE" = "hmac-sha1" ] && echo "LUKS2 full-disk + YubiKey hmac-sha1 (fallback: $YK_FALLBACK)" || echo "LUKS2 full-disk (passphrase at boot)"; } || echo "none")"
 if [ "$ACCOUNT_MODEL" = "hybrid" ]; then
     _rev_acct="hybrid (root password + user sudo)"
 elif [ "$ACCOUNT_MODEL" = "debian" ]; then
@@ -2038,18 +2140,24 @@ REPO_BACKUP1="${REPO_BACKUP1:-https://repo-fastly.voidlinux.org/current}"
 REPO_BACKUP2="${REPO_BACKUP2:-https://repo-default.voidlinux.org/current}"
 
 LIVECD_SYNC_OK=0
+# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: when YubiKey hmac-sha1
+# unlock was requested, the live medium also needs the ykpers C tools
+# (ykpersonalize + ykchalresp) to program the slot and compute the HMAC key.
+# They are added to the sync (and to the prereq list below) only in that case.
+YK_LIVE_PKGS=""
+[ "$YK_MODE" = "hmac-sha1" ] && YK_LIVE_PKGS=" ykpers"
 if [ "$DRY_RUN" = "1" ]; then
     # AI (Big Pickle) ADDITION — v3.3.0-beta3 [DRY-RUN]: a plan run must not
     # modify the live environment (xbps-install -Syu would sync/upgrade and
     # install gptfdisk/parted/btrfs-progs/openssl into the running medium).
     # Pretend success so the flow reaches the plan printout at the partition
     # boundary; the packages are not actually installed.
-    echo "==> [DRY-RUN] Skipping live-CD package sync (would install gptfdisk/parted/btrfs-progs/openssl into the live env)."
+    echo "==> [DRY-RUN] Skipping live-CD package sync (would install gptfdisk/parted/btrfs-progs/openssl${YK_LIVE_PKGS} into the live env)."
     LIVECD_SYNC_OK=1
 else
 for REPO_ATTEMPT in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2"; do
     echo "==> Attempting live-CD package sync against repository: ${REPO_ATTEMPT}"
-    if xbps-install -Syu -R "$REPO_ATTEMPT" xbps -y && xbps-install -R "$REPO_ATTEMPT" gptfdisk parted btrfs-progs openssl -y; then
+    if xbps-install -Syu -R "$REPO_ATTEMPT" xbps -y && xbps-install -R "$REPO_ATTEMPT" gptfdisk parted btrfs-progs openssl${YK_LIVE_PKGS} -y; then
         LIVECD_SYNC_OK=1
         echo "==> Live-CD package sync succeeded using: ${REPO_ATTEMPT}"
         break
@@ -2075,7 +2183,7 @@ fi
 # medium, so a Void Live ISO that ships without curl (as some do) made this
 # prereq FATAL even though the sync "succeeded". It is removed below.
 for _prereq in sgdisk mkfs.fat mkfs.btrfs btrfs parted openssl mount umount \
-               chroot lsblk blkid xbps-install; do
+               chroot lsblk blkid xbps-install${YK_LIVE_PKGS:+ ykpersonalize ykchalresp}; do
     if ! command -v "$_prereq" >/dev/null 2>&1; then
         echo "FATAL: required live-CD command not found: '${_prereq}'." >&2
         echo "       The live-CD package sync reported success, but this tool is missing." >&2
@@ -2083,6 +2191,52 @@ for _prereq in sgdisk mkfs.fat mkfs.btrfs btrfs parted openssl mount umount \
     fi
 done
 unset _prereq
+
+# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: YubiKey hmac-sha1
+# enrollment. Only reached for a fresh (non-resumed) run when YK_MODE=hmac-sha1.
+# Programming a slot is DESTRUCTIVE, so it happens here (after the live-CD sync
+# installed ykpers) with an explicit final confirmation naming the slot. The
+# slot secret is generated on the fly by ykpersonalize; we then bind
+# HMAC-SHA1(slot_secret, CHALLENGE) as a NEW LUKS key slot. The CHALLENGE
+# (40-hex, from 20 random bytes) is public — it is persisted so boot-time
+# keyscript/limine-env can re-issue it — but the HMAC response (YK_KEY) is
+# the actual LUKS credential and is kept ONLY in this process's memory: it is
+# used to luksAddKey the slot during partitioning and then unset. It is
+# NEVER written to the state file, limine-env, chroot_env, or install-config.
+if [ "$RESUME" != "1" ] && [ "$YK_MODE" = "hmac-sha1" ]; then
+    echo ""
+    echo "${C_BOLD}${C_BLU}YubiKey hmac-sha1 enrollment${C_RST}"
+    echo ""
+    echo "  The installer is about to PROGRAM OTP slot ${YK_SLOT} on the attached"
+    echo "  YubiKey with a freshly generated random secret. This OVERWRITES whatever"
+    echo "  currently lives in that slot (e.g. any OTP/static-password config)."
+    echo "  The unlocked volume will expect HMAC-SHA1(slot_secret, challenge) as a"
+    echo "  LUKS key at every boot."
+    echo ""
+    ask "Program slot ${YK_SLOT} now — confirm the key is plugged in? [y/N]: "
+    read -r YK_ENROLL_CONFIRM
+    if ! { [ "$YK_ENROLL_CONFIRM" = "y" ] || [ "$YK_ENROLL_CONFIRM" = "Y" ]; }; then
+        echo ">>> YubiKey enrollment aborted; installing without YubiKey unlock (passphrase only)." >&2
+        YK_MODE="off"
+        YK_FALLBACK="yes"
+        YK_SLOT="1"
+        YK_TOUCH="no"
+        YK_LIVE_PKGS=""
+    else
+        YK_TOUCH_OPT=""
+        [ "$YK_TOUCH" = "yes" ] && YK_TOUCH_OPT=" -ochal-btn-trig"
+        if ! ykpersonalize -${YK_SLOT} -ochal-resp -ochal-hmac -ohmac-lt64 -oserial-api-visible${YK_TOUCH_OPT} -y 2>&1; then
+            echo "FATAL: ykpersonalize failed to program slot ${YK_SLOT}. Check the YubiKey is plugged in (no hub pass-through) and not read-only." >&2
+            exit 1
+        fi
+        YK_CHALLENGE=$(head -c 20 /dev/urandom | od -An -tx1 | tr -d ' \n' | head -c 40)
+        [ -z "$YK_CHALLENGE" ] && { echo "FATAL: could not generate the 40-hex YubiKey challenge." >&2; exit 1; }
+        YK_KEY=$(ykchalresp -${YK_SLOT} "$YK_CHALLENGE" 2>&1)
+        [ -z "$YK_KEY" ] && { echo "FATAL: ykchalresp failed to compute the HMAC response. Enrollment incomplete." >&2; exit 1; }
+        echo "==> Slot ${YK_SLOT} programmed and LUKS key envelope computed (key held in memory only)."
+        unset YK_TOUCH_OPT YK_ENROLL_CONFIRM
+    fi
+fi
 
 # AI (Big Pickle) CHANGE — v3.2.0 [RESUME]: Password hashing is skipped on a
 # resumed run — the hashes are already restored from the state file, and the
@@ -2118,6 +2272,7 @@ fi
                SESSION_STACK ENABLE_SNAPSHOT_AUDIO \
                LOCALE LOCALE_CODESET TIMEZONE SWAP_BACKEND SWAPFILE_MODE ENABLE_HIBERNATION SWAPFILE_SIZE \
                ENCRYPT \
+               YK_MODE YK_FALLBACK YK_SLOT YK_CHALLENGE YK_TOUCH \
                REPO_PRIMARY REPO_BACKUP1 REPO_BACKUP2 \
                DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
                INSTALL_FLATPAK INSTALL_FIREFOX INSTALL_CHROMIUM \
@@ -2160,7 +2315,7 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "  Locale / Timezone     : ${LOCALE:-<unset>} / ${TIMEZONE:-<unset>}"
     echo "  Repo (primary)        : ${REPO_PRIMARY:-<unset>}"
     echo "  Swap / Hibernation    : ${SWAP_BACKEND:-<unset>} / ${ENABLE_HIBERNATION:-<unset>}"
-    echo "  Encryption            : ${ENCRYPT:-no}${ENCRYPT:+$([ "$ENCRYPT" = "yes" ] && echo " (LUKS2 full-disk, passphrase at boot)" || true)}"
+    echo "  Encryption            : ${ENCRYPT:-no}${ENCRYPT:+$([ "$ENCRYPT" = "yes" ] && { [ "$YK_MODE" = "hmac-sha1" ] && echo " (LUKS2 full-disk + YubiKey hmac-sha1, fallback=$YK_FALLBACK)" || echo " (LUKS2 full-disk, passphrase at boot)"; } || true)}"
     echo "  Accounts model        : ${ACCOUNT_MODEL:-<unset>}"
     echo "=============================================================="
     echo "  Nothing was written to disk. Re-run WITHOUT --dry-run to install for real."
@@ -2209,6 +2364,28 @@ if [ "$RESUME" != "1" ]; then
         echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV}"
         cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"
         BTRFS_DEV="$CRYPT_DEV"
+        # AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: bind the YubiKey
+        # HMAC response as an ADDITIONAL LUKS key slot while the passphrase
+        # (which authenticated luksFormat) is still in memory. YK_KEY was
+        # computed during enrollment and lives only in this process's memory;
+        # it is written to a 0600 file in /tmp (tmpfs RAM on the live USB)
+        # so luksAddKey can take it via --new-keyfile, then shredded. YK_FALLBACK=no
+        # additionally removes the typed-passphrase slot (slot 0, the one
+        # luksFormat created) for possession-only unlock.
+        if [ "$YK_MODE" = "hmac-sha1" ]; then
+            YK_KEY_FILE="/tmp/void-yubikey-key"
+            printf '%s' "$YK_KEY" > "$YK_KEY_FILE"
+            chmod 600 "$YK_KEY_FILE"
+            echo "==> Binding YubiKey hmac-sha1 response as a LUKS key slot"
+            cryptsetup luksAddKey "$PART_SYS" --key-file=- --new-keyfile="$YK_KEY_FILE" <<<"$ENCRYPT_PASSPHRASE"
+            if [ "$YK_FALLBACK" = "no" ]; then
+                echo "==> Removing the typed-passphrase slot (YubiKey-only unlock)"
+                cryptsetup luksRemoveKey "$PART_SYS" --key-file="$YK_KEY_FILE" --key-slot 0 || true
+            fi
+            shred -u "$YK_KEY_FILE" 2>/dev/null || rm -f "$YK_KEY_FILE"
+            unset YK_KEY YK_KEY_FILE
+            echo "   YubiKey unlock enabled; passphrase fallback=${YK_FALLBACK}."
+        fi
         # The passphrase has served its purpose (luksFormat+luksOpen). Drop
         # it from memory now so it cannot linger through the chroot phase.
         unset ENCRYPT_PASSPHRASE
@@ -2227,18 +2404,50 @@ else
     umount -l /mnt 2>/dev/null || true
 
     if [ "$ENCRYPT" = "yes" ]; then
-        # Resume: the container exists but the mapper is closed. The
-        # passphrase was never persisted, so re-prompt for it (hidden input)
-        # and re-open before mounting the Btrfs tree inside.
-        echo ""
-        echo "Enter the passphrase to unlock ${PART_SYS} (LUKS2):"
-        read -r -s ENCRYPT_PASSPHRASE
-        echo
-        [ -n "$ENCRYPT_PASSPHRASE" ] || { echo "FATAL: empty passphrase." >&2; exit 1; }
-        echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV}"
-        cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"
+        # Resume: the container exists but the mapper is closed. With YubiKey
+        # unlock enabled, prefer unlocking via the hmac-sha1 response (the
+        # YubiKey is still at hand on the live medium); only a genuine YubiKey
+        # failure falls back to the typed passphrase, and only when a fallback
+        # slot exists. With YK_FALLBACK=no (possession-only) the YubiKey is the
+        # only way in.
+        if [ "$YK_MODE" = "hmac-sha1" ]; then
+            YK_KEY_FILE="/tmp/void-yubikey-key"
+            YK_KEY=$(ykchalresp -${YK_SLOT} "$YK_CHALLENGE" 2>&1)
+            [ -n "$YK_KEY" ] || { echo "FATAL: YubiKey unlock failed (ykchalresp did not return a response)." >&2; exit 1; }
+            printf '%s' "$YK_KEY" > "$YK_KEY_FILE"
+            chmod 600 "$YK_KEY_FILE"
+            echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV} (YubiKey)"
+            if ! cryptsetup luksOpen --key-file="$YK_KEY_FILE" "$PART_SYS" void-root; then
+                shred -u "$YK_KEY_FILE" 2>/dev/null || rm -f "$YK_KEY_FILE"
+                unset YK_KEY YK_KEY_FILE
+                if [ "$YK_FALLBACK" = "yes" ]; then
+                    echo "   YubiKey unlock failed (absent/wrong?). Falling back to typed passphrase." >&2
+                    echo ""
+                    echo "Enter the passphrase to unlock ${PART_SYS} (LUKS2):"
+                    read -r -s ENCRYPT_PASSPHRASE
+                    echo
+                    [ -n "$ENCRYPT_PASSPHRASE" ] || { echo "FATAL: empty passphrase." >&2; exit 1; }
+                    cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"
+                    unset ENCRYPT_PASSPHRASE
+                else
+                    echo "FATAL: YubiKey unlock failed and no passphrase fallback exists (possession-only)." >&2
+                    exit 1
+                fi
+            else
+                shred -u "$YK_KEY_FILE" 2>/dev/null || rm -f "$YK_KEY_FILE"
+                unset YK_KEY YK_KEY_FILE
+            fi
+        else
+            echo ""
+            echo "Enter the passphrase to unlock ${PART_SYS} (LUKS2):"
+            read -r -s ENCRYPT_PASSPHRASE
+            echo
+            [ -n "$ENCRYPT_PASSPHRASE" ] || { echo "FATAL: empty passphrase." >&2; exit 1; }
+            echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV}"
+            cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"
+            unset ENCRYPT_PASSPHRASE
+        fi
         BTRFS_DEV="$CRYPT_DEV"
-        unset ENCRYPT_PASSPHRASE
         jl "LUKS2 mapper re-opened for resume: $PART_SYS -> $BTRFS_DEV"
     fi
 
@@ -2459,7 +2668,22 @@ EOF
 # written when encryption is enabled.
 if [ "$ENCRYPT" = "yes" ]; then
     LUKS_UUID=$(blkid -s UUID -o value "$PART_SYS")
-    echo "void-root UUID=$LUKS_UUID none luks" > /mnt/etc/crypttab
+    if [ "$YK_MODE" = "hmac-sha1" ]; then
+        # AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: with YubiKey
+        # unlock, crypttab points at a boot-time keyscript instead of
+        # prompting for a passphrase. dracut runs
+        # /usr/local/sbin/void-reveal-yubikey-key, which challenges the
+        # YubiKey (slot $YK_SLOT, challenge $YK_CHALLENGE) and prints the
+        # HMAC response as the LUKS key; cryptroot-ask feeds it to luksOpen.
+        # With YK_FALLBACK=yes, if the YubiKey is absent/wrong the luksOpen
+        # fails and dracut's cryptroot-ask falls back to the typed passphrase
+        # prompt automatically — that is the boot-time fallback path. With
+        # YK_FALLBACK=no there is no fallback slot, so only the YubiKey opens
+        # the volume (possession-only).
+        echo "void-root UUID=$LUKS_UUID none luks,keyscript=/usr/local/sbin/void-reveal-yubikey-key" > /mnt/etc/crypttab
+    else
+        echo "void-root UUID=$LUKS_UUID none luks" > /mnt/etc/crypttab
+    fi
 fi
 
 # AI (Big Pickle) CHANGE — v3.2.0 [SWAP]: fstab swap entries now appear only
@@ -2555,6 +2779,18 @@ echo "export ENCRYPT=\"$ENCRYPT\"" >> /mnt/tmp/chroot_env.sh
 # passphrase. Computed at fstab/crypttab-write time when encrypted.
 if [ "$ENCRYPT" = "yes" ]; then
     echo "export LUKS_UUID=\"$LUKS_UUID\"" >> /mnt/tmp/chroot_env.sh
+fi
+# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: carry the YubiKey unlock
+# choices into the chroot so Stage 2 can write the keyscript-invoking crypttab
+# and the dracut module. Persisted values are PUBLIC (mode, slot, challenge) —
+# the challenge is not itself a credential; the HMAC response (YK_KEY) is
+# never exported to chroot_env (secret-free rule, same as the passphrase).
+if [ "$YK_MODE" = "hmac-sha1" ]; then
+    echo "export YK_MODE=\"$YK_MODE\"" >> /mnt/tmp/chroot_env.sh
+    echo "export YK_SLOT=\"$YK_SLOT\"" >> /mnt/tmp/chroot_env.sh
+    echo "export YK_CHALLENGE=\"$YK_CHALLENGE\"" >> /mnt/tmp/chroot_env.sh
+    echo "export YK_FALLBACK=\"$YK_FALLBACK\"" >> /mnt/tmp/chroot_env.sh
+    echo "export YK_TOUCH=\"$YK_TOUCH\"" >> /mnt/tmp/chroot_env.sh
 fi
 # AI (Big Pickle) ADDITION — v3.2.0 [item 9]: SESSION_STACK carried into the
 # chroot so Stage 2 can branch elogind vs turnstile+seatd+acpid and validate.
@@ -2891,6 +3127,12 @@ install_pkgs ${MICROCODE_PKG} linux-firmware dracut sudo vim nano bash bash-comp
 # (the dracut `crypt` module needs the cryptsetup binary + udev rules to
 # unlock the volume at boot). Not installed for the unencrypted default.
 [ "$ENCRYPT" = "yes" ] && install_pkgs cryptsetup
+# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: install the C-only
+# `yubikey-personalization` (ykpers) tools (ykpersonalize for enrolling already
+# ran on the live medium; ykchalresp is what the initramfs keyscript calls at
+# boot). C + libusb only, so it fits cleanly in the dracut initramfs — the same
+# tool is used at both enroll and boot to keep hmac-lt64 consistent.
+[ "$YK_MODE" = "hmac-sha1" ] && install_pkgs ykpers
 
 # AI (Claude, Sonnet 5, Medium) ADDITION: sddm/NetworkManager/dbus/elogind
 # are DE-agnostic base bits both options need. wayland/wayland-protocols
@@ -3930,6 +4172,17 @@ LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE}"
 # boot cmdline), never the passphrase. Empty/unset when not encrypted.
 ENCRYPT="${ENCRYPT}"
 LUKS_UUID="${LUKS_UUID}"
+# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: persisted so
+# void-limine-write-conf re-emits the rd.luks.name=void-root keyscript unlock
+# params on every kernel update / cron resync, consistent with how the
+# encryption params above are carried. Only PUBLIC values are baked — SLOT and
+# CHALLENGE are not credentials (the HMAC response is; it is NEVER persisted).
+# Unset/empty when YubiKey unlock is off.
+YK_MODE="${YK_MODE}"
+YK_SLOT="${YK_SLOT}"
+YK_CHALLENGE="${YK_CHALLENGE}"
+YK_FALLBACK="${YK_FALLBACK}"
+YK_TOUCH="${YK_TOUCH}"
 INNER_EOF
 chmod 644 /etc/void-installer/limine-env
 
@@ -4183,6 +4436,38 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
 mv -f "$TMP_CONF" /boot/efi/EFI/BOOT/limine.conf
 INNER_EOF
 chmod 0755 /usr/local/sbin/void-limine-write-conf
+
+# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: standalone keyscript that
+# dracut's cryptroot-ask runs at boot to obtain the LUKS key WITHOUT a typed
+# passphrase. It challenges the YubiKey (slot $YK_SLOT programmed with hmac-lt64
+# at install time) using $YK_CHALLENGE and prints the HMAC-SHA1 response (the
+# browser-plugin-style OTP body) on stdout; dracut's cryptroot-ask captures that
+# and feeds it to luksOpen. With YK_FALLBACK=yes, if the YubiKey is absent or
+# returns a wrong response the luksOpen fails and cryptroot-ask automatically
+# falls back to a typed-passphrase prompt. Only public values (SLOT + CHALLENGE)
+# are baked into the file — the HMAC response is never stored, so possession of
+# the YubiKey is the credential. YK_TOUCH=yes adds a button-trigger wait so the
+# response is only issued after physical confirmation.
+if [ "$YK_MODE" = "hmac-sha1" ]; then
+    mkdir -p /usr/local/sbin
+    cat > /usr/local/sbin/void-reveal-yubikey-key << 'INNER_EOF'
+#!/bin/sh
+# dracut keyscript — prints the HMAC-SHA1 challenge-response OTP for the YubiKey.
+# Never stores the response; the YubiKey's possession is the LUKS credential.
+set -u
+YK_SLOT="${YK_SLOT}"
+YK_CHALLENGE="${YK_CHALLENGE}"
+# The challenge is intentionally passed the same way it was at enroll (raw
+# 40-hex string, matching the -ohmac-lt64 slot), so the response that dracut
+# feeds luksOpen is identical to the key that luksAddKey bound at install
+# time. If the slot was programmed with -ochal-btn-trig (YK_TOUCH=yes),
+# ykchalresp blocks until the touch naturally; otherwise it responds at once.
+# On failure print nothing and exit non-zero so dracut falls back to the
+# passphrase prompt when YK_FALLBACK=yes.
+exec ykchalresp -${YK_SLOT} "${YK_CHALLENGE}"
+INNER_EOF
+    chmod 0755 /usr/local/sbin/void-reveal-yubikey-key
+fi
 
 # AI (Claude, Sonnet 5, Medium) ADDITION — v3.1.0-beta1 [LIMINE-MULTI-KERNEL]
 # (item 12): esp-copy mode previously kept exactly ONE kernel/initramfs
@@ -4482,6 +4767,37 @@ INNER_EOF
 # by every initramfs the kernel-hook regen loop builds.
 if [ "$ENCRYPT" = "yes" ]; then
     echo 'add_dracutmodules+=" crypt "' >> /etc/dracut.conf.d/90-system.conf
+fi
+
+# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: when YubiKey unlock is
+# enabled, dracut must ship the keyscript + `ykchalresp` (and its libusb
+# runtime) inside the initramfs, otherwise cryptroot-ask could not run
+# /usr/local/sbin/void-reveal-yubikey-key at boot. Written as a dedicated
+# module so the initramfs is self-contained. ykpers is a plain C + libusb
+# tool, so `inst` + `inst_libdir_file` cover it — no heavyweight runtime.
+if [ "$YK_MODE" = "hmac-sha1" ]; then
+    mkdir -p /usr/lib/dracut/modules.d/60void-yubikey
+    cat > /usr/lib/dracut/modules.d/60void-yubikey/module-setup.sh << 'INNER_EOF'
+#!/bin/bash
+
+check() {
+    require_binaries ykchalresp || return 1
+    return 0
+}
+
+depends() {
+    echo base
+    return 0
+}
+
+install() {
+    inst /usr/local/sbin/void-reveal-yubikey-key /usr/local/sbin/void-reveal-yubikey-key
+    inst_binary ykchalresp /usr/bin/ykchalresp
+    inst_libdir_file "libusb-*.so*" "libusb-*.so.*"
+}
+INNER_EOF
+    chmod 0755 /usr/lib/dracut/modules.d/60void-yubikey/module-setup.sh
+    echo 'add_dracutmodules+=" 60void-yubikey "' >> /etc/dracut.conf.d/90-system.conf
 fi
 
 mkdir -p /usr/lib/dracut/modules.d/95snapshot-overlay
@@ -4900,7 +5216,7 @@ esac
 unset _SWAP_DISPLAY_SIZE
 echo "${C_BOLD}  Swap:${C_RST}         ${_SWAP_FRIENDLY}"
 echo "${C_BOLD}  Hibernation:${C_RST}  ${ENABLE_HIBERNATION}"
-echo "${C_BOLD}  Encryption:${C_RST}   $([ "$ENCRYPT" = "yes" ] && echo "LUKS2 full-disk (passphrase required at boot)" || echo "none")"
+echo "${C_BOLD}  Encryption:${C_RST}   $([ "$ENCRYPT" = "yes" ] && { [ "$YK_MODE" = "hmac-sha1" ] && echo "LUKS2 full-disk + YubiKey hmac-sha1 (fallback: $YK_FALLBACK)" || echo "LUKS2 full-disk (passphrase required at boot)"; } || echo "none")"
 echo ""
 echo "${C_BOLD}  NEXT STEPS${C_RST}"
 echo "${C_GRN}  1.${C_RST} Remove the live USB, then this system will reboot into your install automatically."

@@ -8,8 +8,8 @@ recovery-first, snapshot-friendly system.
 
 | File | Description |
 |------|-------------|
-| `Void_Linux_Installer.sh` | Unified working installer (current version: **v3.3.0-beta6**). Run this. |
-| `CHANGELOG.md` | Reconstructed changelog: records v3.1.0-beta1 → v3.3.0-beta6 from inline markers, plus a clearly-labeled educated estimate of the pre-3.1.0 alpha heritage. |
+| `Void_Linux_Installer.sh` | Unified working installer (current version: **v3.3.0-beta7**). Run this. |
+| `CHANGELOG.md` | Reconstructed changelog: records v3.1.0-beta1 → v3.3.0-beta7 from inline markers, plus a clearly-labeled educated estimate of the pre-3.1.0 alpha heritage. |
 
 ## Usage
 
@@ -110,7 +110,20 @@ neither the target nor the live medium.
     (container) are distinct — the former drives fstab/root/resume, the
     latter crypttab + `rd.luks.uuid=`/`rd.luks.name=` on both GRUB and
     Limine. `cryptsetup` + the dracut `crypt` module are only installed
-    when encryption is on. YubiKey unlock is a deferred follow-up.
+    when encryption is on.
+  - v3.3.0-beta7: **optional YubiKey hmac-sha1 unlock** (`[YUBIKEY]`), the
+    deferred follow-up to `[ENCRYPT]`. Prompts to program an OTP slot with
+    `ykpersonalize` (`-ochal-resp -ochal-hmac -ohmac-lt64`), binds
+    HMAC-SHA1(slot_secret, random 40-hex challenge) as an *additional* LUKS
+    key slot, and ships a dracut `keyscript=` (`void-reveal-yubikey-key`)
+    that re-challenges the YubiKey at boot and feeds the response to
+    luksOpen — no typed passphrase. With `YK_FALLBACK=yes` the typed
+    passphrase slot is kept as a boot fallback; `YK_FALLBACK=no`
+    (possession-only) removes it, but that tightens to Limine + YubiKey
+    (GRUB's LUKS2/Argon2i cryptodisk path is unreliable). The HMAC response
+    is memory-only — never persisted (challenge + slot are public; the
+    YubiKey's possession is the credential). Requires `ykpers`
+    (`yubikey-personalization`) on the live medium and in the target.
   - Localization, timezone, and session/seat stack (elogind vs. turnstile +
     seatd + acpid).
   - Repo mirror auto-derived from timezone with an override menu

@@ -10,7 +10,7 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta6** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta7** (`SCRIPT_VERSION` in the script).
 
 ---
 
@@ -58,6 +58,46 @@ Current version: **3.3.0-beta6** (`SCRIPT_VERSION` in the script).
     `ENCRYPT=yes`; an unencrypted install gets neither. Confirmed in the
     CONFIRM step, dry-run plan, and post-install summary as `Encryption:
     LUKS2 full-disk (passphrase required at boot)` / `none`.
+
+---
+
+## v3.3.0-beta7 — optional YubiKey hmac-sha1 unlock
+
+- **`[YUBIKEY]`** — the deferred follow-up to `[ENCRYPT]` is now a real
+  feature: optional YubiKey-based unlock of the LUKS2 volume, eliminating
+  the typed-passphrase-at-every-boot requirement when `ENCRYPT=yes` and a
+  compatible YubiKey is present.
+  - **hmac-sha1 challenge-response** — the installer (when `ENCRYPT=yes`)
+    prompts to program an OTP slot with `ykpersonalize -ochal-resp -ochal-hmac
+    -ohmac-lt64` (slot 1/2, optional `-ochal-btn-trig` touch), binds
+    `HMAC-SHA1(slot_secret, challenge)` as an *additional* LUKS key slot via
+    `cryptsetup luksAddKey`, and writes a dracut `keyscript=`
+    (`/usr/local/sbin/void-reveal-yubikey-key`) into crypttab
+    `void-root UUID=$LUKS_UUID none luks,keyscript=...`. At boot dracut's
+    cryptroot-ask runs the keyscript, which re-challenges the YubiKey with
+    `ykchalresp` and feeds the response to `luksOpen` — no typed passphrase.
+  - **Boot-time fallback (`YK_FALLBACK`)** — `yes` (default) keeps the typed
+    passphrase slot (slot 0) as a boot fallback: if the YubiKey is
+    absent/wrong, dracut's cryptroot-ask falls back to the passphrase prompt
+    automatically. `no` (possession-only) removes slot 0 with
+    `cryptsetup luksRemoveKey` so the YubiKey is the *only* way in; that
+    tighter mode is forced back to `yes` under `BOOTLOADER=grub` (GRUB's
+    LUKS2/Argon2i `cryptodisk` path is unreliable, so a possession-only
+    bootloader absolutely must be guaranteed to read the encrypted volume —
+    Limine booting dracut is the safe pairing).
+  - **Memory-only credential** — the HMAC response (`YK_KEY`) is computed
+    during enrollment, used to `luksAddKey`, and `unset`/shredded — never
+    written to the state file, limine-env, chroot_env, or install-config.
+    Only public values (`YK_MODE`, `YK_SLOT`, `YK_CHALLENGE`, `YK_FALLBACK`,
+    `YK_TOUCH`) are persisted (the challenge is not itself a credential; the
+    response is). Same secret-free rule as the passphrase.
+  - **Package/dracut gating** — `ykpers` (`yubikey-personalization`) is
+    installed on the live medium and into the target ONLY when
+    `YK_MODE=hmac-sha1`; the dracut `60void-yubikey` module (which `inst`s
+    the keyscript + `ykchalresp` + libusb into the initramfs) is only built
+    and added to 90-system.conf then. The resume path re-challenges the
+    key (falling back to the passphrase only when a fallback slot exists,
+    else FATAL — possession-only).
 
 ---
 
@@ -730,6 +770,6 @@ Inline markers used throughout the script (and mirrored here):
 - Feature tags: `[LOCALIZE]`, `[MIRROR]`, `[SWAP]`, `[COSMIC]`, `[RESUME]`,
   `[LIMINE-1/2]`, `[LIMINE-MULTI-KERNEL]`, `[LIMINE-SYNC-CRON]`, `[KERNEL-MODE]`,
   `[KERNEL-HOOK]`, `[DISTROBOX-2/3]`, `[CLONE-RETRY]`, `[FAILURE-JOURNAL]`,
-  `[COSMETIC]`, `[SCRUB]`, `[ENCRYPT]`.
+  `[COSMETIC]`, `[SCRUB]`, `[ENCRYPT]`, `[YUBIKEY]`.
 - Action words: `ADDITION` (new feature), `CHANGE` (behavioral change),
   `FIX` (bug fix), `EXPANSION` (extended feature).

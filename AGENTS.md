@@ -126,6 +126,23 @@ Known regressions that have already broken a real install:
     `rd.luks.uuid=... rd.luks.name=...=void-root` kernel params. Do NOT
     conflate them, and do NOT persist any passphrase to install-config,
     limine-env, resume state, or chroot_env.
+12. `[YUBIKEY]` Optional YubiKey hmac-sha1 unlock (`YK_MODE=hmac-sha1`) is a
+    **typed-passphrase-with-optional-possession-only** feature layered on
+    `[ENCRYPT]`. The HMAC RESPONSE (`YK_KEY`, fed to `luksAddKey`/`luksOpen`)
+    is NEVER persisted — it lives in memory (or a 0600 /tmp tmpfs file that is
+    shredded immediately after use) and is `unset` as soon as the slot is
+    bound/opened. Only PUBLIC values survive: `YK_MODE`, `YK_SLOT`,
+    `YK_CHALLENGE` (a 40-hex randomness string that is a challenge, not a
+    credential), `YK_FALLBACK`, `YK_TOUCH` — persisted to the state file,
+    chroot_env, and limine-env. Do NOT export/write `YK_KEY` to any of those,
+    or to install-config. Keep `ykchalresp` invoked identically at enroll,
+    resume, and in the boot keyscript (`-${YK_SLOT} "$YK_CHALLENGE"`, no
+    `-x`/`-c`) so the response stays byte-identical. `YK_FALLBACK=no`
+    (possession-only) is FORCED back to `yes` under `BOOTLOADER=grub` —
+    GRUB's LUKS2/Argon2i `cryptodisk` path is unreliable, so a possession-only
+    bootloader must be guaranteed to read the volume (Limine is the safe
+    pairing). The dracut `60void-yubikey` module is only built and added to
+    90-system.conf when `YK_MODE=hmac-sha1`.
 
 ## System/init constraints
 
