@@ -1,0 +1,15 @@
+# Dated snapshot copies of the installer. Git's own history replaces the
+# manual dated-snapshot ritual, so these pre-git artifacts are not tracked.
+# The live working file Void_Linux_Installer.sh (no version segment) is NOT
+# ignored and is the tracked source of truth.
+snapshots/
+
+# Editor / OS noise
+*.swp
+*~
+.DS_Store
+
+# Debug artifacts from real-hardware installs / LightDM greeter & snapper
+# probes. Investigative scratch, not part of the shipped tool. Kept on disk,
+# excluded from git.
+Debug/
