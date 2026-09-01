@@ -4,6 +4,10 @@
 # ignored and is the tracked source of truth.
 snapshots/
 
+# Generated from INSTALL_PROMPTS.md the same way the installer prompts would;
+# regenerable via chromium's headless print-to-pdf. Keep only the .md source.
+INSTALL_PROMPTS.pdf
+
 # Editor / OS noise
 *.swp
 *~
