@@ -271,7 +271,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta14"
+SCRIPT_VERSION="3.3.0-beta15"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -610,6 +610,16 @@ while true; do
     echo "Invalid username. Use lowercase letters, digits, '_' or '-', starting with a letter or '_'." >&2
 done
 export TARGET_USER
+
+# AI (Big Pickle) ADDITION — v3.3.0-beta15 [FULLNAME]: prompt for the user's
+# real (display) name, e.g. "Void User", used for the account GECOS field so logins
+# (and greeters/`finger`) show a friendly name instead of the bare username.
+# Deliberately permissive — any printable text is accepted (a name is free-form);
+# only the trailing-newline from `read -r` is stripped.
+echo ""
+ask "Enter the full name of $TARGET_USER (e.g., 'Void User'): "
+read -r TARGET_FULL_NAME
+export TARGET_FULL_NAME
 
 read_password_twice "${TARGET_USER}" TARGET_USER_PASSWORD
 
@@ -2252,7 +2262,7 @@ echo "${C_CYN}${C_BOLD}  REVIEW — please confirm these settings BEFORE anythin
 echo "${C_CYN}==============================================================================${C_RST}"
 echo "${C_BOLD}  Target disk      :${C_RST} ${DISK}"
 echo "${C_BOLD}  Hostname         :${C_RST} ${TARGET_FQDN:-$TARGET_HOSTNAME}"
-echo "${C_BOLD}  Primary user     :${C_RST} ${TARGET_USER}  (login shell: ${_rev_shell})"
+echo "${C_BOLD}  Primary user     :${C_RST} ${TARGET_USER}${TARGET_FULL_NAME:+  (${TARGET_FULL_NAME})}  (login shell: ${_rev_shell})"
 echo "${C_BOLD}  Desktop / DM     :${C_RST} ${_rev_de} / ${_rev_dm}"
 echo "${C_BOLD}  Session stack    :${C_RST} ${SESSION_STACK}"
 echo "${C_BOLD}  Bootloader       :${C_RST} ${BOOTLOADER}"
@@ -2495,6 +2505,7 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "  Desktop / DM          : ${DESKTOP_ENV:-<unset>} / ${DISPLAY_MANAGER:-<unset>}"
     echo "  Session stack         : ${SESSION_STACK:-<unset>}"
     echo "  Login shell           : ${USER_SHELL:-<unset>}"
+    echo "  User / full name      : ${TARGET_USER:-<unset>}${TARGET_FULL_NAME:+ (${TARGET_FULL_NAME})}"
     echo "  Locale / Timezone     : ${LOCALE:-<unset>} / ${TIMEZONE:-<unset>}"
     echo "  Repo (primary)        : ${REPO_PRIMARY:-<unset>}"
     echo "  Swap / Hibernation    : ${SWAP_BACKEND:-<unset>} / ${ENABLE_HIBERNATION:-<unset>}"
@@ -2997,6 +3008,7 @@ chmod 600 /mnt/tmp/chroot_env.sh
 # shellcheck disable=SC2129  # per-line appends, grouped for readability
 echo "export BTRFS_UUID=\"$BTRFS_UUID\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_USER=\"$TARGET_USER\"" >> /mnt/tmp/chroot_env.sh
+echo "export TARGET_FULL_NAME=\"$TARGET_FULL_NAME\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_HOSTNAME=\"$TARGET_HOSTNAME\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_DOMAIN=\"$TARGET_DOMAIN\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_FQDN=\"$TARGET_FQDN\"" >> /mnt/tmp/chroot_env.sh
@@ -3351,7 +3363,7 @@ echo "LANG=${LOCALE}" > /etc/locale.conf
 USER_GROUPS="adm,video,audio"
 [ "$ACCOUNT_MODEL" != "debian" ] && USER_GROUPS="wheel,${USER_GROUPS}"
 [ "$INSTALL_VIRT" = "true" ] && USER_GROUPS="${USER_GROUPS},kvm,libvirt"
-useradd -m -G "$USER_GROUPS" -s "$USER_SHELL" -c "$TARGET_USER" "$TARGET_USER"
+useradd -m -G "$USER_GROUPS" -s "$USER_SHELL" -c "${TARGET_FULL_NAME:-$TARGET_USER}" "$TARGET_USER"
 
 # AI (Big Pickle) ADDITION — v3.3.0-beta7 [ZSHRC]: when zsh is the login
 # shell, pre-create a minimal ~/.zshrc so the user's first interactive
@@ -4545,6 +4557,7 @@ cat > /etc/void-installer/install-config << INNER_EOF
 SCRIPT_VERSION="${SCRIPT_VERSION:-<unknown>}"
 HOSTNAME="${TARGET_HOSTNAME:-<unset>}"
 USER="${TARGET_USER:-<unset>}"
+USER_FULL_NAME="${TARGET_FULL_NAME:-<unset>}"
 USER_SHELL="${USER_SHELL:-<unset>}"
 DESKTOP_ENV="${DESKTOP_ENV:-<unset>}"
 DISPLAY_MANAGER="${DISPLAY_MANAGER:-<unset>}"

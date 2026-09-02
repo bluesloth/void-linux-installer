@@ -10,7 +10,25 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta14** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta15** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta15 — user full-name prompt (`[FULLNAME]`)
+
+After the target username is chosen, the installer now also asks for the
+user's full (display) name, e.g. `Void User`. The name feeds the account's GECOS
+field so logins and greeters show a friendly name instead of the bare username.
+
+- **`[FULLNAME]`** — new permissive prompt right after the username, stored as
+  `TARGET_FULL_NAME`. Free-form (any printable text accepted); blank is fine.
+- Wired through every canonical site:
+  - `useradd -c "${TARGET_FULL_NAME:-$TARGET_USER}"` — the GECOS/display name.
+  - exported to `chroot_env.sh` for Stage 2.
+  - shown in the pre-disk REVIEW summary and the `--dry-run` plan.
+  - recorded in `/etc/void-installer/install-config` as `USER_FULL_NAME`
+    (secret-free, like the rest of that file).
+- No runtime/boot behavior changes — display-name only.
 
 ---
 
