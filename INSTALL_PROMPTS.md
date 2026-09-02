@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **3.3.0-beta11**). It exists
+> `Void_Linux_Installer.sh` (current version: **3.3.0-beta12**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -97,23 +97,28 @@
 - **Swapfile size `[*] [1-2, default 1]`** — only if no hibernation
   - `1` 4G (default)
   - `2` 2G
-- **`[*]` Enable full-disk encryption (LUKS2)? [y/N]** — if `y`: passphrase + confirm (hidden, in-memory only)
-- Only if `ENCRYPT=yes`:
+- **`[*]` Enable full-disk encryption (LUKS2)? [y/N]**
+- Only if `ENCRYPT=yes` (in this order):
   - **`[*]` Set up YubiKey hmac-sha1 unlock? [y/N]**
   - If `y`:
     - **Which OTP slot to program (1 or 2)? [1]**
     - **Require a physical touch on the YubiKey to unlock at boot? [Y/n]**
     - **Keep the typed-passphrase fallback (YubiKey OR passphrase)? [Y/n]**
   - The key must be plugged in; slot programming happens later.
+  - **Passphrase + confirm** (hidden, in-memory only) is asked *after* the
+    bootloader choice, once the fallback is final — labeled accordingly:
+    provisioning-only if possession-only (throwaway), boot fallback if kept,
+    or plain every-boot passphrase with no YubiKey.
 - **Allow audio (PipeWire) to autostart during read-only snapshot boots? [y/N]**
 
 ---
 
 ## 5. Bootloader & wallpaper
 
-- **`[*]` Bootloader [1/2]**
-  - `1` GRUB — mature, battle-tested snapshot boot via grub-btrfs (1GiB EFI). Forced if YubiKey-only unlock was chosen.
-  - `2` Limine — newer, simpler, no efibootmgr/NVRAM dependency (4GiB EFI).
+- **Bootloader [1/2] (default 1: Limine)** — `[*]` no longer marks this;
+  bare Enter selects the default.
+  - `1` Limine — newer, simpler, no efibootmgr/NVRAM dependency (4GiB EFI). **Default.**
+  - `2` GRUB — mature, battle-tested snapshot boot via grub-btrfs (1GiB EFI). Forced if YubiKey-only unlock was chosen.
 - Only if `BOOTLOADER=limine`:
   - **`[*]` Enable Limine wallpaper? [y/N]**
   - If `y`:

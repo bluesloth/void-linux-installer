@@ -10,7 +10,41 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta11** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta12** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta12 — Limine is the default bootloader (`[LIMINE-DEFAULT]`, `[ENCRYPT-ORDER]`)
+
+- **`[LIMINE-DEFAULT]`** — the bootloader prompt now lists **Limine first**
+  (option 1) and bare **Enter** selects it as the default; GRUB moves to
+  option 2 and remains a fully supported, first-class choice. This flips the
+  v3.1.0-beta1-era decision ("reverted to a real per-install CHOICE ... GRUB
+  remains the mature path") — the menu order and the empty-input default are
+  the only things that changed. Presentational only: every `$BOOTLOADER`-gated
+  branch downstream is untouched, and the GRUB/Limine code paths remain two
+  separate branches (mandatory invariant #5). Defaults carried by the choice
+  are unchanged (Limine → 4GiB ESP, GRUB → 1GiB ESP), and the YubiKey-only
+  clamp that forces `YK_FALLBACK=yes` under GRUB is likewise unchanged.
+
+- **`[ENCRYPT-ORDER]`** — the typed LUKS2 passphrase is now captured *after*
+  the YubiKey menu and after the bootloader choice + `YK_FALLBACK` clamp,
+  instead of being asked the instant encryption is enabled. The order had to
+  stay functionally the same (a LUKS2 container cannot be created without a
+  typed key slot, and `luksAddKey` authenticates with it — so even a
+  possession-only install types a passphrase once at install), but the prompt
+  now knows — and *tells* the user — what that passphrase is actually for:
+  YubiKey-only (`YK_FALLBACK=no`) labels it a **one-time provisioning
+  secret** that will be removed from the container after enrollment (a
+  throwaway value is fine); `YK_FALLBACK=yes` labels it the boot fallback;
+  and no-YubiKey installs keep the plain "required at every boot" wording.
+  Because the GRUB selection forcibly flips `YK_FALLBACK=no` back to `yes`
+  (GRUB cryptodisk needs a passphrase slot), the passphrase is captured after
+  that clamp so a passphrase the user typed as a throwaway can never later
+  become a boot fallback they didn't remember. Security model unchanged: the
+  value stays a plain in-process variable (never exported), is fed to
+  `cryptsetup` only via `--key-file=-` stdin heredocs, and is `unset` right
+  after `luksOpen`.
 
 ---
 
@@ -924,6 +958,6 @@ Inline markers used throughout the script (and mirrored here):
   `[LIMINE-1/2]`, `[LIMINE-MULTI-KERNEL]`, `[LIMINE-SYNC-CRON]`, `[KERNEL-MODE]`,
   `[KERNEL-HOOK]`, `[DISTROBOX-2/3]`, `[CLONE-RETRY]`, `[FAILURE-JOURNAL]`,
   `[COSMETIC]`, `[SCRUB]`, `[SNPR-EV]`, `[SNPR-EV-NO-CRON]`, `[ENCRYPT]`,
-  `[YUBIKEY]`, `[ZSHRC]`.
+  `[YUBIKEY]`, `[ZSHRC]`, `[LIMINE-DEFAULT]`, `[ENCRYPT-ORDER]`.
 - Action words: `ADDITION` (new feature), `CHANGE` (behavioral change),
   `FIX` (bug fix), `EXPANSION` (extended feature).
