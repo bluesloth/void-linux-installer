@@ -172,6 +172,16 @@
 #     since every subvolume mount is a view of the same fs) and logs to
 #     /var/log/btrfs-scrub.log. Never forced: a manually-running scrub
 #     makes the monthly pass fail fast and record why instead of racing it.
+#     AI (Big Pickle) ADDITION — v3.3.0-beta16 [PKG-SNAPSHOT]: a third piece of
+#     the recovery trio — an explicit per-update rollback pair. The timeline
+#     snapshots can be minutes old when an update lands, so
+#     /usr/local/sbin/void-xbps-snap wraps a mutating xbps-install to take a
+#     snapper "pre" snapshot before it runs and a paired "post" afterwards,
+#     guaranteeing an exact "undo THIS update" pair. Drop-in for
+#     xbps-install (all args pass through), --no-dbus, only fires on mutating
+#     installs against a btrfs root, and never blocks an update if the pre
+#     snapshot fails. It is opt-in (no alias installed at install time) and
+#     discoverable via the NEXT STEPS summary.
 #   - Bootloader (v3.2.0-beta1; default flipped to Limine in v3.3.0-beta12
 #     [LIMINE-DEFAULT]): a real per-install CHOICE, $BOOTLOADER, between two
 #     fully separate code paths in Stage 2:
@@ -271,7 +281,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta15"
+SCRIPT_VERSION="3.3.0-beta16"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -5119,6 +5129,108 @@ sed -i 's/EMPTY_PRE_POST_CLEANUP="false"/EMPTY_PRE_POST_CLEANUP="true"/g' /etc/s
 mkdir -p /etc/snapper/filters
 echo "var/service/*" >> /etc/snapper/filters/void-runit.txt
 
+# AI (Big Pickle) ADDITION — v3.3.0-beta16 [PKG-SNAPSHOT]: an explicit
+# pre/post snapshot wrapper around xbps. Snapper guards accidental/logical
+# damage to the @ root via its timeline snapshots, but a timeline snapshot
+# can be many minutes old when a system update lands, so an "undo this exact
+# update" rollback point is only guaranteed if we snapshot right before and
+# right after an update. `void-xbps-snap` wraps `xbps-install` (it is really
+# `/usr/local/sbin/void-xbps-snap`): it takes a snapper "pre" snapshot before
+# running the real xbps-install, then a "post" snapshot afterwards (paired
+# via the pre snapshot number), with the update description in the snapshot
+# description for easy identification. The wrapper passes ALL other args
+# through verbatim, so it is a drop-in for `xbps-install`.
+#   - Only snapshots on INSTALL actions (no -S/-u). A bare dry-run such as
+#     `xbps-install -nu` or a plain search/query (`-s`, no flag) is left
+#     untouched — no pointless snapshot pair.
+#   - Only snapshots when the target filesystem is btrfs (this installer
+#     always is, but the wrapper should never wedge on a non-btrfs box).
+#   - Pairs pre/post even if the update itself fails (post still taken so
+#     the rollback point reflects the partially-applied state).
+#   - Needs --no-dbus like the install-time calls: snapperd may not be up
+#     yet, and --no-dbus never races a daemon.
+#   - Deliberately does NOT install any xbps alias/override of its own at
+#     install time — it is an explicit, discoverable wrapper (documented in
+#     the NEXT STEPS summary). If a later version wants every xbps-install to
+#     snapshot automatically, that is a one-line alias/symlink on top of this
+#     same script; keeping the underlying wrapper self-contained.
+# Added to the PATH-facing location /usr/local/sbin (already a privileged
+# helper dir on this box, holding void-limine-sync-kernels etc.).
+mkdir -p /usr/local/sbin
+cat > /usr/local/sbin/void-xbps-snap << 'INNER_EOF'
+#!/bin/bash
+# [PKG-SNAPSHOT] Pre/post snapper snapshots around xbps-install, the
+# "undo this exact update" rollback pair. Drop-in wrapper for xbps-install:
+# all CLI args pass through verbatim.
+set -euo pipefail
+
+SNAP_CONFIG="root"
+SNAP_TIMELINE="/.snapshots"
+export PATH="/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin"
+
+_snap_enabled() {
+    [ -f "/etc/snapper/configs/$SNAP_CONFIG" ] || return 1
+    [ -d "$SNAP_TIMELINE" ] || return 1
+    # Only bother when the root is actually btrfs (with snapper configured
+    # for it); there is no point snapshotting a non-btrfs root.
+    findmnt -no FSTYPE / 2>/dev/null | grep -q '^btrfs$'
+}
+
+_should_snap() {
+    # Snapshot only when we are mutating packages: -S (install) or a bare
+    # -u (update). The `--` end-of-options is irrelevant to detection.
+    local _a
+    for _a in "$@"; do
+        case "$_a" in
+            -S) return 0 ;;
+            -Su|-us|-Su*|-S*) return 0 ;;
+            -u) return 0 ;;
+            -U) return 0 ;;
+            --) break ;;
+        esac
+    done
+    return 1
+}
+
+_main() {
+    if ! _should_snap "$@" || ! _snap_enabled; then
+        exec xbps-install "$@"
+    fi
+
+    desc="${DESC:-xbps system update ($(date '+%Y-%m-%d %H:%M:%S'))}"
+    echo "==> [void-xbps-snap] before-update snapshot: $desc"
+
+    pre_snap="$(
+        snapper --no-dbus -c "$SNAP_CONFIG" create --type pre \
+            --description "$desc" --cleanup number --print-number 2>/dev/null
+    )" || {
+        # If the pre snapshot cannot be taken, do not block the update;
+        # fall back to running it unsnapshotted.
+        echo "WARNING: could not take pre snapshot; running xbps-install without snapshots." >&2
+        pre_snap=""
+    }
+
+    set +e
+    xbps-install "$@"
+    _rc=$?
+    set -e
+
+    if [ -n "$pre_snap" ]; then
+        echo "==> [void-xbps-snap] after-update snapshot (pre #$pre_snap): $desc"
+        snapper --no-dbus -c "$SNAP_CONFIG" create --type post \
+            --pre-number "$pre_snap" --description "$desc" --cleanup number \
+            >/dev/null 2>&1 || \
+            echo "WARNING: could not take post snapshot." >&2
+    fi
+
+    exit "$_rc"
+}
+
+_main "$@"
+INNER_EOF
+chmod 0755 /usr/local/sbin/void-xbps-snap
+echo "void-xbps-snap package-update snapshot wrapper installed (/usr/local/sbin/void-xbps-snap)"
+
 # AI (Big Pickle) CHANGE — v3.3.0-beta8 [FSTRIM-SCOPE]: renamed the weekly
 # fstrim cron from the legacy `fstrim-nvme` to `fstrim-discard`. The old name
 # dated back to when the target disk was hardcoded to /dev/nvme0n1; since disk
@@ -5949,6 +6061,13 @@ echo "${C_GRN}  4.${C_RST} A baseline snapper snapshot has already been created 
 echo "${C_GRN}  5.${C_RST} The exact choices + installer version that built this box are archived on it:"
 echo "     ${C_BOLD}/etc/void-installer/install-config${C_RST}  and  ${C_BOLD}/etc/void-installer/Void_Linux_Installer.sh${C_RST}"
 echo "     Quick record: ${C_BOLD}~/Documents/VOID_INSTALL.txt${C_RST} (installed user)"
+# AI (Big Pickle) ADDITION — v3.3.0-beta16 [PKG-SNAPSHOT]: tell the user about
+# the pre/post package-update snapshot wrapper so it is discoverable. Using it
+# is optional — a plain xbps-install is unchanged — but it is the reliable way
+# to get an exact "undo this update" rollback pair.
+echo "${C_GRN}  6.${C_RST} Update snapshots: wrap a mutating xbps-install to auto-take a"
+echo "     snapper pre/post rollback pair instead of running it bare:"
+echo "     ${C_BOLD}sudo void-xbps-snap -Su${C_RST}   (or:  sudo void-xbps-snap <any xbps-install args>)"
 echo ""
 echo "${C_GRN}======================================================================${C_RST}"
 # AI (Big Pickle) ADDITION — v3.2.0 [RESUME]: The install completed fully, so

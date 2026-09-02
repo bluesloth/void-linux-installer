@@ -10,7 +10,46 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta15** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta16** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta16 — pre/post snapshots around system updates (`[PKG-SNAPSHOT]`)
+
+A recovery gap closed. Snapper already provides timeline snapshots, but a
+timeline snapshot can be many minutes old when an update lands — there was no
+guaranteed "undo THIS exact update" rollback point. Now a wrapper,
+`/usr/local/sbin/void-xbps-snap`, encloses a mutating `xbps-install` in a
+snapper **pre**/**post** snapshot pair:
+
+- **`[PKG-SNAPSHOT]`** — installed in the chroot next to the other privileged
+  helpers. It takes a pre snapshot (`--type pre`) before running the real
+  `xbps-install`, then a post snapshot (`--type post`, paired via
+  `--pre-number`) afterwards, with the update already applied (even on a
+  partial failure) so the post is the "undo to here" restore point.
+- **Drop-in:** every CLI arg passes through verbatim, so
+  `sudo void-xbps-snap -Su` works exactly like `xbps-install -Su` but
+  snapshotted. A `DESC=` env var can override the snapshot description
+  (default is a dated "xbps system update").
+- **Conservative by design:** snapshots only fire on mutating installs
+  (`-S`/`-u`); dry-runs and queries (`-n`, `-s`, bare) pass straight through
+  with no snapshot pair. Fires only on a **btrfs** root that has a snapper
+  `root` config. Uses `--no-dbus` like the install-time calls.
+- **Never blocks an update:** if the pre snapshot cannot be taken, the wrapper
+  warns and runs `xbps-install` unsnapshotted rather than refusing.
+- **No alias installed at install time** — it is an explicit, discoverable
+  wrapper (surfaced in the NEXT STEPS summary). Adding a later automatic
+  override is a one-line alias/symlink on top of this same self-contained
+  script.
+- Differs from the existing `00-void-limine-snapper-sync` plugin: that plugin
+  regenerates the *boot menu* when a snapshot exists; this wrapper *creates*
+  the pair of snapshots. Both coexist; a pair created via the wrapper is
+  picked up by the menu regen like any other snapshot.
+- **Validation status:** static gates only (`bash -n`,
+  `Debug/check-heredocs.sh`). The pre/post wrapper has not been exercised on
+  real hardware yet — verify on the target medium with a sample
+  `sudo void-xbps-snap -Su` and confirm the pair appears in the snapshot boot
+  menu.
 
 ---
 
