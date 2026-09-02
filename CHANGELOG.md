@@ -10,7 +10,49 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta23** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta24** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta24 — editable default answers (`[PROMPT-DEFAULTS]`)
+
+Adds a single, top-of-script **editable defaults block** right after
+`SCRIPT_VERSION`, so the "just press ENTER" path across the interactive prompts
+and yes/no toggles is controlled by one curated set of variables instead of
+hardcoded defaults scattered through the prompt loops.
+
+- **One block, before the resume-state branch** (defined before `[RESUME]`
+  re-sources the saved state), so a resumed run keeps its original answers and
+  these only affect a fresh run / empty input.
+- **Every value is env-overridable**: export the same name beforehand and the
+  `${VAR:-default}` assignment picks it up, e.g.
+  `DEFAULT_DESKTOP=7 ./Void_Linux_Installer.sh`.
+- **Primary numeric choices** wired to their menu index: `DEFAULT_LOGIN_SHELL`,
+  `DEFAULT_DESKTOP`, `DEFAULT_SESSION_STACK`, `DEFAULT_BOOTLOADER` (the GRUB
+  `EFI_PART_SIZE` 1G / GRUB+ENCRYPT→4G coupling is preserved),
+  `DEFAULT_LOCALE`, `DEFAULT_TIMEZONE`, `DEFAULT_SWAP_BACKEND`. The prompts now
+  echo the active default.
+- **Yes/no toggles** wired per-toggle with literal `true`/`false` defaults that
+  honor the existing `[Y/n]` / `[y/N]` explicit-input polarity on non-empty
+  answers: `DEFAULT_HIBERNATION`, `DEFAULT_SNAPSHOT_AUDIO`, `DEFAULT_OCTOXBPS`,
+  `DEFAULT_FLATPAK`, `DEFAULT_FIREFOX`, `DEFAULT_CHROMIUM`, `DEFAULT_VIVALDI`,
+  `DEFAULT_FALKON`, `DEFAULT_BRAVE`, `DEFAULT_PODMAN_ROOTLESS`,
+  `DEFAULT_PODMAN_ROOTFUL`, `DEFAULT_DOCKER`, `DEFAULT_DOCKER_GROUP_ADD`,
+  `DEFAULT_VIRT`.
+- **Distrobox** sub-prompts: `DEFAULT_DISTROBOX` (also install distrobox?
+  `[y/N]`), `DEFAULT_DISTROBOX_TRACK` (1=stable 2=current 3=next — the track
+  prompt previously had no empty default and re-prompted; a bare ENTER now
+  yields the track default), `DEFAULT_DISTROBOX_ENGINE` (1=podman 2=docker,
+  previously `""`→podman).
+- **YubiKey** sub-prompts (`[Y/n]`): `DEFAULT_YK_TOUCH` (require physical touch
+  to unlock), `DEFAULT_YK_FALLBACK` (keep typed-passphrase fallback) — both
+  `yes` by default; the GRUB `[YUBIKEY]` clamp that forces fallback is
+  unaffected.
+- **Pre-create subvol** sub-prompts (`[y/N]`, all `false` by default):
+  `DEFAULT_PROVISION_FIREFOX_SUBVOL`, `DEFAULT_PROVISION_CHROMIUM_SUBVOL`,
+  `DEFAULT_PROVISION_VIVALDI_SUBVOL`, `DEFAULT_PROVISION_FALKON_SUBVOL`,
+  `DEFAULT_PROVISION_BRAVE_SUBVOL`, `DEFAULT_PROVISION_THUNDERBIRD_SUBVOL`,
+  `DEFAULT_PROVISION_STEAM_SUBVOL`, `DEFAULT_PROVISION_DB_SUBVOLS`.
 
 ---
 
@@ -278,7 +320,7 @@ snapper **pre**/**post** snapshot pair:
 ## v3.3.0-beta15 — user full-name prompt (`[FULLNAME]`)
 
 After the target username is chosen, the installer now also asks for the
-user's full (display) name, e.g. `Void User`. The name feeds the account's GECOS
+user's full (display) name, e.g. `John Doe`. The name feeds the account's GECOS
 field so logins and greeters show a friendly name instead of the bare username.
 
 - **`[FULLNAME]`** — new permissive prompt right after the username, stored as
@@ -1328,7 +1370,7 @@ Inline markers used throughout the script (and mirrored here):
   `[COSMETIC]`, `[SCRUB]`, `[SNPR-EV]`, `[SNPR-EV-NO-CRON]`, `[ENCRYPT]`,
   `[YUBIKEY]`, `[ZSHRC]`, `[LIMINE-DEFAULT]`, `[ENCRYPT-ORDER]`, `[SUBVOLS]`,
   `[GRUB-ESP-BOOT]`, `[DOCS-LOG]`, `[ENCRYPT-KEYMAP]`, `[ENCRYPT-VERIFY]`,
-  `[ENCRYPT-NEWLINE]`, `[CRYPT-NAME]`, `[DRY-RUN]`, `[FULLNAME]`,
+  `[ENCRYPT-NEWLINE]`, `[CRYPT-NAME]`, `[PROMPT-DEFAULTS]`, `[DRY-RUN]`, `[FULLNAME]`,
   `[PKG-SNAPSHOT]`, `[PKG-SNAPSHOT-AUTO]`, `[RESHADOW-BOOT]`, `[TOOLS-DIR]`,
   `[TOOLS-LIMINE-BACKUP]`, `[LIMINE-HDR]`, `[LIMINE-WALLPAPER-OPT-OUT]`.
 - Action words: `ADDITION` (new feature), `CHANGE` (behavioral change),

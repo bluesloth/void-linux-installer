@@ -109,6 +109,13 @@
 #     acpid stack. Neither makes this a systemd system. Never add
 #     systemctl/journalctl/loginctl/.service-unit logic anywhere in this
 #     script; services are enabled via `ln -s /etc/sv/X /etc/runit/...`.
+#   - Prompt defaults (v3.3.0-beta24 [PROMPT-DEFAULTS]): every interactive
+#     choice and yes/no toggle falls back to a DEFAULT_* variable in the
+#     editable top block (right after SCRIPT_VERSION) on bare Enter instead of
+#     a hardcoded value, and each is env-overridable via `${VAR:-default}`.
+#     The block sits BEFORE the [RESUME] state re-source so a resumed run keeps
+#     its saved answers. Numeric-choice defaults use the menu index shown in
+#     the prompt; toggle defaults are literal true/false.
 #   - Virtualization: QEMU/KVM + libvirt on a custom `br0` bridge (built natively
 #     via NetworkManager connection profile tracking configurations at boot),
 #     NOT libvirt's default NAT `virbr0` (explicitly disabled on first boot — see rc.local).
@@ -318,7 +325,57 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta23"
+SCRIPT_VERSION="3.3.0-beta24"
+
+# =============================================================================
+# AI (Big Pickle) ADDITION — v3.3.0-beta24 [PROMPT-DEFAULTS]: EDITABLE DEFAULT
+# ANSWERS. The interactive prompts below fall back to these values on a bare
+# Enter instead of hardcoded defaults, so you can change what a "just press
+# Enter" run picks without hunting through the prompt loops. Override any of
+# them at runtime by exporting the same name before running the script
+# (e.g. DEFAULT_DESKTOP=7 ./Void_Linux_Installer.sh). A resumed run re-sources
+# the saved state file AFTER this block, so an interrupted install keeps its
+# original answers — these only affect a fresh run (or an empty input).
+#
+# Numeric-choice defaults use the menu's 1-based index shown in the prompt.
+# Yes/no toggle defaults are literal true/false (the prompt hints only show
+# which is today's built-in polarity; the actual default is this value).
+# =============================================================================
+DEFAULT_LOGIN_SHELL="${DEFAULT_LOGIN_SHELL:-1}"       # 1=bash 2=zsh 3=fish 4=mksh
+DEFAULT_DESKTOP="${DEFAULT_DESKTOP:-1}"               # 1=kde 2=cinnamon 3=gnome 4=xfce 5=mate 6=lxqt 7=cosmic
+DEFAULT_SESSION_STACK="${DEFAULT_SESSION_STACK:-1}"   # 1=elogind 2=turnstile
+DEFAULT_BOOTLOADER="${DEFAULT_BOOTLOADER:-1}"         # 1=limine 2=grub (EFI size follows)
+DEFAULT_LOCALE="${DEFAULT_LOCALE:-1}"                 # 1=en_US.UTF-8 (menu index)
+DEFAULT_TIMEZONE="${DEFAULT_TIMEZONE:-1}"             # 1=America/New_York (menu index)
+DEFAULT_SWAP_BACKEND="${DEFAULT_SWAP_BACKEND:-1}"     # 1=swapfile 2=zram 3=both 4=none
+DEFAULT_HIBERNATION="${DEFAULT_HIBERNATION:-false}"   # enable suspend-to-disk? [y/N]
+DEFAULT_SNAPSHOT_AUDIO="${DEFAULT_SNAPSHOT_AUDIO:-false}"  # audio on snapshot boots? [y/N]
+DEFAULT_OCTOXBPS="${DEFAULT_OCTOXBPS:-true}"          # OctoXBPS GUI pkg mgr? [Y/n]
+DEFAULT_FLATPAK="${DEFAULT_FLATPAK:-true}"            # Flatpak + Flathub? [Y/n]
+DEFAULT_FIREFOX="${DEFAULT_FIREFOX:-true}"            # [Y/n]
+DEFAULT_CHROMIUM="${DEFAULT_CHROMIUM:-true}"          # [Y/n]
+DEFAULT_VIVALDI="${DEFAULT_VIVALDI:-false}"           # [y/N]
+DEFAULT_FALKON="${DEFAULT_FALKON:-false}"             # [y/N]
+DEFAULT_BRAVE="${DEFAULT_BRAVE:-false}"               # [y/N]
+DEFAULT_PODMAN_ROOTLESS="${DEFAULT_PODMAN_ROOTLESS:-false}"  # [y/N]
+DEFAULT_PODMAN_ROOTFUL="${DEFAULT_PODMAN_ROOTFUL:-false}"    # [y/N]
+DEFAULT_DOCKER="${DEFAULT_DOCKER:-false}"             # [y/N]
+DEFAULT_DOCKER_GROUP_ADD="${DEFAULT_DOCKER_GROUP_ADD:-false}"  # add to docker group? [y/N]
+DEFAULT_VIRT="${DEFAULT_VIRT:-false}"                 # virtualization qemu/libvirt? [y/N]
+DEFAULT_DISTROBOX="${DEFAULT_DISTROBOX:-false}"       # also install distrobox? [y/N]
+DEFAULT_DISTROBOX_TRACK="${DEFAULT_DISTROBOX_TRACK:-1}"       # 1=stable 2=current 3=next
+DEFAULT_DISTROBOX_ENGINE="${DEFAULT_DISTROBOX_ENGINE:-1}"     # 1=podman 2=docker
+DEFAULT_YK_TOUCH="${DEFAULT_YK_TOUCH:-yes}"           # require touch to unlock? [Y/n]
+DEFAULT_YK_FALLBACK="${DEFAULT_YK_FALLBACK:-yes}"     # keep typed-passphrase fallback? [Y/n]
+DEFAULT_PROVISION_FIREFOX_SUBVOL="${DEFAULT_PROVISION_FIREFOX_SUBVOL:-false}"     # [y/N]
+DEFAULT_PROVISION_CHROMIUM_SUBVOL="${DEFAULT_PROVISION_CHROMIUM_SUBVOL:-false}"   # [y/N]
+DEFAULT_PROVISION_VIVALDI_SUBVOL="${DEFAULT_PROVISION_VIVALDI_SUBVOL:-false}"     # [y/N]
+DEFAULT_PROVISION_FALKON_SUBVOL="${DEFAULT_PROVISION_FALKON_SUBVOL:-false}"       # [y/N]
+DEFAULT_PROVISION_BRAVE_SUBVOL="${DEFAULT_PROVISION_BRAVE_SUBVOL:-false}"         # [y/N]
+DEFAULT_PROVISION_THUNDERBIRD_SUBVOL="${DEFAULT_PROVISION_THUNDERBIRD_SUBVOL:-false}"  # [y/N]
+DEFAULT_PROVISION_STEAM_SUBVOL="${DEFAULT_PROVISION_STEAM_SUBVOL:-false}"         # [y/N]
+DEFAULT_PROVISION_DB_SUBVOLS="${DEFAULT_PROVISION_DB_SUBVOLS:-false}"             # [y/N]
+
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -627,8 +684,9 @@ echo "  ${C_BOLD}2)${C_RST} zsh"
 echo "  ${C_BOLD}3)${C_RST} fish"
 echo "  ${C_BOLD}4)${C_RST} mksh"
 while true; do
-    ask "Enter choice [1-4, default 1]: "
+    ask "Enter choice [1-4, default ${DEFAULT_LOGIN_SHELL}]: "
     read -r USER_SHELL_INPUT
+    USER_SHELL_INPUT="${USER_SHELL_INPUT:-$DEFAULT_LOGIN_SHELL}"
     case "$USER_SHELL_INPUT" in
         ""|1) USER_SHELL="/bin/bash";  USER_SHELL_PKG="";       break ;;
         2)    USER_SHELL="/bin/zsh";   USER_SHELL_PKG="zsh";    break ;;
@@ -735,9 +793,9 @@ echo "  ${C_BOLD}10)${C_RST} ja_JP.UTF-8 (Japanese)"
 echo "  ${C_BOLD}11)${C_RST} zh_CN.UTF-8 (Chinese / Simplified)"
 echo "  ${C_BOLD}12)${C_RST} Custom (type a POSIX locale, e.g. pl_PL.UTF-8)"
 while true; do
-    ask "Enter locale choice [1-12, default 1]: "
+    ask "Enter locale choice [1-12, default ${DEFAULT_LOCALE}]: "
     read -r LOCALE_INPUT
-    case "${LOCALE_INPUT:-1}" in
+    case "${LOCALE_INPUT:-$DEFAULT_LOCALE}" in
         1)  LOCALE="en_US.UTF-8"; LOCALE_CODESET="UTF-8"; break ;;
         2)  LOCALE="en_GB.UTF-8"; LOCALE_CODESET="UTF-8"; break ;;
         3)  LOCALE="de_DE.UTF-8"; LOCALE_CODESET="UTF-8"; break ;;
@@ -785,9 +843,9 @@ echo "  ${C_BOLD}13)${C_RST} Asia/Shanghai"
 echo "  ${C_BOLD}14)${C_RST} Asia/Kolkata"
 echo "  ${C_BOLD}15)${C_RST} Custom (type an IANA zone, e.g. Australia/Sydney)"
 while true; do
-    ask "Enter timezone choice [1-15, default 1]: "
+    ask "Enter timezone choice [1-15, default ${DEFAULT_TIMEZONE}]: "
     read -r TZ_INPUT
-    case "${TZ_INPUT:-1}" in
+    case "${TZ_INPUT:-$DEFAULT_TIMEZONE}" in
         1)  TIMEZONE="America/New_York"; break ;;
         2)  TIMEZONE="America/Chicago"; break ;;
         3)  TIMEZONE="America/Denver"; break ;;
@@ -894,9 +952,9 @@ echo "  ${C_BOLD}2)${C_RST} zram — compressed in-RAM swap (module zram, no dis
 echo "  ${C_BOLD}3)${C_RST} swapfile + zram — both, for extra headroom."
 echo "  ${C_BOLD}4)${C_RST} none — no swap at all."
 while true; do
-    ask "Enter swap choice [1-4, default 1]: "
+    ask "Enter swap choice [1-4, default ${DEFAULT_SWAP_BACKEND}]: "
     read -r SWAP_INPUT
-    case "${SWAP_INPUT:-1}" in
+    case "${SWAP_INPUT:-$DEFAULT_SWAP_BACKEND}" in
         1) SWAP_BACKEND="swapfile"; break ;;
         2) SWAP_BACKEND="zram"; break ;;
         3) SWAP_BACKEND="both"; break ;;
@@ -920,6 +978,7 @@ if [ "$SWAPFILE_MODE" = "true" ]; then
     ask "Enable hibernation (suspend-to-disk)? [y/N]: "
     read -r HIB_INPUT
     case "$HIB_INPUT" in
+        "")     ENABLE_HIBERNATION="$DEFAULT_HIBERNATION" ;;
         [yY]*) ENABLE_HIBERNATION="true" ;;
         *)     ENABLE_HIBERNATION="false" ;;
     esac
@@ -1055,6 +1114,7 @@ if [ "$ENCRYPT" = "yes" ]; then
             ask "Require a physical touch on the YubiKey to unlock at boot? [Y/n]: "
             read -r YK_TOUCH_INPUT
             case "$YK_TOUCH_INPUT" in
+                "")     YK_TOUCH="$DEFAULT_YK_TOUCH" ;;
                 [nN]*) YK_TOUCH="no" ;;
                 *)     YK_TOUCH="yes" ;;
             esac
@@ -1068,6 +1128,7 @@ if [ "$ENCRYPT" = "yes" ]; then
             ask "Keep the typed-passphrase fallback (YubiKey OR passphrase)? [Y/n]: "
             read -r YK_FALLBACK_INPUT
             case "$YK_FALLBACK_INPUT" in
+                "")     YK_FALLBACK="$DEFAULT_YK_FALLBACK" ;;
                 [nN]*) YK_FALLBACK="no" ;;
                 *)     YK_FALLBACK="yes" ;;
             esac
@@ -1088,6 +1149,7 @@ unset YK_INPUT YK_SLOT_INPUT YK_TOUCH_INPUT YK_FALLBACK_INPUT
 ask "Allow audio (PipeWire) to autostart during read-only snapshot boots? [y/N]: "
 read -r ENABLE_SNAPSHOT_AUDIO_INPUT
 case "$ENABLE_SNAPSHOT_AUDIO_INPUT" in
+    "") ENABLE_SNAPSHOT_AUDIO="$DEFAULT_SNAPSHOT_AUDIO" ;;
     [yY]*) ENABLE_SNAPSHOT_AUDIO="true" ;;
     *) ENABLE_SNAPSHOT_AUDIO="false" ;;
 esac
@@ -1146,9 +1208,11 @@ fi
  echo "     combo to hold every kernel/initramfs. YubiKey-only unlock still"
  echo "     clamps to passphrase-fallback on GRUB per [YUBIKEY].${C_RST}"
  while true; do
-     ask "Enter choice [1/2] (default 1: Limine): "
+     _boot_default="Limine"
+     [ "$DEFAULT_BOOTLOADER" = "2" ] && _boot_default="GRUB"
+     ask "Enter choice [1/2] (default ${DEFAULT_BOOTLOADER}: ${_boot_default}): "
      read -r BOOTLOADER_INPUT
-     case "${BOOTLOADER_INPUT:-1}" in
+     case "${BOOTLOADER_INPUT:-$DEFAULT_BOOTLOADER}" in
          1) BOOTLOADER="limine"; EFI_PART_SIZE="4G"; break ;;
          2) BOOTLOADER="grub"; EFI_PART_SIZE="1G"
             # v3.3.0-beta14 [GRUB-ESP-BOOT]: GRUB+ENCRYPT keeps the whole boot
@@ -1518,8 +1582,9 @@ echo "     signing-trust choice made at your own risk — audit the repo before"
 echo "     installing. The repo URL is verified reachable at runtime; if it is"
 echo "     unavailable the install aborts cleanly rather than failing mid-way."
 while true; do
-    ask "Enter choice [1/2/3/4/5/6/7]: "
+    ask "Enter choice [1/2/3/4/5/6/7, default ${DEFAULT_DESKTOP}]: "
     read -r DESKTOP_ENV_INPUT
+    DESKTOP_ENV_INPUT="${DESKTOP_ENV_INPUT:-$DEFAULT_DESKTOP}"
     case "$DESKTOP_ENV_INPUT" in
         ""|1) DESKTOP_ENV="kde"; break ;;
         2) DESKTOP_ENV="cinnamon"; break ;;
@@ -1656,8 +1721,11 @@ echo "     user sessions, seatd for graphical seat/input, acpid for ACPI"
 echo "     power events. Avoids the logind runtime entirely; some software"
 echo "     that hard-requires logind may not work."
 while true; do
-    ask "Enter choice [1/2] (default 1: elogind): "
+    _session_default="elogind"
+    [ "$DEFAULT_SESSION_STACK" = "2" ] && _session_default="turnstile"
+    ask "Enter choice [1/2] (default ${DEFAULT_SESSION_STACK}: ${_session_default}): "
     read -r LOGIND_INPUT
+    LOGIND_INPUT="${LOGIND_INPUT:-$DEFAULT_SESSION_STACK}"
     case "$LOGIND_INPUT" in
         ""|1) SESSION_STACK="elogind"; break ;;
         2) SESSION_STACK="turnstile"; break ;;
@@ -1689,6 +1757,7 @@ echo "any combination is fine."
 ask "Install OctoXBPS (graphical package manager + update notifier)? [Y/n]: "
 read -r INSTALL_OCTOXBPS_INPUT
 case "$INSTALL_OCTOXBPS_INPUT" in
+    "") INSTALL_OCTOXBPS="$DEFAULT_OCTOXBPS" ;;
     [nN]*) INSTALL_OCTOXBPS="false" ;;
     *) INSTALL_OCTOXBPS="true" ;;
 esac
@@ -1697,6 +1766,7 @@ export INSTALL_OCTOXBPS
 ask "Install Flatpak (+ Flathub)? [Y/n]: "
 read -r INSTALL_FLATPAK_INPUT
 case "$INSTALL_FLATPAK_INPUT" in
+    "") INSTALL_FLATPAK="$DEFAULT_FLATPAK" ;;
     [nN]*) INSTALL_FLATPAK="false" ;;
     *) INSTALL_FLATPAK="true" ;;
 esac
@@ -1734,6 +1804,7 @@ echo "combination, or none at all):"
 ask "Install Firefox? [Y/n]: "
 read -r INSTALL_FIREFOX_INPUT
 case "$INSTALL_FIREFOX_INPUT" in
+    "") INSTALL_FIREFOX="$DEFAULT_FIREFOX" ;;
     [nN]*) INSTALL_FIREFOX="false" ;;
     *) INSTALL_FIREFOX="true" ;;
 esac
@@ -1742,6 +1813,7 @@ export INSTALL_FIREFOX
 ask "Install Chromium? [Y/n]: "
 read -r INSTALL_CHROMIUM_INPUT
 case "$INSTALL_CHROMIUM_INPUT" in
+    "") INSTALL_CHROMIUM="$DEFAULT_CHROMIUM" ;;
     [nN]*) INSTALL_CHROMIUM="false" ;;
     *) INSTALL_CHROMIUM="true" ;;
 esac
@@ -1750,6 +1822,7 @@ export INSTALL_CHROMIUM
 ask "Install Vivaldi (proprietary, nonfree repo)? [y/N]: "
 read -r INSTALL_VIVALDI_INPUT
 case "$INSTALL_VIVALDI_INPUT" in
+    "") INSTALL_VIVALDI="$DEFAULT_VIVALDI" ;;
     [yY]*) INSTALL_VIVALDI="true" ;;
     *) INSTALL_VIVALDI="false" ;;
 esac
@@ -1758,6 +1831,7 @@ export INSTALL_VIVALDI
 ask "Install Falkon (KDE's browser, works fine standalone too)? [y/N]: "
 read -r INSTALL_FALKON_INPUT
 case "$INSTALL_FALKON_INPUT" in
+    "") INSTALL_FALKON="$DEFAULT_FALKON" ;;
     [yY]*) INSTALL_FALKON="true" ;;
     *) INSTALL_FALKON="false" ;;
 esac
@@ -1770,6 +1844,7 @@ echo "for an unofficial third-party package repository."
 ask "Install Brave? [y/N]: "
 read -r INSTALL_BRAVE_INPUT
 case "$INSTALL_BRAVE_INPUT" in
+    "") INSTALL_BRAVE="$DEFAULT_BRAVE" ;;
     [yY]*) INSTALL_BRAVE="true" ;;
     *) INSTALL_BRAVE="false" ;;
 esac
@@ -1791,7 +1866,10 @@ PROVISION_FIREFOX_SUBVOL="false"
 if [ "$INSTALL_FIREFOX" != "true" ]; then
     ask "Pre-create Firefox's profile subvolume anyway? [y/N]: "
     read -r _pfs_input
-    case "$_pfs_input" in [yY]*) PROVISION_FIREFOX_SUBVOL="true" ;; esac
+    case "$_pfs_input" in
+        [yY]*) PROVISION_FIREFOX_SUBVOL="true" ;;
+        "")    PROVISION_FIREFOX_SUBVOL="$DEFAULT_PROVISION_FIREFOX_SUBVOL" ;;
+    esac
 fi
 export PROVISION_FIREFOX_SUBVOL
 
@@ -1799,7 +1877,10 @@ PROVISION_CHROMIUM_SUBVOL="false"
 if [ "$INSTALL_CHROMIUM" != "true" ]; then
     ask "Pre-create Chromium's profile subvolume anyway? [y/N]: "
     read -r _pcs_input
-    case "$_pcs_input" in [yY]*) PROVISION_CHROMIUM_SUBVOL="true" ;; esac
+    case "$_pcs_input" in
+        [yY]*) PROVISION_CHROMIUM_SUBVOL="true" ;;
+        "")    PROVISION_CHROMIUM_SUBVOL="$DEFAULT_PROVISION_CHROMIUM_SUBVOL" ;;
+    esac
 fi
 export PROVISION_CHROMIUM_SUBVOL
 
@@ -1807,7 +1888,10 @@ PROVISION_VIVALDI_SUBVOL="false"
 if [ "$INSTALL_VIVALDI" != "true" ]; then
     ask "Pre-create Vivaldi's profile subvolume anyway? [y/N]: "
     read -r _pvs_input
-    case "$_pvs_input" in [yY]*) PROVISION_VIVALDI_SUBVOL="true" ;; esac
+    case "$_pvs_input" in
+        [yY]*) PROVISION_VIVALDI_SUBVOL="true" ;;
+        "")    PROVISION_VIVALDI_SUBVOL="$DEFAULT_PROVISION_VIVALDI_SUBVOL" ;;
+    esac
 fi
 export PROVISION_VIVALDI_SUBVOL
 
@@ -1815,7 +1899,10 @@ PROVISION_FALKON_SUBVOL="false"
 if [ "$INSTALL_FALKON" != "true" ]; then
     ask "Pre-create Falkon's profile subvolume anyway? [y/N]: "
     read -r _pfks_input
-    case "$_pfks_input" in [yY]*) PROVISION_FALKON_SUBVOL="true" ;; esac
+    case "$_pfks_input" in
+        [yY]*) PROVISION_FALKON_SUBVOL="true" ;;
+        "")    PROVISION_FALKON_SUBVOL="$DEFAULT_PROVISION_FALKON_SUBVOL" ;;
+    esac
 fi
 export PROVISION_FALKON_SUBVOL
 
@@ -1823,7 +1910,10 @@ PROVISION_BRAVE_SUBVOL="false"
 if [ "$INSTALL_BRAVE" != "true" ]; then
     ask "Pre-create Brave's profile subvolume anyway? [y/N]: "
     read -r _pbrs_input
-    case "$_pbrs_input" in [yY]*) PROVISION_BRAVE_SUBVOL="true" ;; esac
+    case "$_pbrs_input" in
+        [yY]*) PROVISION_BRAVE_SUBVOL="true" ;;
+        "")    PROVISION_BRAVE_SUBVOL="$DEFAULT_PROVISION_BRAVE_SUBVOL" ;;
+    esac
 fi
 export PROVISION_BRAVE_SUBVOL
 
@@ -1840,19 +1930,28 @@ export PROVISION_BRAVE_SUBVOL
 PROVISION_THUNDERBIRD_SUBVOL="false"
 ask "Pre-create Thunderbird's profile subvolume anyway? [y/N]: "
 read -r _ptb_input
-case "$_ptb_input" in [yY]*) PROVISION_THUNDERBIRD_SUBVOL="true" ;; esac
+case "$_ptb_input" in
+    [yY]*) PROVISION_THUNDERBIRD_SUBVOL="true" ;;
+    "")    PROVISION_THUNDERBIRD_SUBVOL="$DEFAULT_PROVISION_THUNDERBIRD_SUBVOL" ;;
+esac
 export PROVISION_THUNDERBIRD_SUBVOL
 
 PROVISION_STEAM_SUBVOL="false"
 ask "Pre-create Steam's data subvolume (~/.local/share/Steam) anyway? [y/N]: "
 read -r _pst_input
-case "$_pst_input" in [yY]*) PROVISION_STEAM_SUBVOL="true" ;; esac
+case "$_pst_input" in
+    [yY]*) PROVISION_STEAM_SUBVOL="true" ;;
+    "")    PROVISION_STEAM_SUBVOL="$DEFAULT_PROVISION_STEAM_SUBVOL" ;;
+esac
 export PROVISION_STEAM_SUBVOL
 
 PROVISION_DB_SUBVOLS="false"
 ask "Pre-create PostgreSQL/MariaDB data subvolumes (/var/lib/postgresql, /var/lib/mysql) anyway? [y/N]: "
 read -r _pdb_input
-case "$_pdb_input" in [yY]*) PROVISION_DB_SUBVOLS="true" ;; esac
+case "$_pdb_input" in
+    [yY]*) PROVISION_DB_SUBVOLS="true" ;;
+    "")    PROVISION_DB_SUBVOLS="$DEFAULT_PROVISION_DB_SUBVOLS" ;;
+esac
 export PROVISION_DB_SUBVOLS
 
 # AI (Claude, Sonnet 5, Medium) ADDITION [item 9]: this is the exact case that
@@ -1874,6 +1973,7 @@ echo "all three or none)."
 ask "Install Podman rootless? [y/N]: "
 read -r INSTALL_PODMAN_ROOTLESS_INPUT
 case "$INSTALL_PODMAN_ROOTLESS_INPUT" in
+    "") INSTALL_PODMAN_ROOTLESS="$DEFAULT_PODMAN_ROOTLESS" ;;
     [yY]*) INSTALL_PODMAN_ROOTLESS="true" ;;
     *) INSTALL_PODMAN_ROOTLESS="false" ;;
 esac
@@ -1882,6 +1982,7 @@ export INSTALL_PODMAN_ROOTLESS
 ask "Install Podman rootful capability? [y/N]: "
 read -r INSTALL_PODMAN_ROOTFUL_INPUT
 case "$INSTALL_PODMAN_ROOTFUL_INPUT" in
+    "") INSTALL_PODMAN_ROOTFUL="$DEFAULT_PODMAN_ROOTFUL" ;;
     [yY]*) INSTALL_PODMAN_ROOTFUL="true" ;;
     *) INSTALL_PODMAN_ROOTFUL="false" ;;
 esac
@@ -1904,6 +2005,7 @@ export INSTALL_PODMAN
 ask "Install Docker? [y/N]: "
 read -r INSTALL_DOCKER_INPUT
 case "$INSTALL_DOCKER_INPUT" in
+    "") INSTALL_DOCKER="$DEFAULT_DOCKER" ;;
     [yY]*) INSTALL_DOCKER="true" ;;
     *) INSTALL_DOCKER="false" ;;
 esac
@@ -1911,6 +2013,7 @@ if [ "$INSTALL_DOCKER" = "true" ]; then
     ask "Add your user to the docker group (root-equivalent access, run docker without sudo)? [y/N]: "
     read -r DOCKER_GROUP_ADD_INPUT
     case "$DOCKER_GROUP_ADD_INPUT" in
+        "") DOCKER_GROUP_ADD="$DEFAULT_DOCKER_GROUP_ADD" ;;
         [yY]*) DOCKER_GROUP_ADD="true" ;;
         *) DOCKER_GROUP_ADD="false" ;;
     esac
@@ -1939,6 +2042,7 @@ if [ "$INSTALL_PODMAN_ROOTLESS" = "true" ] || [ "$INSTALL_PODMAN_ROOTFUL" = "tru
     ask "Also install distrobox? [y/N]: "
     read -r INSTALL_DISTROBOX_INPUT
     case "$INSTALL_DISTROBOX_INPUT" in
+        "") INSTALL_DISTROBOX="$DEFAULT_DISTROBOX" ;;
         [yY]*) INSTALL_DISTROBOX="true" ;;
         *) INSTALL_DISTROBOX="false" ;;
     esac
@@ -1986,9 +2090,9 @@ if [ "$INSTALL_DISTROBOX" = "true" ]; then
     echo "     pulls need an unqualified-search-registries entry (handled"
     echo "     automatically by this script)."
     while true; do
-        ask "Enter choice [1/2/3]: "
+        ask "Enter choice [1/2/3, default ${DEFAULT_DISTROBOX_TRACK}]: "
         read -r DISTROBOX_TRACK_INPUT
-        case "$DISTROBOX_TRACK_INPUT" in
+        case "${DISTROBOX_TRACK_INPUT:-$DEFAULT_DISTROBOX_TRACK}" in
             1) DISTROBOX_TRACK="stable"; break ;;
             2) DISTROBOX_TRACK="current"; break ;;
             3) DISTROBOX_TRACK="next"; break ;;
@@ -2020,9 +2124,9 @@ if [ "$INSTALL_DISTROBOX" = "true" ] && [ "$INSTALL_PODMAN" = "true" ] && [ "$IN
     echo "  1) Podman (default) — distrobox's own upstream default"
     echo "  2) Docker"
     while true; do
-        ask "Enter choice [1/2]: "
+        ask "Enter choice [1/2] (default ${DEFAULT_DISTROBOX_ENGINE}): "
         read -r DISTROBOX_ENGINE_INPUT
-        case "$DISTROBOX_ENGINE_INPUT" in
+        case "${DISTROBOX_ENGINE_INPUT:-$DEFAULT_DISTROBOX_ENGINE}" in
             ""|1) DISTROBOX_DEFAULT_ENGINE="podman"; break ;;
             2) DISTROBOX_DEFAULT_ENGINE="docker"; break ;;
             *) echo "Please enter 1 or 2." >&2 ;;
@@ -2036,6 +2140,7 @@ export DISTROBOX_DEFAULT_ENGINE
 ask "Install virtualization (qemu/libvirt/virt-manager + br0 bridge)? [y/N]: "
 read -r INSTALL_VIRT_INPUT
 case "$INSTALL_VIRT_INPUT" in
+    "") INSTALL_VIRT="$DEFAULT_VIRT" ;;
     [yY]*) INSTALL_VIRT="true" ;;
     *) INSTALL_VIRT="false" ;;
 esac

@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **3.3.0-beta23**). It exists
+> `Void_Linux_Installer.sh` (current version: **3.3.0-beta24**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -35,7 +35,7 @@
   - `3` fish
   - `4` mksh
 - **`[*]` Enter the username to create on the target system**
-- **Enter the full name of `<user>` (e.g., 'Void User')** — optional, used for the account's display/GECOS name
+- **Enter the full name of `<user>` (e.g., 'John Doe')** — optional, used for the account's display/GECOS name
 - **`[*]` Enter target system hostname (e.g., myhostname)**
 - **Enter network domain name (e.g., example.com) to form a FQDN (optional, press Enter to skip)**
 - **`[*]` This system's FQDN will be: `<hostname>.<domain>` — is this correct? [Y/n]**
