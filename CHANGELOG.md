@@ -10,7 +10,27 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta18** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta19** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta19 — self-healing xbps shadow (`[RESHADOW-BOOT]`)
+
+The `[PKG-SNAPSHOT-AUTO]`/`[TOOLS-DIR]` work still left ONE manual step: if an
+`xbps` self-update un-shadowed the wrapper, the admin had to run
+`/root/tools/re-shadow-xbps.sh` by hand. beta19 closes that gap by running the
+repair automatically on every boot.
+
+- **`[RESHADOW-BOOT]`** — `/etc/rc.local` gains a boot-time call to
+  `/root/tools/re-shadow-xbps.sh`, placed in the **every-boot** section (OUTSIDE
+  the installer's firstboot.log guard). `/etc/runit/2` runs `/etc/rc.local`
+  unconditionally on every boot, so the shadow is repaired before any later
+  update can run unsnapshotted. Idempotent; logs to `/var/log/void-reshadow.log`.
+- Delegates to the existing `/root/tools/re-shadow-xbps.sh`, so there is exactly
+  one shadow-repair implementation (no duplicated logic).
+- Chosen home: `/etc/rc.local`, not a new runit `sv/` service — it already runs
+  every boot through runit stage 2, is where this installer does boot-time
+  fixups, and avoids runit's one-shot restart semantics.
 
 ---
 

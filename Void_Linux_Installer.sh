@@ -185,8 +185,7 @@
 #     /usr/bin/xbps-install.real, symlink placed in its place) so EVERY
 #     xbps-install — bare or via sudo, any shell — snapshots automatically
 #     with zero behavior change. Caveat: an `xbps` package self-update
-#     re-places a real binary over the symlink (un-shadowing it); recovery is
-#     to re-run the installer's shadow block or the documented one-liner.
+#     re-places a real binary over the symlink (un-shadowing it).
 #     AI (Big Pickle) ADDITION — v3.3.0-beta18 [TOOLS-DIR]: maintenance/recovery
 #     scripts ship in /root/tools (persistent, installed once, run later on
 #     demand) so the documented recovery steps are never hand-rewritten:
@@ -194,6 +193,12 @@
 #     boot-menu regen), re-provision-snapper.sh (safe snapper restore, plugin
 #     re-install), plus a canonical copy of void-xbps-snap. Idempotent, not on
 #     PATH (run-on-demand tools, not live helpers).
+#     AI (Big Pickle) ADDITION — v3.3.0-beta19 [RESHADOW-BOOT]: the xbps
+#     self-update caveat is now SELF-HEALING. /etc/rc.local (executed every
+#     boot by runit stage 2, OUTSIDE the installer's firstboot.log guard) calls
+#     /root/tools/re-shadow-xbps.sh on each boot, so if an `xbps` self-update
+#     un-shadows the wrapper, the next boot repairs it before any later update
+#     can run unsnapshotted. Manual recovery is no longer required.
 #   - Bootloader (v3.2.0-beta1; default flipped to Limine in v3.3.0-beta12
 #     [LIMINE-DEFAULT]): a real per-install CHOICE, $BOOTLOADER, between two
 #     fully separate code paths in Stage 2:
@@ -293,7 +298,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta18"
+SCRIPT_VERSION="3.3.0-beta19"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -5563,6 +5568,22 @@ sudo /root/tools/void-xbps-snap -S <pkg>
 INNER_EOF
 chmod 0644 /root/tools/README.md
 echo "/root/tools maintenance folder complete (void-xbps-snap backup, re-shadow-xbps.sh, limine-sync.sh, re-provision-snapper.sh, README.md)"
+
+# AI (Big Pickle) ADDITION — v3.3.0-beta19 [RESHADOW-BOOT]: make the xbps
+# self-update shadow-clobber SELF-HEALING instead of a manual recovery. The
+# shadow-repair line is added to the TOP of /etc/rc.local (the every-boot
+# section, OUTSIDE the firstboot.log guard) so it runs on every boot via
+# runit stage 2 (/etc/runit/2 executes /etc/rc.local unconditionally). If an
+# `xbps` update replaced the /usr/bin/xbps-install symlink with a real ELF
+# (that ELF will have been running the very transaction via .real, so the
+# wrapper could not self-heal mid-flight), the next boot repairs the shadow
+# BEFORE any later update can run without snapshots.
+# Delegates to /root/tools/re-shadow-xbps.sh (idempotent, self-healing; the
+# canonical backup copy feeds it), so there is exactly one shadow-repair
+# implementation. rc.local is deliberately the home here (not a runit sv/):
+# it already runs every boot through runit stage 2, is where this installer
+# does its boot-time fixups, and avoids runit's one-shot restart semantics.
+
 # fstrim cron from the legacy `fstrim-nvme` to `fstrim-discard`. The old name
 # dated back to when the target disk was hardcoded to /dev/nvme0n1; since disk
 # selection became interactive (nvme / mmcblk / sdX), `fstrim -A -q` trims any
@@ -6052,6 +6073,16 @@ fi
 
 if ! grep -q 'rd.live.overlay.overlayfs=1' /proc/cmdline 2>/dev/null; then
     mountpoint -q "/home/__TARGET_USER__/.cache" || mount "/home/__TARGET_USER__/.cache" 2>/dev/null || true
+fi
+
+# [RESHADOW-BOOT] Self-heal the xbps-install shadow on every boot (OUTSIDE the
+# firstboot guard below). If an `xbps` self-update replaced the wrapper symlink
+# with a real ELF, restore it through void-xbps-snap before any later update
+# can run unsnapshotted. Idempotent; logs to /var/log/void-reshadow.log.
+if [ -x /root/tools/re-shadow-xbps.sh ]; then
+    { echo "=== void-reshadow: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+      /root/tools/re-shadow-xbps.sh || echo "WARNING: re-shadow failed."
+    } >> /var/log/void-reshadow.log 2>&1
 fi
 
 if [ ! -f /var/log/firstboot.log ]; then
