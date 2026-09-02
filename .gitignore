@@ -21,3 +21,6 @@ Debug/
 # heredoc-lint gate (bash -n + shellcheck over every extracted generated body)
 # that AGENTS.md's Validation section mandates. Re-unignore exactly this file.
 !Debug/check-heredocs.sh
+# ...and the YubiKey possession-only validation kit (probe + protocol) is
+# committed so it survives until the real-hardware run happens.
+!Debug/yk_validation/
