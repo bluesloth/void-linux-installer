@@ -17,3 +17,7 @@ INSTALL_PROMPTS.pdf
 # probes. Investigative scratch, not part of the shipped tool. Kept on disk,
 # excluded from git.
 Debug/
+# ...but Debug/check-heredocs.sh IS committed — it is the reproducible
+# heredoc-lint gate (bash -n + shellcheck over every extracted generated body)
+# that AGENTS.md's Validation section mandates. Re-unignore exactly this file.
+!Debug/check-heredocs.sh

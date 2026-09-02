@@ -193,12 +193,24 @@ Known regressions that have already broken a real install:
   (`void-limine-env.inc`, `void-limine-write-conf`, `void-limine-sync-kernels`)
   the snapper plugin under `/usr/lib/snapper/plugins`
   (`00-void-limine-snapper-sync`),
-  and the dracut YubiKey module under `/usr/lib/dracut/modules.d/99void-yubikey`
-  (`module-setup.sh`, `cryptroot-ask.sh`)
-  are written inside `<< 'INNER_EOF'` heredocs, so the installer's own
-  `bash -n` does NOT parse them; after changing any such heredoc, extract
-  and `bash -n` the generated file directly (awk out the block between the
-  `cat >` line and `INNER_EOF`).
+  the dracut YubiKey module under `/usr/lib/dracut/modules.d/99void-yubikey`
+  (`module-setup.sh`, `cryptroot-ask.sh`),
+  the snapshot-overlay module under
+  `/usr/lib/dracut/modules.d/95snapshot-overlay`,
+  `/etc/rc.local`, `/etc/sv/*/run`, and the rest of the installer's heredoc
+  bodies ARE NOT parsed by the installer's own `bash -n` — they are written
+  inside nested `<< 'INNER_EOF'` heredocs and raw heredoc text is consumed by
+  the parent script, not syntax-checked. After changing any such heredoc, run
+  `Debug/check-heredocs.sh` (committed, reproducible): it extracts every
+  generated body (including the whole stage-2 `chroot ... << 'CHROOT_EOF'`
+  block) into a temp tree, `bash -n`s every shell-classified body, and
+  `shellcheck -f gcc -e SC1091`s the quoted generated-file heredocs. That
+  script is the gate — never rely on /tmp scratch tooling again. SC1091 is
+  excluded tool-side because extracted bodies source absolute system/dracut
+  libs that never exist in the flat extraction tree; per-SC disables that the
+  generated files themselves carry (SC2154 dracut globals, SC2050 rc.local
+  sed placeholders, SC2034 greeter wait counter, SC2086/SC2012 deliberate
+  word-splits) are intentional and must stay.
 - Run the installer only on a real/modular Void Linux Live environment; do
   not execute it against the working tree or host. `-d|--dry-run` ([DRY-RUN])
   is the closest thing to a safe local preflight: it walks every prompt and

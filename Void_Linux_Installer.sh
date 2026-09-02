@@ -4386,6 +4386,7 @@ mkdir -p /usr/local/sbin
 # returns, it is not a standalone command.
 cat > /usr/local/sbin/void-limine-env.inc << 'INNER_EOF'
 # Shared loader for /etc/void-installer/limine-env — source (not execute) me.
+# shellcheck shell=bash
 # Defines load_limine_env(); callers invoke it after setting PATH. Guards on
 # the env file existing and sources it once. See [LIMINE-ENV-LOAD].
 load_limine_env() {
@@ -4458,6 +4459,7 @@ module_path_for() {
 
 NEWEST_KVER=""
 KERNEL_ENTRIES=""
+# shellcheck disable=SC2012  # deliberate sort -V glob list; ls+sort is the version-ordering primitive here
 for _kf in $(ls /boot/efi/void-kernel/vmlinuz-* 2>/dev/null | sort -V -r); do
     _kver="${_kf#/boot/efi/void-kernel/vmlinuz-}"
     [ -f "/boot/efi/void-kernel/initramfs-${_kver}.img" ] || continue
@@ -4970,6 +4972,7 @@ if [ "$YK_MODE" = "hmac-sha1" ]; then
     mkdir -p /usr/lib/dracut/modules.d/99void-yubikey
     cat > /usr/lib/dracut/modules.d/99void-yubikey/module-setup.sh << 'INNER_EOF'
 #!/bin/bash
+# shellcheck disable=SC2154  # $moddir is set by dracut before module install() is sourced
 
 check() {
     require_binaries ykchalresp || return 1
@@ -5003,6 +5006,7 @@ INNER_EOF
 # the keyscript outputs nothing/fails (YubiKey absent or wrong), we fall
 # through to the typed-passphrase prompt, preserving the YK_FALLBACK=yes
 # behavior (a fallback slot must exist for that prompt to succeed).
+# shellcheck disable=SC2154  # moddir / luksdev / hookdir are dracut-injected globals
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 NEWROOT=${NEWROOT:-"/sysroot"}
 
@@ -5011,7 +5015,7 @@ NEWROOT=${NEWROOT:-"/sysroot"}
 
 . /lib/dracut-lib.sh
 
-mkdir -p -m 0700 /run/cryptsetup
+[ -d /run/cryptsetup ] || mkdir -m 0700 /run/cryptsetup
 
 # If device name is /dev/dm-X, convert to /dev/mapper/name.
 if [ "${1##/dev/dm-}" != "$1" ]; then
@@ -5033,7 +5037,7 @@ numtries=${4:-10}
 if [ -f /etc/crypttab ] && getargbool 1 rd.luks.crypttab -d -n rd_NO_CRYPTTAB; then
     while read -r name dev luksfile luksoptions || [ -n "$name" ]; do
         # Skip blank lines and comments.
-        if [ -z "$name" -o "${name#\#}" != "$name" ]; then
+        if [ -z "$name" ] || [ "${name#\#}" != "$name" ]; then
             continue
         fi
 
@@ -5148,6 +5152,7 @@ ask_passphrase=1
 if [ -n "$keyscript" ] && [ -x "$keyscript" ]; then
     _keyscript_tries=${YTries:-10}
     while [ "$_keyscript_tries" -gt 0 ]; do
+        # shellcheck disable=SC2086  # deliberate word-splitting of $cryptsetupopts (dracut option string)
         if "$keyscript" | cryptsetup -d - $cryptsetupopts luksOpen "$device" "$luksname"; then
             ask_passphrase=0
             break
@@ -5157,7 +5162,7 @@ if [ -n "$keyscript" ] && [ -x "$keyscript" ]; then
         sleep 1
     done
     unset _keyscript_tries
-elif [ -n "$luksfile" -a "$luksfile" != "none" -a -e "$luksfile" ]; then
+elif [ -n "$luksfile" ] && [ "$luksfile" != "none" ] && [ -e "$luksfile" ]; then
     # shellcheck disable=SC2086
     if readkey "$luksfile" / "$device" \
         | cryptsetup -d - $cryptsetupopts luksOpen "$device" "$luksname"; then
@@ -5207,7 +5212,7 @@ if [ $ask_passphrase -ne 0 ]; then
     unset _timeout
 fi
 
-if [ "$is_keysource" -ne 0 -a "${luksname##luks-}" != "$luksname" ]; then
+if [ "$is_keysource" -ne 0 ] && [ "${luksname##luks-}" != "$luksname" ]; then
     luks_close="$(command -v cryptsetup) close"
     {
         printf -- '[ -e /dev/mapper/%s ] && ' "$luksname"
@@ -5234,6 +5239,7 @@ fi
 mkdir -p /usr/lib/dracut/modules.d/95snapshot-overlay
 cat > /usr/lib/dracut/modules.d/95snapshot-overlay/module-setup.sh << 'INNER_EOF'
 #!/bin/bash
+# shellcheck disable=SC2154  # $moddir is set by dracut before module install() is sourced
 
 check() {
     require_binaries btrfs || return 1
@@ -5272,9 +5278,9 @@ if getargbool 0 rd.live.overlay.overlayfs; then
         ro_state=$(btrfs property get "$NEWROOT" ro 2>/dev/null)
         if [ "$ro_state" = "ro=true" ]; then
             info "snapshot-overlay: read-only snapshot detected at $NEWROOT, building RAM overlay"
-            mkdir -m 0755 -p /run/rootfsbase
+            mkdir -m 0755 /run/rootfsbase
             if mount --bind "$NEWROOT" /run/rootfsbase; then
-                mkdir -m 0755 -p /run/overlayfs /run/ovlwork
+                mkdir -m 0755 /run/overlayfs /run/ovlwork
                 if ! mount -t overlay overlay \
                     -o lowerdir=/run/rootfsbase,upperdir=/run/overlayfs,workdir=/run/ovlwork \
                     "$NEWROOT"; then
@@ -5316,6 +5322,7 @@ if [ "$DISPLAY_MANAGER" = "cosmic-greeter" ]; then
     mkdir -p /etc/sv/cosmic-greeter
     cat > /etc/sv/cosmic-greeter/run << 'INNER_EOF'
 #!/bin/sh
+# shellcheck disable=SC2034  # bounded boot-wait counter (greeter must yield to initramfs/firstboot markers)
 for i in $(seq 1 10); do
     if [ -d /run/initramfs ] || [ -f /var/log/firstboot.log ]; then
         break
@@ -5333,6 +5340,7 @@ fi
 
 cat > /etc/rc.local << 'INNER_EOF'
 #!/bin/sh
+# shellcheck disable=SC2050  # __TOKEN__ placeholders (__BOOTLOADER__ ...) are sed-substituted to real values after generation
 if command -v vkpurge >/dev/null 2>&1; then
     echo "==> Runtime Maintenance: Sweeping unreferenced kernel artifacts..."
     vkpurge rm all >/dev/null 2>&1
