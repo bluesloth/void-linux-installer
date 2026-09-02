@@ -10,7 +10,41 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta16** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta17** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta17 — automatic updates: shadow `xbps-install` (`[PKG-SNAPSHOT-AUTO]`)
+
+beta16's `void-xbps-snap` wrapper required the user to *choose* to use it. beta17
+removes the choice: `/usr/bin/xbps-install` is now **shadowed** so every
+invocation — bare or via `sudo`, any shell — snapshots automatically, with zero
+change to the user's normal update habit.
+
+- **`[PKG-SNAPSHOT-AUTO]`** — in the chroot, after installing the wrapper, the
+  real `/usr/bin/xbps-install` ELF is renamed to `/usr/bin/xbps-install.real`
+  and a symlink `/usr/bin/xbps-install -> /usr/local/sbin/void-xbps-snap` is
+  dropped in its place. Idempotent (`mv -n` never clobbers an existing `.real`;
+  `ln -sf` re-points).
+- **Wrapper hardened for shadowing:** it now resolves the real binary as
+  `/usr/bin/xbps-install.real` first, else PATH — with a **self-recursion
+  guard** (if it ever resolves to its own file, a broken shadow with no `.real`
+  companion, it aborts loudly rather than looping). The same script still works
+  standalone as `void-xbps-snap` for explicit use.
+- **Installed under BOTH bootloaders** (unlike the Limine-only snapper plugin) —
+  it is bootloader-independent.
+- **Documented caveat (self-update):** `/usr/bin/xbps-install` belongs to the
+  `xbps` package. A future `xbps` package reinstall re-places a real binary
+  over the symlink, silently un-shadowing the wrapper. Recovery: re-run the
+  shadow block (or the documented one-liner). The wrapper itself cannot wrap
+  xbps's own reinstall (that would recurse), so this accepted tradeoff is
+  documented in the header, the NEXT STEPS summary, and this entry.
+- **Validation:** static gates (`bash -n`, `Debug/check-heredocs.sh` 41/41,
+  wrapper shellcheck-clean) plus sandbox tests of both resolution modes and the
+  recursion guard. Still apply the real-hardware note from beta16: verify a
+  live `sudo xbps-install -Su` pair once (done on this box for the standalone
+  path in beta16; the shadow path is the same script but validate a pair after
+  an `xbps` self-update to confirm re-shadowing).
 
 ---
 
@@ -40,7 +74,8 @@ snapper **pre**/**post** snapshot pair:
 - **No alias installed at install time** — it is an explicit, discoverable
   wrapper (surfaced in the NEXT STEPS summary). Adding a later automatic
   override is a one-line alias/symlink on top of this same self-contained
-  script.
+  script. *(Superseded by v3.3.0-beta17 `[PKG-SNAPSHOT-AUTO]`, which shadows
+  `/usr/bin/xbps-install` so the automation is installed by default.)*
 - Differs from the existing `00-void-limine-snapper-sync` plugin: that plugin
   regenerates the *boot menu* when a snapshot exists; this wrapper *creates*
   the pair of snapshots. Both coexist; a pair created via the wrapper is

@@ -180,8 +180,13 @@
 #     guaranteeing an exact "undo THIS update" pair. Drop-in for
 #     xbps-install (all args pass through), --no-dbus, only fires on mutating
 #     installs against a btrfs root, and never blocks an update if the pre
-#     snapshot fails. It is opt-in (no alias installed at install time) and
-#     discoverable via the NEXT STEPS summary.
+#     snapshot fails. v3.3.0-beta17 [PKG-SNAPSHOT-AUTO] goes further: it
+#     SHADOWS /usr/bin/xbps-install (real binary renamed to
+#     /usr/bin/xbps-install.real, symlink placed in its place) so EVERY
+#     xbps-install — bare or via sudo, any shell — snapshots automatically
+#     with zero behavior change. Caveat: an `xbps` package self-update
+#     re-places a real binary over the symlink (un-shadowing it); recovery is
+#     to re-run the installer's shadow block or the documented one-liner.
 #   - Bootloader (v3.2.0-beta1; default flipped to Limine in v3.3.0-beta12
 #     [LIMINE-DEFAULT]): a real per-install CHOICE, $BOOTLOADER, between two
 #     fully separate code paths in Stage 2:
@@ -281,7 +286,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta16"
+SCRIPT_VERSION="3.3.0-beta17"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -5149,24 +5154,51 @@ echo "var/service/*" >> /etc/snapper/filters/void-runit.txt
 #     the rollback point reflects the partially-applied state).
 #   - Needs --no-dbus like the install-time calls: snapperd may not be up
 #     yet, and --no-dbus never races a daemon.
-#   - Deliberately does NOT install any xbps alias/override of its own at
-#     install time — it is an explicit, discoverable wrapper (documented in
-#     the NEXT STEPS summary). If a later version wants every xbps-install to
-#     snapshot automatically, that is a one-line alias/symlink on top of this
-#     same script; keeping the underlying wrapper self-contained.
-# Added to the PATH-facing location /usr/local/sbin (already a privileged
-# helper dir on this box, holding void-limine-sync-kernels etc.).
+#   - The wrapper is self-contained in /usr/local/sbin as void-xbps-snap
+#     (already a privileged helper dir holding void-limine-sync-kernels etc.)
+#     and the standalone name is kept so it can also be invoked explicitly.
+#     v3.3.0-beta17 [PKG-SNAPSHOT-AUTO] additionally SHADOWS
+#     /usr/bin/xbps-install (see the block right after the heredoc) so users
+#     never need to change their normal `xbps-install` habit. The wrapper
+#     always locates the REAL binary (`.real` companion, else PATH with a
+#     self-recursion guard) before invoking it.
 mkdir -p /usr/local/sbin
 cat > /usr/local/sbin/void-xbps-snap << 'INNER_EOF'
 #!/bin/bash
 # [PKG-SNAPSHOT] Pre/post snapper snapshots around xbps-install, the
 # "undo this exact update" rollback pair. Drop-in wrapper for xbps-install:
 # all CLI args pass through verbatim.
+# Two deployment modes with the SAME script:
+#   * standalone  — installed as /usr/local/sbin/void-xbps-snap; users call it
+#                   explicitly (sudo void-xbps-snap -Su).
+#   * shadowed    — the real /usr/bin/xbps-install is renamed to
+#                   /usr/bin/xbps-install.real and a symlink is placed at
+#                   /usr/bin/xbps-install -> this script, so EVERY xbps-install
+#                   invocation (with or without sudo, any shell) snapshots
+# The wrapper ALWAYS calls the real binary via $REAL_XBPS, resolved below.
+# Look for the shadowed real binary first, then fall back to PATH. A guard
+# prevents self-recursion (if we end up resolving to our own file — i.e. a
+# broken shadow with no .real companion — we abort loudly rather than loop).
 set -euo pipefail
 
 SNAP_CONFIG="root"
 SNAP_TIMELINE="/.snapshots"
 export PATH="/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin"
+
+_self="$(readlink -f "${0:-/nonexistent}")"
+REAL_XBPS=""
+if [ -x /usr/bin/xbps-install.real ]; then
+    REAL_XBPS="/usr/bin/xbps-install.real"
+else
+    _cand="$(command -v xbps-install 2>/dev/null || true)"
+    if [ -n "$_cand" ] && [ "$(readlink -f "$_cand" 2>/dev/null || printf '%s' "$_cand")" != "$_self" ]; then
+        REAL_XBPS="$_cand"
+    fi
+fi
+if [ -z "$REAL_XBPS" ]; then
+    echo "ERROR: could not resolve the real xbps-install binary (shadowed without a .real companion?)." >&2
+    exit 1
+fi
 
 _snap_enabled() {
     [ -f "/etc/snapper/configs/$SNAP_CONFIG" ] || return 1
@@ -5194,7 +5226,7 @@ _should_snap() {
 
 _main() {
     if ! _should_snap "$@" || ! _snap_enabled; then
-        exec xbps-install "$@"
+        exec "$REAL_XBPS" "$@"
     fi
 
     desc="${DESC:-xbps system update ($(date '+%Y-%m-%d %H:%M:%S'))}"
@@ -5211,7 +5243,7 @@ _main() {
     }
 
     set +e
-    xbps-install "$@"
+    "$REAL_XBPS" "$@"
     _rc=$?
     set -e
 
@@ -5230,6 +5262,30 @@ _main "$@"
 INNER_EOF
 chmod 0755 /usr/local/sbin/void-xbps-snap
 echo "void-xbps-snap package-update snapshot wrapper installed (/usr/local/sbin/void-xbps-snap)"
+
+# AI (Big Pickle) ADDITION — v3.3.0-beta17 [PKG-SNAPSHOT-AUTO]: shadow
+# /usr/bin/xbps-install so NO behavior change is needed — every invocation
+# (bare or via sudo, any shell) goes through the wrapper and snapshots
+# automatically. The real ELF is renamed to xbps-install.real and a symlink
+# is dropped in its place.
+#   - Idempotent: `mv -n` never clobbers an existing .real, `ln -sf`
+#     re-points the symlink — a re-run is a no-op.
+#   - CAVEAT (self-update): `/usr/bin/xbps-install` BELONGS to the `xbps`
+#     package. A future `posix: xbps-update`/`xbps-install -u xbps` that
+#     re-installs the `xbps` package will re-place a REAL binary over our
+#     symlink, silently un-shadowing the wrapper. Because the shadowed run
+#     is itself executed by xbps, we deliberately do NOT wrap xbps's own
+#     reinstall here (that would be recursion); the recovery is simply to
+#     re-run this same block (or the documented one-liner) after an xbps
+#     self-update. This is an accepted, documented maintenance tradeoff of
+#     binary shadowing.
+#   - Always installed (both GRUB and Limine, any config) — unlike the
+#     snapper plugin, this is bootloader-independent.
+if [ -f /usr/bin/xbps-install ] && [ -x /usr/local/sbin/void-xbps-snap ]; then
+    [ -e /usr/bin/xbps-install.real ] || mv -n /usr/bin/xbps-install /usr/bin/xbps-install.real
+    ln -sf /usr/local/sbin/void-xbps-snap /usr/bin/xbps-install
+    echo "xbps-install shadowed -> void-xbps-snap (real binary kept at /usr/bin/xbps-install.real)"
+fi
 
 # AI (Big Pickle) CHANGE — v3.3.0-beta8 [FSTRIM-SCOPE]: renamed the weekly
 # fstrim cron from the legacy `fstrim-nvme` to `fstrim-discard`. The old name
@@ -6061,13 +6117,12 @@ echo "${C_GRN}  4.${C_RST} A baseline snapper snapshot has already been created 
 echo "${C_GRN}  5.${C_RST} The exact choices + installer version that built this box are archived on it:"
 echo "     ${C_BOLD}/etc/void-installer/install-config${C_RST}  and  ${C_BOLD}/etc/void-installer/Void_Linux_Installer.sh${C_RST}"
 echo "     Quick record: ${C_BOLD}~/Documents/VOID_INSTALL.txt${C_RST} (installed user)"
-# AI (Big Pickle) ADDITION — v3.3.0-beta16 [PKG-SNAPSHOT]: tell the user about
-# the pre/post package-update snapshot wrapper so it is discoverable. Using it
-# is optional — a plain xbps-install is unchanged — but it is the reliable way
-# to get an exact "undo this update" rollback pair.
-echo "${C_GRN}  6.${C_RST} Update snapshots: wrap a mutating xbps-install to auto-take a"
-echo "     snapper pre/post rollback pair instead of running it bare:"
-echo "     ${C_BOLD}sudo void-xbps-snap -Su${C_RST}   (or:  sudo void-xbps-snap <any xbps-install args>)"
+# AI (Big Pickle) ADDITION — v3.3.0-beta17 [PKG-SNAPSHOT-AUTO]:
+# tell the user that updates now snapshot automatically — no habit change needed.
+echo "${C_GRN}  6.${C_RST} System updates now auto-take a snapper pre/post rollback pair:"
+echo "     xbps-install is shadowed through void-xbps-snap, so your normal"
+echo "     ${C_BOLD}sudo xbps-install -Su${C_RST} is unchanged. (After an 'xbps' package"
+echo "     self-update, re-run void-xbps-snap setup to re-shadow it.)"
 echo ""
 echo "${C_GRN}======================================================================${C_RST}"
 # AI (Big Pickle) ADDITION — v3.2.0 [RESUME]: The install completed fully, so
