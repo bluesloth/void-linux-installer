@@ -5474,10 +5474,13 @@ cat > /root/tools/README.md << 'INNER_EOF'
 # /root/tools — Void Linux maintenance & recovery tools
 
 This folder is shipped by the Void Linux Installer (the same project that built
-this box) and holds the re-runnable maintenance/recovery scripts the admin may
-need to run again after the fact. They are **idempotent** (safe to run more than
-once) and **run-on-demand** — they are not on `PATH` because you invoke them
-deliberately, not as background helpers.
+this box) and holds the re-runnable maintenance/recovery scripts. They are
+**idempotent** (safe to run more than once). Most are **run-on-demand** — not on
+`PATH`, because you invoke them deliberately rather than as background helpers.
+One exception: `re-shadow-xbps.sh` is auto-invoked at every boot by
+`/etc/rc.local` (the "void-reshadow" boot self-heal), so it is both a boot-time
+fixup **and** a tool you can still run by hand to force a recovery without
+rebooting.
 
 Run every tool with **`sudo`** (they write to system-owned paths).
 
@@ -5491,18 +5494,22 @@ automatic snapper pre/post snapshot pair. The real `/usr/bin/xbps-install` lives
 at `/usr/bin/xbps-install.real`, and `/usr/bin/xbps-install` is a symlink to the
 wrapper `void-xbps-snap`.
 
-**When to use it:** after an **`xbps` package self-update**. Updating the `xbps`
-package re-places a *real* binary over the symlink, silently disabling automatic
-snapshots. This is a known caveat of binary shadowing. Run it whenever you doubt
-whether updates are still snapshotting (e.g. after a `sudo xbps-install -Su` no
-longer prints "before-update snapshot").
+**When to run it yourself:** normally you **don't need to**. Every boot,
+`/etc/rc.local` runs this script automatically (see `void-reshadow`), so if an
+**`xbps` package self-update** re-places a *real* binary over the symlink —
+silently disabling automatic snapshots, a known caveat of binary shadowing —
+the shadow is repaired on the next boot before any later update can run
+unsnapshotted. Run it manually only if you want to restore the shadow *without
+rebooting*, or to confirm updates are still snapshotting (e.g. after a
+`sudo xbps-install -Su` no longer prints "before-update snapshot").
 
 **How:**
 ```bash
 sudo /root/tools/re-shadow-xbps.sh
 ```
 It restores the wrapper, re-establishes `/usr/bin/xbps-install.real`, and
-re-links `/usr/bin/xbps-install -> void-xbps-snap`.
+re-links `/usr/bin/xbps-install -> void-xbps-snap`. Idempotent — safe to run at
+every boot or by hand.
 
 ---
 
@@ -6427,8 +6434,9 @@ echo "     Quick record: ${C_BOLD}~/Documents/VOID_INSTALL.txt${C_RST} (installe
 # tell the user that updates now snapshot automatically — no habit change needed.
 echo "${C_GRN}  6.${C_RST} System updates now auto-take a snapper pre/post rollback pair:"
 echo "     xbps-install is shadowed through void-xbps-snap, so your normal"
-echo "     ${C_BOLD}sudo xbps-install -Su${C_RST} is unchanged. (After an 'xbps' package"
-echo "     self-update, re-run: ${C_BOLD}sudo /root/tools/re-shadow-xbps.sh${C_RST})"
+echo "     ${C_BOLD}sudo xbps-install -Su${C_RST} is unchanged. If an 'xbps' package"
+echo "     self-update un-shadows the wrapper, the next boot repairs it"
+echo "     automatically (see /root/tools/README.md, re-shadow-xbps.sh)."
 # AI (Big Pickle) ADDITION — v3.3.0-beta18 [TOOLS-DIR]: point the admin at the
 # maintenance/tools folder shipped for future recovery so it is discoverable.
 echo "${C_GRN}  7.${C_RST} Re-runnable maintenance tools shipped in ${C_BOLD}/root/tools${C_RST}:"
