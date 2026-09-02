@@ -318,7 +318,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta21"
+SCRIPT_VERSION="3.3.0-beta23"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -1230,11 +1230,32 @@ if [ "$ENCRYPT" = "yes" ]; then
         break
     done
     unset ENCRYPT_PASSPHRASE_CONFIRM
+    # AI (Big Pickle) ADDITION — v3.3.0-beta23 [CRYPT-NAME]: optional LUKS
+    # mapper name. Defaults to `void-root` (the historical/AGENTS name that all
+    # the generated crypttab, rd.luks.name= kernel params, limine resync, and
+    # the YubiKey keyscript path are built around). Prompting lets a user pick
+    # a custom name, which is then threaded through EVERY consumer below so a
+    # custom name still boots. Only validated for non-empty/no-slashes — it is
+    # a device-mapper name, not a filesystem label.
+    printf '%s\n' ""
+    printf '%s\n' "${C_BOLD}${C_BLU}LUKS mapper name?${C_RST}"
+    printf '%s\n' ""
+    printf '%s\n' "  Name of the decrypted device that appears under /dev/mapper/."
+    printf '%s\n' "  Press ENTER for the default: void-root"
+    ask "Mapper name [void-root]: "
+    read -r CRYPT_NAME
+    [ -n "$CRYPT_NAME" ] || CRYPT_NAME="void-root"
+    case "$CRYPT_NAME" in
+        */*) echo "${C_RED}!! Mapper name must be a plain name (no '/'). Using default 'void-root'.${C_RST}" >&2
+             CRYPT_NAME="void-root" ;;
+    esac
+    export CRYPT_NAME
 fi
 
 # The passphrase is deliberately NOT exported — it stays a plain variable in
 # this process so no child process can inherit it via the environment; it is
-# fed to cryptsetup only through `--key-file=-` on stdin (`<<<` heredoc), so
+# fed to cryptsetup only through `--key-file=-` on stdin via `printf '%s' |
+# cryptsetup` (NO trailing newline — see [ENCRYPT-NEWLINE]), so
 # it never appears in argv or in any persisted file (see Mandatory [ENCRYPT]).
 
 # AI (Big Pickle) ADDITION — v3.3.0-beta3 [LIMINE-WALLPAPER]: optional boot-
@@ -2516,6 +2537,7 @@ fi
                SESSION_STACK ENABLE_SNAPSHOT_AUDIO \
                LOCALE LOCALE_CODESET TIMEZONE SWAP_BACKEND SWAPFILE_MODE ENABLE_HIBERNATION SWAPFILE_SIZE \
                ENCRYPT \
+               CRYPT_NAME \
                YK_MODE YK_FALLBACK YK_SLOT YK_CHALLENGE YK_TOUCH \
                REPO_PRIMARY REPO_BACKUP1 REPO_BACKUP2 \
                DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
@@ -2590,7 +2612,11 @@ fi
 # mkfs/mount below uses $BTRFS_DEV, so the encrypted and unencrypted paths
 # are structurally identical from here on.
 BTRFS_DEV="$PART_SYS"
-CRYPT_DEV="/dev/mapper/void-root"
+# CRYPT_NAME is the decrypted mapper name (default void-root). It is set from
+# the prompt above when ENCRYPT=yes, but must be defined for every path (even
+# ENCRYPT=no, where it is unused) so derived strings never reference an empty var.
+CRYPT_NAME="${CRYPT_NAME:-void-root}"
+CRYPT_DEV="/dev/mapper/${CRYPT_NAME}"
 
 if [ "$RESUME" != "1" ]; then
     # Clear disk maps and slice target partitions
@@ -2607,24 +2633,35 @@ if [ "$RESUME" != "1" ]; then
         # process list. The ESP is formatted after this.
         echo ""
         echo "==> Formatting partition 2 as a LUKS2 container (cryptsetup)"
-        cryptsetup luksFormat --type luks2 -q --key-file=- "$PART_SYS" <<<"$ENCRYPT_PASSPHRASE"
+        # AI (Big Pickle) FIX — v3.3.0-beta22 [ENCRYPT-NEWLINE]: feed the passphrase
+        # with `printf '%s'` (NO trailing newline) instead of a `<<<` here-string
+        # or `echo`. A here-string/echo appends a newline byte, so the LUKS keyslot
+        # stored passphrase+\n. An interactive `cryptsetup open` prompt (terminal
+        # canonical mode) reads the typed line WITHOUT that newline, so boot and a
+        # manual recovery unlock both produced N-1 bytes and failed with "No key
+        # available with this passphrase". The installer's own beta21 verify passed
+        # only because it reused the same `<<<` 11-byte path — it never tested the
+        # 10-byte interactive path. Using printf '%s' makes format==open==interactive
+        # byte-identical, which is what a human typing at a prompt produces.
+        printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksFormat --type luks2 -q --key-file=- "$PART_SYS"
         echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV}"
-        cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"
+        printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksOpen --key-file=- "$PART_SYS" "$CRYPT_NAME"
         # AI (Big Pickle) ADDITION — v3.3.0-beta21 [ENCRYPT-VERIFY]: prove the
         # typed passphrase actually unlocks the volume BEFORE any reboot. The
         # passphrase is the ONLY way into a LUKS2 container (no key file), and
         # a mismatch here has historically caused a boot that prompts and then
         # refuses — the user is locked out with no install-side error. Closing
-        # and re-opening with the SAME byte-identical passphrase (same `<<<`)
-        # verifies the keyslot round-trips; any failure means luksFormat wrote
+        # and re-opening with the SAME byte-identical passphrase (printf '%s', no
+        # trailing newline — the exact bytes a human typing at the boot prompt
+        # produces) verifies the keyslot round-trips; any failure means luksFormat wrote
         # a key that does not match what will be typed at boot, so abort NOW
         # with a loud, actionable error instead of shipping a dead disk. Note:
         # this check runs BEFORE the YubiKey slot binding below, so the typed
         # slot-0 key still exists even for possession-only installs — it is
         # always a valid proof of the typed passphrase at this point.
         echo "==> Verifying the passphrase can re-unlock ${PART_SYS} (close + re-open)..."
-        cryptsetup luksClose void-root
-        if ! cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"; then
+        cryptsetup luksClose "$CRYPT_NAME"
+        if ! printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksOpen --key-file=- "$PART_SYS" "$CRYPT_NAME"; then
             echo "${C_RED}!! FATAL: the passphrase that created the container does not PARSE as"
             echo "     the passphrase needed to unlock it. The disk would be UNBOOTABLE.${C_RST}" >&2
             echo "     This is a keymap/typing mismatch between the two entries (or a cryptsetup" >&2
@@ -2647,7 +2684,7 @@ if [ "$RESUME" != "1" ]; then
             printf '%s' "$YK_KEY" > "$YK_KEY_FILE"
             chmod 600 "$YK_KEY_FILE"
             echo "==> Binding YubiKey hmac-sha1 response as a LUKS key slot"
-            cryptsetup luksAddKey "$PART_SYS" --key-file=- --new-keyfile="$YK_KEY_FILE" <<<"$ENCRYPT_PASSPHRASE"
+            printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksAddKey "$PART_SYS" --key-file=- --new-keyfile="$YK_KEY_FILE"
             if [ "$YK_FALLBACK" = "no" ]; then
                 echo "==> Removing the typed-passphrase slot (YubiKey-only unlock)"
                 cryptsetup luksRemoveKey "$PART_SYS" --key-file="$YK_KEY_FILE" --key-slot 0 || true
@@ -2687,7 +2724,7 @@ else
             printf '%s' "$YK_KEY" > "$YK_KEY_FILE"
             chmod 600 "$YK_KEY_FILE"
             echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV} (YubiKey)"
-            if ! cryptsetup luksOpen --key-file="$YK_KEY_FILE" "$PART_SYS" void-root; then
+            if ! cryptsetup luksOpen --key-file="$YK_KEY_FILE" "$PART_SYS" "$CRYPT_NAME"; then
                 shred -u "$YK_KEY_FILE" 2>/dev/null || rm -f "$YK_KEY_FILE"
                 unset YK_KEY YK_KEY_FILE
                 if [ "$YK_FALLBACK" = "yes" ]; then
@@ -2702,7 +2739,7 @@ else
                     # failed luksOpen on resume must abort, not silently continue
                     # with a bogus $BTRFS_DEV (which would then mount nothing and
                     # leave the user assuming the passphrase "worked").
-                    if ! cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"; then
+                    if ! printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksOpen --key-file=- "$PART_SYS" "$CRYPT_NAME"; then
                         echo "${C_RED}!! FATAL: could not unlock ${PART_SYS} with the passphrase given." >&2
                         echo "     The volume exists but the passphrase does not open it.${C_RST}" >&2
                         exit 1
@@ -2725,7 +2762,7 @@ else
             echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV}"
             # AI (Big Pickle) ADDITION — v3.3.0-beta21 [ENCRYPT-VERIFY]: abort on
             # a failed resume unlock rather than continuing with a dead $BTRFS_DEV.
-            if ! cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"; then
+            if ! printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksOpen --key-file=- "$PART_SYS" "$CRYPT_NAME"; then
                 echo "${C_RED}!! FATAL: could not unlock ${PART_SYS} with the passphrase given." >&2
                 echo "     The volume exists but the passphrase does not open it.${C_RST}" >&2
                 exit 1
@@ -3042,9 +3079,9 @@ if [ "$ENCRYPT" = "yes" ]; then
         # prompt automatically — that is the boot-time fallback path. With
         # YK_FALLBACK=no there is no fallback slot, so only the YubiKey opens
         # the volume (possession-only).
-        echo "void-root UUID=$LUKS_UUID none luks,keyscript=/usr/local/sbin/void-reveal-yubikey-key" > /mnt/etc/crypttab
+        echo "${CRYPT_NAME} UUID=$LUKS_UUID none luks,keyscript=/usr/local/sbin/void-reveal-yubikey-key" > /mnt/etc/crypttab
     else
-        echo "void-root UUID=$LUKS_UUID none luks" > /mnt/etc/crypttab
+        echo "${CRYPT_NAME} UUID=$LUKS_UUID none luks" > /mnt/etc/crypttab
     fi
 fi
 
@@ -3162,6 +3199,11 @@ echo "export SWAPFILE_SIZE=\"$SWAPFILE_SIZE\"" >> /mnt/tmp/chroot_env.sh
 # must stay secret-free (same rule as the pass hashes below), and the
 # passphrase was already unset after luksOpen anyway.
 echo "export ENCRYPT=\"$ENCRYPT\"" >> /mnt/tmp/chroot_env.sh
+# AI (Big Pickle) ADDITION — v3.3.0-beta23 [CRYPT-NAME]: the mapper name is a
+# public, non-secret value (it appears in /dev/mapper and on the kernel
+# cmdline), so it is safe to carry into the chroot for the GRUB/Limine
+# rd.luks.name= builders and crypttab. Defaults to void-root.
+echo "export CRYPT_NAME=\"${CRYPT_NAME:-void-root}\"" >> /mnt/tmp/chroot_env.sh
 # The LUKS container UUID is public (it is stamped in the on-disk header and
 # appears in rd.luks.uuid= on the kernel cmdline) so it is safe to persist
 # into the chroot for the GRUB/Limine cmdline builders — unlike the
@@ -4492,7 +4534,7 @@ fi
 # inside the LUKS volume, so hibernation resumes after the volume is
 # unlocked.
 if [ "$ENCRYPT" = "yes" ]; then
-    LUKS_RD="rd.luks.uuid=${LUKS_UUID} rd.luks.name=${LUKS_UUID}=void-root"
+    LUKS_RD="rd.luks.uuid=${LUKS_UUID} rd.luks.name=${LUKS_UUID}=${CRYPT_NAME:-void-root}"
 else
     LUKS_RD=""
 fi
@@ -4642,6 +4684,12 @@ LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE}"
 # boot cmdline), never the passphrase. Empty/unset when not encrypted.
 ENCRYPT="${ENCRYPT}"
 LUKS_UUID="${LUKS_UUID}"
+# AI (Big Pickle) ADDITION — v3.3.0-beta23 [CRYPT-NAME]: the mapper name is
+# persisted (public, non-secret) so void-limine-write-conf re-emits
+# rd.luks.name=<this> on every kernel update / snapper-plugin resync. Defaults
+# to void-root. Used together with LUKS_UUID above; only the name, never the
+# passphrase.
+CRYPT_NAME="${CRYPT_NAME:-void-root}"
 # AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: persisted so
 # void-limine-write-conf re-emits the rd.luks.name=void-root keyscript unlock
 # params on every kernel update / snapper-plugin resync, consistent with how the
@@ -4678,6 +4726,11 @@ DESKTOP_ENV="${DESKTOP_ENV:-<unset>}"
 DISPLAY_MANAGER="${DISPLAY_MANAGER:-<unset>}"
 BOOTLOADER="${BOOTLOADER:-<unset>}"
 KERNEL_MODE="${KERNEL_MODE:-<unset>}"
+# AI (Big Pickle) ADDITION — v3.3.0-beta23 [CRYPT-NAME]: record the encryption
+# choice + LUKS mapper name in the as-built config. Both are PUBLIC (no
+# passphrase — matches the secret-free rule for this file and limine-env).
+ENCRYPT="${ENCRYPT:-no}"
+CRYPT_NAME="${CRYPT_NAME:-void-root}"
 SESSION_STACK="${SESSION_STACK:-<unset>}"
 LOCALE="${LOCALE:-<unset>}"
 TIMEZONE="${TIMEZONE:-<unset>}"
@@ -4717,6 +4770,7 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
             echo "ESP_MOUNTED_AT=/boot/efi"
         fi
         echo "ENCRYPT=${ENCRYPT:-no}"
+        echo "LUKS_MAPPER=${CRYPT_NAME:-void-root}"
         echo "YUBIKEY_UNLOCK=${YK_MODE:-off}"
         echo "SESSION_STACK=${SESSION_STACK:-<unset>}"
         echo "DESKTOP_ENV=${DESKTOP_ENV:-<unset>}"
@@ -4807,7 +4861,7 @@ load_limine_env
 # UUID — the swapfile lives inside the LUKS volume, so hibernation resumes
 # after unlock — and `root=UUID=` likewise resolves through the opened mapper.
 if [ "${ENCRYPT}" = "yes" ]; then
-    LUKS_RD="rd.luks.uuid=${LUKS_UUID} rd.luks.name=${LUKS_UUID}=void-root"
+    LUKS_RD="rd.luks.uuid=${LUKS_UUID} rd.luks.name=${LUKS_UUID}=${CRYPT_NAME:-void-root}"
 else
     LUKS_RD=""
 fi

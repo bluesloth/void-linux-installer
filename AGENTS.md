@@ -132,14 +132,22 @@ Known regressions that have already broken a real install:
 11. `[ENCRYPT]` Optional LUKS2 full-disk encryption is a **typed-passphrase-only**
     opt-in (`ENCRYPT=yes`). The passphrase is NEVER persisted — it lives in
     memory, is fed to `cryptsetup luksFormat`/`luksOpen` only via stdin
-    (`--key-file=- <<<"..."; ` `read -s` twice + match check), and is `unset`
+    (`--key-file=-` fed by `printf '%s' "$ENCRYPT_PASSPHRASE" |`, which emits
+    NO trailing newline so the stored bytes exactly match a human typing at the
+    boot prompt — do NOT regress this to `<<<`/`echo`, which append a newline
+    and lock boot out, see `[ENCRYPT-NEWLINE]`; `read -s` twice + match check),
+    and is `unset`
     right after `luksOpen`. Be careful with the two UUIDs: `BTRFS_UUID`
     (read from the mapper `$BTRFS_DEV`) is the Btrfs fs UUID that drives
     fstab/root/resume, while `LUKS_UUID` (read from partition `$PART_SYS`) is
     the ciphertext container UUID that drives crypttab and the
-    `rd.luks.uuid=... rd.luks.name=...=void-root` kernel params. Do NOT
-    conflate them, and do NOT persist any passphrase to install-config,
-    limine-env, resume state, or chroot_env.
+    `rd.luks.uuid=... rd.luks.name=...=$CRYPT_NAME` kernel params. The mapper
+    name `$CRYPT_NAME` defaults to `void-root` but is a real optional prompt
+    (`[CRYPT-NAME]`, v3.3.0-beta23); thread it (not a literal `void-root`)
+    through cryptsetup calls, crypttab, chroot_env, limine-env, and the
+    rd.luks.name= builders so a custom name still boots. Do NOT
+    conflate the two UUIDs, and do NOT persist any passphrase to
+    install-config, limine-env, resume state, or chroot_env.
 12. `[YUBIKEY]` Optional YubiKey hmac-sha1 unlock (`YK_MODE=hmac-sha1`) is a
     **typed-passphrase-with-optional-possession-only** feature layered on
     `[ENCRYPT]`. The HMAC RESPONSE (`YK_KEY`, fed to `luksAddKey`/`luksOpen`)

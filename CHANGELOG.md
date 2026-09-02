@@ -10,7 +10,78 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta21** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta23** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta23 — configurable LUKS mapper name (`[CRYPT-NAME]`)
+
+The decrypted volume was previously hardcoded as the mapper name `void-root`
+(`CRYPT_DEV="/dev/mapper/void-root"` stamped into every `luksOpen`/`luksClose`,
+crypttab, and `rd.luks.name=` kernel param). beta23 makes the name a real,
+optional install-time prompt that **defaults to `void-root`** (pressing ENTER
+keeps today's behavior exactly).
+
+- **New prompt** (gated on `ENCRYPT=yes`, right after the passphrase confirm):
+  "LUKS mapper name? [void-root]" — a bare ENTER yields `void-root`; any
+  non-empty plain name (rejecting `/`) is accepted and stored in `CRYPT_NAME`.
+- **`CRYPT_NAME` is threaded through every consumer** so a custom name still
+  boots and still recovers, not just the `luksOpen` call:
+  - the 6 `cryptsetup luksFormat`/`luksOpen`/`luksClose`/`luksAddKey` calls;
+  - `/etc/crypttab` (both the plain and the YubiKey `keyscript=` variant);
+  - `chroot_env.sh` (`export CRYPT_NAME=...`) so Stage-2 builders see it;
+  - the resume-state file (a resumed run re-sources it, no re-prompt);
+  - the GRUB and Limine `rd.luks.name=${LUKS_UUID}=${CRYPT_NAME}` kernel
+    cmdlines;
+  - persisting `CRYPT_NAME` into `/etc/void-installer/limine-env` so the
+    persistent `void-limine-write-conf` re-emits the correct
+    `rd.luks.name=` on every kernel/snapshot resync (`CRYPT_NAME` is loaded by
+    the shared `load_limine_env()`);
+  - the `install-config` as-built record and the `DOCS-LOG`
+    `~/Documents/VOID_INSTALL.txt` (`LUKS_MAPPER=...`).
+- **Secret-free:** the mapper name is a *public* value (it appears in
+  `/dev/mapper/` and on the kernel cmdline), so it is persisted exactly like
+  `LUKS_UUID` — never the passphrase. Booting with dracut flows through
+  cryptroot-ask's `$luksname` argument (derived from `rd.luks.name=`), so a
+  custom name requires no extra wiring in the initramfs.
+- Default keeps full backward compatibility: `void-root` remains the value for
+  anyone who just hits ENTER.
+
+---
+
+## v3.3.0-beta22 — encrypted unlock newline fix (`[ENCRYPT-NEWLINE]`)
+
+Discovered from a fresh real-hardware install that unlocked with the installer
+but **refused to unlock at boot or via a manual recovery** open ("No key
+available with this passphrase"), even though the passphrase was a US-layout,
+digits-only `<redacted-passphrase>`.
+
+**Root cause (byte-level):** every LUKS call fed the passphrase through a
+`<<<` here-string (or `echo`), e.g.
+`cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"`.
+`<<<` and `echo` append a **trailing newline byte**, so the LUKS keyslot stored
+`passphrase\n` (11 bytes for `<redacted-passphrase>`). The beta21 `[ENCRYPT-VERIFY]`
+close/re-open check *appeared* to pass only because it reused the same `<<<`
+11-byte path — it never exercised the interactive path. A human typing at the
+boot prompt (or a manual `cryptsetup open`) reads a line in terminal canonical
+mode **without** the newline → 10 bytes → keyslot mismatch → lockout.
+
+**Fix (`[ENCRYPT-NEWLINE]`):** all six LUKS passphrase-fed calls now pipe
+`printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup ... --key-file=-`, producing
+**no** trailing newline. This makes format == verify == interactive boot typing
+byte-identical — the exact bytes a person entering the passphrase at the
+prompt generates. Newline-bearing here-string/echo paths are gone from every
+cryptsetup `--key-file=-` use (the two remaining `<<<` in the file feed
+`openssl passwd`, not LUKS, and are unrelated).
+
+- Changed calls: `luksFormat` (fresh), `luksOpen` (fresh), the
+  `[ENCRYPT-VERIFY]` close/re-open, `luksAddKey` (YubiKey binding), and the two
+  resume-path `luksOpen` fallback/typed paths.
+- A fresh install with beta22 stores an exact-byte passphrase, so boot,
+  recovery, and reinstall resume all unlock with the plain typed passphrase.
+- The *existing* beta21-installed volume (already on disk) still holds the
+  11-byte newline-included key; unlocking it requires the matching newline
+  until it is re-keyed (see the re-key note sent with this change).
 
 ---
 
@@ -1256,6 +1327,9 @@ Inline markers used throughout the script (and mirrored here):
   `[KERNEL-HOOK]`, `[DISTROBOX-2/3]`, `[CLONE-RETRY]`, `[FAILURE-JOURNAL]`,
   `[COSMETIC]`, `[SCRUB]`, `[SNPR-EV]`, `[SNPR-EV-NO-CRON]`, `[ENCRYPT]`,
   `[YUBIKEY]`, `[ZSHRC]`, `[LIMINE-DEFAULT]`, `[ENCRYPT-ORDER]`, `[SUBVOLS]`,
-  `[GRUB-ESP-BOOT]`, `[DOCS-LOG]`.
+  `[GRUB-ESP-BOOT]`, `[DOCS-LOG]`, `[ENCRYPT-KEYMAP]`, `[ENCRYPT-VERIFY]`,
+  `[ENCRYPT-NEWLINE]`, `[CRYPT-NAME]`, `[DRY-RUN]`, `[FULLNAME]`,
+  `[PKG-SNAPSHOT]`, `[PKG-SNAPSHOT-AUTO]`, `[RESHADOW-BOOT]`, `[TOOLS-DIR]`,
+  `[TOOLS-LIMINE-BACKUP]`, `[LIMINE-HDR]`, `[LIMINE-WALLPAPER-OPT-OUT]`.
 - Action words: `ADDITION` (new feature), `CHANGE` (behavioral change),
   `FIX` (bug fix), `EXPANSION` (extended feature).
