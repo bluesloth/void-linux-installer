@@ -53,6 +53,10 @@ hardcoded defaults scattered through the prompt loops.
   `DEFAULT_PROVISION_VIVALDI_SUBVOL`, `DEFAULT_PROVISION_FALKON_SUBVOL`,
   `DEFAULT_PROVISION_BRAVE_SUBVOL`, `DEFAULT_PROVISION_THUNDERBIRD_SUBVOL`,
   `DEFAULT_PROVISION_STEAM_SUBVOL`, `DEFAULT_PROVISION_DB_SUBVOLS`.
+- **Dev gate:** `Debug/check-defaults.sh` (committed) is a reproducible check
+  that every declared `DEFAULT_*` is actually wired to a prompt and every
+  referenced `DEFAULT_*` is declared — run it after touching the prompt/defaults
+  surface (see AGENTS.md → Validation).
 
 ---
 

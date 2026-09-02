@@ -228,6 +228,14 @@ Known regressions that have already broken a real install:
   generated files themselves carry (SC2154 dracut globals, SC2050 rc.local
   sed placeholders, SC2034 greeter wait counter, SC2086/SC2012 deliberate
   word-splits) are intentional and must stay.
+- The `[PROMPT-DEFAULTS]` (v3.3.0-beta24) top block wires every interactive
+  prompt's bare-Enter fallback to a `DEFAULT_*` variable. After adding a prompt
+  or changing that block, run `Debug/check-defaults.sh` (committed,
+  reproducible): it fails if any declared `DEFAULT_*` is never referenced by a
+  prompt (an orphaned default silently stops applying), or if any `DEFAULT_*`
+  is referenced but never declared (a typo'd knob that would silently fall back
+  to its built-in value). That script is the gate — keep it consistent whenever
+  the prompt/defaults surface changes.
 - Run the installer only on a real/modular Void Linux Live environment; do
   not execute it against the working tree or host. `-d|--dry-run` ([DRY-RUN])
   is the closest thing to a safe local preflight: it walks every prompt and

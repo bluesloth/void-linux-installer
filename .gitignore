@@ -22,6 +22,10 @@ Debug/*
 # heredoc-lint gate (bash -n + shellcheck over every extracted generated body)
 # that AGENTS.md's Validation section mandates. Re-unignore exactly this file.
 !Debug/check-heredocs.sh
+# ...and Debug/check-defaults.sh IS committed — the reproducible check that
+# the [PROMPT-DEFAULTS] block stays consistent (every DEFAULT_* declared AND
+# wired, no stray references), per AGENTS.md's Validation section. Re-unignore.
+!Debug/check-defaults.sh
 # ...and the YubiKey possession-only validation kit (probe + protocol) is
 # committed so it survives until the real-hardware run happens.
 !Debug/yk_validation/
