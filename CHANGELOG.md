@@ -10,7 +10,34 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta19** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta20** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta20 — self-contained Limine rebuild kit (`[TOOLS-LIMINE-BACKUP]`)
+
+beta18's `/root/tools` could re-trigger a Limine menu regen (`limine-sync.sh`)
+and re-install the snapper trigger plugin (`re-provision-snapper.sh`), but it
+could NOT rebuild the live `/usr/local/sbin/void-limine-*` menu engines if
+those were lost — so the Limine+snapper snapshot-menu pipeline was only
+reconstructible via a full reinstall. beta20 makes `/root/tools` a true
+self-contained regeneration kit.
+
+- **`[TOOLS-LIMINE-BACKUP]`** — `/root/tools` now also carries canonical,
+  pristine backups of the three live Limine engine helpers:
+  `void-limine-env.inc` (sourced by the generator), `void-limine-sync-kernels`
+  and `void-limine-write-conf` (the two executables that drive the menu).
+- **`limine-sync.sh` self-rebuild** — if a live Limine helper is missing from
+  `/usr/local/sbin`, `limine-sync.sh` restores it from the folder-local backup
+  before regenerating the menu. This makes the whole void-limine +
+  limine-snapper-sync pipeline recoverable without reinstalling.
+- **Not backed up** (deliberately): `void-reveal-yubikey-key` (a dracut
+  keyscript-derived helper, not part of the menu generator) and
+  `void-xbps-snap`'s YubiKey/other pieces — `void-xbps-snap` already has its
+  own backup. Each backup is mode- and owner-preserved via `install -o root`.
+- `limine-sync.sh`'s helper-absent check now runs *after* the auto-restore, so
+  it only reports "not a Limine install" when a helper is truly gone with no
+  backup to fall back on.
 
 ---
 

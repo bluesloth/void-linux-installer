@@ -199,6 +199,14 @@
 #     /root/tools/re-shadow-xbps.sh on each boot, so if an `xbps` self-update
 #     un-shadows the wrapper, the next boot repairs it before any later update
 #     can run unsnapshotted. Manual recovery is no longer required.
+#     AI (Big Pickle) ADDITION — v3.3.0-beta20 [TOOLS-LIMINE-BACKUP]: /root/tools
+#     now also carries canonical backups of the three LIVE Limine menu engines
+#     (/usr/local/sbin/void-limine-env.inc, void-limine-sync-kernels,
+#     void-limine-write-conf). Previously /root/tools could re-trigger a menu
+#     regen and re-install the snapper plugin but could NOT rebuild a wiped
+#     /usr/local/sbin Limine stack; limine-sync.sh now self-restores these from
+#     backup first, so /root/tools is a self-contained regeneration kit for the
+#     whole void-limine + limine-snapper-sync pipeline (no full reinstall needed).
 #   - Bootloader (v3.2.0-beta1; default flipped to Limine in v3.3.0-beta12
 #     [LIMINE-DEFAULT]): a real per-install CHOICE, $BOOTLOADER, between two
 #     fully separate code paths in Stage 2:
@@ -298,7 +306,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta19"
+SCRIPT_VERSION="3.3.0-beta20"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -5317,6 +5325,25 @@ mkdir -p /root/tools
 cp -f /usr/local/sbin/void-xbps-snap /root/tools/void-xbps-snap
 chmod 0755 /root/tools/void-xbps-snap
 
+# 1b) AI (Big Pickle) ADDITION — v3.3.0-beta20 [TOOLS-LIMINE-BACKUP]: canonical
+#    backup copies of the three live Limine menu-engine helpers. Previously
+#    /root/tools could RE-TRIGGER a menu regen (limine-sync.sh) and RE-INSTALL
+#    the snapper trigger plugin (re-provision-snapper.sh) but could NOT rebuild
+#    the /usr/local/sbin/void-* engines themselves if they were lost — so the
+#    Limine+snapper menu pipeline was only reconstructible via a full reinstall.
+#    These pristine copies close that gap: limine-sync.sh can now restore a
+#    damaged /usr/local/sbin from here, making /root/tools a self-contained
+#    regeneration kit for the whole void-limine + limine-snapper-sync pipeline.
+#    (env.inc is sourced by the generator; sync-kernels and write-conf are the
+#    two executables limine-sync.sh drives; void-reveal-yubikey-key is a
+#    dracut keyscript-derived helper and is intentionally NOT backed up here.)
+cp -f /usr/local/sbin/void-limine-env.inc /root/tools/void-limine-env.inc
+cp -f /usr/local/sbin/void-limine-sync-kernels /root/tools/void-limine-sync-kernels
+cp -f /usr/local/sbin/void-limine-write-conf /root/tools/void-limine-write-conf
+chmod 0644 /root/tools/void-limine-env.inc
+chmod 0755 /root/tools/void-limine-sync-kernels
+chmod 0755 /root/tools/void-limine-write-conf
+
 # 2) re-shadow-xbps.sh — recovery for the [PKG-SNAPSHOT-AUTO] caveat: an
 #    `xbps` package self-update re-places a REAL ELF over the /usr/bin/xbps-install
 #    symlink, silently un-shadowing it. This restores the wrapper + shadow.
@@ -5377,13 +5404,44 @@ chmod 0755 /root/tools/re-shadow-xbps.sh
 #    a no-op with a clear message when this is a GRUB box.
 cat > /root/tools/limine-sync.sh << 'INNER_EOF'
 #!/bin/bash
-# [TOOLS] Force a manual Limine boot-menu regeneration (kernel sync + config).
+# [TOOLS] Force a manual Limine boot-menu regeneration (kernel sync + config),
+# and SELF-REBUILD a damaged /usr/local/sbin Limine helper stack from the
+# canonical backups kept alongside this script.
 # Usage: sudo /root/tools/limine-sync.sh
 set -euo pipefail
 
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# The live engines limine-sync.sh drives. If one is missing but a canonical
+# backup sits in this folder, restore it first (this is what makes /root/tools
+# a self-contained regeneration kit even after /usr/local/sbin is wiped).
+# map of backup-source -> live-destination (mode).
+RESTORE_LIST="void-limine-env.inc:root:0644
+void-limine-sync-kernels:root:0755
+void-limine-write-conf:root:0755"
+
+for entry in $RESTORE_LIST; do
+    src_name="${entry%%:*}"
+    rest="${entry#*:}"
+    owner="${rest%%:*}"
+    mode="${rest##*:}"
+    src="$SELF_DIR/$src_name"
+    dst="/usr/local/sbin/$src_name"
+    if [ ! -e "$dst" ]; then
+        if [ -f "$src" ]; then
+            install -o "$owner" -g "0" -m "$mode" "$src" "$dst"
+            echo "==> restored $dst from backup ($src)"
+        else
+            echo "ERROR: $dst missing and no backup at $src." >&2
+            exit 1
+        fi
+    fi
+done
+
+# Only proceed on a real Limine box: the two executables underly the sync.
 if [ ! -x /usr/local/sbin/void-limine-sync-kernels ] || \
    [ ! -x /usr/local/sbin/void-limine-write-conf ]; then
-    echo "This is not a Limine install (limine helpers absent); nothing to sync." >&2
+    echo "This is not a Limine install (limine helpers still absent); nothing to sync." >&2
     exit 0
 fi
 # Only meaningful on a Limine box: fail fast if no ESP limine.conf target.
@@ -5515,12 +5573,17 @@ every boot or by hand.
 
 ### `limine-sync.sh` — force a boot-menu resync (Limine only)
 **What it does:** re-runs the kernel copy + `void-limine-write-conf` to
-regenerate the Limine boot menu (including the `+Snapshots` submenu).
+regenerate the Limine boot menu (including the `+Snapshots` submenu). If a
+live Limine helper under `/usr/local/sbin` is missing, it **first restores it
+from the canonical backup kept in this folder**, so this one script can
+rebuild the whole menu pipeline even after `/usr/local/sbin` was wiped.
 
 **When to use it:** the kernel hook and the snapper plugin normally do this
 automatically. Reach for this if you manually changed `/boot/efi/void-kernel/`
 or `/.snapshots/`, or if the snapshot menu looks stale and you want to force a
-rebuild without waiting for a kernel/snapshot event.
+rebuild without waiting for a kernel/snapshot event — **or** if the
+`/usr/local/sbin/void-limine-*` helpers were lost and you need to regenerate
+them from backup.
 
 **How:**
 ```bash
@@ -5528,6 +5591,16 @@ sudo /root/tools/limine-sync.sh
 ```
 On a GRUB install it is a harmless no-op (prints a notice). It needs `/boot/efi`
 mounted.
+
+---
+
+### Limine engine backups — `void-limine-env.inc`, `void-limine-sync-kernels`, `void-limine-write-conf`
+Canonical pristine copies of the live Limine menu engines that `/usr/local/sbin`
+uses. They are not meant to be run from here (their live home is
+`/usr/local/sbin`, on `PATH`/sourced by the generator); they are the fallback
+that `limine-sync.sh` restores from if the live copies are lost or damaged.
+Without these, a broken `/usr/local/sbin` Limine stack was only fixable by a
+full reinstall — now `sudo /root/tools/limine-sync.sh` can rebuild it.
 
 ---
 
@@ -5574,7 +5647,7 @@ sudo /root/tools/void-xbps-snap -S <pkg>
   installer itself; this folder is the deployable/on-box copy for later reuse.
 INNER_EOF
 chmod 0644 /root/tools/README.md
-echo "/root/tools maintenance folder complete (void-xbps-snap backup, re-shadow-xbps.sh, limine-sync.sh, re-provision-snapper.sh, README.md)"
+echo "/root/tools maintenance folder complete (void-xbps-snap backup, 3 limine-engine backups, re-shadow-xbps.sh, limine-sync.sh, re-provision-snapper.sh, README.md)"
 
 # AI (Big Pickle) ADDITION — v3.3.0-beta19 [RESHADOW-BOOT]: make the xbps
 # self-update shadow-clobber SELF-HEALING instead of a manual recovery. The
