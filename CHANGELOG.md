@@ -10,7 +10,44 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta17** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta18** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta18 — persistent maintenance/tools folder (`[TOOLS-DIR]`)
+
+The recovery stories added since beta16 had their recovery steps described in
+comments and the NEXT STEPS summary, but nothing handed the *admin* a script to
+actually run when a caveat hit. beta18 ships a persistent, self-contained
+maintenance folder at **`/root/tools`**, written once at install time, that the
+admin can run later on demand.
+
+- **`[TOOLS-DIR]`** — `mkdir /root/tools` + four files (all idempotent):
+  - **`void-xbps-snap`** — canonical backup copy of the update-snapshot wrapper,
+    the ultimate fallback if `/usr/local/sbin/void-xbps-snap` is ever lost.
+  - **`re-shadow-xbps.sh`** — recovery for the `[PKG-SNAPSHOT-AUTO]` caveat: an
+    `xbps` package self-update re-places a real ELF over the
+    `/usr/bin/xbps-install` symlink. This self-heals: restores the wrapper from
+    the backup, moves a real binary to `xbps-install.real` if needed, and
+    re-links the shadow. Works on a `readlink` of the current `xbps-install`
+    (already-linked / real-ELF / dangling) — idempotent.
+  - **`limine-sync.sh`** — manual, on-demand Limine boot-menu resync (kernel
+    sync + `void-limine-write-conf`). A clear no-op on a GRUB box.
+  - **`re-provision-snapper.sh`** — *safe* snapper recovery: recreates a
+    *missing* `root` config, re-applies the retention/timeline tuning and the
+    runit filter, and re-installs the `00-void-limine-snapper-sync` plugin
+    (Limine only). Deliberately does **NOT** run the destructive
+    umount/rmdir/create-config reconciliation that would wipe existing
+    snapshots — this script never touches existing snapshots.
+- **Hosted in `/root` (admin home), not on PATH** — they are run-on-demand
+  maintenance scripts (`re-shadow`, `limine-sync`, `re-provision-snapper`),
+  not live helpers; the live helpers stay in `/usr/local/sbin`. Scripts use
+  `BASH_SOURCE`-relative paths so the folder is relocatable.
+- Surfaced in the header Recovery section and the NEXT STEPS summary (item 7,
+  and item 6's re-shadow message now names the actual script).
+- **Validation:** static gates (`bash -n`, `Debug/check-heredocs.sh` 44/44,
+  all tools `bash -n` + shellcheck clean). Not yet exercised on real hardware —
+  verify each wrapper one has its documented use-case on the target medium.
 
 ---
 

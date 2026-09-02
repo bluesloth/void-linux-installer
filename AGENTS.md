@@ -196,7 +196,10 @@ Known regressions that have already broken a real install:
   the whole file. If shellcheck is absent, `bash -n` plus a manual read of
   any changed pipeline is the fallback.
 - The generated helper scripts under `/usr/local/sbin`
-  (`void-limine-env.inc`, `void-limine-write-conf`, `void-limine-sync-kernels`)
+  (`void-limine-env.inc`, `void-limine-write-conf`, `void-limine-sync-kernels`),
+  the re-runnable maintenance tools under `/root/tools` (`void-xbps-snap`
+  canonical copy, `re-shadow-xbps.sh`, `limine-sync.sh`,
+  `re-provision-snapper.sh`),
   the snapper plugin under `/usr/lib/snapper/plugins`
   (`00-void-limine-snapper-sync`),
   the dracut YubiKey module under `/usr/lib/dracut/modules.d/99void-yubikey`

@@ -187,6 +187,13 @@
 #     with zero behavior change. Caveat: an `xbps` package self-update
 #     re-places a real binary over the symlink (un-shadowing it); recovery is
 #     to re-run the installer's shadow block or the documented one-liner.
+#     AI (Big Pickle) ADDITION — v3.3.0-beta18 [TOOLS-DIR]: maintenance/recovery
+#     scripts ship in /root/tools (persistent, installed once, run later on
+#     demand) so the documented recovery steps are never hand-rewritten:
+#     re-shadow-xbps.sh (xbps self-update recovery), limine-sync.sh (manual
+#     boot-menu regen), re-provision-snapper.sh (safe snapper restore, plugin
+#     re-install), plus a canonical copy of void-xbps-snap. Idempotent, not on
+#     PATH (run-on-demand tools, not live helpers).
 #   - Bootloader (v3.2.0-beta1; default flipped to Limine in v3.3.0-beta12
 #     [LIMINE-DEFAULT]): a real per-install CHOICE, $BOOTLOADER, between two
 #     fully separate code paths in Stage 2:
@@ -286,7 +293,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta17"
+SCRIPT_VERSION="3.3.0-beta18"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -5287,6 +5294,173 @@ if [ -f /usr/bin/xbps-install ] && [ -x /usr/local/sbin/void-xbps-snap ]; then
     echo "xbps-install shadowed -> void-xbps-snap (real binary kept at /usr/bin/xbps-install.real)"
 fi
 
+# AI (Big Pickle) ADDITION — v3.3.0-beta18 [TOOLS-DIR]: a persistent,
+# self-contained maintenance/tools folder at /root/tools, written ONCE at
+# install time and left for the admin to run later when something needs
+# re-applying. These are the re-runnable recovery scripts the project's
+# maintainers would otherwise have to regenerate by hand. Each is idempotent.
+# Shipping them here (root's home) means they survive normal package updates
+# and are available when a documented caveat hits (e.g. the xbps self-update
+# that un-shadows /usr/bin/xbps-install). NOT on PATH — they are run-on-demand
+# maintenance scripts, not live helpers; the live helpers stay in /usr/local/sbin.
+# Contents (all RELATIVE references use this dir so the folder is relocatable):
+mkdir -p /root/tools
+
+# 1) Canonical backup copy of the xbps snapshot wrapper. /usr/local/sbin is
+#    the live home; this pristine copy feeds re-shadow-xbps.sh below and is the
+#    ultimate fallback if /usr/local/sbin is ever lost.
+cp -f /usr/local/sbin/void-xbps-snap /root/tools/void-xbps-snap
+chmod 0755 /root/tools/void-xbps-snap
+
+# 2) re-shadow-xbps.sh — recovery for the [PKG-SNAPSHOT-AUTO] caveat: an
+#    `xbps` package self-update re-places a REAL ELF over the /usr/bin/xbps-install
+#    symlink, silently un-shadowing it. This restores the wrapper + shadow.
+#    Idempotent and self-healing (works whether .real exists or not, whether
+#    the live wrapper survives or not).
+cat > /root/tools/re-shadow-xbps.sh << 'INNER_EOF'
+#!/bin/bash
+# [TOOLS] Re-apply the automatic-update snapshot shadow. Run after an 'xbps'
+# package self-update (which re-places a real binary over the symlink) or any
+# time /usr/bin/xbps-install stops going through void-xbps-snap.
+# Usage: sudo /root/tools/re-shadow-xbps.sh     (idempotent, safe to re-run)
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WRAPPER=/usr/local/sbin/void-xbps-snap
+BACKUP="$SELF_DIR/void-xbps-snap"
+REAL=/usr/bin/xbps-install.real
+
+if [ -x "$BACKUP" ]; then
+    install -m 0755 "$BACKUP" "$WRAPPER"
+    echo "==> wrapper restored to $WRAPPER (from $BACKUP)"
+elif [ ! -x "$WRAPPER" ]; then
+    echo "ERROR: no wrapper available (neither $BACKUP nor $WRAPPER). Reinstall or restore manually." >&2
+    exit 1
+fi
+
+case "$(readlink /usr/bin/xbps-install 2>/dev/null || true)" in
+    "$WRAPPER")
+        echo "==> /usr/bin/xbps-install already -> void-xbps-snap; nothing to do."
+        ;;
+    "")
+        # not a symlink — likely a real ELF (fresh xbps self-update)
+        if [ -f /usr/bin/xbps-install ] && [ ! -e "$REAL" ]; then
+            mv -n /usr/bin/xbps-install "$REAL"
+            echo "==> moved real binary to $REAL"
+        fi
+        ln -sf "$WRAPPER" /usr/bin/xbps-install
+        echo "==> re-linked /usr/bin/xbps-install -> void-xbps-snap"
+        ;;
+    *)
+        # a dangling/stale symlink (or wrong target) — fix it
+        rm -f /usr/bin/xbps-install
+        ln -sf "$WRAPPER" /usr/bin/xbps-install
+        echo "==> re-pointed /usr/bin/xbps-install -> void-xbps-snap"
+        ;;
+esac
+
+echo "==> state:"
+ls -la /usr/bin/xbps-install "$REAL" 2>/dev/null || true
+echo "==> done. A normal 'sudo xbps-install -Su' now auto-snapshots again."
+INNER_EOF
+chmod 0755 /root/tools/re-shadow-xbps.sh
+
+# 3) limine-sync.sh — manual, on-demand Limine boot-menu resync. Normally the
+#    kernel hook and the snapper plugin regenerate the menu automatically; this
+#    exists for the admin to force a rebuild (e.g. after manually moving/cleaning
+#    /boot/efi/void-kernel or /.snapshots, or rule #8/#10 recovery). Limine-only:
+#    a no-op with a clear message when this is a GRUB box.
+cat > /root/tools/limine-sync.sh << 'INNER_EOF'
+#!/bin/bash
+# [TOOLS] Force a manual Limine boot-menu regeneration (kernel sync + config).
+# Usage: sudo /root/tools/limine-sync.sh
+set -euo pipefail
+
+if [ ! -x /usr/local/sbin/void-limine-sync-kernels ] || \
+   [ ! -x /usr/local/sbin/void-limine-write-conf ]; then
+    echo "This is not a Limine install (limine helpers absent); nothing to sync." >&2
+    exit 0
+fi
+# Only meaningful on a Limine box: fail fast if no ESP limine.conf target.
+[ -d /boot/efi ] || { echo "No /boot/efi mount — aborting limine sync." >&2; exit 1; }
+
+echo "==> [void-limine-sync-kernels]"
+/usr/local/sbin/void-limine-sync-kernels
+echo "==> [void-limine-write-conf]"
+/usr/local/sbin/void-limine-write-conf
+echo "==> Limine boot menu regenerated."
+INNER_EOF
+chmod 0755 /root/tools/limine-sync.sh
+
+# 4) re-provision-snapper.sh — SAFE snapper recovery, deliberately NOT the
+#    full destructive reconciliation (the umount/rmdir/create-config dance that
+#    would WIPE existing snapshots). This only restores the config file if it
+#    is missing, re-applies the installer's timeline/retention tuning, and
+#    re-installs the 00-void-limine-snapper-sync plugin (Limine only). Any
+#    existing snapshots are left intact.
+cat > /root/tools/re-provision-snapper.sh << 'INNER_EOF'
+#!/bin/bash
+# [TOOLS] Safely restore/re-tune the snapper 'root' config and (on Limine) the
+# snapshot-boot plugin WITHOUT touching existing snapshots. Safe to re-run.
+# Usage: sudo /root/tools/re-provision-snapper.sh
+set -euo pipefail
+
+if ! command -v snapper >/dev/null 2>&1; then
+    echo "ERROR: snapper not installed." >&2
+    exit 1
+fi
+
+# Only recreate a MISSING config; never clobber one that exists (avoid the
+# destructive reconciliation that would lose the @snapshots mount/snapshots).
+if [ ! -f /etc/snapper/configs/root ]; then
+    echo "==> creating missing snapper 'root' config..."
+    # Best-effort mirror of the installer's create-config (safe if /.snapshots
+    # is already the @snapshots subvolume — create-config tolerates a mounted
+    # subvolume; the install-time dance unmounted it only to live entirely in
+    # the fresh-chroot case).
+    snapper --no-dbus -c root create-config / || \
+        { echo "ERROR: could not create snapper root config." >&2; exit 1; }
+    mkdir -p /.snapshots
+    mount /.snapshots 2>/dev/null || true
+    chmod 750 /.snapshots
+fi
+
+# Re-apply the installer's retention tuning (idempotent sed on existing values).
+CFG=/etc/snapper/configs/root
+sed -i 's/TIMELINE_LIMIT_HOURLY="10"/TIMELINE_LIMIT_HOURLY="3"/g' "$CFG"
+sed -i 's/TIMELINE_LIMIT_DAILY="10"/TIMELINE_LIMIT_DAILY="5"/g' "$CFG"
+sed -i 's/TIMELINE_LIMIT_WEEKLY="10"/TIMELINE_LIMIT_WEEKLY="2"/g' "$CFG"
+sed -i 's/TIMELINE_LIMIT_MONTHLY="10"/TIMELINE_LIMIT_MONTHLY="0"/g' "$CFG"
+sed -i 's/TIMELINE_LIMIT_YEARLY="10"/TIMELINE_LIMIT_YEARLY="0"/g' "$CFG"
+sed -i 's/EMPTY_PRE_POST_CLEANUP="false"/EMPTY_PRE_POST_CLEANUP="true"/g' "$CFG"
+
+# runit filter (exclude ephemeral service symlinks from snapshots).
+mkdir -p /etc/snapper/filters
+grep -qx 'var/service/*' /etc/snapper/filters/void-runit.txt 2>/dev/null || \
+    echo "var/service/*" >> /etc/snapper/filters/void-runit.txt
+
+# Limine-only: re-install the snapshot-boot menu plugin.
+if [ -x /usr/local/sbin/void-limine-write-conf ] && [ -d /boot/efi ]; then
+    mkdir -p /usr/lib/snapper/plugins
+    cat > /usr/lib/snapper/plugins/00-void-limine-snapper-sync << 'PLUGIN_EOF'
+#!/bin/bash
+set -eEo pipefail
+export PATH="/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin"
+case "${1:-}" in
+    create-snapshot-post|delete-snapshot-post)
+        /usr/local/sbin/void-limine-write-conf >/dev/null 2>&1
+        ;;
+esac
+exit 0
+PLUGIN_EOF
+    chmod 0755 /usr/lib/snapper/plugins/00-void-limine-snapper-sync
+    echo "==> Limine snapper plugin re-installed."
+fi
+
+echo "==> Snapper provisioning OK. Existing snapshots untouched."
+INNER_EOF
+chmod 0755 /root/tools/re-provision-snapper.sh
+
 # AI (Big Pickle) CHANGE — v3.3.0-beta8 [FSTRIM-SCOPE]: renamed the weekly
 # fstrim cron from the legacy `fstrim-nvme` to `fstrim-discard`. The old name
 # dated back to when the target disk was hardcoded to /dev/nvme0n1; since disk
@@ -6122,7 +6296,13 @@ echo "     Quick record: ${C_BOLD}~/Documents/VOID_INSTALL.txt${C_RST} (installe
 echo "${C_GRN}  6.${C_RST} System updates now auto-take a snapper pre/post rollback pair:"
 echo "     xbps-install is shadowed through void-xbps-snap, so your normal"
 echo "     ${C_BOLD}sudo xbps-install -Su${C_RST} is unchanged. (After an 'xbps' package"
-echo "     self-update, re-run void-xbps-snap setup to re-shadow it.)"
+echo "     self-update, re-run: ${C_BOLD}sudo /root/tools/re-shadow-xbps.sh${C_RST})"
+# AI (Big Pickle) ADDITION — v3.3.0-beta18 [TOOLS-DIR]: point the admin at the
+# maintenance/tools folder shipped for future recovery so it is discoverable.
+echo "${C_GRN}  7.${C_RST} Re-runnable maintenance tools shipped in ${C_BOLD}/root/tools${C_RST}:"
+echo "     ${C_BOLD}re-shadow-xbps.sh${C_RST}  restore auto-update snapshots after an xbps update"
+echo "     ${C_BOLD}limine-sync.sh${C_RST}      force a manual Limine boot-menu resync"
+echo "     ${C_BOLD}re-provision-snapper.sh${C_RST}  safely restore snapshots/plugin (no data loss)"
 echo ""
 echo "${C_GRN}======================================================================${C_RST}"
 # AI (Big Pickle) ADDITION — v3.2.0 [RESUME]: The install completed fully, so
