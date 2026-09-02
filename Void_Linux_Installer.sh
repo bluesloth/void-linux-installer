@@ -70,8 +70,8 @@
 #     deliberately nodatacow+compress=none instead: @swap (COW + compression
 #     both break swapfiles), @libvirt (COW hurts qcow2/raw VM disk
 #     performance and defeats their own internal COW), the churn-heavy var
-#     subvols @srv/@cache/@log/@spool/@tmp (server/cache/log/queue/temp
-#     churn constantly — COW is pure write amplification), and the browser
+#     subvols @srv/@cache/@log/@spool (server/cache/log/queue churn
+#     constantly — COW is pure write amplification), and the browser
 #     profile/cache subvols @mozilla, @mozilla-cache, @chromium, @vivaldi
 #     (profile sqlite/cache churn constantly — COW there is pure write
 #     amplification). AI (Big Pickle) FIX — v3.3.0-beta4 [NODATACOW]: the var
@@ -250,7 +250,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta10"
+SCRIPT_VERSION="3.3.0-beta11"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -367,7 +367,7 @@ cleanup_on_failure() {
     # AI (Big Pickle) CHANGE — v3.2.0 [item 3]: var/lib/lightdm added to the
     # unwind list to mirror the new @lightdm subvolume (only ever mounted
     # when DISPLAY_MANAGER=lightdm; the umount is safe/no-op otherwise).
-    for m in var/swap var/tmp var/spool var/log var/lib/libvirt var/lib/sddm var/lib/lightdm \
+    for m in var/swap var/spool var/log var/lib/libvirt var/lib/sddm var/lib/lightdm \
              var/cache srv opt .snapshots home; do
         umount -fl "/mnt/${m}" 2>/dev/null || true
     done
@@ -2531,7 +2531,7 @@ fi
 # consumes nothing from it and under BOOTLOADER=limine no @grub subvolume is
 # created at all. This closes former CHANGELOG Open Item #7 — no removal is
 # planned.
-SUBVOL_LIST="@ @home @opt @srv @snapshots @cache @log @spool @tmp @usercache @root"
+SUBVOL_LIST="@ @home @opt @srv @snapshots @cache @log @spool @usercache @root"
 [ "$INSTALL_VIRT" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @libvirt"
 [ "$INSTALL_FLATPAK" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @flatpak"
 [ "$INSTALL_DOCKER" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @docker"
@@ -2623,7 +2623,7 @@ mkdir -vp /mnt/root
 # the instant the subvolume mounts over its mountpoint dir) or post-mount (it
 # would touch the covered mountpoint inode, not the subvolume), it cannot take
 # effect on a Btrfs subvolume root. The mount/fstab `nodatacow,compress=none`
-# options for @srv/@cache/@log/@spool/@tmp/@libvirt are the real mechanism.
+# options for @srv/@cache/@log/@spool/@libvirt are the real mechanism.
 
 mount -vo $BTRFS_OPTS,subvol=@home "$BTRFS_DEV" /mnt/home
 mount -vo $BTRFS_OPTS,subvol=@opt "$BTRFS_DEV" /mnt/opt
@@ -2640,7 +2640,14 @@ if [ "$INSTALL_VIRT" = "true" ]; then
 fi
 mount -vo noatime,nodatacow,compress=none,subvol=@log "$BTRFS_DEV" /mnt/var/log
 mount -vo noatime,nodatacow,compress=none,subvol=@spool "$BTRFS_DEV" /mnt/var/spool
-mount -vo noatime,nodatacow,compress=none,subvol=@tmp "$BTRFS_DEV" /mnt/var/tmp
+# AI (Big Pickle) REMOVED — v3.3.0-beta11 [DROP-@TMP]: the @tmp subvolume is
+# gone. It was provisioned, mounted here, then permanently shadowed at boot by
+# the tmpfs /var/tmp fstab line — a top-level subvolume that never mounted at
+# runtime (dead weight and a redundant chroot-stage space consumer). /var/tmp
+# is now a plain dir inside @ (mkdir'd above); /var/tmp and /tmp are both tmpfs
+# at runtime. On an in-place reinstall of a pre-beta11 system, a stray
+# top-level @tmp may survive the wipe (top-level siblings are not removed by
+# the nested `btrfs subvolume delete -o` cleanup) — delete it manually if found.
 [ "$BOOTLOADER" = "grub" ] && mount -vo $BTRFS_OPTS,subvol=@grub "$BTRFS_DEV" /mnt/boot/grub
 
 [ "$INSTALL_FLATPAK" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@flatpak "$BTRFS_DEV" /mnt/var/lib/flatpak
@@ -5569,7 +5576,6 @@ umount -fl /mnt/sys || true
 umount -fl /mnt/run || true
 
 umount -v /mnt/var/swap || true
-umount -v /mnt/var/tmp || true
 umount -v /mnt/var/spool || true
 umount -v /mnt/var/log || true
 umount -v /mnt/var/lib/libvirt || true

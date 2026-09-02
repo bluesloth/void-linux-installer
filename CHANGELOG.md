@@ -10,7 +10,24 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta10** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta11** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta11 — drop the shadowed `@tmp` subvolume (`[DROP-@TMP]`)
+
+- **`[DROP-@TMP]`** — the `@tmp` top-level Btrfs subvolume was provisioned
+  (created in `SUBVOL_LIST`, mounted `nodatacow` at `/mnt/var/tmp` during the
+  install) yet permanently shadowed at boot by the tmpfs `/var/tmp` fstab
+  line — i.e. `@tmp` never mounted at runtime. It is now removed from the
+  topology: gone from `SUBVOL_LIST`, the mount step, the failure-unwind list,
+  and the success-path teardown. `/var/tmp` (and `/tmp`) remain tmpfs at
+  runtime; during the chroot stage `/var/tmp` is a plain directory inside the
+  `@` root subvolume. Runtime behavior is unchanged; the install no longer
+  creates a dead-weight subvolume. Note: on an in-place reinstall of a
+  pre-beta11 host, a stray top-level `@tmp` may survive the wipe (the cleanup
+  removes only nested subvolumes) and should be deleted manually
+  (`btrfs subvolume delete`).
 
 ---
 

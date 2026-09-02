@@ -8,8 +8,8 @@ recovery-first, snapshot-friendly system.
 
 | File | Description |
 |------|-------------|
-| `Void_Linux_Installer.sh` | Unified working installer (current version: **v3.3.0-beta10**). Run this. |
-| `CHANGELOG.md` | Reconstructed changelog: records v3.1.0-beta1 → v3.3.0-beta10 from inline markers, plus a clearly-labeled educated estimate of the pre-3.1.0 alpha heritage. |
+| `Void_Linux_Installer.sh` | Unified working installer (current version: **v3.3.0-beta11**). Run this. |
+| `CHANGELOG.md` | Reconstructed changelog: records v3.1.0-beta1 → v3.3.0-beta11 from inline markers, plus a clearly-labeled educated estimate of the pre-3.1.0 alpha heritage. |
 
 ## Usage
 
@@ -97,7 +97,7 @@ neither the target nor the live medium.
     Enter to proceed or type `R` to re-run the configuration from the top
     before any disk is touched.
     Same release also carries four fixes: `[NODATACOW]` (the churn-heavy var
-    subvols `@srv`/`@cache`/`@log`/`@spool`/`@tmp` are now actually
+    subvols `@srv`/`@cache`/`@log`/`@spool` are now actually
     nodatacow+compress=none via mount/fstab, where the old pre-mount
     `chattr +C` was shadowed and did nothing), `[LIGHTDM-ATOMIC]`
     (`/etc/lightdm/lightdm.conf` written atomically via temp+rename so it
