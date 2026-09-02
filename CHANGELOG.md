@@ -10,7 +10,35 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta20** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta21** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta21 — encrypted-boot hardening (`[ENCRYPT-KEYMAP]` + `[ENCRYPT-VERIFY]`)
+
+Discovered from a real-hardware LUKS boot lockout: a short, simple passphrase
+(`abc123def456`) refused to unlock at boot after a complex one had unlocked. The
+installer's format/open were byte-consistent, so the failure pointed at the
+console-keymap boundary between install and boot. beta21 hardens the encrypted
+boot path in two ways.
+
+- **`[ENCRYPT-KEYMAP]`** — the passphrase's byte value is tied to the console
+  keymap it is typed under. On the live side the installer captures `KEYMAP_LIVE`
+  from the live `/etc/rc.conf` (default `us`), passes it into the chroot, and:
+  - writes `KEYMAP=` into the installed `/etc/rc.conf` (runit console, loaded by
+    `/etc/runit/core-services/03-console-setup.sh`);
+  - adds dracut's `i18n` module + `rd.vconsole.keymap=` to `90-system.conf` so the
+    **early-boot initramfs passphrase prompt** (before the console is up) uses the
+    same map.
+  - The passphrase prompt now tells the user the passphrase is bound to the
+    current console keymap.
+- **`[ENCRYPT-VERIFY]`** — right after `luksFormat`+`luksOpen`, the installer now
+  `luksClose` + re-`luksOpen`s with the same passphrase and **aborts loudly** if it
+  fails, catching a key/typing mismatch at install time instead of shipping a disk
+  that locks the user out at first boot. Runs before YubiKey slot binding, so it is
+  valid even for possession-only installs. The two resume-path `luksOpen` calls
+  also now abort on failure instead of silently continuing with a dead
+  `/dev/mapper/void-root`.
 
 ---
 

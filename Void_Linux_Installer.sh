@@ -207,6 +207,18 @@
 #     /usr/local/sbin Limine stack; limine-sync.sh now self-restores these from
 #     backup first, so /root/tools is a self-contained regeneration kit for the
 #     whole void-limine + limine-snapper-sync pipeline (no full reinstall needed).
+#     AI (Big Pickle) ADDITION — v3.3.0-beta21 [ENCRYPT-KEYMAP] + [ENCRYPT-VERIFY]:
+#     two encrypted-boot hardening steps discovered from a real-hardware lockout
+#     (a short simple passphrase failed at boot after a complex one unlocked):
+#     (1) [KEYMAP] capture the LIVE console keymap into the installed /etc/rc.conf
+#     (runit console) AND dracut's early-boot initramfs prompt (i18n module +
+#     rd.vconsole.keymap=), so the passphrase typed under the install console maps
+#     to the same bytes at boot — a keymap mismatch was the suspected root cause of
+#     "complex unlocks, simple short one does not". (2) [ENCRYPT-VERIFY] right after
+#     luksFormat+luksOpen, the installer now luksClose + re-luksOpen with the SAME
+#     passphrase and aborts LOUDLY on failure, catching a bad volume before any
+#     reboot locks the user out; resume-path luksOpen also aborts on failure instead
+#     of silently continuing with a dead mapper.
 #   - Bootloader (v3.2.0-beta1; default flipped to Limine in v3.3.0-beta12
 #     [LIMINE-DEFAULT]): a real per-install CHOICE, $BOOTLOADER, between two
 #     fully separate code paths in Stage 2:
@@ -306,7 +318,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta20"
+SCRIPT_VERSION="3.3.0-beta21"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -1196,6 +1208,12 @@ if [ "$ENCRYPT" = "yes" ]; then
             echo "  This passphrase is required at every boot to unlock the disk."
         fi
         echo "Enter a passphrase for the encrypted disk (hidden input):"
+        # AI (Big Pickle) ADDITION — v3.3.0-beta21 [KEYMAP]: tell the user that
+        # the passphrase bytes are tied to the CURRENT console keymap, which
+        # will be baked into the installed system + initramfs. This avoids the
+        # "locks at boot" surprise when the boot console would otherwise map
+        # keys differently.
+        echo "  (type it under the CURRENT console keymap; it is what boot will expect)"
         read -r -s ENCRYPT_PASSPHRASE
         echo
         if [ -z "$ENCRYPT_PASSPHRASE" ]; then
@@ -2592,6 +2610,29 @@ if [ "$RESUME" != "1" ]; then
         cryptsetup luksFormat --type luks2 -q --key-file=- "$PART_SYS" <<<"$ENCRYPT_PASSPHRASE"
         echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV}"
         cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"
+        # AI (Big Pickle) ADDITION — v3.3.0-beta21 [ENCRYPT-VERIFY]: prove the
+        # typed passphrase actually unlocks the volume BEFORE any reboot. The
+        # passphrase is the ONLY way into a LUKS2 container (no key file), and
+        # a mismatch here has historically caused a boot that prompts and then
+        # refuses — the user is locked out with no install-side error. Closing
+        # and re-opening with the SAME byte-identical passphrase (same `<<<`)
+        # verifies the keyslot round-trips; any failure means luksFormat wrote
+        # a key that does not match what will be typed at boot, so abort NOW
+        # with a loud, actionable error instead of shipping a dead disk. Note:
+        # this check runs BEFORE the YubiKey slot binding below, so the typed
+        # slot-0 key still exists even for possession-only installs — it is
+        # always a valid proof of the typed passphrase at this point.
+        echo "==> Verifying the passphrase can re-unlock ${PART_SYS} (close + re-open)..."
+        cryptsetup luksClose void-root
+        if ! cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"; then
+            echo "${C_RED}!! FATAL: the passphrase that created the container does not PARSE as"
+            echo "     the passphrase needed to unlock it. The disk would be UNBOOTABLE.${C_RST}" >&2
+            echo "     This is a keymap/typing mismatch between the two entries (or a cryptsetup" >&2
+            echo "     keyfile/stdin quirk). Power-cycle, re-run with a simpler passphrase, and" >&2
+            echo "     if it recurs, capture this screen for the installer maintainers." >&2
+            exit 1
+        fi
+        echo "   OK: passphrase verified (luksFormat key == unlock key)."
         BTRFS_DEV="$CRYPT_DEV"
         # AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: bind the YubiKey
         # HMAC response as an ADDITIONAL LUKS key slot while the passphrase
@@ -2656,7 +2697,16 @@ else
                     read -r -s ENCRYPT_PASSPHRASE
                     echo
                     [ -n "$ENCRYPT_PASSPHRASE" ] || { echo "FATAL: empty passphrase." >&2; exit 1; }
-                    cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"
+                    echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV} (passphrase fallback)"
+                    # AI (Big Pickle) ADDITION — v3.3.0-beta21 [ENCRYPT-VERIFY]: a
+                    # failed luksOpen on resume must abort, not silently continue
+                    # with a bogus $BTRFS_DEV (which would then mount nothing and
+                    # leave the user assuming the passphrase "worked").
+                    if ! cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"; then
+                        echo "${C_RED}!! FATAL: could not unlock ${PART_SYS} with the passphrase given." >&2
+                        echo "     The volume exists but the passphrase does not open it.${C_RST}" >&2
+                        exit 1
+                    fi
                     unset ENCRYPT_PASSPHRASE
                 else
                     echo "FATAL: YubiKey unlock failed and no passphrase fallback exists (possession-only)." >&2
@@ -2673,7 +2723,13 @@ else
             echo
             [ -n "$ENCRYPT_PASSPHRASE" ] || { echo "FATAL: empty passphrase." >&2; exit 1; }
             echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV}"
-            cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"
+            # AI (Big Pickle) ADDITION — v3.3.0-beta21 [ENCRYPT-VERIFY]: abort on
+            # a failed resume unlock rather than continuing with a dead $BTRFS_DEV.
+            if ! cryptsetup luksOpen --key-file=- "$PART_SYS" void-root <<<"$ENCRYPT_PASSPHRASE"; then
+                echo "${C_RED}!! FATAL: could not unlock ${PART_SYS} with the passphrase given." >&2
+                echo "     The volume exists but the passphrase does not open it.${C_RST}" >&2
+                exit 1
+            fi
             unset ENCRYPT_PASSPHRASE
         fi
         BTRFS_DEV="$CRYPT_DEV"
@@ -3040,6 +3096,18 @@ echo "UUID=$BTRFS_UUID /root               btrfs noatime,compress=zstd:1,subvol=
 
 : > /mnt/tmp/chroot_env.sh
 chmod 600 /mnt/tmp/chroot_env.sh
+# AI (Big Pickle) ADDITION — v3.3.0-beta21 [KEYMAP]: capture the console keymap
+# the user is typing the LUKS passphrase under, so the installed system (and its
+# early-boot initramfs prompt) uses the SAME keymap. A mismatch here is the
+# classic cause of "complex passphrase unlocks but a short simple one does not":
+# the install console and the boot console mapped keys to different bytes.
+# Read the LIVE medium's /etc/rc.conf KEYMAP (what Void's 03-console-setup.sh
+# used to set up the console we're on), defaulting to 'us'. This runs on the
+# live side, BEFORE the chroot, so it reads the live file, not the target's.
+# shellcheck disable=SC1090
+KEYMAP_LIVE=$(sed -n 's/^[[:space:]]*KEYMAP="\([^"]*\)".*/\1/p' /etc/rc.conf 2>/dev/null | tail -1)
+[ -z "${KEYMAP_LIVE:-}" ] && KEYMAP_LIVE="us"
+export KEYMAP_LIVE
 # shellcheck disable=SC2129  # per-line appends, grouped for readability
 echo "export BTRFS_UUID=\"$BTRFS_UUID\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_USER=\"$TARGET_USER\"" >> /mnt/tmp/chroot_env.sh
@@ -3049,6 +3117,7 @@ echo "export TARGET_DOMAIN=\"$TARGET_DOMAIN\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_FQDN=\"$TARGET_FQDN\"" >> /mnt/tmp/chroot_env.sh
 echo "export NET_INTERFACE_MATCH=\"$NET_INTERFACE_MATCH\"" >> /mnt/tmp/chroot_env.sh
 echo "export REPO_PRIMARY=\"$REPO_PRIMARY\"" >> /mnt/tmp/chroot_env.sh
+echo "export KEYMAP_LIVE=\"$KEYMAP_LIVE\"" >> /mnt/tmp/chroot_env.sh
 echo "export REPO_BACKUP1=\"$REPO_BACKUP1\"" >> /mnt/tmp/chroot_env.sh
 echo "export REPO_BACKUP2=\"$REPO_BACKUP2\"" >> /mnt/tmp/chroot_env.sh
 echo "export ENABLE_SNAPSHOT_AUDIO=\"$ENABLE_SNAPSHOT_AUDIO\"" >> /mnt/tmp/chroot_env.sh
@@ -3386,6 +3455,17 @@ echo "${LOCALE_ENTRY}" >> /etc/default/libc-locales
 xbps-reconfigure -f glibc-locales
 # Activate the chosen language as the system's default LANG.
 echo "LANG=${LOCALE}" > /etc/locale.conf
+# AI (Big Pickle) ADDITION — v3.3.0-beta21 [KEYMAP]: pin the installed system's
+# console keymap to the live console's, so the boot passphrase prompt (and the
+# regular console) map keys identically to how the LUKS passphrase was entered
+# at install. Void (runit) drives this from /etc/rc.conf KEYMAP (loaded by
+# /etc/runit/core-services/03-console-setup.sh via loadkeys). Written here on
+# the chroot side from KEYMAP_LIVE captured live.
+[ -n "${KEYMAP_LIVE:-}" ] || KEYMAP_LIVE="us"
+sed -i "s/^[[:space:]]*#\?[[:space:]]*KEYMAP=.*/KEYMAP=\"${KEYMAP_LIVE}\"/" /etc/rc.conf 2>/dev/null || true
+if ! grep -q '^KEYMAP=' /etc/rc.conf 2>/dev/null; then
+    printf 'KEYMAP="%s"\n' "${KEYMAP_LIVE}" >> /etc/rc.conf
+fi
 
 [ "$INSTALL_VIRT" = "true" ] && install_pkgs qemu libvirt virt-manager
 
@@ -5747,6 +5827,13 @@ INNER_EOF
 # by every initramfs the kernel-hook regen loop builds.
 if [ "$ENCRYPT" = "yes" ]; then
     echo 'add_dracutmodules+=" crypt "' >> /etc/dracut.conf.d/90-system.conf
+    # AI (Big Pickle) ADDITION — v3.3.0-beta21 [KEYMAP]: pull dracut's `i18n`
+    # module and bake the captured keymap into the initramfs, so the EARLY-BOOT
+    # passphrase prompt (before root/console is up) maps keys exactly like the
+    # install console. Without this the pre-unlock prompt uses the kernel's
+    # built-in US map even when the passphrase was typed under a different one.
+    echo 'add_dracutmodules+=" i18n "' >> /etc/dracut.conf.d/90-system.conf
+    echo "rd.vconsole.keymap=${KEYMAP_LIVE:-us}" >> /etc/dracut.conf.d/90-system.conf
 fi
 
 # AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: when YubiKey unlock is
