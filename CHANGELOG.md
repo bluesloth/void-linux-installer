@@ -10,7 +10,62 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta13** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta14** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta14 — GRUB+encryption now boots: public `/boot` on the ESP (`[GRUB-ESP-BOOT]`)
+
+A real bootability gap removed. Under `BOOTLOADER=grub` + `ENCRYPT=yes` the
+old layout kept `/boot/grub`, grub.cfg, and every kernel/initramfs inside the
+LUKS volume — but GRUB was given **no** `cryptodisk`/`luks` driver
+(`GRUB_ENABLE_CRYPTODISK` never set) and `grub-mkconfig` emits no
+`cryptomount`, so the embedded core could not open `/boot/grub` **and** could
+not `insmod luks` (that module was locked too). First boot always hit
+`grub rescue>`. Now:
+
+- **`[GRUB-ESP-BOOT]`** — when GRUB **and** full-disk encryption are both
+  selected, the ESP is mounted **at `/boot`** instead of `/boot/efi`. The
+  whole boot tree (grub.cfg, grub modules, every vmlinuz + initramfs) is
+  written to the **unencrypted** ESP, so GRUB never touches LUKS — the
+  documented-unreliable cryptodisk/Argon2 path is bypassed entirely, and
+  dracut's `crypt` prompts exactly once, after handoff. Kernel installs land
+  on the ESP automatically (`/boot` == ESP), so no kernel-copy hook exists in
+  the GRUB branch (unlike Limine's `esp-copy`).
+- Wiring follows the "no dead subvolume" rule at every canonical site:
+  - `GRUB_ESP_BOOT` derived at one site (grub && encrypt), after the resume
+    state-file load so a `-r` resume recomputes it correctly, then exported to
+    chroot_env for Stage 2.
+  - `@grub` is **not created/mounted/fstab'd** in the combo (SUBVOL_LIST,
+    mkdir, mount, fstab, both teardown lists) — grub files live on the ESP.
+  - ESP mountpoint is `/mnt/boot` (combo) vs `/mnt/boot/efi`; the vfat fstab
+    line moves to `/boot` accordingly.
+  - `EFI_PART_SIZE` grows to **4GiB** for the combo (kernels on the ESP);
+    stays 1GiB for a plain GRUB install.
+  - `grub-install --efi-directory=/boot` in the combo, `/boot/efi` otherwise.
+- Messaging corrected: the old "GRUB cryptodisk must read the encrypted
+  /boot via a typed passphrase" claims (header, YubiKey fallback prompt,
+  bootloader prompt) described a capability the installer never wired up.
+  They now describe the real model. The `[YUBIKEY]` clamp that forces
+  `YK_FALLBACK=yes` under GRUB is **kept** — possession-only boot remains
+  real-hardware UNPROVEN and Limine is the only exercised pairing — but its
+  rationale note now reflects why (safety/unproven, not "cryptodisk needs a
+  slot").
+- **Validation status:** static gates pass (`bash -n`, `Debug/check-heredocs.sh`
+  40/40). This combo has NOT been booted on real hardware yet — mandatory
+  target-medium test, including: normal boot (single dracut prompt),
+  hibernation resume (swapfile still inside LUKS), Snapper snapshot-boot menu
+  from grub-btrfs (entries must resolve kernels on the ESP, not the
+  snapshotted @).
+- **`[DOCS-LOG]`** — the finished box now carries a quick, secret-free
+  "which script built me" record at `~/Documents/VOID_INSTALL.txt` (installed
+  user): `SCRIPT_VERSION`, install UTC, hostname/user, bootloader,
+  ESP mountpoint (calls out the combo's `/boot`==ESP), encryption, YubiKey
+  mode, session stack, desktop. Nothing cryptic in it — it routes to the two
+  authoritative artifacts
+  `/etc/void-installer/install-config` and
+  `/etc/void-installer/Void_Linux_Installer.sh`. Written in the chroot after
+  install-config; chown'd to the target user; `chmod 644`.
 
 ---
 
@@ -992,6 +1047,7 @@ Inline markers used throughout the script (and mirrored here):
   `[LIMINE-1/2]`, `[LIMINE-MULTI-KERNEL]`, `[LIMINE-SYNC-CRON]`, `[KERNEL-MODE]`,
   `[KERNEL-HOOK]`, `[DISTROBOX-2/3]`, `[CLONE-RETRY]`, `[FAILURE-JOURNAL]`,
   `[COSMETIC]`, `[SCRUB]`, `[SNPR-EV]`, `[SNPR-EV-NO-CRON]`, `[ENCRYPT]`,
-  `[YUBIKEY]`, `[ZSHRC]`, `[LIMINE-DEFAULT]`, `[ENCRYPT-ORDER]`, `[SUBVOLS]`.
+  `[YUBIKEY]`, `[ZSHRC]`, `[LIMINE-DEFAULT]`, `[ENCRYPT-ORDER]`, `[SUBVOLS]`,
+  `[GRUB-ESP-BOOT]`, `[DOCS-LOG]`.
 - Action words: `ADDITION` (new feature), `CHANGE` (behavioral change),
   `FIX` (bug fix), `EXPANSION` (extended feature).

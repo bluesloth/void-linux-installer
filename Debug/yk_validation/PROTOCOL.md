@@ -5,7 +5,7 @@ unlock path is real-hardware UNPROVEN (AGENTS.md invariant 12,
 `[YK-KEYSCRIPT-BAKE]`). Everything here is by-hand on a live medium; nothing
 runs on the dev box.
 
-Target: a fresh v3.3.0-beta13 (or later) install, `ENCRYPT=yes`,
+Target: a fresh v3.3.0-beta14 (or later) install, `ENCRYPT=yes`,
 `YK_MODE=hmac-sha1`, **`YK_FALLBACK=no`**, `BOOTLOADER=limine`.
 (YubiKey is a USB NFC/security-key making the possession-only pairing; note a
 possession-only + LUKS boot is only as strong as the boot medium itself.)

@@ -38,7 +38,13 @@ single-disk GPT with a flat BTRFS subvolume topology.
   archives the installer into the target. This file must stay **secret-free**
   (no password hashes) — it is an as-built, human-readable summary only;
   anything cryptographic lives in limine-env, the resume-state file, or the
-  account provisioning already.
+  account provisioning already. In addition, `[DOCS-LOG]` (v3.3.0-beta14)
+  writes a per-machine quick record at `~/Documents/VOID_INSTALL.txt`
+  (installed user): `SCRIPT_VERSION`, install UTC, bootloader, ESP
+  mountpoint (flags the GRUB+ENCRYPT `/boot`==ESP combo), encryption/YubiKey
+  public flags, session/desktop — **equally secret-free**, and just a pointer
+  to the two authoritative `/etc/void-installer` artifacts. Keep it a pointer;
+  do not grow it into a full choices dump or add anything cryptographic.
 
 ## Mandatory invariants (do not break)
 

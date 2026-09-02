@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **3.3.0-beta13**). It exists
+> `Void_Linux_Installer.sh` (current version: **3.3.0-beta14**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -118,7 +118,10 @@
 - **Bootloader [1/2] (default 1: Limine)** — `[*]` no longer marks this;
   bare Enter selects the default.
   - `1` Limine — newer, simpler, no efibootmgr/NVRAM dependency (4GiB EFI). **Default.**
-  - `2` GRUB — mature, battle-tested snapshot boot via grub-btrfs (1GiB EFI). Forced if YubiKey-only unlock was chosen.
+  - `2` GRUB — mature, battle-tested snapshot boot via grub-btrfs. ESP size: 1GiB
+    plain, **4GiB when full-disk encryption is also selected** — in that combo the
+    ESP is mounted at `/boot`, so grub.cfg + kernels live unencrypted on the ESP
+    and GRUB never has to unlock LUKS (one dracut passphrase prompt after handoff).
 - Only if `BOOTLOADER=limine`:
   - **`[*]` Enable Limine wallpaper? [y/N]**
   - If `y`:
