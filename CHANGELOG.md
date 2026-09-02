@@ -10,7 +10,41 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta12** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta13** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta13 — extended subvolume topology (`[SUBVOLS]`)
+
+- **`[SUBVOLS]`** — four new subvolume families, following the existing
+  flat-topology rules (no dead subvols, mount/fstab-option `nodatacow`,
+  browser-style per-user provisioning, resume-state persistence):
+
+  - **`@network`** → `/var/lib/NetworkManager`, **unconditional** — NM is
+    installed on every build (both `$SESSION_STACK` branches), so the
+    subvol always mounts. The win: a Snapper rollback of `@` no longer
+    rewinds NM's runtime state (leases, `NetworkManager.state`,
+    last-known-connection). Note this isolates *runtime* state — per-profile
+    connection secrets under `/etc/NetworkManager/system-connections` still
+    roll back with `@`.
+  - **`@thunderbird`** → `~/.thunderbird` (opt-in `PROVISION_THUNDERBIRD_SUBVOL`
+    prompt) — the exact `provision_browser_subvol` treatment (nodatacow,
+    `chmod 700`, user-owned) for Thunderbird's sqlite mail profile.
+  - **`@steam`** → `~/.local/share/Steam` (opt-in `PROVISION_STEAM_SUBVOL`
+    prompt) — churn isolation via the same helper; the helper's nested-parent
+    chain re-creates and `chown`s `~/.local`/`~/.local/share`, avoiding the
+    root-owned-`~/.local/share` bug class that broke podman-rootless.
+  - **`@postgresql` / `@mariadb`** → `/var/lib/postgresql` / `/var/lib/mysql`
+    (opt-in `PROVISION_DB_SUBVOLS` prompt) — mounted/fstab'd
+    `nodatacow,compress=none`, and excluded from Snapper's `@` snapshots so a
+    rollback can never rewind a live database behind newer code.
+
+  Wiring parity for each at the six canonical sites: SUBVOL_LIST gate,
+  Stage-1 mkdir, Stage-1 mount, fstab, failure-unwind list, and success-path
+  teardown (per-user ones via the Stage-2 helper instead of mkdir/mount).
+  All new `PROVISION_*` flags are persisted to the resume state file so a
+  resumed run recreates the exact same layout (the interactive block is
+  skipped on resume).
 
 ---
 
@@ -958,6 +992,6 @@ Inline markers used throughout the script (and mirrored here):
   `[LIMINE-1/2]`, `[LIMINE-MULTI-KERNEL]`, `[LIMINE-SYNC-CRON]`, `[KERNEL-MODE]`,
   `[KERNEL-HOOK]`, `[DISTROBOX-2/3]`, `[CLONE-RETRY]`, `[FAILURE-JOURNAL]`,
   `[COSMETIC]`, `[SCRUB]`, `[SNPR-EV]`, `[SNPR-EV-NO-CRON]`, `[ENCRYPT]`,
-  `[YUBIKEY]`, `[ZSHRC]`, `[LIMINE-DEFAULT]`, `[ENCRYPT-ORDER]`.
+  `[YUBIKEY]`, `[ZSHRC]`, `[LIMINE-DEFAULT]`, `[ENCRYPT-ORDER]`, `[SUBVOLS]`.
 - Action words: `ADDITION` (new feature), `CHANGE` (behavioral change),
   `FIX` (bug fix), `EXPANSION` (extended feature).

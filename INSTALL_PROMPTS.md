@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **3.3.0-beta12**). It exists
+> `Void_Linux_Installer.sh` (current version: **3.3.0-beta13**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -166,6 +166,12 @@
 - **Install Vivaldi (proprietary, nonfree repo)? [y/N]** → if `y`: profile-subvolume prompt
 - **Install Falkon (KDE's browser, works fine standalone too)? [y/N]** → if `y`: profile-subvolume prompt
 - **Install Brave? [y/N]** → if `y`: profile-subvolume prompt
+- After the browsers (each opt-in, for later manual installs):
+  - **Pre-create Thunderbird's profile subvolume anyway? [y/N]** (`@thunderbird`)
+  - **Pre-create Steam's data subvolume (~/.local/share/Steam) anyway? [y/N]** (`@steam`)
+  - **Pre-create PostgreSQL/MariaDB data subvolumes (/var/lib/postgresql, /var/lib/mysql) anyway? [y/N]** (`@postgresql` + `@mariadb`)
+- `@network` (`/var/lib/NetworkManager`) is always created — no prompt — and
+  rolls back independently of `@`.
 - **`[*]` Install Podman rootless? [y/N]**
 - **`[*]` Install Podman rootful capability? [y/N]**
 - **`[*]` Install Docker? [y/N]** → if `y`: "Add your user to the docker group ...? [y/N]"

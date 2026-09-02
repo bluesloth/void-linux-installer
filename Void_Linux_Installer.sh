@@ -71,10 +71,17 @@
 #     both break swapfiles), @libvirt (COW hurts qcow2/raw VM disk
 #     performance and defeats their own internal COW), the churn-heavy var
 #     subvols @srv/@cache/@log/@spool (server/cache/log/queue churn
-#     constantly — COW is pure write amplification), and the browser
+#     constantly — COW is pure write amplification), the browser
 #     profile/cache subvols @mozilla, @mozilla-cache, @chromium, @vivaldi
 #     (profile sqlite/cache churn constantly — COW there is pure write
-#     amplification). AI (Big Pickle) FIX — v3.3.0-beta4 [NODATACOW]: the var
+#     amplification), and — v3.3.0-beta13 [SUBVOLS] — the DB datadirs
+#     @postgresql/@mariadb (nodatacow, compress=none, and never snapshotted
+#     so a Snapper rollback of @ cannot rewind a live database) and the
+#     opt-in per-user app subvols @thunderbird (sqlite mail profile) and
+#     @steam (game churn). @network backs /var/lib/NetworkManager runtime
+#     state (leases, NetworkManager.state) with normal compression so a
+#     rollback of @ does not rewind known-network/lease state.
+#     AI (Big Pickle) FIX — v3.3.0-beta4 [NODATACOW]: the var
 #     subvols are made nodatacow via their MOUNT OPTIONS (and fstab), not the
 #     pre-mount `chattr +C` — chattr on a mountpoint dir inode is shadowed the
 #     moment a subvolume mounts over it, so it never took effect before.
@@ -252,7 +259,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta12"
+SCRIPT_VERSION="3.3.0-beta13"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
@@ -370,6 +377,7 @@ cleanup_on_failure() {
     # unwind list to mirror the new @lightdm subvolume (only ever mounted
     # when DISPLAY_MANAGER=lightdm; the umount is safe/no-op otherwise).
     for m in var/swap var/spool var/log var/lib/libvirt var/lib/sddm var/lib/lightdm \
+             var/lib/postgresql var/lib/mysql var/lib/NetworkManager \
              var/cache srv opt .snapshots home; do
         umount -fl "/mnt/${m}" 2>/dev/null || true
     done
@@ -1710,6 +1718,34 @@ if [ "$INSTALL_BRAVE" != "true" ]; then
 fi
 export PROVISION_BRAVE_SUBVOL
 
+# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: same "pre-create the
+# isolated subvolume for later manual use" pattern, extended beyond web
+# browsers to other per-user apps (Thunderbird mail profile, Steam) and to
+# server datadirs (PostgreSQL/MariaDB). Each is asked individually and only
+# provisioned when the subvolume gate in SUBVOL_LIST (Stage 1) AND the
+# matching Stage-2 call agree. Thunderbird's profile (~/.thunderbird) gets
+# the exact browser treatment (nodatacow sqlite mail DB). Steam
+# (~/.local/share/Steam) isolates its churn from snapshots. The DB datadirs
+# are system-level: nodatacow + never snapshotted, so a Snapper rollback of
+# @ can never rewind a database.
+PROVISION_THUNDERBIRD_SUBVOL="false"
+ask "Pre-create Thunderbird's profile subvolume anyway? [y/N]: "
+read -r _ptb_input
+case "$_ptb_input" in [yY]*) PROVISION_THUNDERBIRD_SUBVOL="true" ;; esac
+export PROVISION_THUNDERBIRD_SUBVOL
+
+PROVISION_STEAM_SUBVOL="false"
+ask "Pre-create Steam's data subvolume (~/.local/share/Steam) anyway? [y/N]: "
+read -r _pst_input
+case "$_pst_input" in [yY]*) PROVISION_STEAM_SUBVOL="true" ;; esac
+export PROVISION_STEAM_SUBVOL
+
+PROVISION_DB_SUBVOLS="false"
+ask "Pre-create PostgreSQL/MariaDB data subvolumes (/var/lib/postgresql, /var/lib/mysql) anyway? [y/N]: "
+read -r _pdb_input
+case "$_pdb_input" in [yY]*) PROVISION_DB_SUBVOLS="true" ;; esac
+export PROVISION_DB_SUBVOLS
+
 # AI (Claude, Sonnet 5, Medium) ADDITION [item 9]: this is the exact case that
 # prompted the retrofit — Podman rootless, Podman rootful, and Docker are
 # three SEPARATE, independent container-backend choices, each asked one
@@ -2401,7 +2437,9 @@ fi
                INSTALL_DOCKER DOCKER_GROUP_ADD INSTALL_DISTROBOX INSTALL_VIRT \
                PROVISION_FIREFOX_SUBVOL PROVISION_CHROMIUM_SUBVOL \
                PROVISION_VIVALDI_SUBVOL PROVISION_FALKON_SUBVOL \
-               PROVISION_BRAVE_SUBVOL DISK PART_EFI PART_SYS; do
+               PROVISION_BRAVE_SUBVOL \
+               PROVISION_THUNDERBIRD_SUBVOL PROVISION_STEAM_SUBVOL \
+               PROVISION_DB_SUBVOLS DISK PART_EFI PART_SYS; do
         printf 'export %s=%q\n' "$_sv" "${!_sv}"
     done
 } > "$STATE_FILE"
@@ -2582,6 +2620,11 @@ fi
 # created at all. This closes former CHANGELOG Open Item #7 — no removal is
 # planned.
 SUBVOL_LIST="@ @home @opt @srv @snapshots @cache @log @spool @usercache @root"
+# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: @network backs
+# /var/lib/NetworkManager runtime state (leases, NetworkManager.state) so a
+# Snapper rollback of @ does not rewind it. Unconditional because
+# NetworkManager is installed on every build (both $SESSION_STACK branches).
+SUBVOL_LIST="$SUBVOL_LIST @network"
 [ "$INSTALL_VIRT" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @libvirt"
 [ "$INSTALL_FLATPAK" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @flatpak"
 [ "$INSTALL_DOCKER" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @docker"
@@ -2627,6 +2670,16 @@ fi
 [ "$INSTALL_FALKON" = "true" ] || [ "$PROVISION_FALKON_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @falkon"
 [ "$INSTALL_BRAVE" = "true" ] || [ "$PROVISION_BRAVE_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @brave"
 
+# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: per-user app profile
+# subvolumes (Thunderbird mail profile, Steam data dir) mirror the
+# browser-provision model exactly; system datadirs (@postgresql, @mariadb)
+# are nodatacow/willfully un-snapshotted on top of that. All are gated on
+# their PROVISION_* flags (only ever "true" if the user opted in above) and
+# must agree with the Stage-2 provision_browser_subvol call sites + fstab.
+[ "$PROVISION_THUNDERBIRD_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @thunderbird"
+[ "$PROVISION_STEAM_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @steam"
+[ "$PROVISION_DB_SUBVOLS" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @postgresql @mariadb"
+
 # AI (Big Pickle) ADDITION — v3.2.0 [RESUME]: SUBVOLUME RESET.
 # Stage 2 (chroot provisioning) is deliberately NOT idempotent, so a resumed
 # run cannot just re-run it over whatever the interrupted run left behind
@@ -2666,6 +2719,11 @@ mkdir -vp /mnt/root
 [ "$INSTALL_FLATPAK" = "true" ] && mkdir -vp /mnt/var/lib/flatpak
 [ "$INSTALL_DOCKER" = "true" ] && mkdir -vp /mnt/var/lib/docker
 [ "$INSTALL_PODMAN_ROOTFUL" = "true" ] && mkdir -vp /mnt/var/lib/containers
+# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: @network mountpoint.
+# DB datadirs are nodatacow and never appear in Snapper snapshots, so a
+# rollback of @ can never rewind a live database behind newer code.
+mkdir -vp /mnt/var/lib/NetworkManager
+[ "$PROVISION_DB_SUBVOLS" = "true" ] && mkdir -vp /mnt/var/lib/postgresql /mnt/var/lib/mysql
 
 # AI (Big Pickle) FIX — v3.3.0-beta4 [NODATACOW]: the churn-heavy var
 # subvols are made nodatacow via their MOUNT OPTIONS (below) + fstab. A
@@ -2703,6 +2761,13 @@ mount -vo noatime,nodatacow,compress=none,subvol=@spool "$BTRFS_DEV" /mnt/var/sp
 [ "$INSTALL_FLATPAK" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@flatpak "$BTRFS_DEV" /mnt/var/lib/flatpak
 [ "$INSTALL_DOCKER" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@docker "$BTRFS_DEV" /mnt/var/lib/docker
 [ "$INSTALL_PODMAN_ROOTFUL" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@containers "$BTRFS_DEV" /mnt/var/lib/containers
+# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: @network holds NM's
+# runtime state (leases, NetworkManager.state). DB datadirs are
+# nodatacow+compress=none (database-internal churn; also excluded from
+# snapshots since snapper only walks the @ root's children).
+mount -vo $BTRFS_OPTS,subvol=@network "$BTRFS_DEV" /mnt/var/lib/NetworkManager
+[ "$PROVISION_DB_SUBVOLS" = "true" ] && mount -vo noatime,nodatacow,compress=none,subvol=@postgresql "$BTRFS_DEV" /mnt/var/lib/postgresql
+[ "$PROVISION_DB_SUBVOLS" = "true" ] && mount -vo noatime,nodatacow,compress=none,subvol=@mariadb "$BTRFS_DEV" /mnt/var/lib/mysql
 mount -vo $BTRFS_OPTS,subvol=@root "$BTRFS_DEV" /mnt/root
 
 # AI (Big Pickle) CHANGE — v3.2.0 [SWAP]: @swap mounted + made nodatacow only
@@ -2831,6 +2896,14 @@ if [ "$INSTALL_DOCKER" = "true" ]; then
 fi
 if [ "$INSTALL_PODMAN_ROOTFUL" = "true" ]; then
     echo "UUID=$BTRFS_UUID /var/lib/containers btrfs noatime,compress=zstd:1,subvol=@containers 0 0" >> /mnt/etc/fstab
+fi
+# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: @network fstab entry
+# (unconditional, NM is always installed). DB datadirs keep their
+# nodatacow/compress=none options here too, matching Stage 1.
+echo "UUID=$BTRFS_UUID /var/lib/NetworkManager btrfs noatime,compress=zstd:1,subvol=@network 0 0" >> /mnt/etc/fstab
+if [ "$PROVISION_DB_SUBVOLS" = "true" ]; then
+    echo "UUID=$BTRFS_UUID /var/lib/postgresql btrfs noatime,nodatacow,compress=none,subvol=@postgresql 0 0" >> /mnt/etc/fstab
+    echo "UUID=$BTRFS_UUID /var/lib/mysql       btrfs noatime,nodatacow,compress=none,subvol=@mariadb 0 0" >> /mnt/etc/fstab
 fi
 # AI (Claude, Sonnet 5, Medium) CHANGE — v3.2.0: mount the display manager's
 # runtime/state subvolume, matching the one created in Stage 1. @sddm is
@@ -4101,6 +4174,13 @@ provision_firefox_subvols() {
 [ "$INSTALL_VIVALDI" = "true" ] || [ "$PROVISION_VIVALDI_SUBVOL" = "true" ] && provision_browser_subvol "@vivaldi" ".config/vivaldi"
 [ "$INSTALL_FALKON" = "true" ] || [ "$PROVISION_FALKON_SUBVOL" = "true" ] && provision_browser_subvol "@falkon" ".config/falkon"
 [ "$INSTALL_BRAVE" = "true" ] || [ "$PROVISION_BRAVE_SUBVOL" = "true" ] && provision_browser_subvol "@brave" ".config/BraveSoftware/Brave-Browser"
+# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: Thunderbird and Steam
+# get the same per-user isolation. Thunderbird's profile dir is exactly the
+# sqlite-heavy case the browser subvols exist for; Steam sits under
+# ~/.local/share/Steam (the helper's nested-parent chain chowns each level,
+# avoiding the old root-owned ~/.local/share bug class).
+[ "$PROVISION_THUNDERBIRD_SUBVOL" = "true" ] && provision_browser_subvol "@thunderbird" ".thunderbird"
+[ "$PROVISION_STEAM_SUBVOL" = "true" ] && provision_browser_subvol "@steam" ".local/share/Steam"
 
 if [ "$INSTALL_PODMAN_ROOTLESS" = "true" ]; then
     # Profile-data ownership for podman-rootless, confirmed via real
@@ -5637,6 +5717,11 @@ umount -v /mnt/var/swap || true
 umount -v /mnt/var/spool || true
 umount -v /mnt/var/log || true
 umount -v /mnt/var/lib/libvirt || true
+# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: teardown for @network
+# + the (gated) DB datadirs. All || true — no-op safe when not created.
+umount -v /mnt/var/lib/postgresql || true
+umount -v /mnt/var/lib/mysql || true
+umount -v /mnt/var/lib/NetworkManager || true
 # AI (Big Pickle) CHANGE — v3.2.0 [item 3]: lightdm umount added alongside
 # sddm; both are no-op-safe (|| true) when the matching DM wasn't chosen.
 umount -v /mnt/var/lib/sddm || true
