@@ -15,8 +15,9 @@ INSTALL_PROMPTS.pdf
 
 # Debug artifacts from real-hardware installs / LightDM greeter & snapper
 # probes. Investigative scratch, not part of the shipped tool. Kept on disk,
-# excluded from git.
-Debug/
+# excluded from git. Debug/* (not Debug/) lets git descend and re-include the
+# committed exceptions below.
+Debug/*
 # ...but Debug/check-heredocs.sh IS committed — it is the reproducible
 # heredoc-lint gate (bash -n + shellcheck over every extracted generated body)
 # that AGENTS.md's Validation section mandates. Re-unignore exactly this file.
