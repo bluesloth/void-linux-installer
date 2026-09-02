@@ -25,3 +25,7 @@ Debug/*
 # ...and the YubiKey possession-only validation kit (probe + protocol) is
 # committed so it survives until the real-hardware run happens.
 !Debug/yk_validation/
+# ...and the boot/validation review list is committed the same way — it is
+# the tracker for real-hardware findings that need a root-cause (Entry #1:
+# ENCRYPT boot-unlock passphrase rejection).
+!Debug/REVIEW.md
