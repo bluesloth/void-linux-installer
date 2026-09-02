@@ -5461,7 +5461,108 @@ echo "==> Snapper provisioning OK. Existing snapshots untouched."
 INNER_EOF
 chmod 0755 /root/tools/re-provision-snapper.sh
 
-# AI (Big Pickle) CHANGE — v3.3.0-beta8 [FSTRIM-SCOPE]: renamed the weekly
+# 5) README.md — user-facing documentation for the tools folder: what each tool
+#    does, WHEN to reach for it, and the exact command to run. This is the
+#    discoverability layer the admin sees first (and the one that survives on a
+#    fresh install unlike the repo-side CHANGELOG/README).
+cat > /root/tools/README.md << 'INNER_EOF'
+# /root/tools — Void Linux maintenance & recovery tools
+
+This folder is shipped by the Void Linux Installer (the same project that built
+this box) and holds the re-runnable maintenance/recovery scripts the admin may
+need to run again after the fact. They are **idempotent** (safe to run more than
+once) and **run-on-demand** — they are not on `PATH` because you invoke them
+deliberately, not as background helpers.
+
+Run every tool with **`sudo`** (they write to system-owned paths).
+
+---
+
+## Tool index
+
+### `re-shadow-xbps.sh` — restore automatic update-snapshots
+**What it does:** repairs the "shadow" that makes every `xbps-install` take an
+automatic snapper pre/post snapshot pair. The real `/usr/bin/xbps-install` lives
+at `/usr/bin/xbps-install.real`, and `/usr/bin/xbps-install` is a symlink to the
+wrapper `void-xbps-snap`.
+
+**When to use it:** after an **`xbps` package self-update**. Updating the `xbps`
+package re-places a *real* binary over the symlink, silently disabling automatic
+snapshots. This is a known caveat of binary shadowing. Run it whenever you doubt
+whether updates are still snapshotting (e.g. after a `sudo xbps-install -Su` no
+longer prints "before-update snapshot").
+
+**How:**
+```bash
+sudo /root/tools/re-shadow-xbps.sh
+```
+It restores the wrapper, re-establishes `/usr/bin/xbps-install.real`, and
+re-links `/usr/bin/xbps-install -> void-xbps-snap`.
+
+---
+
+### `limine-sync.sh` — force a boot-menu resync (Limine only)
+**What it does:** re-runs the kernel copy + `void-limine-write-conf` to
+regenerate the Limine boot menu (including the `+Snapshots` submenu).
+
+**When to use it:** the kernel hook and the snapper plugin normally do this
+automatically. Reach for this if you manually changed `/boot/efi/void-kernel/`
+or `/.snapshots/`, or if the snapshot menu looks stale and you want to force a
+rebuild without waiting for a kernel/snapshot event.
+
+**How:**
+```bash
+sudo /root/tools/limine-sync.sh
+```
+On a GRUB install it is a harmless no-op (prints a notice). It needs `/boot/efi`
+mounted.
+
+---
+
+### `re-provision-snapper.sh` — safely restore snapper (root config + plugin)
+**What it does:** recreates a *missing* snapper `root` config, re-applies the
+installer's retention/timeline tuning and the runit filter, and (on Limine)
+re-installs the `00-void-limine-snapper-sync` plugin that keeps the snapshot
+boot menu fresh.
+
+**When to use it:** if `/etc/snapper/configs/root` was deleted or corrupted, if
+the snapshot menu plugin stopped firing, or if you want to re-apply tuning after
+editing it by hand.
+
+**How:**
+```bash
+sudo /root/tools/re-provision-snapper.sh
+```
+It is **deliberately non-destructive**: it will only *create* a missing config
+and *tune* an existing one. It will **never** delete or touch your existing
+snapshots. It does not run the destructive "reconcile" step from the original
+install (which would have wiped snapshots).
+
+---
+
+### `void-xbps-snap` — the update-snapshot wrapper (canonical backup)
+Not a separate tool; this is a pristine copy of the `/usr/local/sbin/void-xbps-snap`
+wrapper that `re-shadow-xbps.sh` restores from. You normally never run it
+directly here — it lives on `PATH` via `/usr/local/sbin` already. Its job: when
+run as `xbps-install`, it snapshots the root filesystem (snapper pre, then post)
+around a mutating package operation so every update is rollback-able.
+
+**When to use it:** only manually if you want an explicit, single-shot
+snapshotted operation (it is the same engine the shadow uses):
+```bash
+sudo /root/tools/void-xbps-snap -S <pkg>
+```
+
+---
+
+## Notes
+- All tools assume the installer-provisioned layout (btrfs root, a snapper
+  `root` config, and — for the Limine tools — Limine as the bootloader).
+- The authoritative, up-to-date copy of these tools + this README lives in the
+  installer itself; this folder is the deployable/on-box copy for later reuse.
+INNER_EOF
+chmod 0644 /root/tools/README.md
+echo "/root/tools maintenance folder complete (void-xbps-snap backup, re-shadow-xbps.sh, limine-sync.sh, re-provision-snapper.sh, README.md)"
 # fstrim cron from the legacy `fstrim-nvme` to `fstrim-discard`. The old name
 # dated back to when the target disk was hardcoded to /dev/nvme0n1; since disk
 # selection became interactive (nvme / mmcblk / sdX), `fstrim -A -q` trims any

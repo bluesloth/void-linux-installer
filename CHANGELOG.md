@@ -22,7 +22,11 @@ actually run when a caveat hit. beta18 ships a persistent, self-contained
 maintenance folder at **`/root/tools`**, written once at install time, that the
 admin can run later on demand.
 
-- **`[TOOLS-DIR]`** — `mkdir /root/tools` + four files (all idempotent):
+- **`[TOOLS-DIR]`** — `mkdir /root/tools` + a user-facing README and four files
+  (all idempotent):
+  - **`README.md`** — the discoverability layer: documents what each tool does,
+    *when* to reach for it, and the exact `sudo` command to run. This is what
+    survives on a fresh install (the repo-side CHANGELOG/README do not ship).
   - **`void-xbps-snap`** — canonical backup copy of the update-snapshot wrapper,
     the ultimate fallback if `/usr/local/sbin/void-xbps-snap` is ever lost.
   - **`re-shadow-xbps.sh`** — recovery for the `[PKG-SNAPSHOT-AUTO]` caveat: an
@@ -45,8 +49,8 @@ admin can run later on demand.
   `BASH_SOURCE`-relative paths so the folder is relocatable.
 - Surfaced in the header Recovery section and the NEXT STEPS summary (item 7,
   and item 6's re-shadow message now names the actual script).
-- **Validation:** static gates (`bash -n`, `Debug/check-heredocs.sh` 44/44,
-  all tools `bash -n` + shellcheck clean). Not yet exercised on real hardware —
+- **Validation:** static gates (`bash -n`, `Debug/check-heredocs.sh` 45/45,
+  all tools + README clean). Not yet exercised on real hardware —
   verify each wrapper one has its documented use-case on the target medium.
 
 ---
