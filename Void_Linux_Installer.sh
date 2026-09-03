@@ -355,7 +355,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta31"
+SCRIPT_VERSION="3.3.0-beta32"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.3.0-beta24 [PROMPT-DEFAULTS]: EDITABLE DEFAULT
@@ -3645,6 +3645,13 @@ install_pkgs
 
 install_pkgs nftables runit-nftables iptables polkit
 
+# [NFT-TTL-REMOVED] (v3.3.0-beta32) — the old config wrote two per-host
+# "table ip mangle" / "table ip6 mangle" blocks that hardcoded a per-machine
+# TTL/hoplimit workaround tied to specific interface names that only exist on
+# one developer's test machine/ISP. They match nothing on any other target and
+# were non-portable cruft. Removed so this config is host-agnostic; the
+# drop-by-default filter firewall (with loopback / established+related /
+# rate-limited ping, and br0 / virbr* KVM forwards) is kept.
 cat > /etc/nftables.conf << 'INNER_EOF'
 #!/usr/sbin/nft -f
 flush ruleset
@@ -3669,32 +3676,6 @@ table inet filter {
     }
     chain output {
         type filter hook output priority filter; policy accept;
-    }
-}
-
-table ip mangle {
-    chain postrouting {
-        type filter hook postrouting priority mangle; policy accept;
-        oifname "enp5s0f*" counter; ip ttl set 113
-        oifname "enx*" counter; ip ttl set 113
-    }
-    chain prerouting {
-        type filter hook prerouting priority mangle; policy accept;
-        iifname "enp5s0f*" counter; ip ttl set 113
-        iifname "enx*" counter; ip ttl set 113
-    }
-}
-
-table ip6 mangle {
-    chain postrouting {
-        type filter hook postrouting priority mangle; policy accept;
-        oifname "enp5s0f*" counter; ip6 hoplimit set 114
-        oifname "enx*" counter; ip6 hoplimit set 114
-    }
-    chain prerouting {
-        type filter hook prerouting priority mangle; policy accept;
-        iifname "enp5s0f*" counter; ip6 hoplimit set 114
-        iifname "enx*" counter; ip6 hoplimit set 114
     }
 }
 INNER_EOF
@@ -4106,6 +4087,45 @@ if [ "$DESKTOP_ENV" = "cinnamon" ]; then
     #     the missing-daemon warning (harmless), but the install must not fail
     #     over an absent package.
     install_pkgs gedit gnome-backgrounds blueman network-manager-applet
+
+    # [CINNAMON-WALLPAPER] Set a default wallpaper for Cinnamon so a fresh
+    # install doesn't boot to a solid black screen. gnome-backgrounds is
+    # installed above (Cinnamon ships no wallpapers of its own — Mint's
+    # mint-backgrounds-* doesn't exist on Void), but without explicitly
+    # setting picture-uri, Cinnamon's compiled-in default points to a
+    # non-existent Mint path. Prefer the GNOME default (adwaita-l —
+    # the light adwaita stripe image) and write it into the system-wide dconf
+    # database so every new user gets a visible wallpaper on first login.
+    # The user can still change it via Settings > Background.
+    # - adwaita-l is preferred over the generic "first available" because the
+    #   filesystem-order first match on a real Void install turned out to be
+    #   vnc-l.png — the near-empty "plain color for remote access" image —
+    #   which is effectively another blank screen.
+    _cinnamon_wallpaper="$(find /usr/share/backgrounds -maxdepth 2 -type f \
+        \( -name 'adwaita-l.jpg' -o -name 'adwaita-l.jxl' \
+           -o -name 'adwaita-l.png' -o -name 'adwaita-l.svg' \) \
+        2>/dev/null | head -1)"
+    if [[ -z "$_cinnamon_wallpaper" ]]; then
+        _cinnamon_wallpaper="$(find /usr/share/backgrounds -maxdepth 2 -type f \
+            \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' \
+               -o -name '*.svg' -o -name '*.jxl' -o -name '*.webp' \) \
+            2>/dev/null | head -1)"
+    fi
+    if [[ -n "$_cinnamon_wallpaper" ]]; then
+        mkdir -p /etc/dconf/profile
+        cat > /etc/dconf/profile/user << 'INNER_EOF'
+user-db:user
+system-db:local
+INNER_EOF
+        mkdir -p /etc/dconf/db/local.d
+        cat > /etc/dconf/db/local.d/01-cinnamon-wallpaper << INNER_EOF
+[org/cinnamon/desktop/background]
+picture-uri='file://${_cinnamon_wallpaper}'
+picture-options='zoom'
+INNER_EOF
+        dconf update
+    fi
+    unset _cinnamon_wallpaper
 
     # gnome-terminal default font: whatever GTK/Pango resolves as the system
     # default was reported to render with very wide letter/number spacing —

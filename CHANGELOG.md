@@ -10,7 +10,35 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta31** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta32** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta32 — Cinnamon default wallpaper + portable nftables (`[CINNAMON-WALLPAPER]`, `[NFT-TTL-REMOVED]`)
+
+A fresh Cinnamon install booted to a solid black screen with no wallpaper.
+Cinnamon ships no wallpaper images of its own (Mint's `mint-backgrounds-*`
+doesn't exist on Void), and while the installer already installed
+`gnome-backgrounds` so images exist in the picker, it never programmatically
+set a default — Cinnamon's compiled-in `picture-uri` pointed to a
+non-existent Mint path.
+
+- **`[CINNAMON-WALLPAPER]`** — after installing `gnome-backgrounds`, the
+  installer now prefers `adwaita-l` (the GNOME default light image) and
+  writes it into the system-wide dconf database (`/etc/dconf/db/local.d/`) as
+  `picture-uri` with `picture-options='zoom'`, falling back to the first
+  available image only if `adwaita-l` is absent. Every new user boots to a
+  visible wallpaper instead of black; the user can still change it via
+  Settings > Background. (`adwaita-l` is preferred over "first available"
+  because filesystem-order first-match turned out to be `vnc-l.png` — the
+  near-empty "plain color for remote access" image.)
+
+- **`[NFT-TTL-REMOVED]`** — removed the two `table ip mangle` /
+  `table ip6 mangle` blocks that `/etc/nftables.conf` used to write. They
+  carried a per-machine TTL/hoplimit workaround tied to specific interface
+  names — non-portable cruft that matched nothing on any other target. The
+  drop-by-default filter firewall (loopback, established/related,
+  rate-limited ping, and `br0`/`virbr*` KVM forwards) is kept.
 
 ---
 
