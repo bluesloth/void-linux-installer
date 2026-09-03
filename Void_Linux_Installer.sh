@@ -207,6 +207,13 @@
 #     never nested inside @, so they stay outside Snapper rollback scope) without
 #     installing the software that would normally own them. nodatacow is applied
 #     via fstab mount options, never chattr (matches [NODATACOW]).
+#     AI (Big Pickle) ADDITION — v3.3.0-beta28 [PKG-LIST]: the post-install
+#     ~/Documents/VOID_INSTALL.txt record now appends the FULL finished-system
+#     package inventory (xbps-query -l, status prefix stripped, sorted, one per
+#     line) so a box records not just the installer version + choices but exactly
+#     WHAT was installed. Written in the chroot against the target's /var/db/xbps;
+#     secret-free like install-config; SCRIPT_VERSION kept alongside. Missing
+#     xbps-query degrades gracefully (omitted, install never fails).
 #     AI (Big Pickle) CHANGE — v3.3.0-beta27 [FLOW-ORDER]: reordered the stage-1
 #     prompt cluster so the bootloader is decided first, the Limine wallpaper is
 #     asked immediately after it (limine only), disk encryption (+ YubiKey,
@@ -348,7 +355,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta27"
+SCRIPT_VERSION="3.3.0-beta28"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.3.0-beta24 [PROMPT-DEFAULTS]: EDITABLE DEFAULT
@@ -5010,6 +5017,23 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
         echo "YUBIKEY_UNLOCK=${YK_MODE:-off}"
         echo "SESSION_STACK=${SESSION_STACK:-<unset>}"
         echo "DESKTOP_ENV=${DESKTOP_ENV:-<unset>}"
+        echo ""
+        # AI (Big Pickle) ADDITION — v3.3.0-beta28 [PKG-LIST]: append the FULL
+        # finished-system package inventory (every package on this box — the
+        # base-system, its dependencies, and everything the installer added on
+        # top) so the record shows not just the installer version and choices
+        # but precisely WHAT was installed. Captured in the chroot via
+        # `xbps-query -l` against the target's own /var/db/xbps, then normed:
+        # each line is stripped of xbps's `[installed] ` status prefix so it
+        # reads as clean `pkgname-version`, sorted for scannability.
+        # Kept secret-free (a package list contains no credentials) and the
+        # SCRIPT_VERSION line above still records which installer built it.
+        echo "# -------- INSTALLED PACKAGES (full xbps-query -l inventory) --------"
+        if command -v xbps-query >/dev/null 2>&1; then
+            xbps-query -l 2>/dev/null | sed -E 's/^\[installed\] //' | sort
+        else
+            echo "# xbps-query unavailable in chroot — package inventory omitted"
+        fi
     } > "/home/${TARGET_USER}/Documents/VOID_INSTALL.txt"
     chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/Documents/VOID_INSTALL.txt"
     chmod 644 "/home/${TARGET_USER}/Documents/VOID_INSTALL.txt"

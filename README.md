@@ -8,8 +8,8 @@ recovery-first, snapshot-friendly system.
 
 | File | Description |
 |------|-------------|
-| `Void_Linux_Installer.sh` | Unified working installer (current version: **v3.3.0-beta27**). Run this. |
-| `CHANGELOG.md` | Reconstructed changelog: records v3.1.0-beta1 → v3.3.0-beta27 from inline markers, plus a clearly-labeled educated estimate of the pre-3.1.0 alpha heritage. |
+| `Void_Linux_Installer.sh` | Unified working installer (current version: **v3.3.0-beta28**). Run this. |
+| `CHANGELOG.md` | Reconstructed changelog: records v3.1.0-beta1 → v3.3.0-beta28 from inline markers, plus a clearly-labeled educated estimate of the pre-3.1.0 alpha heritage. |
 
 ## Usage
 

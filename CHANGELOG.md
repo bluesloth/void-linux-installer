@@ -10,7 +10,33 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta27** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta28** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta28 — installed-package capture in the install record (`[PKG-LIST]`)
+
+The post-install record now captures not just the installer version and
+choices but the **full finished-system package inventory**, appended to the
+existing `~/Documents/VOID_INSTALL.txt` quick record — size-it-up from the
+box itself without booting rescue media.
+
+- **`[PKG-LIST]`** — the `~/Documents/VOID_INSTALL.txt` write (in the chroot,
+  where the target's own `/var/db/xbps` is live) appends an
+  `INSTALLED PACKAGES (full xbps-query -l inventory)` section:
+  every package on the finished system — base-system, its dependencies, and
+  everything the installer added on top — one per line. Each line is the
+  `xbps-query -l` output with `xbps`'s `[installed] ` status prefix stripped,
+  so it reads as clean `pkgname-version`:path, sorted for scannability.
+- **Secret-free**, matching `install-config` and the existing record: a package
+  list contains no credentials. `SCRIPT_VERSION` is kept alongside (the
+  existing version line already records which installer built the box; the
+  package list now documents what it actually installed). If `xbps-query` is
+  unavailable in the chroot, the record notes the inventory was omitted rather
+  than failing the install.
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (ALL CONSISTENT), and
+  `Debug/check-heredocs.sh` (46 heredocs, ALL CLEAN) all pass; the `sed`
+  normalization pipeline verified against a simulated `xbps-query -l` output.
 
 ---
 
