@@ -355,7 +355,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta29"
+SCRIPT_VERSION="3.3.0-beta30"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.3.0-beta24 [PROMPT-DEFAULTS]: EDITABLE DEFAULT
@@ -4997,6 +4997,10 @@ chmod 644 /etc/void-installer/install-config
 # only; nothing here unlocks anything.
 if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
     mkdir -p "/home/${TARGET_USER}/Documents"
+    # mkdir -p above runs as root and the inner write only chowns the FILE —
+    # chown Documents itself too or the shell-owned xdg-user-dirs home leaves a
+    # root-owned Documents dir the user cannot chmod. [DOCS-LOG-CHOWN] v3.3.0-beta30.
+    chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/Documents"
     {
         echo "# ========================================================================="
         echo "# VOID LINUX install record for THIS machine"

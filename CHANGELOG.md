@@ -10,7 +10,28 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta29** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta30** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta30 — chown the Documents dir the install record lives in (`[DOCS-LOG-CHOWN]`)
+
+A follow-up ownership bug to the `[DOCS-LOG]` quick record. The install record
+is written to `~/Documents/VOID_INSTALL.txt`, and the `mkdir -p .../Documents`
+runs as **root** in the chroot. The write path chowned the `VOID_INSTALL.txt`
+file but **not its `Documents` parent** — so on first boot the user found
+`~/Documents` owned `root:root` ("You are not the owner"), even though every
+other xdg-user-dir folder (Downloads, etc.) came up owned by the user because
+the desktop's `xdg-user-dirs-update` creates those as the login user.
+
+- **`[DOCS-LOG-CHOWN]`** — the `[DOCS-LOG]` block now `chown`s the
+  `/home/<user>/Documents` directory itself (not just the file) to
+  `user:user` right after the `mkdir -p`. `Downloads` and the rest already
+  arrive user-owned via `xdg-user-dirs-update`, so this restores parity and
+  keeps the installed user able to chmod their own Documents.
+
+> **Live-box recovery** (no reinstall):
+> `sudo chown <user>:<user> /home/<user>/Documents`
 
 ---
 
