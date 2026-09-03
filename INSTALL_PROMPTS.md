@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **3.3.0-beta26**). It exists
+> `Void_Linux_Installer.sh` (current version: **3.3.0-beta27**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -87,7 +87,7 @@
 
 ---
 
-## 4. Swap, encryption & YubiKey
+## 4. Swap, bootloader & wallpaper
 
 - **Swap backend `[*] [1-4, default 1]`**
   - `1` swapfile (default) — Btrfs swapfile at /var/swap, supports hibernation
@@ -98,33 +98,15 @@
 - **Swapfile size `[*] [1-2, default 1]`** — only if no hibernation
   - `1` 4G (default)
   - `2` 2G
-- **`[*]` Enable full-disk encryption (LUKS2)? [y/N]**
-- Only if `ENCRYPT=yes` (in this order):
-  - **`[*]` Set up YubiKey hmac-sha1 unlock? [y/N]**
-  - If `y`:
-    - **Which OTP slot to program (1 or 2)? [1]**
-    - **Require a physical touch on the YubiKey to unlock at boot? [Y/n]**
-    - **Keep the typed-passphrase fallback (YubiKey OR passphrase)? [Y/n]**
-  - The key must be plugged in; slot programming happens later.
-  - **Passphrase + confirm** (hidden, in-memory only) is asked *after* the
-    bootloader choice, once the fallback is final — labeled accordingly:
-    provisioning-only if possession-only (throwaway), boot fallback if kept,
-    or plain every-boot passphrase with no YubiKey.
-- **Allow audio (PipeWire) to autostart during read-only snapshot boots? [y/N]**
-
----
-
-## 5. Bootloader & wallpaper
-
 - **Bootloader [1/2] (default 1: Limine)** — `[*]` no longer marks this;
   bare Enter selects the default.
   - `1` Limine — newer, simpler, no efibootmgr/NVRAM dependency (4GiB EFI). **Default.**
   - `2` GRUB — mature, battle-tested snapshot boot via grub-btrfs. ESP size: 1GiB
-    plain, **4GiB when full-disk encryption is also selected** — in that combo the
-    ESP is mounted at `/boot`, so grub.cfg + kernels live unencrypted on the ESP
-    and GRUB never has to unlock LUKS (one dracut passphrase prompt after handoff).
+    plain, **4GiB when full-disk encryption is then enabled** (next prompt) — in that
+    combo the ESP is mounted at `/boot`, so grub.cfg + kernels live unencrypted on the
+    ESP and GRUB never has to unlock LUKS (one dracut passphrase prompt after handoff).
 - Only if `BOOTLOADER=limine`:
-  - **`[*]` Enable Limine wallpaper? [y/N]**
+  - **`[*]` Enable Limine wallpaper? [y/N]** — asked right after the bootloader choice.
   - If `y`:
     - **Wallpaper browser** (copied onto the ESP) — a numbered `ls` menu of
       directories and BMP/PNG/JPEG/QOI images starting at `/run/media`
@@ -132,6 +114,26 @@
       to pick an image, or type an absolute/relative path as an escape
       hatch.
     - **`[*]` Wallpaper style [1=stretched/2=tiled/3=centered] [1]**
+
+---
+
+## 5. Encryption, YubiKey & audio
+
+- **`[*]` Enable full-disk encryption (LUKS2)? [y/N]** — asked after the bootloader
+  (and Limine wallpaper) choice, so the GRUB/limine + encryption sizing is final.
+- Only if `ENCRYPT=yes` (in this order):
+  - **`[*]` Set up YubiKey hmac-sha1 unlock? [y/N]**
+  - If `y`:
+    - **Which OTP slot to program (1 or 2)? [1]**
+    - **Require a physical touch on the YubiKey to unlock at boot? [Y/n]**
+    - **Keep the typed-passphrase fallback (YubiKey OR passphrase)? [Y/n]**
+  - The key must be plugged in; slot programming happens later.
+  - **Passphrase + confirm** (hidden, in-memory only) is asked after the YubiKey
+    menu and the bootloader/YK clamp, once the fallback is final — labeled
+    accordingly: provisioning-only if possession-only (throwaway), boot fallback
+    if kept, or plain every-boot passphrase with no YubiKey.
+  - **`[*]` LUKS mapper name [void-root]** (last encryption prompt)
+- **Allow audio (PipeWire) to autostart during read-only snapshot boots? [y/N]**
 
 ---
 

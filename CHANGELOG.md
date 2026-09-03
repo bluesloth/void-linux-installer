@@ -10,7 +10,37 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta26** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta27** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta27 — install-prompt flow reorder (`[FLOW-ORDER]`)
+
+Reordered the stage-1 install-prompt cluster so the encryption and bootloader
+decisions land in a more natural order without changing any semantic.
+
+- **Disk encryption now asked AFTER the bootloader choice.** The LUKS2 gate
+  (and, when enabled, the YubiKey menu, YubiKey-only clamp, typed-passphrase
+  capture, and LUKS mapper name) moved out of its old slot before the
+  bootloader. The GRUB help text now says "if you then enable full-disk
+  encryption (next prompt)" instead of "selected above", and GRUB+ENCRYPT still
+  grows the ESP to 4GiB (`[GRUB-ESP-BOOT]`).
+- **Limine wallpaper is asked immediately after the bootloader choice**
+  (still limine-only), so bootloader -> wallpaper -> encryption reads as one
+  flow; the wallpaper block physically sits between the bootloader and the
+  encryption gate.
+- **Audio (PipeWire read-only-snapshot autostart) moved to the tail of this
+  cluster** — after encryption/YubiKey/passphrase. Its default stays OFF
+  (`DEFAULT_SNAPSHOT_AUDIO=false`), unchanged.
+- Finally the new stage-1 order is:
+  `swap -> bootloader -> Limine wallpaper (limine) -> encryption gate ->
+  YubiKey -> YK clamp -> passphrase + mapper -> audio`.
+- The `[ENCRYPT-ORDER]` invariant is preserved: the typed passphrase is still
+  captured only after the YubiKey menu AND the bootloader + `YK_FALLBACK` clamp
+  are final, so its on-screen label (provisioning-only / boot fallback / plain
+  every-boot) remains truthful.
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (ALL CONSISTENT), and
+  `Debug/check-heredocs.sh` (46 heredocs, ALL CLEAN) all pass after the reorder.
 
 ---
 

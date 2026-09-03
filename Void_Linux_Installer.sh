@@ -207,6 +207,14 @@
 #     never nested inside @, so they stay outside Snapper rollback scope) without
 #     installing the software that would normally own them. nodatacow is applied
 #     via fstab mount options, never chattr (matches [NODATACOW]).
+#     AI (Big Pickle) CHANGE — v3.3.0-beta27 [FLOW-ORDER]: reordered the stage-1
+#     prompt cluster so the bootloader is decided first, the Limine wallpaper is
+#     asked immediately after it (limine only), disk encryption (+ YubiKey,
+#     clamp, passphrase, mapper) follows, and audio (PipeWire read-only-snapshot
+#     autostart) moves to the tail. Final order: swap -> bootloader -> wallpaper
+#     (limine) -> encryption gate -> YubiKey -> YK clamp -> passphrase -> audio.
+#     [ENCRYPT-ORDER] semantics preserved (passphrase captured only after
+#     bootloader + clamp final); GRUB+ENCRYPT still sizes the ESP to 4GiB.
 #     AI (Big Pickle) ADDITION — v3.3.0-beta26 [BROWSER-GROUP] / [CONTAINER-GROUP]:
 #     the interactive optional-software prompts are grouped behind category gates
 #     (SETUP_WEB_BROWSERS, SETUP_CONTAINERS) mirroring the tool's --class groups,
@@ -340,7 +348,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta26"
+SCRIPT_VERSION="3.3.0-beta27"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.3.0-beta24 [PROMPT-DEFAULTS]: EDITABLE DEFAULT
@@ -743,12 +751,12 @@ done
 export TARGET_USER
 
 # AI (Big Pickle) ADDITION — v3.3.0-beta15 [FULLNAME]: prompt for the user's
-# real (display) name, e.g. "Void User", used for the account GECOS field so logins
+# real (display) name, e.g. "John Doe", used for the account GECOS field so logins
 # (and greeters/`finger`) show a friendly name instead of the bare username.
 # Deliberately permissive — any printable text is accepted (a name is free-form);
 # only the trailing-newline from `read -r` is stripped.
 echo ""
-ask "Enter the full name of $TARGET_USER (e.g., 'Void User'): "
+ask "Enter the full name of $TARGET_USER (e.g., 'John Doe'): "
 read -r TARGET_FULL_NAME
 export TARGET_FULL_NAME
 
@@ -1055,135 +1063,19 @@ else
 fi
 export SWAPFILE_SIZE
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: optional LUKS2 full-disk
-# encryption of partition 2 (the Btrfs filesystem). The ESP stays
-# unencrypted. When enabled, the user types a passphrase (twice, hiding it)
-# so it never lands on screen. Since v3.3.0-beta7 this passphrase can be
-# supplemented or replaced by YubiKey hmac-sha1 unlock ([YUBIKEY]);
-# AI (Big Pickle) CHANGE — v3.3.0-beta12 [ENCRYPT-ORDER]: the actual typed
-# passphrase is now captured AFTER this yes/no gate — specifically after the
-# YubiKey menu AND the bootloader choice + YK_FALLBACK clamp — so the capture
-# prompt can tell the user truthfully whether this passphrase is (a) a
-# YubiKey-only one-time provisioning secret that will be removed
-# (YK_FALLBACK=no), (b) the boot fallback alongside the YubiKey
-# (YK_FALLBACK=yes), or (c) the plain every-boot passphrase. The ordering was
-# forced: luksFormat still NEEDS a typed passphrase at creation time (a LUKS2
-# container cannot be created key-slot-less, and luksAddKey authenticates
-# with it), so even possession-only installs type one — it just never survives
-# past enrollment.  Ask-early semantics are preserved because the capture
-# happens well before luksFormat, and the passphrase still lives only in
-# this process's memory.
-# ENCRYPT (yes/no) is persisted in the resume state file; the passphrase is
-# NOT — it lives only in this process's memory until luksFormat/luksOpen (and
-# is unset right after), so a crashed-then-resumed run re-prompts for it at
-# luksOpen time instead (see the RESUME branch, NOT here).
-ENCRYPT="no"
-ENCRYPT_PASSPHRASE=""
-echo ""
-echo "${C_BOLD}${C_BLU}Encrypt disk?${C_RST}"
-echo ""
-echo "  Encrypt partition 2 (the root filesystem) with LUKS2. Every subvolume"
-echo "  (root, home, snapshots, swap, ...) lives inside the encrypted volume."
-echo "  Unlock is with a passphrase and/or an optional YubiKey (asked later);"
-echo "  the ESP/bootloader stays unencrypted so it can find the system before"
-echo "  the volume is unlocked."
-echo ""
-ask "Enable full-disk encryption (LUKS2)? [y/N]: "
-read -r ENCRYPT_INPUT
-case "$ENCRYPT_INPUT" in
-    [yY]*) ENCRYPT="yes" ;;
-    *)     ENCRYPT="no" ;;
-esac
-export ENCRYPT
-
-# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: optional YubiKey
-# hmac-sha1 challenge-response unlock, offered only when encryption was
-# enabled. The YubiKey is REQUIRED to be present at install time — enrollment
-# programs a real OTP slot and binds the HMAC response as a LUKS key slot, so
-# it cannot be done later without the key. These prompt-time answers are
-# persisted (state + chroot_env + limine-env); only the CHALLENGE+SLOT+mode
-# are stored — the actual HMAC key and the passphrase are never written.
-# YK_MODE is in {off,hmac-sha1}; YK_FALLBACK in {yes,no}
-# (yes = keep a typed-passphrase slot too; no = YubiKey-only);
-# YK_SLOT in {1,2} (default 1); YK_TOUCH in {yes,no} (require a physical
-# touch on the YubiKey to unlock at boot — default yes for stronger
-# possession confirm). The actual slot programming + key computation happen
-# LATER (after the live-CD sync, once ykpers is available) — see the
-# ADDITION block before CHROOT_START.
-YK_MODE="off"
-YK_FALLBACK="yes"
-YK_SLOT="1"
-YK_TOUCH="no"
-if [ "$ENCRYPT" = "yes" ]; then
-    echo ""
-    echo "${C_BOLD}${C_BLU}YubiKey hmac-sha1 unlock?${C_RST}"
-    echo ""
-    echo "  Optionally bind a YubiKey hmac-sha1 challenge-response slot so the disk"
-    echo "  unlocks by tapping the key at boot instead of (or in addition to) typing"
-    echo "  the passphrase. The YubiKey MUST be plugged in now: enrollment programs"
-    echo "  a real slot and stamps the HMAC response as a LUKS key slot. Slot 1 is"
-    echo "  used by default (also the OTP default); use slot 2 if slot 1 is in use."
-    echo ""
-    ask "Set up YubiKey hmac-sha1 unlock? [y/N]: "
-    read -r YK_INPUT
-    case "$YK_INPUT" in
-        [yY]*)
-            YK_MODE="hmac-sha1"
-            while :; do
-                ask "Which OTP slot to program (1 or 2)? [1]: "
-                read -r YK_SLOT_INPUT
-                case "${YK_SLOT_INPUT:-1}" in
-                    1|2) YK_SLOT="$YK_SLOT_INPUT"; break ;;
-                    *) echo "Please enter 1 or 2." >&2 ;;
-                esac
-            done
-            ask "Require a physical touch on the YubiKey to unlock at boot? [Y/n]: "
-            read -r YK_TOUCH_INPUT
-            case "$YK_TOUCH_INPUT" in
-                "")     YK_TOUCH="$DEFAULT_YK_TOUCH" ;;
-                [nN]*) YK_TOUCH="no" ;;
-                *)     YK_TOUCH="yes" ;;
-            esac
-            echo ""
-            echo "  Passphrase fallback: with 'yes' (default) the typed passphrase slot is"
-            echo "  kept too, so YubiKey absent/wrong still boots by typing the passphrase."
-            echo "  With 'no' the passphrase slot is removed and the YubiKey is the ONLY"
-            echo "  unlock — possession-required, nothing to type. NOTE: YubiKey-only is"
-            echo "  only ever proven with the Limine bootloader — with GRUB the fallback"
-            echo "  is kept regardless ([YUBIKEY] clamp)."
-            ask "Keep the typed-passphrase fallback (YubiKey OR passphrase)? [Y/n]: "
-            read -r YK_FALLBACK_INPUT
-            case "$YK_FALLBACK_INPUT" in
-                "")     YK_FALLBACK="$DEFAULT_YK_FALLBACK" ;;
-                [nN]*) YK_FALLBACK="no" ;;
-                *)     YK_FALLBACK="yes" ;;
-            esac
-            ;;
-    esac
-fi
-export YK_MODE YK_FALLBACK YK_SLOT YK_TOUCH
-unset YK_INPUT YK_SLOT_INPUT YK_TOUCH_INPUT YK_FALLBACK_INPUT
-
-# AI (Claude, Sonnet 5, Medium) ADDITION: Whether PipeWire autostarts during a read-only
-# snapshot/overlay boot is now a real install-time choice instead of an
-# unconditional skip. Default stays "off" (skip audio on snapshot boots)
-# since that's the behavior actually tested; opting in trades that caution
-# for working audio on snapshot boots.
-# [OPEN ITEM #1, carried from CHANGELOG §6] — this toggle drives the
-# live-overlay-skip wrapper further down in Stage 2; if a future edit ever
-# drops that wrapper, restore it, this export alone does nothing on its own.
-ask "Allow audio (PipeWire) to autostart during read-only snapshot boots? [y/N]: "
-read -r ENABLE_SNAPSHOT_AUDIO_INPUT
-case "$ENABLE_SNAPSHOT_AUDIO_INPUT" in
-    "") ENABLE_SNAPSHOT_AUDIO="$DEFAULT_SNAPSHOT_AUDIO" ;;
-    [yY]*) ENABLE_SNAPSHOT_AUDIO="true" ;;
-    *) ENABLE_SNAPSHOT_AUDIO="false" ;;
-esac
-export ENABLE_SNAPSHOT_AUDIO
-
 # =============================================================================
 # BOOTLOADER CHOICE: GRUB or LIMINE (v3.2.0-beta1) — [LIMINE-1]
 # =============================================================================
+# AI (Big Pickle) CHANGE — v3.3.0-beta27 [FLOW-ORDER]: reordered this install-
+# prompt flow so disk-encryption is decided AFTER the bootloader, and the Limine
+# wallpaper is asked immediately after the bootloader choice. Final prompt order
+# (swap was already above) is now: bootloader -> Limine wallpaper (limine only)
+# -> encryption gate -> YubiKey -> YK clamp -> passphrase/mapper -> audio
+# (PipeWire snapshot-autostart). The bootloader then decides the ESP size that
+# encryption augments (GRUB+ENCRYPT 4GiB /boot), and the passphrase capture still
+# runs only after the bootloader + YK_FALLBACK clamp are final (unchanged
+# semantic from [ENCRYPT-ORDER]); the audio choice moved to the tail of this
+# cluster. YubiKey still must be decided under ENCRYPT=yes before the clamp.
 # AI (Claude, Sonnet 5, Medium) CHANGE — v3.1.0-beta1: Limine was briefly made the ONLY
 # bootloader in an earlier pass of this beta (see CHANGELOG §3.19/§4.7 for
 # the original GRUB→Limine rationale — smaller trusted codebase, single-
@@ -1224,10 +1116,10 @@ fi
  echo "     a 4GiB+ EFI partition (ArchWiki's own recommendation for"
  echo "     bootable snapshots, kernel versions, and large early-boot"
  echo "     modules)."
- echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snapshot-boot support via"
- echo "     grub-btrfs. Extensively real-hardware tested on this script's"
- echo "     3.0.x line, including snapshot boot. 1GiB EFI partition."
- echo "     ${C_RED}NOTE: with full-disk encryption (ENCRYPT=yes) selected above, GRUB's"
+echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snapshot-boot support via"
+  echo "     grub-btrfs. Extensively real-hardware tested on this script's"
+  echo "     3.0.x line, including snapshot boot. 1GiB EFI partition."
+  echo "     ${C_RED}NOTE: if you then enable full-disk encryption (next prompt), GRUB's"
  echo "     LUKS cryptodisk is bypassed entirely — the ESP is mounted AT /boot so"
  echo "     grub.cfg + kernels stay unencrypted and GRUB never unlocks the disk"
  echo "     (dracut prompts once, after handoff). The ESP grows to 4GiB in that"
@@ -1250,103 +1142,6 @@ fi
  done
 export BOOTLOADER
 export EFI_PART_SIZE
-
-# AI (Big Pickle) CHANGE — v3.3.0-beta7 [YUBIKEY] + v3.3.0-beta14
-# [GRUB-ESP-BOOT]: YubiKey possession-only (YK_FALLBACK=no, no typed
-# passphrase slot at all) is deliberately still clamped back on under GRUB,
-# even though [GRUB-ESP-BOOT] now keeps /boot public on the ESP so GRUB never
-# reads LUKS. Two reasons: (a) this beta line's YubiKey boot path is
-# real-hardware UNPROVEN (Limine is the only combination ever exercised),
-# and (b) the typed fallback slot is strictly the safer default. If the user
-# picked GRUB after asking for YubiKey-only, CLAMP the fallback back on here,
-# after the bootloader prompt, so the constraint is reflected in persisted
-# state and in every summary/dry-run below. This is the single canonical
-# place the dependency is resolved (mirrored by the same enforced fact in
-# void-limine-write-conf / crypttab generation later).
-if [ "$BOOTLOADER" = "grub" ] && [ "$YK_MODE" = "hmac-sha1" ] && [ "$YK_FALLBACK" = "no" ]; then
-    echo "==> [YUBIKEY] YubiKey-only unlock is only ever proven on Limine — keeping the"
-    echo "       typed-passphrase fallback slot (YK_FALLBACK=yes) for this GRUB install."
-    YK_FALLBACK="yes"
-fi
-
-# AI (Big Pickle) CHANGE — v3.3.0-beta12 [ENCRYPT-ORDER]: typed-passphrase
-# capture, moved here. $YK_MODE/$YK_FALLBACK/$BOOTLOADER are now all final
-# (the GRUB clamp above has run), so this prompt labels the passphrase's
-# destiny truthfully:
-#   * YK_MODE=off        -> plain every-boot passphrase.
-#   * YK_FALLBACK=yes    -> boot fallback alongside the YubiKey.
-#   * YK_FALLBACK=no     -> ONE-TIME provisioning secret only: it authorizes
-#                           luksFormat + the luksAddKey enrollment and is then
-#                           rendered useless by the luksRemoveKey of slot 0
-#                           (nothing at boot will ever accept it again). Typing
-#                           a throwaway value is fine — the YubiKey becomes the
-#                           only unlock. Void's Mandatory invariant [ENCRYPT]:
-#                           the value is fed to cryptsetup only via stdin and
-#                           unset right after; never persisted.
-if [ "$ENCRYPT" = "yes" ]; then
-    while :; do
-        echo ""
-        if [ "$YK_MODE" = "hmac-sha1" ] && [ "$YK_FALLBACK" = "no" ]; then
-            echo "  YubiKey-only unlock selected — this passphrase is a ONE-TIME provisioning"
-            echo "  secret: it creates the LUKS2 container and is used to bind the YubiKey"
-            echo "  slot, then the passphrase slot is removed. It will NOT unlock at boot;"
-            echo "  you do not need to remember it (a throwaway value is fine)."
-        elif [ "$YK_MODE" = "hmac-sha1" ]; then
-            echo "  Passphrase fallback selected — this passphrase unlocks at boot when the"
-            echo "  YubiKey is absent or fails, and seats the container at install."
-        else
-            echo "  This passphrase is required at every boot to unlock the disk."
-        fi
-        echo "Enter a passphrase for the encrypted disk (hidden input):"
-        # AI (Big Pickle) ADDITION — v3.3.0-beta21 [KEYMAP]: tell the user that
-        # the passphrase bytes are tied to the CURRENT console keymap, which
-        # will be baked into the installed system + initramfs. This avoids the
-        # "locks at boot" surprise when the boot console would otherwise map
-        # keys differently.
-        echo "  (type it under the CURRENT console keymap; it is what boot will expect)"
-        read -r -s ENCRYPT_PASSPHRASE
-        echo
-        if [ -z "$ENCRYPT_PASSPHRASE" ]; then
-            echo "Passphrase cannot be empty. Try again." >&2
-            continue
-        fi
-        echo "Enter the passphrase again to confirm:"
-        read -r -s ENCRYPT_PASSPHRASE_CONFIRM
-        echo
-        if [ "$ENCRYPT_PASSPHRASE" != "$ENCRYPT_PASSPHRASE_CONFIRM" ]; then
-            echo "Passphrases do not match. Try again." >&2
-            continue
-        fi
-        break
-    done
-    unset ENCRYPT_PASSPHRASE_CONFIRM
-    # AI (Big Pickle) ADDITION — v3.3.0-beta23 [CRYPT-NAME]: optional LUKS
-    # mapper name. Defaults to `void-root` (the historical/AGENTS name that all
-    # the generated crypttab, rd.luks.name= kernel params, limine resync, and
-    # the YubiKey keyscript path are built around). Prompting lets a user pick
-    # a custom name, which is then threaded through EVERY consumer below so a
-    # custom name still boots. Only validated for non-empty/no-slashes — it is
-    # a device-mapper name, not a filesystem label.
-    printf '%s\n' ""
-    printf '%s\n' "${C_BOLD}${C_BLU}LUKS mapper name?${C_RST}"
-    printf '%s\n' ""
-    printf '%s\n' "  Name of the decrypted device that appears under /dev/mapper/."
-    printf '%s\n' "  Press ENTER for the default: void-root"
-    ask "Mapper name [void-root]: "
-    read -r CRYPT_NAME
-    [ -n "$CRYPT_NAME" ] || CRYPT_NAME="void-root"
-    case "$CRYPT_NAME" in
-        */*) echo "${C_RED}!! Mapper name must be a plain name (no '/'). Using default 'void-root'.${C_RST}" >&2
-             CRYPT_NAME="void-root" ;;
-    esac
-    export CRYPT_NAME
-fi
-
-# The passphrase is deliberately NOT exported — it stays a plain variable in
-# this process so no child process can inherit it via the environment; it is
-# fed to cryptsetup only through `--key-file=-` on stdin via `printf '%s' |
-# cryptsetup` (NO trailing newline — see [ENCRYPT-NEWLINE]), so
-# it never appears in argv or in any persisted file (see Mandatory [ENCRYPT]).
 
 # AI (Big Pickle) ADDITION — v3.3.0-beta3 [LIMINE-WALLPAPER]: optional boot-
 # screen background image for Limine. Void's limine package ships the plain
@@ -1483,6 +1278,229 @@ if [ "$BOOTLOADER" = "limine" ]; then
 fi
 export LIMINE_WALLPAPER
 export LIMINE_WALLPAPER_STYLE
+
+# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: optional LUKS2 full-disk
+# encryption of partition 2 (the Btrfs filesystem). The ESP stays
+# unencrypted. When enabled, the user types a passphrase (twice, hiding it)
+# so it never lands on screen. Since v3.3.0-beta7 this passphrase can be
+# supplemented or replaced by YubiKey hmac-sha1 unlock ([YUBIKEY]);
+# AI (Big Pickle) CHANGE — v3.3.0-beta12 [ENCRYPT-ORDER]: the actual typed
+# passphrase is now captured AFTER this yes/no gate — specifically after the
+# YubiKey menu AND the bootloader choice + YK_FALLBACK clamp — so the capture
+# prompt can tell the user truthfully whether this passphrase is (a) a
+# YubiKey-only one-time provisioning secret that will be removed
+# (YK_FALLBACK=no), (b) the boot fallback alongside the YubiKey
+# (YK_FALLBACK=yes), or (c) the plain every-boot passphrase. The ordering was
+# forced: luksFormat still NEEDS a typed passphrase at creation time (a LUKS2
+# container cannot be created key-slot-less, and luksAddKey authenticates
+# with it), so even possession-only installs type one — it just never survives
+# past enrollment.  Ask-early semantics are preserved because the capture
+# happens well before luksFormat, and the passphrase still lives only in
+# this process's memory.
+# ENCRYPT (yes/no) is persisted in the resume state file; the passphrase is
+# NOT — it lives only in this process's memory until luksFormat/luksOpen (and
+# is unset right after), so a crashed-then-resumed run re-prompts for it at
+# luksOpen time instead (see the RESUME branch, NOT here).
+ENCRYPT="no"
+ENCRYPT_PASSPHRASE=""
+echo ""
+echo "${C_BOLD}${C_BLU}Encrypt disk?${C_RST}"
+echo ""
+echo "  Encrypt partition 2 (the root filesystem) with LUKS2. Every subvolume"
+echo "  (root, home, snapshots, swap, ...) lives inside the encrypted volume."
+echo "  Unlock is with a passphrase and/or an optional YubiKey (asked later);"
+echo "  the ESP/bootloader stays unencrypted so it can find the system before"
+echo "  the volume is unlocked."
+echo ""
+ask "Enable full-disk encryption (LUKS2)? [y/N]: "
+read -r ENCRYPT_INPUT
+case "$ENCRYPT_INPUT" in
+    [yY]*) ENCRYPT="yes" ;;
+    *)     ENCRYPT="no" ;;
+esac
+export ENCRYPT
+
+# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: optional YubiKey
+# hmac-sha1 challenge-response unlock, offered only when encryption was
+# enabled. The YubiKey is REQUIRED to be present at install time — enrollment
+# programs a real OTP slot and binds the HMAC response as a LUKS key slot, so
+# it cannot be done later without the key. These prompt-time answers are
+# persisted (state + chroot_env + limine-env); only the CHALLENGE+SLOT+mode
+# are stored — the actual HMAC key and the passphrase are never written.
+# YK_MODE is in {off,hmac-sha1}; YK_FALLBACK in {yes,no}
+# (yes = keep a typed-passphrase slot too; no = YubiKey-only);
+# YK_SLOT in {1,2} (default 1); YK_TOUCH in {yes,no} (require a physical
+# touch on the YubiKey to unlock at boot — default yes for stronger
+# possession confirm). The actual slot programming + key computation happen
+# LATER (after the live-CD sync, once ykpers is available) — see the
+# ADDITION block before CHROOT_START.
+YK_MODE="off"
+YK_FALLBACK="yes"
+YK_SLOT="1"
+YK_TOUCH="no"
+if [ "$ENCRYPT" = "yes" ]; then
+    echo ""
+    echo "${C_BOLD}${C_BLU}YubiKey hmac-sha1 unlock?${C_RST}"
+    echo ""
+    echo "  Optionally bind a YubiKey hmac-sha1 challenge-response slot so the disk"
+    echo "  unlocks by tapping the key at boot instead of (or in addition to) typing"
+    echo "  the passphrase. The YubiKey MUST be plugged in now: enrollment programs"
+    echo "  a real slot and stamps the HMAC response as a LUKS key slot. Slot 1 is"
+    echo "  used by default (also the OTP default); use slot 2 if slot 1 is in use."
+    echo ""
+    ask "Set up YubiKey hmac-sha1 unlock? [y/N]: "
+    read -r YK_INPUT
+    case "$YK_INPUT" in
+        [yY]*)
+            YK_MODE="hmac-sha1"
+            while :; do
+                ask "Which OTP slot to program (1 or 2)? [1]: "
+                read -r YK_SLOT_INPUT
+                case "${YK_SLOT_INPUT:-1}" in
+                    1|2) YK_SLOT="$YK_SLOT_INPUT"; break ;;
+                    *) echo "Please enter 1 or 2." >&2 ;;
+                esac
+            done
+            ask "Require a physical touch on the YubiKey to unlock at boot? [Y/n]: "
+            read -r YK_TOUCH_INPUT
+            case "$YK_TOUCH_INPUT" in
+                "")     YK_TOUCH="$DEFAULT_YK_TOUCH" ;;
+                [nN]*) YK_TOUCH="no" ;;
+                *)     YK_TOUCH="yes" ;;
+            esac
+            echo ""
+            echo "  Passphrase fallback: with 'yes' (default) the typed passphrase slot is"
+            echo "  kept too, so YubiKey absent/wrong still boots by typing the passphrase."
+            echo "  With 'no' the passphrase slot is removed and the YubiKey is the ONLY"
+            echo "  unlock — possession-required, nothing to type. NOTE: YubiKey-only is"
+            echo "  only ever proven with the Limine bootloader — with GRUB the fallback"
+            echo "  is kept regardless ([YUBIKEY] clamp)."
+            ask "Keep the typed-passphrase fallback (YubiKey OR passphrase)? [Y/n]: "
+            read -r YK_FALLBACK_INPUT
+            case "$YK_FALLBACK_INPUT" in
+                "")     YK_FALLBACK="$DEFAULT_YK_FALLBACK" ;;
+                [nN]*) YK_FALLBACK="no" ;;
+                *)     YK_FALLBACK="yes" ;;
+            esac
+            ;;
+    esac
+fi
+export YK_MODE YK_FALLBACK YK_SLOT YK_TOUCH
+unset YK_INPUT YK_SLOT_INPUT YK_TOUCH_INPUT YK_FALLBACK_INPUT
+
+# AI (Big Pickle) CHANGE — v3.3.0-beta7 [YUBIKEY] + v3.3.0-beta14
+# [GRUB-ESP-BOOT]: YubiKey possession-only (YK_FALLBACK=no, no typed
+# passphrase slot at all) is deliberately still clamped back on under GRUB,
+# even though [GRUB-ESP-BOOT] now keeps /boot public on the ESP so GRUB never
+# reads LUKS. Two reasons: (a) this beta line's YubiKey boot path is
+# real-hardware UNPROVEN (Limine is the only combination ever exercised),
+# and (b) the typed fallback slot is strictly the safer default. If the user
+# picked GRUB after asking for YubiKey-only, CLAMP the fallback back on here,
+# after the bootloader prompt, so the constraint is reflected in persisted
+# state and in every summary/dry-run below. This is the single canonical
+# place the dependency is resolved (mirrored by the same enforced fact in
+# void-limine-write-conf / crypttab generation later).
+if [ "$BOOTLOADER" = "grub" ] && [ "$YK_MODE" = "hmac-sha1" ] && [ "$YK_FALLBACK" = "no" ]; then
+    echo "==> [YUBIKEY] YubiKey-only unlock is only ever proven on Limine — keeping the"
+    echo "       typed-passphrase fallback slot (YK_FALLBACK=yes) for this GRUB install."
+    YK_FALLBACK="yes"
+fi
+
+# AI (Big Pickle) CHANGE — v3.3.0-beta12 [ENCRYPT-ORDER]: typed-passphrase
+# capture, moved here. $YK_MODE/$YK_FALLBACK/$BOOTLOADER are now all final
+# (the GRUB clamp above has run), so this prompt labels the passphrase's
+# destiny truthfully:
+#   * YK_MODE=off        -> plain every-boot passphrase.
+#   * YK_FALLBACK=yes    -> boot fallback alongside the YubiKey.
+#   * YK_FALLBACK=no     -> ONE-TIME provisioning secret only: it authorizes
+#                           luksFormat + the luksAddKey enrollment and is then
+#                           rendered useless by the luksRemoveKey of slot 0
+#                           (nothing at boot will ever accept it again). Typing
+#                           a throwaway value is fine — the YubiKey becomes the
+#                           only unlock. Void's Mandatory invariant [ENCRYPT]:
+#                           the value is fed to cryptsetup only via stdin and
+#                           unset right after; never persisted.
+if [ "$ENCRYPT" = "yes" ]; then
+    while :; do
+        echo ""
+        if [ "$YK_MODE" = "hmac-sha1" ] && [ "$YK_FALLBACK" = "no" ]; then
+            echo "  YubiKey-only unlock selected — this passphrase is a ONE-TIME provisioning"
+            echo "  secret: it creates the LUKS2 container and is used to bind the YubiKey"
+            echo "  slot, then the passphrase slot is removed. It will NOT unlock at boot;"
+            echo "  you do not need to remember it (a throwaway value is fine)."
+        elif [ "$YK_MODE" = "hmac-sha1" ]; then
+            echo "  Passphrase fallback selected — this passphrase unlocks at boot when the"
+            echo "  YubiKey is absent or fails, and seats the container at install."
+        else
+            echo "  This passphrase is required at every boot to unlock the disk."
+        fi
+        echo "Enter a passphrase for the encrypted disk (hidden input):"
+        # AI (Big Pickle) ADDITION — v3.3.0-beta21 [KEYMAP]: tell the user that
+        # the passphrase bytes are tied to the CURRENT console keymap, which
+        # will be baked into the installed system + initramfs. This avoids the
+        # "locks at boot" surprise when the boot console would otherwise map
+        # keys differently.
+        echo "  (type it under the CURRENT console keymap; it is what boot will expect)"
+        read -r -s ENCRYPT_PASSPHRASE
+        echo
+        if [ -z "$ENCRYPT_PASSPHRASE" ]; then
+            echo "Passphrase cannot be empty. Try again." >&2
+            continue
+        fi
+        echo "Enter the passphrase again to confirm:"
+        read -r -s ENCRYPT_PASSPHRASE_CONFIRM
+        echo
+        if [ "$ENCRYPT_PASSPHRASE" != "$ENCRYPT_PASSPHRASE_CONFIRM" ]; then
+            echo "Passphrases do not match. Try again." >&2
+            continue
+        fi
+        break
+    done
+    unset ENCRYPT_PASSPHRASE_CONFIRM
+    # AI (Big Pickle) ADDITION — v3.3.0-beta23 [CRYPT-NAME]: optional LUKS
+    # mapper name. Defaults to `void-root` (the historical/AGENTS name that all
+    # the generated crypttab, rd.luks.name= kernel params, limine resync, and
+    # the YubiKey keyscript path are built around). Prompting lets a user pick
+    # a custom name, which is then threaded through EVERY consumer below so a
+    # custom name still boots. Only validated for non-empty/no-slashes — it is
+    # a device-mapper name, not a filesystem label.
+    printf '%s\n' ""
+    printf '%s\n' "${C_BOLD}${C_BLU}LUKS mapper name?${C_RST}"
+    printf '%s\n' ""
+    printf '%s\n' "  Name of the decrypted device that appears under /dev/mapper/."
+    printf '%s\n' "  Press ENTER for the default: void-root"
+    ask "Mapper name [void-root]: "
+    read -r CRYPT_NAME
+    [ -n "$CRYPT_NAME" ] || CRYPT_NAME="void-root"
+    case "$CRYPT_NAME" in
+        */*) echo "${C_RED}!! Mapper name must be a plain name (no '/'). Using default 'void-root'.${C_RST}" >&2
+             CRYPT_NAME="void-root" ;;
+    esac
+    export CRYPT_NAME
+fi
+
+# The passphrase is deliberately NOT exported — it stays a plain variable in
+# this process so no child process can inherit it via the environment; it is
+# fed to cryptsetup only through `--key-file=-` on stdin via `printf '%s' |
+# cryptsetup` (NO trailing newline — see [ENCRYPT-NEWLINE]), so
+# it never appears in argv or in any persisted file (see Mandatory [ENCRYPT]).
+
+# AI (Claude, Sonnet 5, Medium) ADDITION: Whether PipeWire autostarts during a read-only
+# snapshot/overlay boot is now a real install-time choice instead of an
+# unconditional skip. Default stays "off" (skip audio on snapshot boots)
+# since that's the behavior actually tested; opting in trades that caution
+# for working audio on snapshot boots.
+# [OPEN ITEM #1, carried from CHANGELOG §6] — this toggle drives the
+# live-overlay-skip wrapper further down in Stage 2; if a future edit ever
+# drops that wrapper, restore it, this export alone does nothing on its own.
+ask "Allow audio (PipeWire) to autostart during read-only snapshot boots? [y/N]: "
+read -r ENABLE_SNAPSHOT_AUDIO_INPUT
+case "$ENABLE_SNAPSHOT_AUDIO_INPUT" in
+    "") ENABLE_SNAPSHOT_AUDIO="$DEFAULT_SNAPSHOT_AUDIO" ;;
+    [yY]*) ENABLE_SNAPSHOT_AUDIO="true" ;;
+    *) ENABLE_SNAPSHOT_AUDIO="false" ;;
+esac
+export ENABLE_SNAPSHOT_AUDIO
 
 # AI (Claude, Sonnet 5, Medium) ADDITION — v3.1.0-beta1 [KERNEL-MODE]: Where Limine reads the
 # kernel/initramfs from is a real install-time choice, asked only when
