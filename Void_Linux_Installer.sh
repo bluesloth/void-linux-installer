@@ -381,6 +381,7 @@ DEFAULT_PROVISION_FALKON_SUBVOL="${DEFAULT_PROVISION_FALKON_SUBVOL:-false}"     
 DEFAULT_PROVISION_BRAVE_SUBVOL="${DEFAULT_PROVISION_BRAVE_SUBVOL:-false}"         # [y/N]
 DEFAULT_PROVISION_THUNDERBIRD_SUBVOL="${DEFAULT_PROVISION_THUNDERBIRD_SUBVOL:-false}"  # [y/N]
 DEFAULT_PROVISION_STEAM_SUBVOL="${DEFAULT_PROVISION_STEAM_SUBVOL:-false}"         # [y/N]
+DEFAULT_PROVISION_VIRTUALBOX_SUBVOL="${DEFAULT_PROVISION_VIRTUALBOX_SUBVOL:-false}"     # [y/N]
 DEFAULT_PROVISION_DB_SUBVOLS="${DEFAULT_PROVISION_DB_SUBVOLS:-false}"             # [y/N]
 
 
@@ -1952,6 +1953,15 @@ case "$_pst_input" in
 esac
 export PROVISION_STEAM_SUBVOL
 
+PROVISION_VIRTUALBOX_SUBVOL="false"
+ask "Pre-create VirtualBox's VM folder subvolume (~/VirtualBox VMs) anyway? [y/N]: "
+read -r _pvb_input
+case "$_pvb_input" in
+    [yY]*) PROVISION_VIRTUALBOX_SUBVOL="true" ;;
+    "")    PROVISION_VIRTUALBOX_SUBVOL="$DEFAULT_PROVISION_VIRTUALBOX_SUBVOL" ;;
+esac
+export PROVISION_VIRTUALBOX_SUBVOL
+
 PROVISION_DB_SUBVOLS="false"
 ask "Pre-create PostgreSQL/MariaDB data subvolumes (/var/lib/postgresql, /var/lib/mysql) anyway? [y/N]: "
 read -r _pdb_input
@@ -2661,6 +2671,7 @@ fi
                PROVISION_VIVALDI_SUBVOL PROVISION_FALKON_SUBVOL \
                PROVISION_BRAVE_SUBVOL \
                PROVISION_THUNDERBIRD_SUBVOL PROVISION_STEAM_SUBVOL \
+               PROVISION_VIRTUALBOX_SUBVOL \
                PROVISION_DB_SUBVOLS DISK PART_EFI PART_SYS; do
         printf 'export %s=%q\n' "$_sv" "${!_sv}"
     done
@@ -2976,6 +2987,7 @@ fi
 # must agree with the Stage-2 provision_browser_subvol call sites + fstab.
 [ "$PROVISION_THUNDERBIRD_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @thunderbird"
 [ "$PROVISION_STEAM_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @steam"
+[ "$PROVISION_VIRTUALBOX_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @virtualbox"
 [ "$PROVISION_DB_SUBVOLS" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @postgresql @mariadb"
 
 # AI (Big Pickle) ADDITION — v3.2.0 [RESUME]: SUBVOLUME RESET.
@@ -4502,7 +4514,11 @@ provision_browser_subvol() {
     # The browser subvol is made nodatacow by this fstab mount option; no
     # `chattr +C` — a post-mount chattr would touch the covered mountpoint
     # inode, not the subvolume, so it cannot take effect.
-    echo "UUID=${BTRFS_UUID} ${_pbs_fullpath} btrfs noatime,nodatacow,subvol=${_pbs_subvol} 0 0" >> /etc/fstab
+    # fstab is whitespace-delimited, so any space in the mountpoint path must be
+    # escaped as `\040` for the entry to parse as a single field (e.g. VirtualBox's
+    # "VirtualBox VMs"). The shell var $FSTAB_MOUNT holds the escaped path.
+    local _pbs_fstab="/home/${TARGET_USER}/${_pbs_relpath// /\\040}"
+    echo "UUID=${BTRFS_UUID} ${_pbs_fstab} btrfs noatime,nodatacow,subvol=${_pbs_subvol} 0 0" >> /etc/fstab
     mount "$_pbs_fullpath"
     chown "${TARGET_USER}:${TARGET_USER}" "$_pbs_fullpath"
     chmod 700 "$_pbs_fullpath"
@@ -4537,6 +4553,12 @@ provision_firefox_subvols() {
 # avoiding the old root-owned ~/.local/share bug class).
 [ "$PROVISION_THUNDERBIRD_SUBVOL" = "true" ] && provision_browser_subvol "@thunderbird" ".thunderbird"
 [ "$PROVISION_STEAM_SUBVOL" = "true" ] && provision_browser_subvol "@steam" ".local/share/Steam"
+# AI (Big Pickle) ADDITION — [VIRTUALBOX]: VirtualBox keeps its VM library
+# under ~/VirtualBox VMs by default. Same per-user isolation model as the
+# browser/Steam/Thunderbird subvols: Stage-1 creates the @virtualbox top-level
+# sibling, this call creates/chowns/mounts the per-user VM folder. Singular
+# relative path (no nested chain), so the helper's mkdir+chown runs directly.
+[ "$PROVISION_VIRTUALBOX_SUBVOL" = "true" ] && provision_browser_subvol "@virtualbox" "VirtualBox VMs"
 
 if [ "$INSTALL_PODMAN_ROOTLESS" = "true" ]; then
     # Profile-data ownership for podman-rootless, confirmed via real
@@ -5810,6 +5832,9 @@ cat > /root/tools/void-subvol-tool.sh << 'INNER_EOF'
 #                                                      /home/<name>/<known relative path> (asks to confirm)
 #   add <subvol> [--nodatacow] (per-user profile only) prompts for the username, then derives the
 #                                                      mountpoint from /home/<name>/<known relative path>
+#   add --class <name> [--user <name>]              create EVERY subvol in an optional-software family:
+#                                                     containers databases web mail gaming virtualization flatpak
+#                                                     (per-user members need a username; pass --user or it prompts once)
 #   detach <subvol>                       umount + drop fstab line (subvol + data preserved)
 #   destroy <subvol>                      umount + drop fstab + btrfs subvolume delete (asks)
 set -euo pipefail
@@ -5877,7 +5902,38 @@ declare -A USER_PROFILE_PATH=(
     [@steam]="/.local/share/Steam"
     [@containers-user]="/.local/share/containers"
     [@usercache]="/.cache"
+    [@virtualbox]="/VirtualBox VMs"
 )
+
+# Software-class grouping for `--class <name>`: a class is a set of subvolumes
+# that usually belong to one optional-software family. Members are resolved to
+# a mountpoint via SYS_MOUNT (system paths) or USER_PROFILE_PATH (per-user,
+# needing a username). add_subvol() does the actual create/mount/fstab.
+declare -A SYS_MOUNT=(
+    [@docker]="/var/lib/docker"
+    [@containers]="/var/lib/containers"
+    [@postgresql]="/var/lib/postgresql"
+    [@mariadb]="/var/lib/mysql"
+    [@libvirt]="/var/lib/libvirt"
+    [@flatpak]="/var/lib/flatpak"
+)
+# System-path siblings that should be nodatacow (db/disk-churn datadirs) —
+# same `[NODATACOW]`-via-fstab rule as the installer.
+declare -A SYS_NODATACOW=(
+    [@postgresql]=1
+    [@mariadb]=1
+    [@libvirt]=1
+)
+declare -A CLASS_SUBVOLS=(
+    [containers]="@docker @containers @containers-user"
+    [databases]="@postgresql @mariadb"
+    [web]="@mozilla @mozilla-cache @chromium @vivaldi @falkon @brave"
+    [mail]="@thunderbird"
+    [gaming]="@steam"
+    [virtualization]="@libvirt @virtualbox"
+    [flatpak]="@flatpak"
+)
+CLASS_LIST="containers databases web mail gaming virtualization flatpak"
 
 # List every top-level sibling (direct child of the top-level tree).
 siblings() { btrfs subvolume list -o "$TOPMNT" 2>/dev/null | sed -n 's/.*path \([^ ]*\)$/\1/p'; }
@@ -5931,10 +5987,60 @@ cmd_check() {
 }
 
 # ---------------------------------------------------------------------------
-# add — create a flat sibling from the top-level tree, then mount at runtime.
+# add_subvol — the actual create/mount/fstab body, shared by `add <subvol>`
+# and `add --class <name>`. nodatacow: 1/0. src: optional migration source.
+# ---------------------------------------------------------------------------
+add_subvol() {
+    local sv="$1" mnt="$2" nodatacow="$3" src="$4" mode sp
+    mount_top
+    sp="$(sibling_path "$sv")"
+    [ -e "$sp" ] && { unmount_top; die "sibling '$sv' already exists (delete it first if you mean to recreate)."; }
+    [ -z "$(fstab_line "$sv")" ] || { unmount_top; die "subvolume '$sv' already has an fstab entry."; }
+    is_mounted "$mnt" && { unmount_top; die "'$mnt' is already a mountpoint in use."; }
+
+    mnt="$(readlink -f "$mnt")"
+    info "creating flat sibling $sv (top-level tree) for $mnt..."
+    btrfs subvolume create "$sp" || { unmount_top; die "btrfs subvolume create failed."; }
+
+    # optional migration: copy existing contents of $src into the fresh sibling
+    # BEFORE mounting it over $mnt, preserving ownership/permissions. $src is
+    # live under the running @ mount; copying into the subvolid=5-tree path is
+    # a cross-visible copy (both views show the same filesystem).
+    if [ -n "$src" ]; then
+        [ -d "$src" ] || {
+            echo "ERROR: source '$src' not a dir (removing partially-created sibling)." >&2
+            btrfs subvolume delete "$sp"
+            unmount_top
+            exit 1
+        }
+        info "migrating contents of $src into new sibling..."
+        cp -a -- "$src"/. "$sp"/ 2>/dev/null || true
+    fi
+    unmount_top
+
+    # fstab mount options: nodatacow MUST be via mount options, never chattr.
+    if [ "$nodatacow" = "1" ]; then
+        mode="noatime,nodatacow,compress=none"
+        info "mount options: $mode (nodatacow via fstab, per installer [NODATACOW])"
+    else
+        mode="noatime,compress=zstd:1"
+        info "mount options: $mode"
+    fi
+
+    # fstab is whitespace-delimited, so escape any space in the mountpoint
+    # (e.g. VirtualBox's "VirtualBox VMs") as `\040` — the mount call below
+    # still uses the literal path, it's only the fstab field that's escaped.
+    local fstab_path="${mnt// /\\040}"
+    echo "UUID=$FSUUID $fstab_path btrfs $mode,subvol=$sv 0 0" >> /etc/fstab
+    mount "$mnt"
+    info "done: $sv mounted at $mnt (flat sibling; outside Snapper rollback scope)."
+}
+
+# ---------------------------------------------------------------------------
+# add — create a single flat sibling (subvol + mountpoint + fstab).
 # ---------------------------------------------------------------------------
 cmd_add() {
-    local sv mnt src nodatacow=0 mode opt sp user=""
+    local sv mnt src nodatacow=0 opt sp user=""
     local -a positional=()
     for opt in "$@"; do
         case "$opt" in
@@ -5999,43 +6105,59 @@ cmd_add() {
         echo "Note: --user $user given with explicit mountpoint — using '$mnt' as typed."
     fi
 
-    mount_top
-    sp="$(sibling_path "$sv")"
-    [ -e "$sp" ] && die "sibling '$sv' already exists (delete it first if you mean to recreate)."
-    [ -z "$(fstab_line "$sv")" ] || die "subvolume '$sv' already has an fstab entry."
-    is_mounted "$mnt" && die "'$mnt' is already a mountpoint in use."
+    add_subvol "$sv" "$mnt" "$nodatacow" "$src"
+}
 
-    mnt="$(readlink -f "$mnt")"
-    info "creating flat sibling $sv (top-level tree) for $mnt..."
-    btrfs subvolume create "$sp" || die "btrfs subvolume create failed."
+# ---------------------------------------------------------------------------
+# add --class <name> — create every subvol in an optional-software family.
+#   classes: containers databases web mail gaming virtualization flatpak
+#   --user <name> seeds the username for all per-user members (or prompts once).
+# ---------------------------------------------------------------------------
+cmd_add_class() {
+    local cls="" user="" opt
+    local -a cls_args=()
+    for opt in "$@"; do
+        case "$opt" in
+            --user)      user="unset-next" ;;
+            --user=*)    user="${opt#--user=}" ;;
+            --*)         die "unknown option '$opt' (--user <name>)" ;;
+            *)           if [ "$user" = "unset-next" ]; then user="$opt"; else cls_args+=("$opt"); fi ;;
+        esac
+    done
+    [ "$user" = "unset-next" ] && die "--user requires a username (e.g. --user alice)."
+    [ "${#cls_args[@]}" -eq 1 ] || die "usage: void-subvol-tool.sh add --class <name> [--user <name>]  (classes: $CLASS_LIST)"
+    cls="${cls_args[0]}"
+    local members="${CLASS_SUBVOLS[$cls]:-}"
+    [ -n "$members" ] || die "unknown class '$cls' (classes: $CLASS_LIST)."
 
-    # optional migration: copy existing contents of $src into the fresh sibling
-    # BEFORE mounting it over $mnt, preserving ownership/permissions. $src is
-    # live under the running @ mount; copying into the subvolid=5-tree path is
-    # a cross-visible copy (both views show the same filesystem).
-    if [ -n "$src" ]; then
-        [ -d "$src" ] || {
-            echo "ERROR: source '$src' not a dir (removing partially-created sibling)." >&2
-            btrfs subvolume delete "$sp"
-            exit 1
-        }
-        info "migrating contents of $src into new sibling..."
-        cp -a -- "$src"/. "$sp"/ 2>/dev/null || true
+    info "class '$cls' -> creating: $members"
+
+    # If any member is a per-user profile and no --user was given, prompt once
+    # for the shared username so browsing/mail/steam/virtualbox land under it.
+    local sv has_user=0
+    for sv in $members; do
+        [ -n "${USER_PROFILE_PATH[$sv]:-}" ] && has_user=1
+    done
+    if [ "$has_user" = "1" ] && [ -z "$user" ]; then
+        read -r -p "Class '$cls' has per-user profile subvol(s) — enter the username to target (e.g. alice): " user
+        [ -n "$user" ] || die "no username given for per-user members of class '$cls'."
     fi
-    unmount_top; trap - EXIT
 
-    # fstab mount options: nodatacow MUST be via mount options, never chattr.
-    if [ "$nodatacow" = "1" ]; then
-        mode="noatime,nodatacow,compress=none"
-        info "mount options: $mode (nodatacow via fstab, per installer [NODATACOW])"
-    else
-        mode="noatime,compress=zstd:1"
-        info "mount options: $mode"
-    fi
-
-    echo "UUID=$FSUUID $mnt btrfs $mode,subvol=$sv 0 0" >> /etc/fstab
-    mount "$mnt"
-    info "done: $sv mounted at $mnt (flat sibling; outside Snapper rollback scope)."
+    for sv in $members; do
+        local mnt ndc
+        if [ -n "${USER_PROFILE_PATH[$sv]:-}" ]; then
+            [ -n "$user" ] || die "internal: class member '$sv' is per-user but no username resolved."
+            mnt="/home/$user${USER_PROFILE_PATH[$sv]}"
+            ndc=0
+        else
+            mnt="${SYS_MOUNT[$sv]:-}"
+            [ -n "$mnt" ] || die "internal: no mountpoint mapping for class member '$sv'."
+            ndc="${SYS_NODATACOW[$sv]:-0}"
+        fi
+        [ -d "$mnt" ] || die "mountpoint '$mnt' does not exist — create (and for per-user paths chown to $user) first."
+        add_subvol "$sv" "$mnt" "$ndc" ""
+    done
+    info "class '$cls' complete."
 }
 
 # ---------------------------------------------------------------------------
@@ -6088,7 +6210,7 @@ resolve_dev
 case "$verb" in
     list)    cmd_list "$@" ;;
     check)   cmd_check "$@" ;;
-    add)     cmd_add "$@" ;;
+    add)     if [ "$1" = "--class" ]; then shift; cmd_add_class "$@"; else cmd_add "$@"; fi ;;
     detach)  cmd_detach "$@" ;;
     destroy) cmd_destroy "$@" ;;
     *) die "unknown verb '$verb' (list|check|add|detach|destroy)." ;;
@@ -6259,29 +6381,42 @@ It refuses to double-create or double-mount, and `destroy` requires typing
 matching the installer's `[NODATACOW]` rule that `chattr` on a subvolume root is
 shadowed by the mount.
 
-**Create the common optional subvolumes in one pass** (a short loop; each `add`
-is idempotent, so already-created siblings are skipped). This covers the
-system-path optional subvolumes; it excludes the context-dependent ones
-(`@grub` — GRUB-only, `@swap` — only with a swapfile backend, and
-`@containers-user` — a per-user profile, so give it a username with `--user`).
-The tool never installs or checks for the software, so these flat siblings get
+**Create every subvol for an optional-software family in one pass** with
+`add --class <name>`. The tool resolves each member's mountpoint (system paths
+from an internal map, per-user profiles under `/home/<user>`) and creates them
+all — idempotently (already-created siblings are skipped by the existing-sibling
+guard). It never installs or checks for the software, so the siblings get
 created even on a lean system with none of it installed:
 ```bash
-set -e
-add_pair() { case "$1" in
-    @libvirt)    echo "/var/lib/libvirt --nodatacow" ;;
-    @flatpak)    echo "/var/lib/flatpak" ;;
-    @docker)     echo "/var/lib/docker" ;;
-    @containers) echo "/var/lib/containers" ;;
-esac; }
-for name in @libvirt @flatpak @docker @containers; do
-    read -r mnt opt <<<"$(add_pair "$name")"
-    # shellcheck disable=SC2086  # deliberate word-split of the optional flag
-    sudo /root/tools/void-subvol-tool.sh add "$name" "$mnt" $opt
-done
+sudo /root/tools/void-subvol-tool.sh add --class containers --user alice
+sudo /root/tools/void-subvol-tool.sh add --class databases          # @postgresql + @mariadb (nodatacow)
+sudo /root/tools/void-subvol-tool.sh add --class web --user alice   # all browser profiles
+sudo /root/tools/void-subvol-tool.sh add --class mail --user alice  # @thunderbird
+sudo /root/tools/void-subvol-tool.sh add --class gaming --user alice# @steam
+sudo /root/tools/void-subvol-tool.sh add --class virtualization --user alice  # @libvirt + @virtualbox
+sudo /root/tools/void-subvol-tool.sh add --class flatpak            # @flatpak
 ```
-Add any other system-path `@name`/mountpoint pair to the `add_pair` case /
-`for name` list as you like.
+Classes and their subvolumes:
+
+| class | subvolumes |
+|---|---|
+| `containers` | `@docker`, `@containers`, `@containers-user` |
+| `databases` | `@postgresql`, `@mariadb` (both nodatacow) |
+| `web` | `@mozilla`, `@mozilla-cache`, `@chromium`, `@vivaldi`, `@falkon`, `@brave` |
+| `mail` | `@thunderbird` |
+| `gaming` | `@steam` |
+| `virtualization` | `@libvirt` (nodatacow), `@virtualbox` |
+| `flatpak` | `@flatpak` |
+
+Class members are per-user profiles (every subvol whose name is `@`-prefixed
+under a `/home` root — browser profiles, `@steam`, `@thunderbird`,
+`@containers-user`, `@virtualbox`) only when they use a per-user mountpoint.
+Pass `--user <name>` to target all per-user members at once; if the class has
+per-user members and you omit `--user`, the tool prompts once for the shared
+username. System-path members (`@postgresql`, `@mariadb`, `@libvirt`,
+`@flatpak`, `@docker`, `@containers`) need no username. `@grub` and `@swap` are
+excluded — they are bootloader/swapfile-context-dependent and the tool cannot
+infer them from a class name.
 
 ---
 

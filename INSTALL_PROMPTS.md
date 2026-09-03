@@ -173,6 +173,7 @@
 - After the browsers (each opt-in, for later manual installs):
   - **Pre-create Thunderbird's profile subvolume anyway? [y/N]** (`@thunderbird`)
   - **Pre-create Steam's data subvolume (~/.local/share/Steam) anyway? [y/N]** (`@steam`)
+  - **Pre-create VirtualBox's VM folder subvolume (~/VirtualBox VMs) anyway? [y/N]** (`@virtualbox`)
   - **Pre-create PostgreSQL/MariaDB data subvolumes (/var/lib/postgresql, /var/lib/mysql) anyway? [y/N]** (`@postgresql` + `@mariadb`)
 - `@network` (`/var/lib/NetworkManager`) is always created — no prompt — and
   rolls back independently of `@`.

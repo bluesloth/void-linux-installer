@@ -70,8 +70,34 @@ lock-step produces, but reached for later on a running box.
   the *path* — the per-user parent chain must already exist and be owned by the
   target user (the installer's `provision_browser_subvol` / `[PERSONAL-DATA]`
   ownership invariant); the tool never chowns your home.
+- **`--class` software-family grouping:** `add --class <name> [--user <name>]`
+  creates every subvol for an optional-software family in one pass. Classes:
+  `containers` (`@docker @containers @containers-user`), `databases`
+  (`@postgresql @mariadb`, nodatacow), `web` (all browser profiles), `mail`
+  (`@thunderbird`), `gaming` (`@steam`), `virtualization`
+  (`@libvirt` + new `@virtualbox`, nodatacow + per-user `/home/<user>/VirtualBox
+  VMs`), `flatpak`. Members resolve to system mountpoints via a `SYS_MOUNT` map
+  or per-user paths via `USER_PROFILE_PATH`; `--user` seeds the username for all
+  per-user members (prompts once if omitted and any member is per-user). The
+  shared create/mount/fstab body was factored into `add_subvol()`, reused by
+  both single-add and class-add. `@grub`/`@swap` stay excluded (context-dependent).
+- **`@virtualbox` now also available at install time** (installer/`SUBVOL_LIST`
+  parity with the tool): a new `PROVISION_VIRTUALBOX_SUBVOL` opt-in (`[y/N]`,
+  default false) pre-creates the `@virtualbox` top-level sibling and, via
+  `provision_browser_subvol "@virtualbox" "VirtualBox VMs"`, creates/chowns/mounts
+  the per-user `~/VirtualBox VMs` folder — same per-user isolation model as
+  Steam/Thunderbird/browsers. Two points distinct from every prior subvol:
+  (1) the relative path `VirtualBox VMs` is a SINGLE segment (no nested parent
+  chain), and (2) it is the FIRST mountpoint with a SPACE — fstab is
+  whitespace-delimited, so both this helper (`provision_browser_subvol`) and
+  the tool's `add_subvol` now write the fstab mountpoint field with spaces
+  escaped as `\040` (the `mount` call keeps the literal path). Wired through
+  the `DEFAULT_*` block, interactive prompt, resume-state persistence, and the
+  `SUBVOL_LIST` gate. Keep the tool's `virtualization` `--class` entry and this
+  install-time gate in agreement (as with every `SUBVOL_LIST` <-> 
+  `provision_browser_subvol` pair).
 - **Validation:** `bash -n`, `Debug/check-defaults.sh` (no new `DEFAULT_*`, still
-  all consistent), and `Debug/check-heredocs.sh` (46 heredocs; the 281-line tool
+  all consistent), and `Debug/check-heredocs.sh` (46 heredocs; the 403-line tool
   is `bash -n` clean + shellcheck-clean) all pass.
 
 ---
