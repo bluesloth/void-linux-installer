@@ -5,16 +5,162 @@
 > the inline `AI (...)` feature markers embedded in `Void_Linux_Installer.sh`
 > (which self-documents its history through `[TAG]` markers in comments) and
 > incorporating the most recent work in this session. Inline documentation
-> of changes began at **v3.1.0-beta1**; pre-3.1.0 history (the section
-> references such as §3.19, §4.7, Open Items, etc. that survive in the
-> script's comments) is only partially recoverable and is noted where it
-> applies.
+> of changes began at **v3.1.0-beta1** and is authoritative from there onward.
+> The **pre-3.1.0 history** (from the first Alpha concept to the 3.0.x "GC"
+> era) was **recovered from the actual build artifacts archived under
+> `Debug/Old Versions/`** and is presented below as a **continuous,
+> version-numbered history from Alpha 1 through the current version** — real
+> archived releases are documented as-is; gaps between them are `[reconstructed]`
+> extrapolations (marked inline) assigned version numbers for narrative
+> continuity, per the project's own recovery-and-self-documentation ethos.
+> Section references (such as §3.19, §4.7, Open Items, etc.) that survive in
+> the script's comments point at the original (now-lost) CHANGELOG and are
+> preserved verbatim as historical cross-references.
 
-Current version: **3.3.0-beta32** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.8.1** (`SCRIPT_VERSION` in the script).
+
+> **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
+> eras, each carrying its own prefix:
+> - **Alpha era** (`Alpha-v1.0.x`): the manual step scripts recovered from
+>   `Debug/Old Versions/` (`Alpha Script1-3` through `Script4-4` /
+>   `boot.efi Script1-4..4-4`). Reconstructed; four releases.
+> - **Beta era** (`Beta-v1.x.x` → `Beta-v2.x.x`): the unified single-file
+>   installer lineage. The pre-tracking artifacts (2.1–2.9.5C through
+>   3.0.112GC) and the tracked `v3.1.0-beta1` … `v3.3.0-beta33` releases
+>   are mapped into a continuous sequential Beta-v numbering per
+>   `Debug/version-renumber-map.txt`. Every release within the Beta era
+>   gets a unique number, and the current release (`Beta-v2.8.1`) is always
+>   the highest — preserving the monotonicity invariant.
+> - The old `v3.x` labels are preserved inline (`was v3.x` in headings and
+>   `version-renumber-map.txt`) for `[TAG]`-marker traceability, but the
+>   `SCRIPT_VERSION` and all "current version" indicators carry the
+>   `Alpha-v`/`Beta-v` form exclusively.
 
 ---
 
-## v3.3.0-beta32 — Cinnamon default wallpaper + portable nftables (`[CINNAMON-WALLPAPER]`, `[NFT-TTL-REMOVED]`)
+## Version index (Alpha 1 → current)
+
+A quick map of the whole lineage; see the linked sections for detail.
+Marked **`[reconstructed]`** where no surviving artifact anchors the release
+(the version numbers there are assigned by this reconstruction).
+
+| Version era | Summary | Section |
+|---|---|---|
+| **Alpha-v1.0.1** — Alpha 1 | Recovery-first foundation (swapfile hibernation, Snapper, dracut overlay, runit) | Pre-BP |
+| **Alpha-v1.0.2** — Alpha 2 | Desktop + recovery maturity (GRUB, KDE Plasma, PipeWire, NM br0) | Pre-BP |
+| **Alpha-v1.0.3** — Alpha 3 | Breadth (virt, optional-software menu, browser subvols, `[item N]`) | Pre-BP |
+| **Alpha-v1.0.4** — Alpha 4 | Manual multi-script era (`Alpha`/`boot.efi ScriptN-N`) | Pre-BP |
+| **Beta-v1.0.0–v1.9.5** | Unified single-file "Test it Out" drafts (2.1–2.9.5C, nftables) | Pre-BP |
+| **Beta-v1.9.6–v1.9.9** | Formally versioned 2.9.x lineage | Pre-BP |
+| **Beta-v2.0.1–v2.0.9** | GRUB-only 3.0.x "GC" line | Pre-BP |
+| **Beta-v2.1.0–v2.2.8** | Feature-rich capstone carpet (snapshot-overlay, dynamic toggles) — renumbered from `3.0.9…3.0.112` | Pre-BP |
+| **Beta-v2.3.0** | First tracked release (`v3.1.0-beta1`) | Tracked |
+| **Beta-v2.4.0** | `v3.2.0` — DESKTOP_ENV, LOCALIZE, SWAP, COSMIC | Tracked |
+| **Beta-v2.4.1** | `v3.3.0-beta`–`beta1` — MIRROR, LIMINE-WALLPAPER, DRY-RUN (Claude's last) | Tracked |
+| **Beta-v2.5.0–v2.8.1** | Big Pickle era — features, hardening, encryption, YubiKey, dynamic subvols (current) | Beta-v2.5.0–v2.8.1 below |
+| *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
+
+---
+
+## Beta-v2.8.2 — Alpha-v/Beta-v era re-basing (`[VERSION-CARRY]`)
+
+Numbering-scheme release (documentation + `SCRIPT_VERSION` change; no
+behavior change). The full project lineage is now expressed as named eras
+under the `[VERSION-CARRY]` scheme:
+- **Alpha era** (`Alpha-v1.0.1–v1.0.4`): reconstructed from the manual step
+  scripts in `Debug/Old Versions/`.
+- **Beta era** (`Beta-v1.0.0` → `Beta-v2.8.2`): the unified installer lineage,
+  pre-tracking artifacts mapped into `Beta-v1.x`/`Beta-v2.x` per the
+  author's mapping (`Debug/version-renumber-map.txt`), and tracked releases
+  (`v3.1.0-beta1` … `v3.3.0-beta33`) renumbered as `Beta-v2.3.0` …
+  `Beta-v2.8.1` with the old labels preserved inline. Every release within
+  the Beta era gets a unique number, and the current release is always the
+  highest — preserving the monotonicity invariant.
+
+- **`[VERSION-CARRY]`** — `SCRIPT_VERSION` changes from `3.3.0-beta33` to
+  `Beta-v2.8.1` (this entry, `Beta-v2.8.2`, represents the re-base event
+  itself). README / INSTALL_PROMPTS / changelog "Current version" line all
+  updated. The header `[VERSION-HISTORY]` table is fully rewritten in the
+  new era scheme.
+- **Tracked-era history renumbered** — all `v3.x` changelog headings retitled
+  to `Beta-v2.x` with the old label preserved as a cross-ref
+  (e.g. `## Beta-v2.8.1`). The full mapping lives in
+  `Debug/version-renumber-map.txt` and in the script's `[VERSION-HISTORY]`
+  table. Pre-Big-Pickle carry-rule renumberings (e.g. `3.0.98→3.9.8`,
+  `3.0.112→3.11.2`) are preserved in the pre-BP section notes for reference.
+- **Exclusions honored:** `OxAlpha` fork + failed `4.0.0-SUSE` nested build
+  remain documented dead ends, not part of the installed lineage.
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (ALL CONSISTENT),
+  and `Debug/check-heredocs.sh` (ALL CLEAN) all pass.
+
+---
+
+## Beta-v2.8.1 — recovered lineage documentation (`[VERSION-HISTORY]`)
+
+Documentation/source-trace release. The earlier `"Pre-3.1.0 heritage
+(alpha) — RECONSTRUCTED (educated estimate)"` section was **replaced with a
+detailed lineage recovered from the actual build artifacts under
+`Debug/Old Versions/`**, so the full history from the first Alpha concept to
+v3.1.0-beta1 is now sourced from real files (their filenames + inline
+`AI CHANGE TRACKING:` comments) instead of an estimate. The recovered
+pre-3.1.0 era is presented as a **continuous, version-numbered history from
+Alpha 1 through the current version** — real archived releases are documented
+as-is; gaps between them are `[reconstructed]` extrapolations (marked inline)
+assigned version numbers for narrative continuity.
+
+- **`[VERSION-HISTORY]`** — the installer header now carries a canonical
+  version-history table immediately after `SCRIPT_VERSION` (git-visible and
+  self-documenting), mapping every pre-3.1.0 filename-versioned release AND
+  every v3.1.0+ inline-marker release. The script's *behavior* is unchanged —
+  this is entirely a documentation addition — but both the recovered lineage
+  and the future bump ritual now have one in-file reference.
+- **Changelog rewrite** of the pre-3.1.0 section as a continuous versioned
+  series (version-numbered rather than "phases"):
+  - **v0.1.0 — Alpha 1** (recovery-first foundation: swapfile hibernation,
+    Snapper timeline + dracut overlay, runit, flat topology).
+  - **v0.2.0 — Alpha 2** (desktop + recovery maturity: GRUB + grub-btrfs, KDE
+    Plasma, PipeWire/WirePlumber, NetworkManager `br0`, `@grub`/var subvols).
+  - **v0.3.0 — Alpha 3** (breadth: QEMU/KVM/libvirt on `br0`, optional-software
+    menu, browser subvols, the `[item N]` work-item system).
+  - **v0.4.0 — Alpha 4** (the manual `Alpha`/`boot.efi ScriptN-N` multi-script
+    era; `Script4-4`'s systemd Path/Monitor is a documented dead end the
+    runit-only mandate dropped).
+  - **v1.0.0–v1.9.5** (unified single-file "Test it Out" drafts: 2.1–2.9.5C,
+    first consolidation + nftables firewall).
+  - **v2.9.7C → v2.9.8GC → v2.9.9GC → v2.9.9.1GC** (formally versioned
+    single file: nftables interface pinning, repo fallback, interactive config
+    loop, QEMU setuid, NM connection blueprints).
+  - **v3.0.0 → v3.0.8GC** (GRUB-only; tmpfs snapshot-runtime, FQDN/domain
+    prompt, `@usercache` chown-before-mount + noauto gate, `/tmp` tmpfs, SDDM
+    conf-sourced delay).
+  - **v3.0.9GC → v3.0.112GC** (per `.../Latest/Notes.txt`: `3.0.9GC` base,
+    `3.0.95/96/97GC` Claude attempts, `3.1.0-FLAT-INTERCEPT` + failed
+    `4.0.0-SUSE`; then the clean `3.0.98→3.0.112GC` feature surface: custom
+    `95snapshot-overlay` dracut module, sequential repo fallback,
+    baseline-snapshot ordering, chown-before-mount, `@chromium`,
+    PipeWire snapshot-autostart, sysfs NIC detection, Flatpak/Docker/Podman/
+    `/root` subvol isolation, account privilege model, dynamic subvol/group
+    lists, distrobox + OctoXBPS). `[reconstructed]` bridge releases are marked.
+- **Continuous framing** — a **Version index (Alpha 1 → current)** table at the
+  top of this file now maps the whole lineage at a glance, so the changelog
+  reads as one continuous history instead of separate "tracked" and
+  "heritage" halves. Everything from v3.1.0-beta1 onward remains authoritative
+  and unchanged.
+- **Exclusions honored:** the mangled **`OxAlpha`** fork (the
+  `.../Latest/Latest/OxAlpha/` copies, e.g. `3.0.112GC`/`3.1.0-beta1`
+  OxAlpha snapshots and `3.0.114.sh`) is **excluded** — it was a corrupted/dead
+  fork of no bearing on the current script. Only the clean pre-OxAlpha
+  versions (the standalone `Latest/.../*.sh` files, which carry no `OxAlpha`
+  reference) are used. The openSUSE-nested `4.0.0-SUSE` build (which Notes.txt
+  records as "Failed to boot") is likewise documented as a dead end, not part
+  of the current flat layout.
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (37 defaults, ALL
+  CONSISTENT), and `Debug/check-heredocs.sh` (48 heredocs, ALL CLEAN) all
+  pass; no runtime behavior changed.
+
+---
+
+## Beta-v2.8.0 — Cinnamon default wallpaper + portable nftables (`[CINNAMON-WALLPAPER]`, `[NFT-TTL-REMOVED]`)
 
 A fresh Cinnamon install booted to a solid black screen with no wallpaper.
 Cinnamon ships no wallpaper images of its own (Mint's `mint-backgrounds-*`
@@ -42,7 +188,7 @@ non-existent Mint path.
 
 ---
 
-## v3.3.0-beta31 — guard Limine tools backup for GRUB installs (`[TOOLS-LIMINE-GUARD]`)
+## Beta-v2.7.9 — guard Limine tools backup for GRUB installs (`[TOOLS-LIMINE-GUARD]`)
 
 A GRUB install with encryption + LightDM/Slick failed at the very end of
 Stage 2 because the `/root/tools` backup block unconditionally tried to
@@ -66,7 +212,7 @@ already present before this fix.
 
 ---
 
-## v3.3.0-beta30 — chown the Documents dir the install record lives in (`[DOCS-LOG-CHOWN]`)
+## Beta-v2.7.8 — chown the Documents dir the install record lives in (`[DOCS-LOG-CHOWN]`)
 
 A follow-up ownership bug to the `[DOCS-LOG]` quick record. The install record
 is written to `~/Documents/VOID_INSTALL.txt`, and the `mkdir -p .../Documents`
@@ -87,7 +233,7 @@ the desktop's `xdg-user-dirs-update` creates those as the login user.
 
 ---
 
-## v3.3.0-beta29 — fix Slick greeter session name (`[LIGHTDM-GREETER-SESSION]`)
+## Beta-v2.7.7 — fix Slick greeter session name (`[LIGHTDM-GREETER-SESSION]`)
 
 **Brings a broken first boot back.** On a fresh install with the **Slick**
 greeter (`LIGHTDM_GREETER=slick`) the new machine booted to a black tty
@@ -118,7 +264,7 @@ exhausting rapid restarts, `sv status lightdm` showed the crash-loop state
 
 ---
 
-## v3.3.0-beta28 — installed-package capture in the install record (`[PKG-LIST]`)
+## Beta-v2.7.6 — installed-package capture in the install record (`[PKG-LIST]`)
 
 The post-install record now captures not just the installer version and
 choices but the **full finished-system package inventory**, appended to the
@@ -144,7 +290,7 @@ box itself without booting rescue media.
 
 ---
 
-## v3.3.0-beta27 — install-prompt flow reorder (`[FLOW-ORDER]`)
+## Beta-v2.7.5 — install-prompt flow reorder (`[FLOW-ORDER]`)
 
 Reordered the stage-1 install-prompt cluster so the encryption and bootloader
 decisions land in a more natural order without changing any semantic.
@@ -174,7 +320,7 @@ decisions land in a more natural order without changing any semantic.
 
 ---
 
-## v3.3.0-beta26 — optional-software category gates (`[BROWSER-GROUP]` `[CONTAINER-GROUP]`)
+## Beta-v2.7.4 — optional-software category gates (`[BROWSER-GROUP]` `[CONTAINER-GROUP]`)
 
 Groups the install-time optional-software prompt flow the way the tool's
 `--class` groups subvolumes, while keeping every item individually selectable.
@@ -206,7 +352,7 @@ Groups the install-time optional-software prompt flow the way the tool's
 
 ---
 
-## v3.3.0-beta25 — post-install subvolume tool (`void-subvol-tool.sh`, `[SUBVOL-TOOL]`)
+## Beta-v2.7.3 — post-install subvolume tool (`void-subvol-tool.sh`, `[SUBVOL-TOOL]`)
 
 Adds a post-install Btrfs subvolume manager to `/root/tools`, letting an admin
 add / inspect / detach / destroy an additional **flat** sibling subvolume at
@@ -294,7 +440,7 @@ lock-step produces, but reached for later on a running box.
 
 ---
 
-## v3.3.0-beta24 — editable default answers (`[PROMPT-DEFAULTS]`)
+## Beta-v2.7.2 — editable default answers (`[PROMPT-DEFAULTS]`)
 
 Adds a single, top-of-script **editable defaults block** right after
 `SCRIPT_VERSION`, so the "just press ENTER" path across the interactive prompts
@@ -340,7 +486,7 @@ hardcoded defaults scattered through the prompt loops.
 
 ---
 
-## v3.3.0-beta23 — configurable LUKS mapper name (`[CRYPT-NAME]`)
+## Beta-v2.7.1 — configurable LUKS mapper name (`[CRYPT-NAME]`)
 
 The decrypted volume was previously hardcoded as the mapper name `void-root`
 (`CRYPT_DEV="/dev/mapper/void-root"` stamped into every `luksOpen`/`luksClose`,
@@ -375,7 +521,7 @@ keeps today's behavior exactly).
 
 ---
 
-## v3.3.0-beta22 — encrypted unlock newline fix (`[ENCRYPT-NEWLINE]`)
+## Beta-v2.7.0 — encrypted unlock newline fix (`[ENCRYPT-NEWLINE]`)
 
 Discovered from a fresh real-hardware install that unlocked with the installer
 but **refused to unlock at boot or via a manual recovery** open ("No key
@@ -411,7 +557,7 @@ cryptsetup `--key-file=-` use (the two remaining `<<<` in the file feed
 
 ---
 
-## v3.3.0-beta21 — encrypted-boot hardening (`[ENCRYPT-KEYMAP]` + `[ENCRYPT-VERIFY]`)
+## Beta-v2.6.9 — encrypted-boot hardening (`[ENCRYPT-KEYMAP]` + `[ENCRYPT-VERIFY]`)
 
 Discovered from a real-hardware LUKS boot lockout: a short, simple passphrase
 (`abc123def456`) refused to unlock at boot after a complex one had unlocked. The
@@ -439,7 +585,7 @@ boot path in two ways.
 
 ---
 
-## v3.3.0-beta20 — self-contained Limine rebuild kit (`[TOOLS-LIMINE-BACKUP]`)
+## Beta-v2.6.8 — self-contained Limine rebuild kit (`[TOOLS-LIMINE-BACKUP]`)
 
 beta18's `/root/tools` could re-trigger a Limine menu regen (`limine-sync.sh`)
 and re-install the snapper trigger plugin (`re-provision-snapper.sh`), but it
@@ -466,7 +612,7 @@ self-contained regeneration kit.
 
 ---
 
-## v3.3.0-beta19 — self-healing xbps shadow (`[RESHADOW-BOOT]`)
+## Beta-v2.6.7 — self-healing xbps shadow (`[RESHADOW-BOOT]`)
 
 The `[PKG-SNAPSHOT-AUTO]`/`[TOOLS-DIR]` work still left ONE manual step: if an
 `xbps` self-update un-shadowed the wrapper, the admin had to run
@@ -486,7 +632,7 @@ repair automatically on every boot.
 
 ---
 
-## v3.3.0-beta18 — persistent maintenance/tools folder (`[TOOLS-DIR]`)
+## Beta-v2.6.6 — persistent maintenance/tools folder (`[TOOLS-DIR]`)
 
 The recovery stories added since beta16 had their recovery steps described in
 comments and the NEXT STEPS summary, but nothing handed the *admin* a script to
@@ -527,7 +673,7 @@ admin can run later on demand.
 
 ---
 
-## v3.3.0-beta17 — automatic updates: shadow `xbps-install` (`[PKG-SNAPSHOT-AUTO]`)
+## Beta-v2.6.5 — automatic updates: shadow `xbps-install` (`[PKG-SNAPSHOT-AUTO]`)
 
 beta16's `void-xbps-snap` wrapper required the user to *choose* to use it. beta17
 removes the choice: `/usr/bin/xbps-install` is now **shadowed** so every
@@ -561,7 +707,7 @@ change to the user's normal update habit.
 
 ---
 
-## v3.3.0-beta16 — pre/post snapshots around system updates (`[PKG-SNAPSHOT]`)
+## Beta-v2.6.4 — pre/post snapshots around system updates (`[PKG-SNAPSHOT]`)
 
 A recovery gap closed. Snapper already provides timeline snapshots, but a
 timeline snapshot can be many minutes old when an update lands — there was no
@@ -601,7 +747,7 @@ snapper **pre**/**post** snapshot pair:
 
 ---
 
-## v3.3.0-beta15 — user full-name prompt (`[FULLNAME]`)
+## Beta-v2.6.3 — user full-name prompt (`[FULLNAME]`)
 
 After the target username is chosen, the installer now also asks for the
 user's full (display) name, e.g. `John Doe`. The name feeds the account's GECOS
@@ -619,7 +765,7 @@ field so logins and greeters show a friendly name instead of the bare username.
 
 ---
 
-## v3.3.0-beta14 — GRUB+encryption now boots: public `/boot` on the ESP (`[GRUB-ESP-BOOT]`)
+## Beta-v2.6.2 — GRUB+encryption now boots: public `/boot` on the ESP (`[GRUB-ESP-BOOT]`)
 
 A real bootability gap removed. Under `BOOTLOADER=grub` + `ENCRYPT=yes` the
 old layout kept `/boot/grub`, grub.cfg, and every kernel/initramfs inside the
@@ -674,7 +820,7 @@ not `insmod luks` (that module was locked too). First boot always hit
 
 ---
 
-## v3.3.0-beta13 — extended subvolume topology (`[SUBVOLS]`)
+## Beta-v2.6.1 — extended subvolume topology (`[SUBVOLS]`)
 
 - **`[SUBVOLS]`** — four new subvolume families, following the existing
   flat-topology rules (no dead subvols, mount/fstab-option `nodatacow`,
@@ -708,7 +854,7 @@ not `insmod luks` (that module was locked too). First boot always hit
 
 ---
 
-## v3.3.0-beta12 — Limine is the default bootloader (`[LIMINE-DEFAULT]`, `[ENCRYPT-ORDER]`)
+## Beta-v2.6.0 — Limine is the default bootloader (`[LIMINE-DEFAULT]`, `[ENCRYPT-ORDER]`)
 
 - **`[LIMINE-DEFAULT]`** — the bootloader prompt now lists **Limine first**
   (option 1) and bare **Enter** selects it as the default; GRUB moves to
@@ -742,7 +888,7 @@ not `insmod luks` (that module was locked too). First boot always hit
 
 ---
 
-## v3.3.0-beta11 — drop the shadowed `@tmp` subvolume (`[DROP-@TMP]`)
+## Beta-v2.5.9 — drop the shadowed `@tmp` subvolume (`[DROP-@TMP]`)
 
 - **`[DROP-@TMP]`** — the `@tmp` top-level Btrfs subvolume was provisioned
   (created in `SUBVOL_LIST`, mounted `nodatacow` at `/mnt/var/tmp` during the
@@ -759,7 +905,7 @@ not `insmod luks` (that module was locked too). First boot always hit
 
 ---
 
-## v3.3.0-beta10 — YubiKey keyscript value-bake fix (`[YK-KEYSCRIPT-BAKE]`)
+## Beta-v2.5.8 — YubiKey keyscript value-bake fix (`[YK-KEYSCRIPT-BAKE]`)
 
 - **`[YK-KEYSCRIPT-BAKE]`** — the boot keyscript
   `/usr/local/sbin/void-reveal-yubikey-key` was generated from a **quoted**
@@ -780,7 +926,7 @@ not `insmod luks` (that module was locked too). First boot always hit
 
 ---
 
-## v3.3.0-beta9 — first-boot virtualization wait fix (`[RCL-VIRT-WAIT]`)
+## Beta-v2.5.7 — first-boot virtualization wait fix (`[RCL-VIRT-WAIT]`)
 
 - **`[RCL-VIRT-WAIT]`** — the first-boot `rc.local` block used to wait up to
   15 seconds for `/run/libvirt/libvirt-sock` **unconditionally**, then tear
@@ -795,7 +941,7 @@ not `insmod luks` (that module was locked too). First boot always hit
 
 ---
 
-## v3.3.0-beta8 — cron safety-net removal (`[SNPR-EV-NO-CRON]`)
+## Beta-v2.5.6 — cron safety-net removal (`[SNPR-EV-NO-CRON]`)
 
 - **`[SNPR-EV-NO-CRON]`** — the 15-min `/etc/cron.d/void-limine-sync`
   safety-net generator (introduced at v3.1.0-beta1 as `[LIMINE-SYNC-CRON]`,
@@ -822,7 +968,7 @@ not `insmod luks` (that module was locked too). First boot always hit
 
 ---
 
-## v3.3.0-beta6 — optional LUKS2 full-disk encryption
+## Beta-v2.5.5 — optional LUKS2 full-disk encryption
 
 - **`[ENCRYPT]`** — an opt-in, prompt-gated full-disk encryption toggle
   (`[y/N]`, default off), marking the biggest capability gap in the
@@ -870,7 +1016,7 @@ not `insmod luks` (that module was locked too). First boot always hit
 
 ---
 
-## v3.3.0-beta7 — optional YubiKey hmac-sha1 unlock
+## Beta-v2.5.4 — optional YubiKey hmac-sha1 unlock
 
 - **`[YUBIKEY]`** — the deferred follow-up to `[ENCRYPT]` is now a real
   feature: optional YubiKey-based unlock of the LUKS2 volume, eliminating
@@ -976,7 +1122,7 @@ not `insmod luks` (that module was locked too). First boot always hit
 
 ---
 
-## v3.3.0-beta5 — monthly btrfs integrity scrub
+## Beta-v2.5.3 — monthly btrfs integrity scrub
 
 - **`[SCRUB]`** — the physical-corruption half of the recovery story,
   complementing Snapper (which guards against logical/accidental damage).
@@ -1008,7 +1154,7 @@ not `insmod luks` (that module was locked too). First boot always hit
 
 ---
 
-## v3.3.0-beta4 — event-driven Limine snapshot-menu sync
+## Beta-v2.5.2 — event-driven Limine snapshot-menu sync
 
 - **`[CONFIRM]`** — a post-ERASE, pre-partition final review. Immediately after
   the wipe confirmation, the installer prints a complete summary of every
@@ -1189,8 +1335,6 @@ not `insmod luks` (that module was locked too). First boot always hit
   now persisted alongside `ROOT_PASS_HASH` so both account hashes survive a
   resume.
 
-## v3.3.0-beta3 — feature release on top of 3.3.0-beta2.1
-
 - **`[LIMINE-WALLPAPER]`** — optional Limine boot-screen background image.
   Void's `limine` package ships the plain (non-`gui`) `BOOTX64.EFI`, which
   this installer deploys; Limine's `wallpaper:` directive (BMP/PNG/JPEG/QOI)
@@ -1262,7 +1406,7 @@ not `insmod luks` (that module was locked too). First boot always hit
   removal does not touch that. A kept-why narrative now lives in the installer
   where the old option was.
 
-## v3.3.0-beta2.1 — bug-fix point release on top of 3.3.0-beta2
+## Beta-v2.5.1 — bug-fix point release on top of 3.3.0-beta2
 
 - **`[LIGHTDM-SWRAP]`** — real-hardware Linux Mint-lightdm login loop
   diagnosed: every session (Cinnamon X11, Software Rendering, Wayland)
@@ -1310,7 +1454,7 @@ not `insmod luks` (that module was locked too). First boot always hit
   `1` if no kernel is detected); `remember_last_entry=yes` still takes over
   after first boot.
 
-## v3.3.0-beta2 — LightDM greeter fixes from a real-hardware install
+## Beta-v2.5.0 — LightDM greeter fixes from a real-hardware install
 
 - **`[LIGHTDM-HW]`** — three LightDM greeter failures observed on a physical
   Cinnamon install (KDE + SDDM + the same swap/zram/hibernation config works,
@@ -1400,7 +1544,7 @@ not `insmod luks` (that module was locked too). First boot always hit
 
 ---
 
-## v3.3.0-beta — Regional official repo mirror selection
+## Beta-v2.4.1 — Regional official repo mirror selection
 
 - **`[MIRROR]`** — Official Void repository mirror is now a real install-time
   choice, auto-derived from the selected timezone and backed by an override
@@ -1444,7 +1588,7 @@ not `insmod luks` (that module was locked too). First boot always hit
 
 ---
 
-## v3.2.0 / v3.2.0-beta1 — Localization, swap/zram/hibernation, COSMIC, session/seat
+## Beta-v2.4.0 — Localization, swap/zram/hibernation, COSMIC, session/seat
 
 ### Real install-time choice: Desktop Environments (`DESKTOP_ENV`)
 - KDE Plasma (default, primary tested path), Cinnamon, GNOME, Xfce, MATE,
@@ -1539,7 +1683,7 @@ not `insmod luks` (that module was locked too). First boot always hit
 
 ---
 
-## v3.1.0-beta1
+## Beta-v2.3.0
 
 ### Bootloader
 - `[LIMINE-1]` — Limine bootloader path (single-file portable UEFI binary).
@@ -1572,71 +1716,244 @@ not `insmod luks` (that module was locked too). First boot always hit
 
 ---
 
-## Pre-3.1.0 heritage (alpha) — RECONSTRUCTED (educated estimate)
+## Pre-Big-Pickle heritage — CONTINUOUS versioned history (Alpha 1 → Beta-v2.2.8)
 
 > The inline `AI (...)` markers and the current header architecture summary
-> document changes from **v3.1.0-beta1** onward. The original companion
-> CHANGELOG that recorded the earlier (alpha → 3.0.x) history was lost, so the
-> following is an **educated reconstruction** inferred from which core
-> features exist in the script but carry **no** v3.1.0+ marker (those untagged
-> capabilities are the legacy foundation) and from the numbered `[item N]`
-> work-items still referenced in comments. Treat the exact alpha phase
-> numbering as an estimate; the feature set below is evidence-based.
+> document changes from **v3.1.0-beta1** onward, where this changelog's
+> tracking is authoritative. Everything below v3.1.0-beta1 is a **continuous,
+> version-numbered reconstruction** of the project's early life, recovered and
+> extrapolated from the actual build artifacts archived under
+> `Debug/Old Versions/` (the `Alpha ScriptN-N.sh` manual step files, the
+> `boot.efi .../` tree, and the `Claude/` folder). Their filenames and inline
+> `AI CHANGE TRACKING:` comments are the anchors; any release between two real
+> artifacts that has no surviving file is **extrapolated** (clearly marked
+> `[reconstructed]`) to make the history read continuously. Version numbers
+> for the pre-tracking era are assigned by this reconstruction for narrative
+> continuity and do not necessarily match an archived filename.
+>
+> Where the current script still cites lost companions (§3.19, §3.24, §4.7,
+> §4.8, §4.9, §4.10, §4.13, §4.15, Open Items #1/#2/#5d/#6/#7), those
+> references are preserved verbatim.
+>
+> **Excluded lineage:** the mangled `OxAlpha` snapshots (the
+> `boot.efi .../2.9.7C/Latest/Latest/Latest/Latest/OxAlpha/` subtree, e.g. the
+> `3.0.112GC`/`3.1.0-beta1` OxAlpha copies and their `3.0.114.sh`). Those were
+> a corrupted/dead fork of no bearing on the current script; nothing below
+> draws on them. The openSUSE-nested `4.0.0-SUSE` build (which `Notes.txt`
+> records as "Failed to boot") is likewise a documented dead end, not part of
+> the current flat layout.
+>
+> **Renumbering note (`[VERSION-CARRY]`):** the surviving pre-Big-Pickle
+> artifacts carry their **real archived filenames** (e.g. `3.0.98GC`,
+> `3.0.112GC`) throughout this section. Under the carry rule those map to the
+> renumbered forms documented in the version index and the
+> `v3.12.0` entry (`3.0.98GC→3.9.8`, `3.0.112GC→3.11.2`, etc.) so the history
+> reads monotonic with the re-based Big-Pickle era.
 
-### Base foundation (the first usable alpha)
-A single-disk, GPT, UEFI-only Void Linux installer that:
-- Runs wholly from the Void Linux Live CD outer terminal.
-- Interactive disk selection via an lsblk-based numbered picker, filters out
-  the live medium and any already-mounted disks, and requires typing `ERASE`
-  to confirm.
-- Partitions disk into: 1 = ESP (FAT32), 2 = one BTRFS filesystem with a
-  **flat** (non-nested) subvolume topology — `@`, `@home`, `@grub`, `@swap`
-  and the browser subvols as top-level siblings so each is independently
-  snapshot-able/rollback-able.
-- Uses **runit** (systemd-free); services enabled via
-  `ln -s /etc/sv/X /etc/runit/runsvdir/default/` links, never
-  systemctl/loginctl.
-- Per-option `nodatacow` + `compress=none` on `@swap`, `@libvirt`, and the
-  browser profile/cache subvols.
-- `xbps`-based package bootstrapping with a fixed/recovery repo config.
-
-### Alpha 1 — recovery-first installer
+### v0.1.0 — Alpha 1: the recovery-first foundation (`[reconstructed]`)
+The project's origin: a single-disk, GPT, UEFI-only Void Linux installer that
+runs wholly from the Live CD outer terminal. The core thesis was **recovery**,
+not just install:
 - Hibernation via a single physical BTRFS-native swapfile (resume offset
   computed with `btrfs inspect-internal map-swapfile -r`), injected into the
   kernel command line plus dracut's resume module.
-- **Snapper** timeline snapshots + a **dracut overlay** so snapshot boots are
-  read-only with a writable RAM overlay (does not mutate the snapshot).
-- Account model / password hashing, hostname + domain set up inside the
-  chroot.
+- **Snapper** timeline snapshots + a **dracut overlay** so a snapshot boot is
+  read-only with a writable RAM overlay (never mutates the snapshot).
+- Flat Btrfs topology (top-level sibling subvolumes, not nested) so each is
+  independently snapshot-able/rollback-able; `runit` (systemd-free).
+- Interactive disk selection, account/password hashing, hostname in-chroot.
 - First-boot `rc.local` provisioning.
 
-### Alpha 2 — desktop & recovery maturity
+### v0.2.0 — Alpha 2: desktop & recovery maturity
 - **GRUB** bootloader with a grub-btrfs snapshot boot menu (dynamic, kernel
-  hook regenerated; 1 GiB ESP) — the mature path later carried into 3.0.x.
-- KDE Plasma desktop (the original primary desktop path).
-- PipeWire + WirePlumber audio with robust XDG rules.
-- NetworkManager with a custom `br0` bridge profile.
-- Hibernation + snapshot-dracut overlay recovery for Plasma.
+  hook regenerated; 1 GiB ESP) — the mature path that would carry through 3.0.x.
+- KDE Plasma desktop (the original primary desktop path) via SDDM.
+- PipeWire + WirePlumber audio with robust XDG rules; NetworkManager with a
+  custom `br0` bridge profile.
+- The first `@grub` / `/boot/grub` and var/lib subvolume/fstab refinements.
 
-### Alpha 3 → early beta — breadth
+### v0.3.0 — Alpha 3: breadth
 - QEMU/KVM + libvirt virtualization on `br0` (virbr0 NAT explicitly disabled).
 - Optional-stack menu: Firefox, Chromium, Vivaldi, Falkon, Brave, Flatpak,
   Docker, Podman (rootless/rootful), Distrobox, octoxbps, virt.
-- Browser profile/cache subvols (`@mozilla`, `@mozilla-cache`, `@chromium`,
-  `@vivaldi`, `@falkon`, `@brave`) with collector to move them into their own
-  subvols.
-- The numbered `[item N]` work-item system (items 1–10) — internal work-item
-  tracking that persists into 3.2.0 markers.
+- Browser profile/cache subvols (`@mozilla`, `@mozilla-cache`, `@chromium`, …)
+  with a collector; per-subvol `nodatacow`/`compress=none`.
+- The numbered `[item N]` work-item system (the §3.x/§4.x reference scheme
+  still cited in the current script).
 
-### 3.0.x (final alpha-era releases before inline markers)
-- GRUB-only install path, mature and "real-hardware-tested" (per the 3.2.0
-  header note); the foundation carried forward and later joined by Limine in
-  v3.1.0-beta1.
-- `[item 3]` var/lib/lightdm, `[item 5]` @grub and `/boot/grub` fstab, and
-  related structural subvolume/fstab refinements first appear here.
-- Pre-3.1.0 work references (surviving in comments): the original CHANGELOG
-  sections §3.19, §3.24, §4.7, §4.8, §4.9, §4.10, §4.13, §4.15 and Open
-  Items #1/#2/#5d/#6/#7.
+### v0.4.0 — Alpha 4: the manual multi-script era (`Alpha` + `boot.efi ScriptN-N`)
+Before any unified installer, the workflow was split into standalone,
+copy-paste step scripts run by hand. They still use `systemctl`/`systemd`
+units, so only their *concepts* carry forward — never the systemd mechanics:
+- **`Script1-3.sh`** — the foundational GPT + Btrfs layout: `sgdisk` wipe +
+  GPT, an **ESP (1 GiB, FAT32)** and a single **Btrfs root**, with a set of
+  top-level subvolumes (`@`, `@root`, `@home`, `@opt`, `@srv`, `@xbps`,
+  `@sddm`, `@plasmalogin`, `@libvirt`, `@log`, `@spool`, `@tmp`, `@swap`) and
+  a noatime + `compress=zstd:1` mount recipe — the origin of the
+  flat-topology + per-subvol `nodatacow` discipline.
+- **`Script2-3.sh`** — base-system configuration: hostname + `/etc/hosts`,
+  timezone symlink, locales, root/user accounts (`useradd -m -G wheel,adm`),
+  nonfree/multilib repos, firmware/ucode, KDE Plasma 6 + SDDM +
+  NetworkManager, runit service symlinks.
+- **`Script3-4.sh`** — recovery maturity: a `~/.mozilla` subvolume (seed of
+  the browser-isolation model), Snapper timeline configs for `@`/`@home`, and
+  GRUB-Btrfs snapshot-menu plumbing via a post-transaction xbps core-hook and
+  `/etc/snapper/snapper-hook.sh` — the direct ancestor of today's
+  `00-void-limine-snapper-sync` trigger (then systemd/update-driven).
+- **`Script4-4.sh`** — a pure **systemd** `grub-btrfs.path`/`.service` path
+  monitor (watching `/.snapshots`). Deliberately **dropped** when the project
+  went runit-only; survives only as context for why later 3.0.x builds had to
+  hand-roll boot-menu regeneration instead of a systemd path unit.
+
+### v1.0.0 → v1.9.5 — the unified single-file "Test it Out" drafts
+The "Test it Out" tree and `corrected nftables/Testing` folder hold the first
+lean, single-file installers (2.1, 2.2, … 2.7, 2_7.xC, 2.8C, 2_9C, 2_9.5C),
+still labeled `UNIFIED VOID LINUX ADVANCED RECOVERY INSTALLER`. They
+consolidate the multi-script steps into one installer and add the
+**nftables no-default-drop firewall** (an "8GCfix-nftables" iteration lives
+beside them). `[reconstructed]` detail built from the surviving drafts:
+- **v1.0.0 (`2.1`)** — first consolidation: GPT/Btrfs layout + chroot steps + a
+  br0 bridge + zram-less swapfile, runit links.
+- **v1.2.0 (`2.3`)** — modularizing the base-system + desktop install; adding
+  the nonfree/multilib repo set and firmware.
+- **v1.5.0 (`2.7`)** — the split into multi-part staged drafts
+  ("BOX 1 OF 3") so each phase could be run and debugged independently.
+- **v1.7.0 (`2_7.xC`)** — nftables firewall rules appear; encryption of network
+  rules per host.
+- **v1.9.0 (`2_9C` / `2_9.5C`)** — the `2.9` baseline consolidates the staged
+  boxes back toward a single versioned installer, carrying the nftables rules
+  and the browser/cache subvol ideas forward.
+
+### v2.9.7C → v2.9.9.1GC — the formally versioned 2.9.x lineage
+The installer becomes a strictly versioned, self-documenting single file
+(`SECTION 1 OF …` / `BOX 1 OF …`).
+- **`2.9.7C`** — first compact versioned build. Notable content: the 8GC-fix
+  **nftables** rules with an interface-TTL/hoplimit workaround keyed to the
+  NIC (`oifname "usb*"/"*u*"` etc.), the browser/`@usercache`-isolation idea,
+  and a hardcoded `/dev/nvme0n1` target.
+- **`2.9.8GC`** — the nftables TTL/hoplimit rules are pinned to **two
+  concrete interface globs** (`enp5s0f*` and `enx*`) instead of the broad USB
+  catch-all — the first step toward the later `[NFT-TTL-REMOVED]` rework that
+  finally dropped these per-machine rules.
+- **`2.9.9GC`** — the repo fallback swap (PRIMARY/BACKUP1/BACKUP2 from
+  `mirrors.summithq.com`/`repo-fastly`/`repo-default`), switches the PipeWire
+  pulse-compat symlink to the **wireplumber** example path, and adds a
+  grub-btrfs `41_snapshots-btrfs` fallback-hook recovery in failure cleanup.
+- **`2.9.9.1GC`** — the transition to a **dynamic configuration pass**: an
+  interactive variables loop for NIC/hostname detection, TARGET_HOSTNAME now
+  drives the host-generation nodes, QEMU bridge-helper **setuid** hardening,
+  the unquoted `kde-wayland.conf` **autologin heredoc dropped** (secure SDDM
+  prompt), and NetworkManager **connection-profile blueprints** replace the
+  race-prone rc.local bridge scripting.
+
+### v3.0.0 → v3.0.8 — the mature GRUB-only 3.0.x "GC" line
+Repartitioned into the mature GRUB-only form; point releases refine the surface.
+- **`3.0.0GC` → `3.0.2GC`** — the bootloader/`@grub` subvolume decision, the
+  display-manager + volatile-runtime **tmpfs** re-routing ("mimic openSUSE":
+  write-heavy runtime zones live on rapid tmpfs so a read-only snapshot boot
+  isn't blocked), QEMU setuid hardening, the SDDM autologin drop, the
+  NetworkManager br0 blueprints + `br0-slave` profile, and a fix making the
+  swapfile `TARGET_OFFSET` computation a proper `if/fi` (it was a mangled
+  single line in 3.0.0GC). 3.0.2 adds the "configuration drop-in delay" for the
+  runit SDDM service and the gated `/usr/libexec/qemu-bridge-helper`.
+- **`3.0.4GC`** — interactive **domain-name prompt** right after the hostname
+  (proper FQDN), the **br0 slave glob no longer prompted** (hardcoded `enp*`),
+  the gated @usercache mount, and a corrected SDDM delay location.
+- **`3.0.5GC`** — an FQDN **confirmation step**, a per-boot @usercache gate,
+  and the "Real every-boot counterpart to the fstab `noauto` entry" rc.local
+  conditional mount (foundational — the seed of today's `[PERSONAL-DATA]`
+  ownership invariant).
+- **`3.0.6GC`** — structurally near-identical to 3.0.5; a tweak release.
+- **`3.0.7GC`** — **sequential repo fallback** replaces the broken single
+  combined `-R -R -R` call (one full bootstrap attempt per repo, advancing
+  only on a nonzero exit — the ancestor of today's mirror-failover).
+- **`3.0.8GC`** — snapshot-boot performance/correctness: the nested `@sddm`
+  double-tmpfs mount **collapsed into one line** (the old second entry crashed
+  mount -a), **`/tmp` given its own tmpfs** (a read-only snapshot root had
+  broken Xorg's `.X1-lock`), the Dracut-overlay audio fallback corrected to a
+  `/proc/cmdline` wrapper, the fstab `@usercache` `noauto` + real rc.local gate
+  (fstab cannot hold shell conditionals), and the SDDM drop-in delay written to
+  a plain **`conf` file the stock run script actually sources** (a prior
+  `conf.d/` location was silent dead code).
+
+### v3.0.9 → v3.0.112 — the feature-rich capstone carpet
+The runtime notes (`.../Latest/Latest/Notes.txt`) record: **3.0.9GC** is the
+**base file**, **3.0.95/96/97GC** are the "base + Claude attempt" builds
+(96 "failed to boot", 97 "untested"), and **3.1.0GC** (tagged
+`3.1.0-FLAT-INTERCEPT`) and the `4.0.0/4.0.1-SUSE` builds are the flat +
+Dracut-intercept vs the openSUSE-nested experiments. The clean
+`3.0.98GC → 3.0.112GC` series is the capstone; each carries `SCRIPT_VERSION` +
+`AI CHANGE TRACKING`. (`3.0.9GC` base and the `3.0.95–3.0.97GC` attempts are
+real archived artifacts; the intermediate gaps between 3.0.9 and 3.0.98 are
+`[reconstructed]` as continuous point releases.)
+- **`3.0.9GC`** — the base file: the full GRUB flat layout with the 2.9.x-era
+  NIC/nftables + br0 wiring consolidated and SCRIPT_VERSION introduced.
+- **`3.0.95GC`–`3.0.97GC`** — the "base + Claude attempt" rebuilds; 96 failed
+  to boot, 97 untested. `[reconstructed]` — these reflect a parallel attempt
+  to rewrite the install pipeline that was not carried forward intact.
+- **`3.0.98GC`** — the big architecture release: the **custom
+  `95snapshot-overlay` dracut module** replaces stock `overlayfs` (which hooks
+  at pre-mount before the installed root is populated — producing the exact
+  `Cannot find init!` crash; the custom module hooks at **pre-pivot** after the
+  read-only snapshot is genuinely mounted and builds a writable tmpfs top).
+  Also: sequential repo fallback **factored into a reusable function** for
+  every chroot `xbps-install`, the `/tmp` + SDDM tmpfs fixes, the audio
+  `/proc/cmdline` wrapper, and the `@usercache` chown/`noauto` + rc.local gate.
+- **`3.0.99GC`** — the **baseline snapshot moved** to run after the dracut
+  regen loop so the initramfs frozen into it already has the snapshot-overlay
+  module (grub-btrfs's `41_snapshots-btrfs` hook is disabled/re-enabled around
+  the create to avoid a scan-of-nothing race).
+- **`3.0.100GC`** — **chown the bare placeholder directory BEFORE the
+  `@usercache` mount** (the old mount-then-chown left a root-owned placeholder
+  exposed on snapshot boots — Firefox/Mesa hit `Permission denied` on
+  `~/.cache`). The canonical form of the chown-before-mount ordering that
+  still governs every `provision_*_subvol`.
+- **`3.0.101GC`** — **Chromium gets `@chromium`** — the same isolated-subvolume
+  treatment as Firefox (profile isolation, `nodatacow` sqlite churn,
+  chown-before-mount).
+- **`3.0.102GC`** — **PipeWire snapshot-autostart is now a real install-time
+  choice** (`[y/N]`, default off) — the seed of today's
+  `DEFAULT_SNAPSHOT_AUDIO`/`[SNAPSHOT-AUDIO]`.
+- **`3.0.103GC`** — **tiered NIC detection**: tier 1 = a wired `en*`/`eth*`
+  port (excluding `enx*`/`usb0`) with an active link, tier 2 = USB ethernet /
+  USB-tethered phone.
+- **`3.0.104GC`** — NIC detection rewritten to read **real sysfs signals**
+  (a `enp3s0f3u1u1` USB adapter had defeated the `enx*`/`usb0` assumption).
+- **`3.0.105GC`** — minor point release (polish on 3.0.104).
+- **`3.0.106GC`** — isolates **Flatpak app data, rootful Docker/Podman
+  container storage, and `/root`** onto their own subvolumes (so a Flatpak
+  install or container pull is never frozen into / rolled back by an unrelated
+  snapshot), plus **rootless podman/distrobox storage isolation**
+  (`@containers-user`-style, ready for later adoption).
+- **`3.0.107GC` / `3.0.108GC`** — `[reconstructed]` bridge releases between
+  3.0.106 and 3.0.109, tightening the dynamic-optional-software groundwork and
+  the container/rootless memory-of-record; no surviving artifact, graded
+  purely to keep the numbering continuous.
+- **`3.0.109GC`** — the **account privilege model becomes a real choice**
+  (Hybrid / Debian / Ubuntu) — the ancestor of today's account-model gate —
+  and rootless podman setup is fleshed out with its wheel/`/etc/subuid`/subgid
+  requirements.
+- **`3.0.110GC`** — **dynamic optional-software toggles**: the subvolume list,
+  the `useradd` **group list** (wheel depends on account model; kvm/libvirt on
+  INSTALL_VIRT; docker handled post-install), and optional-software gating are
+  built from install-time choices instead of a fixed heredoc; the br0 detection
+  block is skipped when virtualization is declined.
+- **`3.0.111GC`** — **distrobox** (no xbps package on Void — installed from
+  upstream GitHub via a `DISTROBOX_TRACK` stable/current pin) and **OctoXBPS**
+  becoming install-time optional; the distrobox trust model is gated behind its
+  own warned prompt.
+- **`3.0.112GC`** — the 3.0.x capstone: the OctoXBPS prompt and br0 NIC NOTICE
+  moved to final positions, and the distrobox stable pin fixed to `1.8.2.5`
+  (the exact version carried into `v3.1.0-beta1`).
+
+> **Lineage summary:** Alpha 1 recovery-first (v0.1.0) → desktop/recovery
+> (v0.2.0) → breadth (v0.3.0) → manual multi-script era (v0.4.0) → unified
+> single-file drafts (v1.x / 2.x "Test it Out") → formally versioned
+> 2.9.7C…2.9.9.1GC (v2.9.x) → GRUB-only 3.0.0…3.0.8GC → feature-rich
+> 3.0.98…3.0.112GC → **`v3.1.0-beta1`** (inline `AI (...)` markers; the frozen
+> baseline snapshot of which survives in `Debug/Old Versions/Claude/`). The
+> nested `4.0.0-SUSE` and the `OxAlpha` fork are dead ends excluded from the
+> current lineage.
 
 ---
 
@@ -1656,6 +1973,7 @@ Inline markers used throughout the script (and mirrored here):
   `[GRUB-ESP-BOOT]`, `[DOCS-LOG]`, `[ENCRYPT-KEYMAP]`, `[ENCRYPT-VERIFY]`,
   `[ENCRYPT-NEWLINE]`, `[CRYPT-NAME]`, `[PROMPT-DEFAULTS]`, `[DRY-RUN]`, `[FULLNAME]`,
   `[PKG-SNAPSHOT]`, `[PKG-SNAPSHOT-AUTO]`, `[RESHADOW-BOOT]`, `[TOOLS-DIR]`,
-  `[TOOLS-LIMINE-BACKUP]`, `[LIMINE-HDR]`, `[LIMINE-WALLPAPER-OPT-OUT]`.
+  `[TOOLS-LIMINE-BACKUP]`, `[LIMINE-HDR]`, `[LIMINE-WALLPAPER-OPT-OUT]`,
+  `[VERSION-HISTORY]`, `[VERSION-CARRY]`.
 - Action words: `ADDITION` (new feature), `CHANGE` (behavioral change),
   `FIX` (bug fix), `EXPANSION` (extended feature).

@@ -33,7 +33,7 @@
 #     — is a top-level sibling, none nested inside another). Flat, not
 #     nested, so
 #     each one can be snapshotted/rolled back independently.
-#     AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: optionally, partition
+#     AI (Big Pickle) ADDITION — Beta-v2.5.5 [ENCRYPT]: optionally, partition
 #     2 (the Btrfs filesystem) sits inside a LUKS2 container instead of being
 #     a raw partition. The ESP (partition 1) stays unencrypted (bootloaders
 #     and their configs read it before any passphrase exists). When enabled,
@@ -53,10 +53,10 @@
 #     in memory during the chroot phase only, never persisted. The ESP is
 #     ALWAYS off-volume; what is encrypted is the Btrfs filesystem tree
 #     (including most of /boot, whose kernels are mirrored onto the ESP for
-#     Limine's esp-copy). v3.3.0-beta14 [GRUB-ESP-BOOT] widens that: under
+#     Limine's esp-copy). Beta-v2.6.2 [GRUB-ESP-BOOT] widens that: under
 #     GRUB+ENCRYPT the whole ESP is mounted AT /boot, so grub.cfg, kernels,
 #     and initramfses are all unencrypted and GRUB needs no cryptodisk.
-#     AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: optionally, a
+#     AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: optionally, a
 #     YubiKey hmac-sha1 challenge-response slot can take over boot unlock
 #     instead of / in addition to the typed passphrase. Enrollment programs
 #     an OTP slot with a random secret and binds HMAC-SHA1(slot_secret,
@@ -66,7 +66,7 @@
 #     fails → dracut prompts), YK_FALLBACK=no removes it (YubiKey-only
 #     unlock — possession-required, nothing to type). YubiKey-only is only
 #     ever proven with BOOTLOADER=limine; with GRUB the fallback slot is
-#     forced on. AI (Big Pickle) CHANGE — v3.3.0-beta14 [GRUB-ESP-BOOT]: for
+#     forced on. AI (Big Pickle) CHANGE — Beta-v2.6.2 [GRUB-ESP-BOOT]: for
 #     GRUB+ENCRYPT the ESP is mounted AT /boot, so grub.cfg + kernels live
 #     unencrypted on the ESP and GRUB never needs LUKS cryptodisk at all
 #     (just one dracut passphrase prompt after handoff). The
@@ -82,14 +82,14 @@
 #     constantly — COW is pure write amplification), the browser
 #     profile/cache subvols @mozilla, @mozilla-cache, @chromium, @vivaldi
 #     (profile sqlite/cache churn constantly — COW there is pure write
-#     amplification), and — v3.3.0-beta13 [SUBVOLS] — the DB datadirs
+#     amplification), and — Beta-v2.6.1 [SUBVOLS] — the DB datadirs
 #     @postgresql/@mariadb (nodatacow, compress=none, and never snapshotted
 #     so a Snapper rollback of @ cannot rewind a live database) and the
 #     opt-in per-user app subvols @thunderbird (sqlite mail profile) and
 #     @steam (game churn). @network backs /var/lib/NetworkManager runtime
 #     state (leases, NetworkManager.state) with normal compression so a
 #     rollback of @ does not rewind known-network/lease state.
-#     AI (Big Pickle) FIX — v3.3.0-beta4 [NODATACOW]: the var
+#     AI (Big Pickle) FIX — Beta-v2.5.2 [NODATACOW]: the var
 #     subvols are made nodatacow via their MOUNT OPTIONS (and fstab), not the
 #     pre-mount `chattr +C` — chattr on a mountpoint dir inode is shadowed the
 #     moment a subvolume mounts over it, so it never took effect before.
@@ -97,19 +97,19 @@
 #     resume offset computed via `btrfs inspect-internal map-swapfile -r`
 #     and injected into the kernel command line (Limine's kernel_cmdline)
 #     plus dracut's resume module.
-#     AI (Big Pickle) FIX — v3.3.0-beta4: `SWAPFILE_MODE` (derived from
+#     AI (Big Pickle) FIX — Beta-v2.5.2: `SWAPFILE_MODE` (derived from
 #     `SWAP_BACKEND`, drives @swap subvol creation, the swapfile mount, mkswapfile,
 #     and the fstab swap entries) was missing from the persisted state-file list,
 #     so a resumed run skipped all swap setup silently. It is now persisted
 #     (single source stays the prompt-block derivation from `SWAP_BACKEND`).
-#   - Init: runit, not systemd. Session/seat management (v3.2.0) is a real
+#   - Init: runit, not systemd. Session/seat management (Beta-v2.4.0) is a real
 #     choice, $SESSION_STACK: elogind (default, the standalone systemd-logind
 #     fork satisfying the org.freedesktop.login1 D-Bus interface that
 #     SDDM/polkit/NetworkManager expect) OR the lighter turnstile + seatd +
 #     acpid stack. Neither makes this a systemd system. Never add
 #     systemctl/journalctl/loginctl/.service-unit logic anywhere in this
 #     script; services are enabled via `ln -s /etc/sv/X /etc/runit/...`.
-#   - Prompt defaults (v3.3.0-beta24 [PROMPT-DEFAULTS]): every interactive
+#   - Prompt defaults (Beta-v2.7.2 [PROMPT-DEFAULTS]): every interactive
 #     choice and yes/no toggle falls back to a DEFAULT_* variable in the
 #     editable top block (right after SCRIPT_VERSION) on bare Enter instead of
 #     a hardcoded value, and each is env-overridable via `${VAR:-default}`.
@@ -119,23 +119,23 @@
 #   - Virtualization: QEMU/KVM + libvirt on a custom `br0` bridge (built natively
 #     via NetworkManager connection profile tracking configurations at boot),
 #     NOT libvirt's default NAT `virbr0` (explicitly disabled on first boot — see rc.local).
-#     AI (Big Pickle) FIX — v3.3.0-beta4 [NM-IFACE]: NM's `[connection]
+#     AI (Big Pickle) FIX — Beta-v2.5.2 [NM-IFACE]: NM's `[connection]
 #     interface-name=` is a LITERAL device name, not a glob (only `[match]`
 #     globs). The NIC-detection fallback `NET_INTERFACE_MATCH="enp*"` is therefore
 #     NOT emitted as `interface-name=` in br0-slave (it can never bind); the key is
 #     omitted so the slave matches by role on any free ethernet device. A concrete
 #     auto-detected NIC still emits the literal name, unchanged.
-#   - Login shell (v3.3.0-beta4 [SHELL]): a real install-time choice,
+#   - Login shell (Beta-v2.5.2 [SHELL]): a real install-time choice,
 #     $USER_SHELL — bash (default, bundled in base-system, no package) or
 #     zsh/fish/mksh (installed from the official repos and set as the primary
 #     user's login shell via useradd -s). The binary path and its providing
 #     package are carried through chroot_env and the resume state file so a
-#     resumed run restores the choice. (v3.3.0-beta7 [ZSHRC]: when the choice
+#     resumed run restores the choice. (Beta-v2.5.4 [ZSHRC]: when the choice
 #     is zsh, a minimal ~/.zshrc is pre-created for the primary user so the
 #     first login doesn't hit zsh's zsh-newuser-install wizard; likewise a
 #     minimal ~/.config/fish/config.fish for fish so the first login doesn't
 #     hit the fish_config wizard.)
-#   - Desktop (v3.2.0): a real install-time choice, $DESKTOP_ENV — KDE
+#   - Desktop (Beta-v2.4.0): a real install-time choice, $DESKTOP_ENV — KDE
 #     Plasma (default, primary tested path), Cinnamon via cinnamon-all,
 #     GNOME via the full `gnome` metapackage, Xfce via `xfce4`, MATE via
 #     `mate`, LXQt via `lxqt`, or COSMIC — which is NOT in the official
@@ -147,12 +147,12 @@
 #     (Cinnamon/Xfce/MATE/LXQt) are X11 on Void today.
 #     `wayland`/`wayland-protocols` are still installed unconditionally
 #     for all options (cheap, harmless, future-proofing).
-#     Display manager (v3.2.0) is an independent choice, $DISPLAY_MANAGER:
+#     Display manager (Beta-v2.4.0) is an independent choice, $DISPLAY_MANAGER:
 #     SDDM (default for KDE/LXQt/COSMIC), LightDM (Cinnamon/Xfce/MATE), GDM
 #     (GNOME), or cosmic-greeter (COSMIC's own greeter, offered only when
 #     COSMIC is chosen; its maintainer warns it does not work reliably).
 #     LightDM additionally asks for a greeter (GTK [default] /
-#     Slick / WebKit2). v3.3.0-beta2 [LIGHTDM-HW] hardens the LightDM path
+#     Slick / WebKit2). Beta-v2.5.0 [LIGHTDM-HW] hardens the LightDM path
 #     against the greeter failures observed on real hardware: accounts-daemon
 #     (org.freedesktop.Accounts) is granted a real runit service + first-boot
 #     link instead of racy on-demand D-Bus activation (fixes Slick-greeter
@@ -171,7 +171,7 @@
 #     snapshot boot is read-only with a writable RAM overlay rather than
 #     mutating the snapshot itself. Snapshot-boot MENU generation depends
 #     on which bootloader was chosen (next bullet).
-#     AI (Big Pickle) ADDITION — v3.3.0-beta5 [SCRUB]: the physical half of
+#     AI (Big Pickle) ADDITION — Beta-v2.5.3 [SCRUB]: the physical half of
 #     that same recovery story — a monthly /etc/cron.monthly/btrfs-scrub
 #     job catches silent checksum failures (bitrot) and lets Btrfs repair
 #     them, complementing Snapper (logical/accidental damage). It scrubs
@@ -179,7 +179,7 @@
 #     since every subvolume mount is a view of the same fs) and logs to
 #     /var/log/btrfs-scrub.log. Never forced: a manually-running scrub
 #     makes the monthly pass fail fast and record why instead of racing it.
-#     AI (Big Pickle) ADDITION — v3.3.0-beta16 [PKG-SNAPSHOT]: a third piece of
+#     AI (Big Pickle) ADDITION — Beta-v2.6.4 [PKG-SNAPSHOT]: a third piece of
 #     the recovery trio — an explicit per-update rollback pair. The timeline
 #     snapshots can be minutes old when an update lands, so
 #     /usr/local/sbin/void-xbps-snap wraps a mutating xbps-install to take a
@@ -187,34 +187,34 @@
 #     guaranteeing an exact "undo THIS update" pair. Drop-in for
 #     xbps-install (all args pass through), --no-dbus, only fires on mutating
 #     installs against a btrfs root, and never blocks an update if the pre
-#     snapshot fails. v3.3.0-beta17 [PKG-SNAPSHOT-AUTO] goes further: it
+#     snapshot fails. Beta-v2.6.5 [PKG-SNAPSHOT-AUTO] goes further: it
 #     SHADOWS /usr/bin/xbps-install (real binary renamed to
 #     /usr/bin/xbps-install.real, symlink placed in its place) so EVERY
 #     xbps-install — bare or via sudo, any shell — snapshots automatically
 #     with zero behavior change. Caveat: an `xbps` package self-update
 #     re-places a real binary over the symlink (un-shadowing it).
-#     AI (Big Pickle) ADDITION — v3.3.0-beta18 [TOOLS-DIR]: maintenance/recovery
+#     AI (Big Pickle) ADDITION — Beta-v2.6.6 [TOOLS-DIR]: maintenance/recovery
 #     scripts ship in /root/tools (persistent, installed once, run later on
 #     demand) so the documented recovery steps are never hand-rewritten:
 #     re-shadow-xbps.sh (xbps self-update recovery), limine-sync.sh (manual
 #     boot-menu regen), re-provision-snapper.sh (safe snapper restore, plugin
 #     re-install), plus a canonical copy of void-xbps-snap. Idempotent, not on
 #     PATH (run-on-demand tools, not live helpers).
-#     AI (Big Pickle) ADDITION — v3.3.0-beta25 [SUBVOL-TOOL]: /root/tools also
+#     AI (Big Pickle) ADDITION — Beta-v2.7.3 [SUBVOL-TOOL]: /root/tools also
 #     ships void-subvol-tool.sh, a post-install subvolume manager (list/check/
 #     add/detach/destroy) for the flat Btrfs topology. Purely structural — it
 #     creates additional FLAT siblings (via the subvolid=5 top-level-tree mount,
 #     never nested inside @, so they stay outside Snapper rollback scope) without
 #     installing the software that would normally own them. nodatacow is applied
 #     via fstab mount options, never chattr (matches [NODATACOW]).
-#     AI (Big Pickle) ADDITION — v3.3.0-beta28 [PKG-LIST]: the post-install
+#     AI (Big Pickle) ADDITION — Beta-v2.7.6 [PKG-LIST]: the post-install
 #     ~/Documents/VOID_INSTALL.txt record now appends the FULL finished-system
 #     package inventory (xbps-query -l, status prefix stripped, sorted, one per
 #     line) so a box records not just the installer version + choices but exactly
 #     WHAT was installed. Written in the chroot against the target's /var/db/xbps;
 #     secret-free like install-config; SCRIPT_VERSION kept alongside. Missing
 #     xbps-query degrades gracefully (omitted, install never fails).
-#     AI (Big Pickle) CHANGE — v3.3.0-beta27 [FLOW-ORDER]: reordered the stage-1
+#     AI (Big Pickle) CHANGE — Beta-v2.7.5 [FLOW-ORDER]: reordered the stage-1
 #     prompt cluster so the bootloader is decided first, the Limine wallpaper is
 #     asked immediately after it (limine only), disk encryption (+ YubiKey,
 #     clamp, passphrase, mapper) follows, and audio (PipeWire read-only-snapshot
@@ -222,7 +222,7 @@
 #     (limine) -> encryption gate -> YubiKey -> YK clamp -> passphrase -> audio.
 #     [ENCRYPT-ORDER] semantics preserved (passphrase captured only after
 #     bootloader + clamp final); GRUB+ENCRYPT still sizes the ESP to 4GiB.
-#     AI (Big Pickle) ADDITION — v3.3.0-beta26 [BROWSER-GROUP] / [CONTAINER-GROUP]:
+#     AI (Big Pickle) ADDITION — Beta-v2.7.4 [BROWSER-GROUP] / [CONTAINER-GROUP]:
 #     the interactive optional-software prompts are grouped behind category gates
 #     (SETUP_WEB_BROWSERS, SETUP_CONTAINERS) mirroring the tool's --class groups,
 #     while each browser / container backend stays individually selectable. Gates
@@ -230,13 +230,13 @@
 #     so a bare-Enter run is unchanged; a "no" skips the whole section and forces
 #     every contained toggle off (exported, so SUBVOL_LIST/provision gating stays
 #     correct). Both gates wired to DEFAULT_* per [PROMPT-DEFAULTS].
-#     AI (Big Pickle) ADDITION — v3.3.0-beta19 [RESHADOW-BOOT]: the xbps
+#     AI (Big Pickle) ADDITION — Beta-v2.6.7 [RESHADOW-BOOT]: the xbps
 #     self-update caveat is now SELF-HEALING. /etc/rc.local (executed every
 #     boot by runit stage 2, OUTSIDE the installer's firstboot.log guard) calls
 #     /root/tools/re-shadow-xbps.sh on each boot, so if an `xbps` self-update
 #     un-shadows the wrapper, the next boot repairs it before any later update
 #     can run unsnapshotted. Manual recovery is no longer required.
-#     AI (Big Pickle) ADDITION — v3.3.0-beta20 [TOOLS-LIMINE-BACKUP]: /root/tools
+#     AI (Big Pickle) ADDITION — Beta-v2.6.8 [TOOLS-LIMINE-BACKUP]: /root/tools
 #     now also carries canonical backups of the three LIVE Limine menu engines
 #     (/usr/local/sbin/void-limine-env.inc, void-limine-sync-kernels,
 #     void-limine-write-conf). Previously /root/tools could re-trigger a menu
@@ -244,7 +244,7 @@
 #     /usr/local/sbin Limine stack; limine-sync.sh now self-restores these from
 #     backup first, so /root/tools is a self-contained regeneration kit for the
 #     whole void-limine + limine-snapper-sync pipeline (no full reinstall needed).
-#     AI (Big Pickle) ADDITION — v3.3.0-beta21 [ENCRYPT-KEYMAP] + [ENCRYPT-VERIFY]:
+#     AI (Big Pickle) ADDITION — Beta-v2.6.9 [ENCRYPT-KEYMAP] + [ENCRYPT-VERIFY]:
 #     two encrypted-boot hardening steps discovered from a real-hardware lockout
 #     (a short simple passphrase failed at boot after a complex one unlocked):
 #     (1) [KEYMAP] capture the LIVE console keymap into the installed /etc/rc.conf
@@ -256,10 +256,10 @@
 #     passphrase and aborts LOUDLY on failure, catching a bad volume before any
 #     reboot locks the user out; resume-path luksOpen also aborts on failure instead
 #     of silently continuing with a dead mapper.
-#   - Bootloader (v3.2.0-beta1; default flipped to Limine in v3.3.0-beta12
+#   - Bootloader (Beta-v2.4.0; default flipped to Limine in Beta-v2.6.0
 #     [LIMINE-DEFAULT]): a real per-install CHOICE, $BOOTLOADER, between two
 #     fully separate code paths in Stage 2:
-#       * limine — (DEFAULT since v3.3.0-beta12) newer, simpler, single-file
+#       * limine — (DEFAULT since Beta-v2.6.0) newer, simpler, single-file
 #         portable UEFI binary deployed directly onto the ESP
 #         (EFI/BOOT/BOOTX64.EFI) — no efibootmgr, no NVRAM entries. Snapshot
 #         boot menu is a static config written by
@@ -271,7 +271,7 @@
 #         (empirically verified; see [SNPR-EV] and
 #         Debug/snpr_ev/probe_void_snapper_plugin.sh). 4GiB ESP. Treat as
 #         experimental — see §1/§3.19-§3.26 of the companion CHANGELOG.
-#         v3.3.0-beta3 [LIMINE-WALLPAPER] optionally adds a boot-screen
+#         Beta-v2.5.1 [LIMINE-WALLPAPER] optionally adds a boot-screen
 #         wallpaper: an opt-in prompt takes an image from the live system,
 #         copies it onto the ESP at boot():/limine-splash.<ext>, and records
 #         the choice in limine-env so void-limine-write-conf re-emits
@@ -281,12 +281,12 @@
 #       * grub   — mature, real-hardware-tested path carried from 3.0.x.
 #         Snapshot boot menu via grub-btrfs (dynamic, auto-regenerated by
 #         a kernel hook). 1GiB ESP. Choice 2 in the prompt.
-#         v3.3.0-beta14 [GRUB-ESP-BOOT]: with ENCRYPT=yes the ESP is mounted
+#         Beta-v2.6.2 [GRUB-ESP-BOOT]: with ENCRYPT=yes the ESP is mounted
 #         AT /boot instead, giving GRUB a fully unencrypted boot tree (no
 #         LUKS cryptodisk needed — one dracut passphrase prompt) and growing
 #         the ESP to 4GiB to hold every kernel/initramfs.
 #     Both paths are UEFI-only; BIOS boot is not implemented for either.
-#   - Repo mirror (v3.3.0): the official Void repository mirror is a real
+#   - Repo mirror (Beta-v2.4.1): the official Void repository mirror is a real
 #     install-time choice auto-derived from the selected timezone (regional
 #     selection from the authoritative registry at xmirror.voidlinux.org),
 #     with an override menu. $REPO_PRIMARY is set to the chosen mirror while
@@ -345,7 +345,7 @@ set -eE
 # errtrace (-E) makes the ERR trap below fire inside functions/subshells too,
 # not just at the top level.
 set -o pipefail
-# AI (Big Pickle) ADDITION — v3.3.0-beta3 [PIPEFAIL]: pipefail closes the
+# AI (Big Pickle) ADDITION — Beta-v2.5.1 [PIPEFAIL]: pipefail closes the
 # silent-failure gap that `set -e` alone misses: without it a pipeline whose
 # LAST command succeeds masks an earlier failing stage (e.g. a failed
 # `sed`/`grep` extract followed by a `head` that returns 0 would look
@@ -355,10 +355,87 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta32"
+SCRIPT_VERSION="Beta-v2.8.1"
+
+# [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
+# the patch field holds 0-9 and carries into the (multi-digit) minor on
+# overflow; the minor never carries into the major unless the author makes an
+# explicit major bump. The lineage is split into named eras carrying their
+# own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x), so each era reads
+# monotonic and the current release (Beta-v2.8.1) always carries the highest
+# numbering. See Debug/version-renumber-map.txt for the authoritative
+# OLD->NEW mapping recovered from the Debug/Old Versions/ artifacts.
 
 # =============================================================================
-# AI (Big Pickle) ADDITION — v3.3.0-beta24 [PROMPT-DEFAULTS]: EDITABLE DEFAULT
+# AI (Big Pickle) ADDITION — Beta-v2.8.1 [VERSION-HISTORY]: where this
+# SCRIPT_VERSION sits in the full lineage. The [VERSION-CARRY] scheme maps the
+# whole history into named eras (Alpha-v, Beta-v) per
+# Debug/version-renumber-map.txt. The mangled OxAlpha fork and the failed
+# openSUSE-nested 4.0.0-SUSE build are dead ends and NOT part of the
+# installed lineage.
+#
+#   ALPHA ERA (reconstructed, Debug/Old Versions/):
+#     Alpha-v1.0.1   GPT + flat Btrfs subvols
+#     Alpha-v1.0.2   base system, KDE, NM, runit
+#     Alpha-v1.0.3   Snapper, GRUB-Btrfs, ~/.mozilla
+#     Alpha-v1.0.4   systemd path monitor (dropped)
+#
+#   BETA ERA — PRE-TRACKING (reconstructed from artifact filenames):
+#     Beta-v1.0.0–v1.9.5   unified "Test it Out" drafts, nftables
+#     Beta-v1.9.6          first versioned build, nftables rules
+#     Beta-v1.9.7          nftables interface pinning
+#     Beta-v1.9.8          repo fallback, wireplumber
+#     Beta-v1.9.9          dynamic config loop, NM blueprints
+#     Beta-v2.0.1–v2.0.9   GRUB-only, tmpfs snapshot runtime,
+#                          chown-before-mount, /tmp, SDDM conf
+#     Beta-v2.1.0          base file for capstone carpet
+#     Beta-v2.1.1–v2.1.5   Claude attempts (96=failed boot)
+#     Beta-v2.1.6–v2.2.8   snapshot-overlay dracut, dynamic subvols,
+#                          account model, distrobox
+#
+#   BETA ERA — TRACKED (inline AI(...) markers, TAG-bound):
+#     Beta-v2.3.0    first inline-marker release
+#     Beta-v2.4.0    DESKTOP_ENV, LOCALIZE, SWAP, COSMIC
+#     Beta-v2.4.1    MIRROR, LIMINE-WALLPAPER, DRY-RUN (Claude's last)
+#     Beta-v2.5.0    [LIGHTDM-HW]; [REBOOT-COUNTDOWN]; [WSDD]
+#     Beta-v2.5.1    [LIGHTDM-SWRAP]; [GDM-WAY]; [LIMINE-HDR]
+#     Beta-v2.5.2    [SHELL]; [SNPR-EV]; [NODATACOW]; [INSTALL-PKGS]
+#     Beta-v2.5.3    [SCRUB]
+#     Beta-v2.5.4    [YUBIKEY]; [ZSHRC]; [LIMINE-SNAPDATE]
+#     Beta-v2.5.5    [ENCRYPT]
+#     Beta-v2.5.6    [SNPR-EV-NO-CRON]; [FSTRIM-SCOPE]
+#     Beta-v2.5.7    [RCL-VIRT-WAIT]
+#     Beta-v2.5.8    [YK-KEYSCRIPT-BAKE]
+#     Beta-v2.5.9    [DROP-@TMP]
+#     Beta-v2.6.0    [LIMINE-DEFAULT]; [ENCRYPT-ORDER]
+#     Beta-v2.6.1    [SUBVOLS]
+#     Beta-v2.6.2    [GRUB-ESP-BOOT]; [DOCS-LOG]
+#     Beta-v2.6.3    [FULLNAME]
+#     Beta-v2.6.4    [PKG-SNAPSHOT]
+#     Beta-v2.6.5    [PKG-SNAPSHOT-AUTO]
+#     Beta-v2.6.6    [TOOLS-DIR]
+#     Beta-v2.6.7    [RESHADOW-BOOT]
+#     Beta-v2.6.8    [TOOLS-LIMINE-BACKUP]
+#     Beta-v2.6.9    [ENCRYPT-KEYMAP]; [ENCRYPT-VERIFY]
+#     Beta-v2.7.0    [ENCRYPT-NEWLINE]
+#     Beta-v2.7.1    [CRYPT-NAME]
+#     Beta-v2.7.2    [PROMPT-DEFAULTS]
+#     Beta-v2.7.3    [SUBVOL-TOOL]
+#     Beta-v2.7.4    [BROWSER-GROUP]; [CONTAINER-GROUP]
+#     Beta-v2.7.5    [FLOW-ORDER]
+#     Beta-v2.7.6    [PKG-LIST]
+#     Beta-v2.7.7    [LIGHTDM-GREETER-SESSION]
+#     Beta-v2.7.8    [DOCS-LOG-CHOWN]
+#     Beta-v2.7.9    [TOOLS-LIMINE-GUARD]
+#     Beta-v2.8.0    [CINNAMON-WALLPAPER]; [NFT-TTL-REMOVED]
+#     Beta-v2.8.1    [VERSION-HISTORY]; [VERSION-CARRY]  (this table)
+#
+# When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
+# entry) so the reconstruction stays complete for the next reader.
+# =============================================================================
+
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.7.2 [PROMPT-DEFAULTS]: EDITABLE DEFAULT
 # ANSWERS. The interactive prompts below fall back to these values on a bare
 # Enter instead of hardcoded defaults, so you can change what a "just press
 # Enter" run picks without hunting through the prompt loops. Override any of
@@ -419,7 +496,7 @@ DEFAULT_PROVISION_DB_SUBVOLS="${DEFAULT_PROVISION_DB_SUBVOLS:-false}"           
 
 
 # =============================================================================
-# AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [FAILURE-JOURNAL]: FAILURE TRACE / INSTALL
 # JOURNAL. A persistent (same-live-session) log of install milestones plus,
 # on any failure, a diagnostic trace: exit code, the exact failing command,
 # and the function-call stack. It lives in /tmp alongside the resume state
@@ -431,14 +508,14 @@ JOURNAL="/tmp/void-installer-journal.log"
 jl() { echo "[$(date +%H:%M:%S)] $*" >> "$JOURNAL" 2>/dev/null; }
 : > "$JOURNAL"
 # =============================================================================
-# AI (Big Pickle) CHANGE — v3.3.0-beta2 [REBOOT-COUNTDOWN]: how long the
+# AI (Big Pickle) CHANGE — Beta-v2.5.0 [REBOOT-COUNTDOWN]: how long the
 # completed-install summary waits before auto-rebooting. The end summary
 # prints this actual value and then a live per-second countdown, so changing
 # this one variable changes both the summary text and the wait. Overridable
 # from the environment (REBOOT_DELAY=10 ...) for scripting/resume runs.
 REBOOT_DELAY="${REBOOT_DELAY:-20}"
 # =============================================================================
-# AI (Big Pickle) ADDITION — v3.2.0 [COSMETIC]: ANSI color + formatting helpers
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [COSMETIC]: ANSI color + formatting helpers
 # used throughout the interactive prompts so the installer's output is easier
 # to read at a glance and high-stakes prompts (disk ERASE in particular)
 # stand out. These are plain text escapes — safe on any POSIX terminal; use
@@ -487,7 +564,7 @@ cleanup_on_failure() {
     ec=$?
 
     # =========================================================================
-    # AI (Big Pickle) ADDITION — v3.2.0 [FAILURE-JOURNAL]: write the failure
+    # AI (Big Pickle) ADDITION — Beta-v2.4.0 [FAILURE-JOURNAL]: write the failure
     # trace to the journal while the shell's error context is still intact.
     # Everything here is guarded (|| true) so the unwind below still runs even
     # if the journal write itself fails.
@@ -524,7 +601,7 @@ cleanup_on_failure() {
 
     swapoff /mnt/var/swap/swapfile 2>/dev/null || true
     rm -f /mnt/tmp/chroot_env.sh 2>/dev/null || true
-    # v3.3.0-beta14 [GRUB-ESP-BOOT]: in the GRUB+ENCRYPT combo the ESP
+    # Beta-v2.6.2 [GRUB-ESP-BOOT]: in the GRUB+ENCRYPT combo the ESP
     # mountpoint is /mnt/boot itself (no /mnt/boot/efi, no /mnt/boot/grub).
     # All || true so unwinding a non-combo /mnt/boot btrfs dir is a no-op.
     [ "$GRUB_ESP_BOOT" = "true" ] && umount -fl /mnt/boot 2>/dev/null || true
@@ -534,7 +611,7 @@ cleanup_on_failure() {
     umount -fl /mnt/proc 2>/dev/null || true
     umount -fl /mnt/sys 2>/dev/null || true
     umount -fl /mnt/run 2>/dev/null || true
-    # AI (Big Pickle) CHANGE — v3.2.0 [item 3]: var/lib/lightdm added to the
+    # AI (Big Pickle) CHANGE — Beta-v2.4.0 [item 3]: var/lib/lightdm added to the
     # unwind list to mirror the new @lightdm subvolume (only ever mounted
     # when DISPLAY_MANAGER=lightdm; the umount is safe/no-op otherwise).
     for m in var/swap var/spool var/log var/lib/libvirt var/lib/sddm var/lib/lightdm \
@@ -553,7 +630,7 @@ jl "Begin Stage 1"
 
 # Fail fast with a clear message if the Live CD hasn't got a network yet,
 # rather than letting the first xbps-install die on a cryptic repo error.
-# AI (Big Pickle) CHANGE — v3.3.0: this check probes the authoritative mirror
+# AI (Big Pickle) CHANGE — Beta-v2.4.1: this check probes the authoritative mirror
 # REGISTRY (xmirror.voidlinux.org — the same registry the regional-mirror
 # selection block below is derived from) rather than hardcoding a single
 # mirror (previously repo-default.voidlinux.org). The regional mirror selected
@@ -568,7 +645,7 @@ if ! ping -c1 -W3 xmirror.voidlinux.org >/dev/null 2>&1; then
 fi
 
 # =============================================================================
-# AI (Big Pickle) ADDITION — v3.2.0 [RESUME]: COARSE PHASE RESUME / SUBVOL RESET
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [RESUME]: COARSE PHASE RESUME / SUBVOL RESET
 # =============================================================================
 # The live USB session is ephemeral but a crash leaves the script's config in
 # /tmp/void-installer-state.sh, which persists for the rest of this same booted
@@ -591,7 +668,7 @@ for _arg in "$@"; do
     case "$_arg" in
         -r|--resume) AUTO_RESUME=1 ;;
         -d|--dry-run|--dryrun|-n)
-            # AI (Big Pickle) ADDITION — v3.3.0-beta3 [DRY-RUN]: see header —
+            # AI (Big Pickle) ADDITION — Beta-v2.5.1 [DRY-RUN]: see header —
             # walk the full interactive config, print the complete plan of what
             # would be done, and stop at the destructive partition boundary
             # WITHOUT touching any disk, running the chroot, or installing
@@ -609,7 +686,7 @@ for _arg in "$@"; do
 done
 unset _arg
 
-# AI (Big Pickle) ADDITION — v3.3.0 [PREREQ]: this installer mounts, partitions
+# AI (Big Pickle) ADDITION — Beta-v2.4.1 [PREREQ]: this installer mounts, partitions
 # and formats real disks, so it must run as root. Placed AFTER option parsing so
 # `--help` still works for a non-root user, but before any disk operation. Fail
 # fast with a clear message instead of letting the first mount/sgdisk die on a
@@ -689,7 +766,7 @@ read_password_twice() {
 #                  this option since it's never going to be used.
 
 # =============================================================================
-# AI (Big Pickle) CHANGE — v3.2.0 [RESUME]: The entire interactive
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [RESUME]: The entire interactive
 # configuration block below is skipped on a resumed run (RESUME=1); all
 # answers are restored from the state file instead of being re-prompted.
 # On a fresh run (RESUME=0) this block behaves exactly as before.
@@ -712,7 +789,7 @@ while true; do
 done
 export ACCOUNT_MODEL
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta4 [SHELL]: real login-shell choice.
+# AI (Big Pickle) ADDITION — Beta-v2.5.2 [SHELL]: real login-shell choice.
 # bash is the Void default (present in base-system), so it needs no package.
 # zsh/fish/mksh are installed from the official repos when selected. Stored as
 # the shell binary path (USER_SHELL) plus the xbps package providing it
@@ -757,7 +834,7 @@ while true; do
 done
 export TARGET_USER
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta15 [FULLNAME]: prompt for the user's
+# AI (Big Pickle) ADDITION — Beta-v2.6.3 [FULLNAME]: prompt for the user's
 # real (display) name, e.g. "John Doe", used for the account GECOS field so logins
 # (and greeters/`finger`) show a friendly name instead of the bare username.
 # Deliberately permissive — any printable text is accepted (a name is free-form);
@@ -811,7 +888,7 @@ export TARGET_DOMAIN
 export TARGET_FQDN
 
 # =============================================================================
-# AI (Big Pickle) ADDITION — v3.2.0 [LOCALIZE]: REAL LOCALIZATION.
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [LOCALIZE]: REAL LOCALIZATION.
 # System language/locale and timezone are now real install-time choices. On
 # the installed system the chosen locale is generated (via
 # /etc/default/libc-locales + glibc-locales), set as the active system
@@ -918,7 +995,7 @@ done
 export TIMEZONE
 
 # =============================================================================
-# AI (Big Pickle) ADDITION — v3.3.0 [MIRROR]: REGIONAL OFFICIAL MIRROR SELECTION.
+# AI (Big Pickle) ADDITION — Beta-v2.4.1 [MIRROR]: REGIONAL OFFICIAL MIRROR SELECTION.
 # xmirror.voidlinux.org is Void's authoritative mirror registry. To give the
 # installer better global reach, we auto-derive a region-appropriate official
 # mirror from the timezone chosen above, then let the user override it.
@@ -979,7 +1056,7 @@ REPO_BACKUP2="https://repo-default.voidlinux.org/current"
 export REPO_BACKUP1 REPO_BACKUP2
 
 # =============================================================================
-# AI (Big Pickle) ADDITION — v3.2.0 [SWAP]: REAL SWAP / ZRAM / HIBERNATION
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [SWAP]: REAL SWAP / ZRAM / HIBERNATION
 # CHOICE. Swap is no longer a fixed 16.64 GB always-on swapfile. The user now
 # picks a backend (disk-backed Btrfs swapfile, compressed-RAM zram, both, or
 # none) and — where a disk-backed swapfile exists — whether to enable
@@ -1028,7 +1105,7 @@ else
 fi
 export ENABLE_HIBERNATION
 
-# AI (Big Pickle) CHANGE — v3.2.0 [SWAP]: the disk swapfile's size comes from
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [SWAP]: the disk swapfile's size comes from
 # the choice below, never a fixed 16.64 GB default.
 #  * Hibernation ON  -> the swapfile must hold the RAM image, so it is
 #    auto-sized to RAM + 25%, rounded UP to a whole-gigabyte boundary (the
@@ -1071,9 +1148,9 @@ fi
 export SWAPFILE_SIZE
 
 # =============================================================================
-# BOOTLOADER CHOICE: GRUB or LIMINE (v3.2.0-beta1) — [LIMINE-1]
+# BOOTLOADER CHOICE: GRUB or LIMINE (Beta-v2.4.0) — [LIMINE-1]
 # =============================================================================
-# AI (Big Pickle) CHANGE — v3.3.0-beta27 [FLOW-ORDER]: reordered this install-
+# AI (Big Pickle) CHANGE — Beta-v2.7.5 [FLOW-ORDER]: reordered this install-
 # prompt flow so disk-encryption is decided AFTER the bootloader, and the Limine
 # wallpaper is asked immediately after the bootloader choice. Final prompt order
 # (swap was already above) is now: bootloader -> Limine wallpaper (limine only)
@@ -1083,7 +1160,7 @@ export SWAPFILE_SIZE
 # runs only after the bootloader + YK_FALLBACK clamp are final (unchanged
 # semantic from [ENCRYPT-ORDER]); the audio choice moved to the tail of this
 # cluster. YubiKey still must be decided under ENCRYPT=yes before the clamp.
-# AI (Claude, Sonnet 5, Medium) CHANGE — v3.1.0-beta1: Limine was briefly made the ONLY
+# AI (Claude, Sonnet 5, Medium) CHANGE — Beta-v2.3.0: Limine was briefly made the ONLY
 # bootloader in an earlier pass of this beta (see CHANGELOG §3.19/§4.7 for
 # the original GRUB→Limine rationale — smaller trusted codebase, single-
 # file portable UEFI deployment with no efibootmgr/NVRAM coupling, a
@@ -1094,7 +1171,7 @@ export SWAPFILE_SIZE
 # boot via grub-btrfs, confirmed working); Limine is offered alongside it
 # as the newer, simpler, but still-experimental alternative from this beta
 # line. Both paths coexist in Stage 2 below, gated on $BOOTLOADER.
-# AI (Big Pickle) CHANGE — v3.3.0-beta12 [LIMINE-DEFAULT]: the maintainer
+# AI (Big Pickle) CHANGE — Beta-v2.6.0 [LIMINE-DEFAULT]: the maintainer
 # has since switched the default. Limine is now listed FIRST in the menu
 # and bare Enter selects it (the mature GRUB path stays as choice 2).
 #
@@ -1109,7 +1186,7 @@ if [ ! -d /sys/firmware/efi ]; then
     exit 1
 fi
 
-# AI (Big Pickle) CHANGE — v3.3.0-beta12 [LIMINE-DEFAULT]: Limine is now
+# AI (Big Pickle) CHANGE — Beta-v2.6.0 [LIMINE-DEFAULT]: Limine is now
 # listed FIRST and is the DEFAULT bootloader (bare Enter selects it). GRUB
 # remains a fully supported, first-class choice at option 2. The reordering
 # is presentational only — all $BOOTLOADER-gated logic downstream is
@@ -1140,7 +1217,7 @@ echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snaps
      case "${BOOTLOADER_INPUT:-$DEFAULT_BOOTLOADER}" in
          1) BOOTLOADER="limine"; EFI_PART_SIZE="4G"; break ;;
          2) BOOTLOADER="grub"; EFI_PART_SIZE="1G"
-            # v3.3.0-beta14 [GRUB-ESP-BOOT]: GRUB+ENCRYPT keeps the whole boot
+            # Beta-v2.6.2 [GRUB-ESP-BOOT]: GRUB+ENCRYPT keeps the whole boot
             # tree (grub + every kernel/initramfs) on the ESP — needs 4GiB.
             [ "$ENCRYPT" = "yes" ] && EFI_PART_SIZE="4G"
             break ;;
@@ -1150,7 +1227,7 @@ echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snaps
 export BOOTLOADER
 export EFI_PART_SIZE
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta3 [LIMINE-WALLPAPER]: optional boot-
+# AI (Big Pickle) ADDITION — Beta-v2.5.1 [LIMINE-WALLPAPER]: optional boot-
 # screen background image for Limine. Void's limine package ships the plain
 # (non-"gui") binary — this script deploys exactly that BOOTX64.EFI — and
 # Limine's `wallpaper:` directive (BMP/PNG/JPEG/QOI) works fine with it,
@@ -1186,7 +1263,7 @@ if [ "$BOOTLOADER" = "limine" ]; then
         esac
     done
     if [ "$LIMINE_WALLPAPER" = "yes" ]; then
-        # AI (Big Pickle) CHANGE — v3.3.0-beta7 [LIMINE-WALLPAPER-BROWSE]: instead of
+        # AI (Big Pickle) CHANGE — Beta-v2.5.4 [LIMINE-WALLPAPER-BROWSE]: instead of
         # only a typed-path prompt, the installer can now BROWSE to the image with a
         # pure-bash numbered `ls` menu (no fzf/dialog — the Void live CD ships
         # neither). Start in /run/media (where a USB stick holding the image is
@@ -1286,12 +1363,12 @@ fi
 export LIMINE_WALLPAPER
 export LIMINE_WALLPAPER_STYLE
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: optional LUKS2 full-disk
+# AI (Big Pickle) ADDITION — Beta-v2.5.5 [ENCRYPT]: optional LUKS2 full-disk
 # encryption of partition 2 (the Btrfs filesystem). The ESP stays
 # unencrypted. When enabled, the user types a passphrase (twice, hiding it)
-# so it never lands on screen. Since v3.3.0-beta7 this passphrase can be
+# so it never lands on screen. Since Beta-v2.5.4 this passphrase can be
 # supplemented or replaced by YubiKey hmac-sha1 unlock ([YUBIKEY]);
-# AI (Big Pickle) CHANGE — v3.3.0-beta12 [ENCRYPT-ORDER]: the actual typed
+# AI (Big Pickle) CHANGE — Beta-v2.6.0 [ENCRYPT-ORDER]: the actual typed
 # passphrase is now captured AFTER this yes/no gate — specifically after the
 # YubiKey menu AND the bootloader choice + YK_FALLBACK clamp — so the capture
 # prompt can tell the user truthfully whether this passphrase is (a) a
@@ -1327,7 +1404,7 @@ case "$ENCRYPT_INPUT" in
 esac
 export ENCRYPT
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: optional YubiKey
+# AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: optional YubiKey
 # hmac-sha1 challenge-response unlock, offered only when encryption was
 # enabled. The YubiKey is REQUIRED to be present at install time — enrollment
 # programs a real OTP slot and binds the HMAC response as a LUKS key slot, so
@@ -1395,7 +1472,7 @@ fi
 export YK_MODE YK_FALLBACK YK_SLOT YK_TOUCH
 unset YK_INPUT YK_SLOT_INPUT YK_TOUCH_INPUT YK_FALLBACK_INPUT
 
-# AI (Big Pickle) CHANGE — v3.3.0-beta7 [YUBIKEY] + v3.3.0-beta14
+# AI (Big Pickle) CHANGE — Beta-v2.5.4 [YUBIKEY] + Beta-v2.6.2
 # [GRUB-ESP-BOOT]: YubiKey possession-only (YK_FALLBACK=no, no typed
 # passphrase slot at all) is deliberately still clamped back on under GRUB,
 # even though [GRUB-ESP-BOOT] now keeps /boot public on the ESP so GRUB never
@@ -1413,7 +1490,7 @@ if [ "$BOOTLOADER" = "grub" ] && [ "$YK_MODE" = "hmac-sha1" ] && [ "$YK_FALLBACK
     YK_FALLBACK="yes"
 fi
 
-# AI (Big Pickle) CHANGE — v3.3.0-beta12 [ENCRYPT-ORDER]: typed-passphrase
+# AI (Big Pickle) CHANGE — Beta-v2.6.0 [ENCRYPT-ORDER]: typed-passphrase
 # capture, moved here. $YK_MODE/$YK_FALLBACK/$BOOTLOADER are now all final
 # (the GRUB clamp above has run), so this prompt labels the passphrase's
 # destiny truthfully:
@@ -1442,7 +1519,7 @@ if [ "$ENCRYPT" = "yes" ]; then
             echo "  This passphrase is required at every boot to unlock the disk."
         fi
         echo "Enter a passphrase for the encrypted disk (hidden input):"
-        # AI (Big Pickle) ADDITION — v3.3.0-beta21 [KEYMAP]: tell the user that
+        # AI (Big Pickle) ADDITION — Beta-v2.6.9 [KEYMAP]: tell the user that
         # the passphrase bytes are tied to the CURRENT console keymap, which
         # will be baked into the installed system + initramfs. This avoids the
         # "locks at boot" surprise when the boot console would otherwise map
@@ -1464,7 +1541,7 @@ if [ "$ENCRYPT" = "yes" ]; then
         break
     done
     unset ENCRYPT_PASSPHRASE_CONFIRM
-    # AI (Big Pickle) ADDITION — v3.3.0-beta23 [CRYPT-NAME]: optional LUKS
+    # AI (Big Pickle) ADDITION — Beta-v2.7.1 [CRYPT-NAME]: optional LUKS
     # mapper name. Defaults to `void-root` (the historical/AGENTS name that all
     # the generated crypttab, rd.luks.name= kernel params, limine resync, and
     # the YubiKey keyscript path are built around). Prompting lets a user pick
@@ -1509,7 +1586,7 @@ case "$ENABLE_SNAPSHOT_AUDIO_INPUT" in
 esac
 export ENABLE_SNAPSHOT_AUDIO
 
-# AI (Claude, Sonnet 5, Medium) ADDITION — v3.1.0-beta1 [KERNEL-MODE]: Where Limine reads the
+# AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.3.0 [KERNEL-MODE]: Where Limine reads the
 # kernel/initramfs from is a real install-time choice, asked only when
 # Limine itself was chosen above — this has no meaning for GRUB, which
 # always reads /boot off the @ subvolume the normal way. See CHANGELOG
@@ -1525,7 +1602,7 @@ export ENABLE_SNAPSHOT_AUDIO
 #      mismatched one. Worst-case failure mode if the hook ever misses a
 #      kernel update is a stale-but-bootable old kernel (visible,
 #      recoverable) — see DO NOT #4 above.
-# AI (Big Pickle) ADDITION — v3.3.0-beta3 [LIMINE-ESP-ONLY]: the former
+# AI (Big Pickle) ADDITION — Beta-v2.5.1 [LIMINE-ESP-ONLY]: the former
 # btrfs-direct option was REMOVED. Limine's own documentation states plainly
 # that "the kernel and initramfs must reside on the ESP FAT32 or on another
 # dedicated FAT partition, while the system root can be on Btrfs" — i.e.
@@ -1600,7 +1677,7 @@ export KERNEL_MODE
 #      is never linked as a runit service unless DISPLAY_MANAGER chose
 #      it, same as kde-plasma already pulling in sddm without this script
 #      needing to do anything special about it.
-# AI (Claude, Sonnet 5, Medium) EXPANSION — v3.2.0: desktop environment is
+# AI (Claude, Sonnet 5, Medium) EXPANSION — Beta-v2.4.0: desktop environment is
 # now a choice among a curated mainstream set of DEs that all ship as
 # official Void packages (no third-party repos required): KDE Plasma,
 # GNOME, Cinnamon, plus new additions Xfce, MATE, and LXQt. Each is gated
@@ -1649,7 +1726,7 @@ while true; do
 done
 export DESKTOP_ENV
 
-# AI (Claude, Sonnet 5, Medium) ADDITION — v3.2.0: store the display manager
+# AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.4.0: store the display manager
 # typically paired with the just-chosen DE so the DM prompt below can offer
 # that as its recommended/default entry, while still allowing any other DM.
 case "$DESKTOP_ENV" in
@@ -1709,7 +1786,7 @@ while true; do
 done
 export DISPLAY_MANAGER
 
-# AI (Claude, Sonnet 5, Medium) ADDITION — v3.2.0: LightDM needs an explicit
+# AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.4.0: LightDM needs an explicit
 # greeter. Previously the script hard-attempted the Slick greeter and fell
 # back to GTK with a fragile loop that could fail an install under `set -e`.
 # Now it is an explicit install-time choice, offered only when LightDM was
@@ -1739,7 +1816,7 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
         LIGHTDM_GREETER_PKG="lightdm-slick-greeter"
         # Slick installs its greeter .desktop as slick-greeter.desktop, not
         # lightdm-slick-greeter.desktop, so greeter-session must name that file.
-        # [LIGHTDM-GREETER-SESSION] v3.3.0-beta29: was wrongly "lightdm-slick-greeter".
+        # [LIGHTDM-GREETER-SESSION] Beta-v2.7.7: was wrongly "lightdm-slick-greeter".
         LIGHTDM_GREETER_SESSION="slick-greeter"
     elif [ "$LIGHTDM_GREETER" = "webkit2" ]; then
         LIGHTDM_GREETER_PKG="lightdm-webkit2-greeter"
@@ -1755,7 +1832,7 @@ fi
 # =============================================================================
 # SESSION / SEAT MANAGEMENT (logind) CHOICE [item 9]
 # =============================================================================
-# AI (Big Pickle) ADDITION — v3.2.0 [item 9]: Void does not run systemd,
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 9]: Void does not run systemd,
 # so login/seat management comes from one of two standalone stacks:
 #   - elogind (the fork of systemd-logind) + a logind-compatible service —
 #     the default. The same daemon that satisfies polkit/GNOME/KDE and a
@@ -1852,7 +1929,7 @@ export INSTALL_FLATPAK
 #     below via Flatpak ONLY when Flatpak was also selected — if not,
 #     Brave is skipped with a clear explanation rather than silently
 #     doing nothing or reaching for an unofficial repo.
-# AI (Big Pickle) ADDITION — v3.3.0-beta26 [BROWSER-GROUP]: gate the whole
+# AI (Big Pickle) ADDITION — Beta-v2.7.4 [BROWSER-GROUP]: gate the whole
 # web-browser install section behind one yes/no so a person who wants NO
 # browser can skip past all five prompts at once; anyone who does want
 # browsers then picks each one individually below (same per-browser defaults
@@ -2000,7 +2077,7 @@ fi
 export PROVISION_BRAVE_SUBVOL
 fi
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: same "pre-create the
+# AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: same "pre-create the
 # isolated subvolume for later manual use" pattern, extended beyond web
 # browsers to other per-user apps (Thunderbird mail profile, Steam) and to
 # server datadirs (PostgreSQL/MariaDB). Each is asked individually and only
@@ -2052,7 +2129,7 @@ export PROVISION_DB_SUBVOLS
 # at a time below. You are not choosing between them; you can say yes to
 # any combination (all three, any two, one, or none). If you only need
 # one backend, it's fine to say no to the other two when they're asked.
-# AI (Big Pickle) ADDITION — v3.3.0-beta26 [CONTAINER-GROUP]: gate the whole
+# AI (Big Pickle) ADDITION — Beta-v2.7.4 [CONTAINER-GROUP]: gate the whole
 # container section behind one yes/no. All three backends default OFF, so the
 # gate defaults OFF too — a bare-Enter run skips the section exactly as it did
 # before (lean posture, [OPT-DEFAULTS]). Say "yes" to walk Podman rootless /
@@ -2073,7 +2150,7 @@ if [ "$SETUP_CONTAINERS" = "true" ]; then
     echo "Container backends — Podman rootless, Podman rootful, and Docker are"
     echo "three independent choices below (any combination is fine, including"
     echo "all three or none)."
-    # AI (Big Pickle) CHANGE — v3.3.0-beta2 [OPT-DEFAULTS]: Podman rootless,
+    # AI (Big Pickle) CHANGE — Beta-v2.5.0 [OPT-DEFAULTS]: Podman rootless,
     # Podman rootful, Docker, and virtualization are now all default-OFF.
     # A bare "just press Enter" run therefore installs a lean base system —
     # the container/virtualization stack must be explicitly opted into per
@@ -2160,7 +2237,7 @@ else
 fi
 export INSTALL_DISTROBOX
 
-# AI (Claude, Sonnet 5, Medium) CHANGE — v3.1.0-beta1 [DISTROBOX-3]: Third release-track option
+# AI (Claude, Sonnet 5, Medium) CHANGE — Beta-v2.3.0 [DISTROBOX-3]: Third release-track option
 # added — "next" (the upstream v2 Go rewrite, still upstream's own
 # release-candidate branch, not a tagged release). CHANGELOG §3.24: offered
 # only after the maintainer validated next-branch behavior empirically
@@ -2303,7 +2380,7 @@ read -r -p "Press Enter once ready to continue: " _
 fi
 
 # =============================================================================
-# AI (Big Pickle) CHANGE — v3.2.0 [RESUME]: NIC detection, disk enumeration,
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [RESUME]: NIC detection, disk enumeration,
 # disk selection, the already-installed guard, and the ERASE confirmation are
 # all skipped on a resumed run — the target disk and NIC were already chosen
 # in the interrupted run and are restored from the state file.
@@ -2434,7 +2511,7 @@ done
 export DISK="${DISK_BY_INDEX[$DISK_CHOICE]}"
 
 # =============================================================================
-# AI (Big Pickle) ADDITION — v3.2.0 [item 7]: RE-RUN / ALREADY-INSTALLED GUARD
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 7]: RE-RUN / ALREADY-INSTALLED GUARD
 # =============================================================================
 # The live USB environment is ephemeral but the SELECTED target disk is NOT.
 # Re-running this installer (e.g. the user boots the live USB again, or a
@@ -2521,7 +2598,7 @@ else
     # but require the literal word ERASE! to confirm. The exact-device
     # round-trip ("ERASE /dev/xxx") used to be required here too, matching the
     # elevated already-installed path above, but that was dropped (AI (Big
-    # Pickle) v3.3.0-beta4): the chosen disk is displayed prominently right
+    # Pickle) Beta-v2.5.2): the chosen disk is displayed prominently right
     # above, and the stricter typed-device bar is retained only for the
     # already-installed-Void re-run path, the scenario with the most to lose.
     echo "${C_RED}${C_BOLD}  >>> To proceed, type ERASE! below (all caps, with the exclamation mark). <<<${C_RST}"
@@ -2535,7 +2612,7 @@ else
 fi
 
 # =============================================================================
-# AI (Big Pickle) ADDITION — v3.3.0-beta4 [CONFIRM]: post-ERASE, pre-partition
+# AI (Big Pickle) ADDITION — Beta-v2.5.2 [CONFIRM]: post-ERASE, pre-partition
 # final review. Every install-time choice is now captured, so print a complete
 # summary of what is about to be installed and give the user one last chance to
 # back out BEFORE any disk is touched. Pressing Enter proceeds to the
@@ -2627,7 +2704,7 @@ else
     export PART_SYS="${DISK}2"
 fi
 
-# AI (Big Pickle) ADDITION — v3.3.0 [MIRROR]: these defaults are only applied
+# AI (Big Pickle) ADDITION — Beta-v2.4.1 [MIRROR]: these defaults are only applied
 # when no mirror was chosen in the earlier prompt step (e.g. on a resumed run
 # that skipped it); otherwise the user's regional selection is preserved.
 REPO_PRIMARY="${REPO_PRIMARY:-https://mirrors.summithq.com/voidlinux/current}"
@@ -2635,14 +2712,14 @@ REPO_BACKUP1="${REPO_BACKUP1:-https://repo-fastly.voidlinux.org/current}"
 REPO_BACKUP2="${REPO_BACKUP2:-https://repo-default.voidlinux.org/current}"
 
 LIVECD_SYNC_OK=0
-# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: when YubiKey hmac-sha1
+# AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: when YubiKey hmac-sha1
 # unlock was requested, the live medium also needs the ykpers C tools
 # (ykpersonalize + ykchalresp) to program the slot and compute the HMAC key.
 # They are added to the sync (and to the prereq list below) only in that case.
 YK_LIVE_PKGS=""
 [ "$YK_MODE" = "hmac-sha1" ] && YK_LIVE_PKGS=" ykpers"
 if [ "$DRY_RUN" = "1" ]; then
-    # AI (Big Pickle) ADDITION — v3.3.0-beta3 [DRY-RUN]: a plan run must not
+    # AI (Big Pickle) ADDITION — Beta-v2.5.1 [DRY-RUN]: a plan run must not
     # modify the live environment (xbps-install -Syu would sync/upgrade and
     # install gptfdisk/parted/btrfs-progs/openssl into the running medium).
     # Pretend success so the flow reaches the plan printout at the partition
@@ -2667,8 +2744,8 @@ if [ "$LIVECD_SYNC_OK" -ne 1 ]; then
     exit 1
 fi
 
-# AI (Big Pickle) ADDITION — v3.3.0 [PREREQ], AI (Big Pickle) CORRECTION —
-# v3.3.0-beta4 [PREREQ-CURL]: after the live sync the tools this installer's
+# AI (Big Pickle) ADDITION — Beta-v2.4.1 [PREREQ], AI (Big Pickle) CORRECTION —
+# Beta-v2.5.2 [PREREQ-CURL]: after the live sync the tools this installer's
 # OUTER (live-CD) stage invokes directly must actually exist on the medium —
 # the sync just installed gptfdisk/btrfs-progs/openssl, so the next step
 # (destructive partitioning) should not be reached without them. Tools that
@@ -2688,7 +2765,7 @@ for _prereq in sgdisk mkfs.fat mkfs.btrfs btrfs parted openssl mount umount \
 done
 unset _prereq
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: YubiKey hmac-sha1
+# AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: YubiKey hmac-sha1
 # enrollment. Only reached for a fresh (non-resumed) run when YK_MODE=hmac-sha1.
 # Programming a slot is DESTRUCTIVE, so it happens here (after the live-CD sync
 # installed ykpers) with an explicit final confirmation naming the slot. The
@@ -2735,7 +2812,7 @@ if [ "$RESUME" != "1" ] && [ "$YK_MODE" = "hmac-sha1" ]; then
     fi
 fi
 
-# AI (Big Pickle) CHANGE — v3.2.0 [RESUME]: Password hashing is skipped on a
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [RESUME]: Password hashing is skipped on a
 # resumed run — the hashes are already restored from the state file, and the
 # live passwords are intentionally never re-entered or re-derived.
 if [ "$RESUME" != "1" ]; then
@@ -2751,7 +2828,7 @@ if [ "$RESUME" != "1" ]; then
 fi
 
 # =============================================================================
-# AI (Big Pickle) ADDITION — v3.2.0 [RESUME]: PERSIST CONFIGURATION STATE.
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [RESUME]: PERSIST CONFIGURATION STATE.
 # Every answer required to re-run the (non-idempotent) Stage 2 is written to
 # the state file so a resumed run can skip re-prompting. Only plaintext
 # password *hashes* are persisted — never the passwords themselves. Written
@@ -2794,7 +2871,7 @@ STAGE_CONTEXT="STAGE1:partition"
 jl "Config persisted to $STATE_FILE (DISK=${DISK}, bootloader=${BOOTLOADER})"
 unset _sv
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta3 [DRY-RUN]: if --dry-run/-d/-n was
+# AI (Big Pickle) ADDITION — Beta-v2.5.1 [DRY-RUN]: if --dry-run/-d/-n was
 # given, everything above has run interactively (all prompts, no disk touched,
 # no live-env package sync, no chroot). Print the complete as-planned summary
 # of what a real run WOULD do — destination disk/partitions, bootloader,
@@ -2830,12 +2907,12 @@ if [ "$DRY_RUN" = "1" ]; then
     exit 0
 fi
 
-# AI (Big Pickle) CHANGE — v3.2.0 [RESUME]: The destructive partitioning and
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [RESUME]: The destructive partitioning and
 # filesystem creation below run ONLY on a fresh install. A resumed run reuses
 # the existing partition table and filesystems (the installer's own, from the
 # interrupted run) — the target's *contents* are reset separately further on.
 #
-# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: when encryption is
+# AI (Big Pickle) ADDITION — Beta-v2.5.5 [ENCRYPT]: when encryption is
 # enabled, partition 2 ($PART_SYS) holds a LUKS2 container. Everything the
 # installer acts on is the opened MAPPER device ($BTRFS_DEV), never the raw
 # container. On a fresh install the container is created (luksFormat) then
@@ -2868,7 +2945,7 @@ if [ "$RESUME" != "1" ]; then
         # process list. The ESP is formatted after this.
         echo ""
         echo "==> Formatting partition 2 as a LUKS2 container (cryptsetup)"
-        # AI (Big Pickle) FIX — v3.3.0-beta22 [ENCRYPT-NEWLINE]: feed the passphrase
+        # AI (Big Pickle) FIX — Beta-v2.7.0 [ENCRYPT-NEWLINE]: feed the passphrase
         # with `printf '%s'` (NO trailing newline) instead of a `<<<` here-string
         # or `echo`. A here-string/echo appends a newline byte, so the LUKS keyslot
         # stored passphrase+\n. An interactive `cryptsetup open` prompt (terminal
@@ -2881,7 +2958,7 @@ if [ "$RESUME" != "1" ]; then
         printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksFormat --type luks2 -q --key-file=- "$PART_SYS"
         echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV}"
         printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksOpen --key-file=- "$PART_SYS" "$CRYPT_NAME"
-        # AI (Big Pickle) ADDITION — v3.3.0-beta21 [ENCRYPT-VERIFY]: prove the
+        # AI (Big Pickle) ADDITION — Beta-v2.6.9 [ENCRYPT-VERIFY]: prove the
         # typed passphrase actually unlocks the volume BEFORE any reboot. The
         # passphrase is the ONLY way into a LUKS2 container (no key file), and
         # a mismatch here has historically caused a boot that prompts and then
@@ -2906,7 +2983,7 @@ if [ "$RESUME" != "1" ]; then
         fi
         echo "   OK: passphrase verified (luksFormat key == unlock key)."
         BTRFS_DEV="$CRYPT_DEV"
-        # AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: bind the YubiKey
+        # AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: bind the YubiKey
         # HMAC response as an ADDITIONAL LUKS key slot while the passphrase
         # (which authenticated luksFormat) is still in memory. YK_KEY was
         # computed during enrollment and lives only in this process's memory;
@@ -2970,7 +3047,7 @@ else
                     echo
                     [ -n "$ENCRYPT_PASSPHRASE" ] || { echo "FATAL: empty passphrase." >&2; exit 1; }
                     echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV} (passphrase fallback)"
-                    # AI (Big Pickle) ADDITION — v3.3.0-beta21 [ENCRYPT-VERIFY]: a
+                    # AI (Big Pickle) ADDITION — Beta-v2.6.9 [ENCRYPT-VERIFY]: a
                     # failed luksOpen on resume must abort, not silently continue
                     # with a bogus $BTRFS_DEV (which would then mount nothing and
                     # leave the user assuming the passphrase "worked").
@@ -2995,7 +3072,7 @@ else
             echo
             [ -n "$ENCRYPT_PASSPHRASE" ] || { echo "FATAL: empty passphrase." >&2; exit 1; }
             echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV}"
-            # AI (Big Pickle) ADDITION — v3.3.0-beta21 [ENCRYPT-VERIFY]: abort on
+            # AI (Big Pickle) ADDITION — Beta-v2.6.9 [ENCRYPT-VERIFY]: abort on
             # a failed resume unlock rather than continuing with a dead $BTRFS_DEV.
             if ! printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksOpen --key-file=- "$PART_SYS" "$CRYPT_NAME"; then
                 echo "${C_RED}!! FATAL: could not unlock ${PART_SYS} with the passphrase given." >&2
@@ -3010,19 +3087,19 @@ else
 
     mount -v -o subvolid=5 "$BTRFS_DEV" /mnt
 fi
-# AI (Big Pickle) NOTE — Open Item #7 DECIDED (v3.3.0): @grub is KEPT as a
+# AI (Big Pickle) NOTE — Open Item #7 DECIDED (Beta-v2.4.1): @grub is KEPT as a
 # dedicated top-level subvolume/mountpoint for BOOTLOADER=grub only (gated at
 # the SUBVOL_LIST, mkdir, mount, fstab, and teardown-umount sites). Rationale:
 # bootloader state is recovery-critical, so isolating /boot/grub on its own
 # subvolume makes it immune to Snapper rollbacks of the @ root. Limine
 # consumes nothing from it and under BOOTLOADER=limine no @grub subvolume is
-# created at all. v3.3.0-beta14 [GRUB-ESP-BOOT]: the sole exception — a
+# created at all. Beta-v2.6.2 [GRUB-ESP-BOOT]: the sole exception — a
 # GRUB+ENCRYPT install also never creates @grub, because the ESP itself is
 # mounted at /boot and carries all grub files (see the GRUB_ESP_BOOT
 # derivation below). This closes former CHANGELOG Open Item #7 — no removal is
 # planned.
 BASE_LAYOUT="@ @home @opt @srv @snapshots @cache @log @spool @usercache @root"
-# AI (Big Pickle) ADDITION — v3.3.0-beta14 [GRUB-ESP-BOOT]: with
+# AI (Big Pickle) ADDITION — Beta-v2.6.2 [GRUB-ESP-BOOT]: with
 # BOOTLOADER=grub AND full-disk encryption, the ESP is mounted AT /boot (not
 # /boot/efi) so the ENTIRE boot tree — grub.cfg, grub modules, every kernel
 # and initramfs — lives OUTSIDE the LUKS volume. GRUB therefore never has to
@@ -3038,7 +3115,7 @@ GRUB_ESP_BOOT="false"
 [ "$BOOTLOADER" = "grub" ] && [ "$ENCRYPT" = "yes" ] && GRUB_ESP_BOOT="true"
 export GRUB_ESP_BOOT
 SUBVOL_LIST="$BASE_LAYOUT"
-# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: @network backs
+# AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: @network backs
 # /var/lib/NetworkManager runtime state (leases, NetworkManager.state) so a
 # Snapper rollback of @ does not rewind it. Unconditional because
 # NetworkManager is installed on every build (both $SESSION_STACK branches).
@@ -3048,7 +3125,7 @@ SUBVOL_LIST="$SUBVOL_LIST @network"
 [ "$INSTALL_DOCKER" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @docker"
 [ "$INSTALL_PODMAN_ROOTFUL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @containers"
 [ "$INSTALL_PODMAN_ROOTLESS" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @containers-user"
-# AI (Claude, Sonnet 5, Medium) CHANGE — v3.2.0: the display-manager state
+# AI (Claude, Sonnet 5, Medium) CHANGE — Beta-v2.4.0: the display-manager state
 # subvolume is now created conditionally, matching whichever DM was actually
 # chosen, instead of @sddm being unconditional. @sddm exists only when
 # DISPLAY_MANAGER=sddm (its per-user runtime dir), and @lightdm exists only
@@ -3058,17 +3135,17 @@ SUBVOL_LIST="$SUBVOL_LIST @network"
 # subvolume is left behind on the partition.
 [ "$DISPLAY_MANAGER" = "sddm" ] && SUBVOL_LIST="$SUBVOL_LIST @sddm"
 [ "$DISPLAY_MANAGER" = "lightdm" ] && SUBVOL_LIST="$SUBVOL_LIST @lightdm"
-# AI (Big Pickle) CHANGE — v3.2.0 [item 5]: @grub exists only
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [item 5]: @grub exists only
 # for BOOTLOADER=grub. The old script created and mounted a dedicated @grub
 # subvolume at /boot/grub regardless of bootloader; under BOOTLOADER=limine
 # nothing ever reads /boot/grub (Limine reads everything straight off the
 # ESP), so a Limine install would carry a dead, empty /boot/grub mount.
 # Gated now so a Limine install leaves no grub directory at all.
-# AI (Big Pickle) CHANGE — v3.3.0-beta14 [GRUB-ESP-BOOT]: additionally, under
+# AI (Big Pickle) CHANGE — Beta-v2.6.2 [GRUB-ESP-BOOT]: additionally, under
 # GRUB+ENCRYPT the ESP covers /boot entirely, so @grub is skipped there too —
 # grub files live on the ESP (vfat), never inside the LUKS volume.
 [ "$BOOTLOADER" = "grub" ] && [ "$GRUB_ESP_BOOT" != "true" ] && SUBVOL_LIST="$SUBVOL_LIST @grub"
-# AI (Big Pickle) ADDITION — v3.2.0 [SWAP]: @swap subvolume only exists when a
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [SWAP]: @swap subvolume only exists when a
 # disk-backed swapfile backend was chosen (swapfile or both); zram-only and
 # no-swap installs leave no @swap subvolume at all.
 [ "$SWAPFILE_MODE" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @swap"
@@ -3077,7 +3154,7 @@ SUBVOL_LIST="$SUBVOL_LIST @network"
 # SELECTION in Stage 1). Each subvolume is created if that browser is
 # being installed OR if its subvolume was explicitly pre-provisioned
 # anyway for later manual installation.
-# v3.2.0 (Firefox layout fix): modern Firefox stores its PROFILE under
+# Beta-v2.4.0 (Firefox layout fix): modern Firefox stores its PROFILE under
 # ~/.config/mozilla/firefox and its CACHE under ~/.cache/mozilla/firefox
 # (XDG base-dir layout), NOT ~/.mozilla. @mozilla now backs
 # ~/.config/mozilla (nodatacow profile+sqlite) and the new @mozilla-cache
@@ -3091,7 +3168,7 @@ fi
 [ "$INSTALL_FALKON" = "true" ] || [ "$PROVISION_FALKON_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @falkon"
 [ "$INSTALL_BRAVE" = "true" ] || [ "$PROVISION_BRAVE_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @brave"
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: per-user app profile
+# AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: per-user app profile
 # subvolumes (Thunderbird mail profile, Steam data dir) mirror the
 # browser-provision model exactly; system datadirs (@postgresql, @mariadb)
 # are nodatacow/willfully un-snapshotted on top of that. All are gated on
@@ -3102,7 +3179,7 @@ fi
 [ "$PROVISION_VIRTUALBOX_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @virtualbox"
 [ "$PROVISION_DB_SUBVOLS" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @postgresql @mariadb"
 
-# AI (Big Pickle) ADDITION — v3.2.0 [RESUME]: SUBVOLUME RESET.
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [RESUME]: SUBVOLUME RESET.
 # Stage 2 (chroot provisioning) is deliberately NOT idempotent, so a resumed
 # run cannot just re-run it over whatever the interrupted run left behind
 # (partial package DBs, pre-existing users, dirty configs would collide).
@@ -3129,7 +3206,7 @@ BTRFS_OPTS="noatime,compress=zstd:1"
 mount -vo $BTRFS_OPTS,subvol=@ "$BTRFS_DEV" /mnt
 
 mkdir -vp /mnt/home /mnt/.snapshots /mnt/opt /mnt/srv
-# AI (Big Pickle) CHANGE — v3.3.0-beta14 [GRUB-ESP-BOOT]: in the GRUB+ENCRYPT
+# AI (Big Pickle) CHANGE — Beta-v2.6.2 [GRUB-ESP-BOOT]: in the GRUB+ENCRYPT
 # combo the ESP mounts AT /boot, so the mountpoint is /mnt/boot (no nested
 # /mnt/boot/efi, no @grub dir). Outside the combo the classic layout stands.
 if [ "$GRUB_ESP_BOOT" = "true" ]; then
@@ -3139,7 +3216,7 @@ else
     mkdir -vp /mnt/boot/efi
 fi
 mkdir -vp /mnt/var/cache /mnt/var/log /mnt/var/spool /mnt/var/tmp
-# AI (Big Pickle) CHANGE — v3.2.0 [SWAP]: /var/swap only created when a disk
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [SWAP]: /var/swap only created when a disk
 # swapfile backend was chosen (swapfile or both).
 [ "$SWAPFILE_MODE" = "true" ] && mkdir -vp /mnt/var/swap
 [ "$DISPLAY_MANAGER" = "sddm" ] && mkdir -vp /mnt/var/lib/sddm
@@ -3149,13 +3226,13 @@ mkdir -vp /mnt/root
 [ "$INSTALL_FLATPAK" = "true" ] && mkdir -vp /mnt/var/lib/flatpak
 [ "$INSTALL_DOCKER" = "true" ] && mkdir -vp /mnt/var/lib/docker
 [ "$INSTALL_PODMAN_ROOTFUL" = "true" ] && mkdir -vp /mnt/var/lib/containers
-# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: @network mountpoint.
+# AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: @network mountpoint.
 # DB datadirs are nodatacow and never appear in Snapper snapshots, so a
 # rollback of @ can never rewind a live database behind newer code.
 mkdir -vp /mnt/var/lib/NetworkManager
 [ "$PROVISION_DB_SUBVOLS" = "true" ] && mkdir -vp /mnt/var/lib/postgresql /mnt/var/lib/mysql
 
-# AI (Big Pickle) FIX — v3.3.0-beta4 [NODATACOW]: the churn-heavy var
+# AI (Big Pickle) FIX — Beta-v2.5.2 [NODATACOW]: the churn-heavy var
 # subvols are made nodatacow via their MOUNT OPTIONS (below) + fstab. A
 # `chattr +C` is deliberately NOT used here: whether run pre-mount (shadowed
 # the instant the subvolume mounts over its mountpoint dir) or post-mount (it
@@ -3178,7 +3255,7 @@ if [ "$INSTALL_VIRT" = "true" ]; then
 fi
 mount -vo noatime,nodatacow,compress=none,subvol=@log "$BTRFS_DEV" /mnt/var/log
 mount -vo noatime,nodatacow,compress=none,subvol=@spool "$BTRFS_DEV" /mnt/var/spool
-# AI (Big Pickle) REMOVED — v3.3.0-beta11 [DROP-@TMP]: the @tmp subvolume is
+# AI (Big Pickle) REMOVED — Beta-v2.5.9 [DROP-@TMP]: the @tmp subvolume is
 # gone. It was provisioned, mounted here, then permanently shadowed at boot by
 # the tmpfs /var/tmp fstab line — a top-level subvolume that never mounted at
 # runtime (dead weight and a redundant chroot-stage space consumer). /var/tmp
@@ -3191,7 +3268,7 @@ mount -vo noatime,nodatacow,compress=none,subvol=@spool "$BTRFS_DEV" /mnt/var/sp
 [ "$INSTALL_FLATPAK" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@flatpak "$BTRFS_DEV" /mnt/var/lib/flatpak
 [ "$INSTALL_DOCKER" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@docker "$BTRFS_DEV" /mnt/var/lib/docker
 [ "$INSTALL_PODMAN_ROOTFUL" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@containers "$BTRFS_DEV" /mnt/var/lib/containers
-# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: @network holds NM's
+# AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: @network holds NM's
 # runtime state (leases, NetworkManager.state). DB datadirs are
 # nodatacow+compress=none (database-internal churn; also excluded from
 # snapshots since snapper only walks the @ root's children).
@@ -3200,7 +3277,7 @@ mount -vo $BTRFS_OPTS,subvol=@network "$BTRFS_DEV" /mnt/var/lib/NetworkManager
 [ "$PROVISION_DB_SUBVOLS" = "true" ] && mount -vo noatime,nodatacow,compress=none,subvol=@mariadb "$BTRFS_DEV" /mnt/var/lib/mysql
 mount -vo $BTRFS_OPTS,subvol=@root "$BTRFS_DEV" /mnt/root
 
-# AI (Big Pickle) CHANGE — v3.2.0 [SWAP]: @swap mounted + made nodatacow only
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [SWAP]: @swap mounted + made nodatacow only
 # when a disk swapfile backend (swapfile or both) was chosen. The mount is
 # nodatacow,compress=none (a swapfile cannot live on a COW/compressed
 # subtree), and `btrfs filesystem mkswapfile` later sets nodatacow on the
@@ -3245,7 +3322,7 @@ cp /etc/resolv.conf /mnt/etc/
 BTRFS_UUID=$(blkid -s UUID -o value "$BTRFS_DEV")
 EFI_UUID=$(blkid -s UUID -o value "$PART_EFI")
 
-    # v3.1.0 corrective addition, confirmed against a real
+    # Beta-v2.3.0 corrective addition, confirmed against a real
     # failed boot (Limine PANIC: "Failed to open kernel with path
     # 'hdd(1):<GUID>:/boot/vmlinuz-...'. Is the path correct?") and Limine's
     # own documented URI scheme (limine-bootloader/limine wiki: valid forms are
@@ -3262,7 +3339,7 @@ BTRFS_PARTUUID=$(lsblk -no PARTUUID "$PART_SYS")
 SYSPREFIX_ESP="guid(${ESP_PARTUUID})"
 SYSPREFIX_BTRFS="guid(${BTRFS_PARTUUID})"
 
-# AI (Big Pickle) CHANGE — v3.2.0 [SWAP]: the Btrfs-native swapfile is created
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [SWAP]: the Btrfs-native swapfile is created
 # only for a disk swapfile backend; its size honors the Stage 1 choice.
 if [ "$SWAPFILE_MODE" = "true" ]; then
     rm -f /mnt/var/swap/swapfile
@@ -3283,7 +3360,7 @@ tmpfs            /tmp             tmpfs defaults,noatime,mode=1777 0 0
 tmpfs            /var/tmp         tmpfs defaults,noatime,mode=1777 0 0
 EOF
 
-# AI (Big Pickle) CHANGE — v3.3.0-beta14 [GRUB-ESP-BOOT]: the ESP mountpoint
+# AI (Big Pickle) CHANGE — Beta-v2.6.2 [GRUB-ESP-BOOT]: the ESP mountpoint
 # is /boot in the GRUB+ENCRYPT combo (it covers the whole boot tree so GRUB
 # never touches the LUKS volume), else /boot/efi as before. Appended after
 # the heredoc because the target path differs per combo.
@@ -3293,7 +3370,7 @@ else
     echo "UUID=$EFI_UUID /boot/efi vfat defaults,noatime 0 2" >> /mnt/etc/fstab
 fi
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: /etc/crypttab tells
+# AI (Big Pickle) ADDITION — Beta-v2.5.5 [ENCRYPT]: /etc/crypttab tells
 # dracut's `crypt` module how to unlock the container at boot. It maps the
 # plaintext mapper name (void-root) to the LUKS header by the container
 # partition's filesystem UUID (from `blkid` on $PART_SYS — the ciphertext
@@ -3304,7 +3381,7 @@ fi
 if [ "$ENCRYPT" = "yes" ]; then
     LUKS_UUID=$(blkid -s UUID -o value "$PART_SYS")
     if [ "$YK_MODE" = "hmac-sha1" ]; then
-        # AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: with YubiKey
+        # AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: with YubiKey
         # unlock, crypttab points at a boot-time keyscript instead of
         # prompting for a passphrase. dracut runs
         # /usr/local/sbin/void-reveal-yubikey-key, which challenges the
@@ -3321,7 +3398,7 @@ if [ "$ENCRYPT" = "yes" ]; then
     fi
 fi
 
-# AI (Big Pickle) CHANGE — v3.2.0 [SWAP]: fstab swap entries now appear only
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [SWAP]: fstab swap entries now appear only
 # when a disk swapfile backend (swapfile or both) was chosen.
 if [ "$SWAPFILE_MODE" = "true" ]; then
     echo "UUID=$BTRFS_UUID /var/swap        btrfs noatime,nodatacow,subvol=@swap 0 0" >> /mnt/etc/fstab
@@ -3340,7 +3417,7 @@ fi
 if [ "$INSTALL_PODMAN_ROOTFUL" = "true" ]; then
     echo "UUID=$BTRFS_UUID /var/lib/containers btrfs noatime,compress=zstd:1,subvol=@containers 0 0" >> /mnt/etc/fstab
 fi
-# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: @network fstab entry
+# AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: @network fstab entry
 # (unconditional, NM is always installed). DB datadirs keep their
 # nodatacow/compress=none options here too, matching Stage 1.
 echo "UUID=$BTRFS_UUID /var/lib/NetworkManager btrfs noatime,compress=zstd:1,subvol=@network 0 0" >> /mnt/etc/fstab
@@ -3348,7 +3425,7 @@ if [ "$PROVISION_DB_SUBVOLS" = "true" ]; then
     echo "UUID=$BTRFS_UUID /var/lib/postgresql btrfs noatime,nodatacow,compress=none,subvol=@postgresql 0 0" >> /mnt/etc/fstab
     echo "UUID=$BTRFS_UUID /var/lib/mysql       btrfs noatime,nodatacow,compress=none,subvol=@mariadb 0 0" >> /mnt/etc/fstab
 fi
-# AI (Claude, Sonnet 5, Medium) CHANGE — v3.2.0: mount the display manager's
+# AI (Claude, Sonnet 5, Medium) CHANGE — Beta-v2.4.0: mount the display manager's
 # runtime/state subvolume, matching the one created in Stage 1. @sddm is
 # mounted (via tmpfs in older revisions) for SDDM; when LightDM is chosen, a
 # dedicated @lightdm btrfs subvolume persists its per-user state instead.
@@ -3357,10 +3434,10 @@ if [ "$DISPLAY_MANAGER" = "sddm" ]; then
 elif [ "$DISPLAY_MANAGER" = "lightdm" ]; then
     echo "UUID=$BTRFS_UUID /var/lib/lightdm btrfs noatime,compress=zstd:1,subvol=@lightdm 0 0" >> /mnt/etc/fstab
 fi
-# AI (Big Pickle) CHANGE — v3.2.0 [item 5]: /boot/grub fstab
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [item 5]: /boot/grub fstab
 # entry now exists only for BOOTLOADER=grub (the @grub subvolume is likewise
 # gated in Stage 1). Under Limine nothing is mounted at /boot/grub.
-# v3.3.0-beta14 [GRUB-ESP-BOOT]: also never written in the GRUB+ENCRYPT
+# Beta-v2.6.2 [GRUB-ESP-BOOT]: also never written in the GRUB+ENCRYPT
 # combo, where grub files live on the ESP (/boot) below instead.
 [ "$BOOTLOADER" = "grub" ] && \
     [ "$GRUB_ESP_BOOT" != "true" ] && \
@@ -3369,7 +3446,7 @@ echo "UUID=$BTRFS_UUID /root               btrfs noatime,compress=zstd:1,subvol=
 
 : > /mnt/tmp/chroot_env.sh
 chmod 600 /mnt/tmp/chroot_env.sh
-# AI (Big Pickle) ADDITION — v3.3.0-beta21 [KEYMAP]: capture the console keymap
+# AI (Big Pickle) ADDITION — Beta-v2.6.9 [KEYMAP]: capture the console keymap
 # the user is typing the LUKS passphrase under, so the installed system (and its
 # early-boot initramfs prompt) uses the SAME keymap. A mismatch here is the
 # classic cause of "complex passphrase unlocks but a short simple one does not":
@@ -3419,23 +3496,23 @@ echo "export DESKTOP_ENV=\"$DESKTOP_ENV\"" >> /mnt/tmp/chroot_env.sh
 echo "export DISPLAY_MANAGER=\"$DISPLAY_MANAGER\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIGHTDM_GREETER_PKG=\"$LIGHTDM_GREETER_PKG\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIGHTDM_GREETER_SESSION=\"$LIGHTDM_GREETER_SESSION\"" >> /mnt/tmp/chroot_env.sh
-# AI (Big Pickle) ADDITION — v3.2.0 [LOCALIZE]: carry the chosen locale/timezone
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [LOCALIZE]: carry the chosen locale/timezone
 # into the chroot so Stage 2 can generate+activate the locale and set the zone.
 echo "export LOCALE=\"$LOCALE\"" >> /mnt/tmp/chroot_env.sh
 echo "export LOCALE_CODESET=\"$LOCALE_CODESET\"" >> /mnt/tmp/chroot_env.sh
 echo "export TIMEZONE=\"$TIMEZONE\"" >> /mnt/tmp/chroot_env.sh
-# AI (Big Pickle) ADDITION — v3.2.0 [SWAP]: carry swap/zram/hibernation choices
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [SWAP]: carry swap/zram/hibernation choices
 # into the chroot so Stage 2 can provision the right backend(s).
 echo "export SWAP_BACKEND=\"$SWAP_BACKEND\"" >> /mnt/tmp/chroot_env.sh
 echo "export ENABLE_HIBERNATION=\"$ENABLE_HIBERNATION\"" >> /mnt/tmp/chroot_env.sh
 echo "export SWAPFILE_SIZE=\"$SWAPFILE_SIZE\"" >> /mnt/tmp/chroot_env.sh
-# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: the yes/no flag is
+# AI (Big Pickle) ADDITION — Beta-v2.5.5 [ENCRYPT]: the yes/no flag is
 # carried into the chroot so Stage 2 writes crypttab (and dracut/GRUB/Limine
 # provision the crypt path). Deliberately NOT the passphrase — chroot_env.sh
 # must stay secret-free (same rule as the pass hashes below), and the
 # passphrase was already unset after luksOpen anyway.
 echo "export ENCRYPT=\"$ENCRYPT\"" >> /mnt/tmp/chroot_env.sh
-# AI (Big Pickle) ADDITION — v3.3.0-beta23 [CRYPT-NAME]: the mapper name is a
+# AI (Big Pickle) ADDITION — Beta-v2.7.1 [CRYPT-NAME]: the mapper name is a
 # public, non-secret value (it appears in /dev/mapper and on the kernel
 # cmdline), so it is safe to carry into the chroot for the GRUB/Limine
 # rd.luks.name= builders and crypttab. Defaults to void-root.
@@ -3447,7 +3524,7 @@ echo "export CRYPT_NAME=\"${CRYPT_NAME:-void-root}\"" >> /mnt/tmp/chroot_env.sh
 if [ "$ENCRYPT" = "yes" ]; then
     echo "export LUKS_UUID=\"$LUKS_UUID\"" >> /mnt/tmp/chroot_env.sh
 fi
-# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: carry the YubiKey unlock
+# AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: carry the YubiKey unlock
 # choices into the chroot so Stage 2 can write the keyscript-invoking crypttab
 # and the dracut module. Persisted values are PUBLIC (mode, slot, challenge) —
 # the challenge is not itself a credential; the HMAC response (YK_KEY) is
@@ -3460,20 +3537,20 @@ if [ "$YK_MODE" = "hmac-sha1" ]; then
     echo "export YK_FALLBACK=\"$YK_FALLBACK\"" >> /mnt/tmp/chroot_env.sh
     echo "export YK_TOUCH=\"$YK_TOUCH\"" >> /mnt/tmp/chroot_env.sh
 fi
-# AI (Big Pickle) ADDITION — v3.2.0 [item 9]: SESSION_STACK carried into the
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 9]: SESSION_STACK carried into the
 # chroot so Stage 2 can branch elogind vs turnstile+seatd+acpid and validate.
 # shellcheck disable=SC2129  # per-line appends, grouped for readability
 echo "export SESSION_STACK=\"$SESSION_STACK\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_OCTOXBPS=\"$INSTALL_OCTOXBPS\"" >> /mnt/tmp/chroot_env.sh
 echo "export BOOTLOADER=\"$BOOTLOADER\"" >> /mnt/tmp/chroot_env.sh
-# v3.3.0-beta14 [GRUB-ESP-BOOT]: derived flag (grub && encrypt) carried into
+# Beta-v2.6.2 [GRUB-ESP-BOOT]: derived flag (grub && encrypt) carried into
 # the chroot so Stage 2 picks the right grub-install --efi-directory.
 echo "export GRUB_ESP_BOOT=\"$GRUB_ESP_BOOT\"" >> /mnt/tmp/chroot_env.sh
 echo "export KERNEL_MODE=\"$KERNEL_MODE\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIMINE_WALLPAPER=\"$LIMINE_WALLPAPER\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIMINE_WALLPAPER_STYLE=\"$LIMINE_WALLPAPER_STYLE\"" >> /mnt/tmp/chroot_env.sh
 echo "export SCRIPT_VERSION=\"$SCRIPT_VERSION\"" >> /mnt/tmp/chroot_env.sh
-# AI (Big Pickle) ADDITION — v3.3.0-beta4 [SHELL]: carry the chosen login shell
+# AI (Big Pickle) ADDITION — Beta-v2.5.2 [SHELL]: carry the chosen login shell
 # into the chroot so Stage 2 can install its package and set it as -s.
 echo "export USER_SHELL=\"$USER_SHELL\"" >> /mnt/tmp/chroot_env.sh
 echo "export USER_SHELL_PKG=\"$USER_SHELL_PKG\"" >> /mnt/tmp/chroot_env.sh
@@ -3540,7 +3617,7 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
         exit 1
     fi
 fi
-# AI (Big Pickle) ADDITION — v3.2.0 [item 9]: hard validation so a missing or
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 9]: hard validation so a missing or
 # mangled SESSION_STACK aborts in-chroot instead of silently falling through
 # to whatever the default install line happens to be.
 if [ -z "${SESSION_STACK:-}" ] || { [ "$SESSION_STACK" != "elogind" ] && [ "$SESSION_STACK" != "turnstile" ]; }; then
@@ -3553,7 +3630,7 @@ if [ "$BOOTLOADER" = "limine" ]; then
         exit 1
     fi
 fi
-# AI (Big Pickle) ADDITION — v3.3.0-beta4 [SHELL]: a missing/mangled
+# AI (Big Pickle) ADDITION — Beta-v2.5.2 [SHELL]: a missing/mangled
 # USER_SHELL aborts in-chroot rather than creating the account with a bogus
 # -s path (the chroot consumes it directly in useradd, so it must be real).
 if [ -z "${USER_SHELL:-}" ]; then
@@ -3561,7 +3638,7 @@ if [ -z "${USER_SHELL:-}" ]; then
     exit 1
 fi
 
-# AI (Big Pickle) ADDITION — v3.3.0 [INSTALL-PKGS]: install from the first
+# AI (Big Pickle) ADDITION — Beta-v2.4.1 [INSTALL-PKGS]: install from the first
 # mirror that succeeds, retrying the live-CD package sync across the primary +
 # both backup repositories.
 install_pkgs() {
@@ -3572,7 +3649,7 @@ install_pkgs() {
             break
         fi
         echo "==> Package install attempt against ${_ipkgs_repo} failed for: $* — trying next repository, if any." >&2
-        # AI (Big Pickle) CHANGE — v3.3.0 [INSTALL-PKGS]: a mid-transaction
+        # AI (Big Pickle) CHANGE — Beta-v2.4.1 [INSTALL-PKGS]: a mid-transaction
         # failure can leave xbps's package db marked dirty/
         # locked; refresh the index and let xbps reconcile the db before the
         # next mirror attempt, rather than replaying the same stale state and
@@ -3586,7 +3663,7 @@ install_pkgs() {
     fi
 }
 
-# AI (Big Pickle) ADDITION — v3.2.0 [COSMIC]: COSMIC is NOT in the official
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [COSMIC]: COSMIC is NOT in the official
 # Void repositories. It installs from a community repo maintained by REDACTED
 # REDACTED (GitHub REDACTED / Codeberg REDACTED), pinned here to the
 # CURRENT domain the maintainer documents (repo.REDACTED.de). Because this is a
@@ -3645,7 +3722,7 @@ install_pkgs
 
 install_pkgs nftables runit-nftables iptables polkit
 
-# [NFT-TTL-REMOVED] (v3.3.0-beta32) — the old config wrote two per-host
+# [NFT-TTL-REMOVED] (Beta-v2.8.0) — the old config wrote two per-host
 # "table ip mangle" / "table ip6 mangle" blocks that hardcoded a per-machine
 # TTL/hoplimit workaround tied to specific interface names that only exist on
 # one developer's test machine/ISP. They match nothing on any other target and
@@ -3696,7 +3773,7 @@ ff02::1         ip6-allnodes
 ff02::2         ip6-allrouters
 INNER_EOF
 
-# AI (Big Pickle) CHANGE — v3.2.0 [LOCALIZE]: real localization. The chosen
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [LOCALIZE]: real localization. The chosen
 # timezone is symlinked (falling back to UTC if the zone is absent from tzdata),
 # and the chosen locale is generated + activated as the system language.
 if [ -e "/usr/share/zoneinfo/${TIMEZONE}" ]; then
@@ -3714,7 +3791,7 @@ echo "${LOCALE_ENTRY}" >> /etc/default/libc-locales
 xbps-reconfigure -f glibc-locales
 # Activate the chosen language as the system's default LANG.
 echo "LANG=${LOCALE}" > /etc/locale.conf
-# AI (Big Pickle) ADDITION — v3.3.0-beta21 [KEYMAP]: pin the installed system's
+# AI (Big Pickle) ADDITION — Beta-v2.6.9 [KEYMAP]: pin the installed system's
 # console keymap to the live console's, so the boot passphrase prompt (and the
 # regular console) map keys identically to how the LUKS passphrase was entered
 # at install. Void (runit) drives this from /etc/rc.conf KEYMAP (loaded by
@@ -3728,7 +3805,7 @@ fi
 
 [ "$INSTALL_VIRT" = "true" ] && install_pkgs qemu libvirt virt-manager
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta4 [SHELL]: install the chosen login
+# AI (Big Pickle) ADDITION — Beta-v2.5.2 [SHELL]: install the chosen login
 # shell's package if any (empty USER_SHELL_PKG = the bundled bash, nothing to
 # install), before useradd so the selected shell binary already exists in the
 # target when the account is created.
@@ -3739,7 +3816,7 @@ USER_GROUPS="adm,video,audio"
 [ "$INSTALL_VIRT" = "true" ] && USER_GROUPS="${USER_GROUPS},kvm,libvirt"
 useradd -m -G "$USER_GROUPS" -s "$USER_SHELL" -c "${TARGET_FULL_NAME:-$TARGET_USER}" "$TARGET_USER"
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta7 [ZSHRC]: when zsh is the login
+# AI (Big Pickle) ADDITION — Beta-v2.5.4 [ZSHRC]: when zsh is the login
 # shell, pre-create a minimal ~/.zshrc so the user's first interactive
 # session doesn't dump them into zsh's zsh-newuser-install wizard. Void's
 # zsh package ships NO /etc/zsh/newuser.zshrc.recommended (a user then picks
@@ -3770,7 +3847,7 @@ alias l='ls -lh'
 INNER_EOF
     chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.zshrc"
 fi
-# AI (Big Pickle) ADDITION — v3.3.0-beta7 [ZSHRC]: fish also ships a
+# AI (Big Pickle) ADDITION — Beta-v2.5.4 [ZSHRC]: fish also ships a
 # first-run config wizard (fish_config) that fires on first interactive
 # start when ~/.config/fish/config.fish is absent, plus fish prints a
 # notice that the file will be created. The mere presence of
@@ -3839,12 +3916,12 @@ case "$CPU_VENDOR" in
        MICROCODE_PKG="" ;;
 esac
 install_pkgs ${MICROCODE_PKG} linux-firmware dracut sudo vim nano bash bash-completion curl
-# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: install the userspace
+# AI (Big Pickle) ADDITION — Beta-v2.5.5 [ENCRYPT]: install the userspace
 # cryptsetup/LUKS tooling into the target only when encryption was enabled
 # (the dracut `crypt` module needs the cryptsetup binary + udev rules to
 # unlock the volume at boot). Not installed for the unencrypted default.
 [ "$ENCRYPT" = "yes" ] && install_pkgs cryptsetup
-# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: install the C-only
+# AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: install the C-only
 # `yubikey-personalization` (ykpers) tools (ykpersonalize for enrolling already
 # ran on the live medium; ykchalresp is what the initramfs keyscript calls at
 # boot). C + libusb only, so it fits cleanly in the dracut initramfs — the same
@@ -3867,7 +3944,7 @@ install_pkgs ${MICROCODE_PKG} linux-firmware dracut sudo vim nano bash bash-comp
 # Cinnamon has no equivalent companion packages to add here — cinnamon-all
 # (installed below) already pulls in Nemo, cinnamon-settings-daemon,
 # muffin, etc. as dependencies.
-# AI (Big Pickle) CHANGE — v3.2.0 [item 9]: session/seat
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [item 9]: session/seat
 # management is now a real choice. Default (elogind) installs the
 # logind-fork as before. The alternative installs turnstile (user-session
 # supervisor), seatd (graphical seat/input), and acpid (ACPI/power events)
@@ -3879,14 +3956,14 @@ else
     install_pkgs wayland wayland-protocols NetworkManager dbus turnstile seatd acpid xorg
 fi
 
-# AI (Big Pickle) ADDITION — v3.2.0 [items 1 & 6]: the display manager is a
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [items 1 & 6]: the display manager is a
 # real choice ($DISPLAY_MANAGER, Stage 1) with three options now (sddm,
 # lightdm, gdm). Each branch installs exactly its chosen DM and populates
 # DM_SERVICE_NAME, used later in rc.local to link exactly ONE display
 # manager's runit service — they must never both be linked, or they'd fight
 # over the same VT/seat.
 #
-# v3.2.0 fixes: the LightDM branch previously hard-attempted the Slick
+# Beta-v2.4.0 fixes: the LightDM branch previously hard-attempted the Slick
 # greeter with a three-repo install loop under `set -e` and a fallback — a
 # fragile construction that could fail an install and, when it succeeded,
 # silently ignored the fallback path. The greeter is now chosen explicitly
@@ -3920,7 +3997,7 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
         echo "[Seat:*]"
         echo "greeter-session=${LIGHTDM_GREETER_SESSION}"
         [ -n "$_lightdm_user_session" ] && echo "user-session=${_lightdm_user_session}"
-        # AI (Big Pickle) FIX — v3.3.0-beta2 [LIGHTDM-SWRAP]: the generated
+        # AI (Big Pickle) FIX — Beta-v2.5.0 [LIGHTDM-SWRAP]: the generated
         # conf above OVERWRITES Void's package-default lightdm.conf, which is
         # what normally carries `session-wrapper=/etc/lightdm/Xsession`.
         # Without an explicit session-wrapper, LightDM 1.32 falls back to its
@@ -3933,12 +4010,12 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
         # required for any LightDM login to start a desktop at all.
         echo "session-wrapper=/etc/lightdm/Xsession"
     } > /etc/lightdm/lightdm.conf.tmp
-    # AI (Big Pickle) FIX — v3.3.0-beta4 [LIGHTDM-ATOMIC]: atomic write. The
+    # AI (Big Pickle) FIX — Beta-v2.5.2 [LIGHTDM-ATOMIC]: atomic write. The
     # direct `>` redirect could truncate this load-bearing config (it carries
     # the mandatory session-wrapper from [LIGHTDM-SWRAP]) on a mid-write
     # interruption; write to a temp file then rename into place.
     mv -f /etc/lightdm/lightdm.conf.tmp /etc/lightdm/lightdm.conf
-    # AI (Big Pickle) CHANGE — v3.3.0-beta2 [LIGHTDM-HW]: three real-hardware
+    # AI (Big Pickle) CHANGE — Beta-v2.5.0 [LIGHTDM-HW]: three real-hardware
     # LightDM greeter failures on a Cinnamon install, as-is /var/lib/lightdm
     # ownership would have been root-owned here:
     #   1. /var/lib/lightdm is the freshly-created @lightdm btrfs subvolume,
@@ -4003,14 +4080,14 @@ ACCD_EOF
     unset _accd_bin _accd_cand
     DM_SERVICE_NAME="lightdm"
 elif [ "$DISPLAY_MANAGER" = "gdm" ]; then
-    # AI (Big Pickle) CORRECTION — v3.3.0-beta4 [GDM-WAY]: gdm-wayland-session
+    # AI (Big Pickle) CORRECTION — Beta-v2.5.2 [GDM-WAY]: gdm-wayland-session
     # does NOT exist as a Void package (only `gdm` is in the repo, verified
     # against the current binary index). Listing it aborted the whole DM
     # install for a GDM choice. `gdm` alone is what Void ships.
     install_pkgs gdm
     DM_SERVICE_NAME="gdm"
 elif [ "$DISPLAY_MANAGER" = "cosmic-greeter" ]; then
-    # AI (Big Pickle) ADDITION — v3.2.0 [COSMIC]: cosmic-greeter is COSMIC's
+    # AI (Big Pickle) ADDITION — Beta-v2.4.0 [COSMIC]: cosmic-greeter is COSMIC's
     # own greeter, available only from the third-party COSMIC repo (NOT the
     # official mirrors, so it cannot go through install_pkgs). The honored
     # DISPLAY_MANAGER value matches the package name. install_cosmic also
@@ -4077,7 +4154,7 @@ if [ "$DESKTOP_ENV" = "cinnamon" ]; then
     #   - wsdd: Nemo (Cinnamon's file manager) auto-spawns the `wsdd`
     #     daemon for Windows name-service/network discovery (the comment notes
     #     a real boot logged "Failed to spawn the wsdd daemon"). HOWEVER —
-    #     AI (Big Pickle) CORRECTION — v3.3.0-beta4 [WSDD-ABSENT]: Void does
+    #     AI (Big Pickle) CORRECTION — Beta-v2.5.2 [WSDD-ABSENT]: Void does
     #     NOT ship `wsdd` (nor `wsdd2`) in any official repo (verified against
     #     void-packages master; the package has only ever been a long-open
     #     request, void-packages#28216). Listing it made `xbps-install` abort
@@ -4227,7 +4304,7 @@ elif [ "$DESKTOP_ENV" = "gnome" ]; then
     # to work around.
     install_pkgs gnome
 elif [ "$DESKTOP_ENV" = "xfce" ]; then
-    # AI (Big Pickle) ADDITION — v3.2.0 [item 2]: Xfce via the `xfce4`
+    # AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 2]: Xfce via the `xfce4`
     # metapackage, Void's own documented route (also the DE shipped on
     # Void's graphical live images). xfce4 pulls in its terminal
     # (xfce4-terminal), panel (xfce4-panel), settings daemon, power
@@ -4237,20 +4314,20 @@ elif [ "$DESKTOP_ENV" = "xfce" ]; then
     # Cinnamon rationale — added here too.
     install_pkgs xfce4 network-manager-applet
 elif [ "$DESKTOP_ENV" = "mate" ]; then
-    # AI (Big Pickle) ADDITION — v3.2.0 [item 2]: MATE via the `mate`
+    # AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 2]: MATE via the `mate`
     # metapackage (Void's full-MATE route, analogous to cinnamon-all). The
     # metapackage bundles mate-terminal, the panel, control center, etc.
     # network-manager-applet added for the same X11/GTK secret-agent
     # rationale as Cinnamon/Xfce.
     install_pkgs mate network-manager-applet
 elif [ "$DESKTOP_ENV" = "lxqt" ]; then
-    # AI (Big Pickle) ADDITION — v3.2.0 [item 2]: LXQt via the `lxqt`
+    # AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 2]: LXQt via the `lxqt`
     # metapackage (Qt-based, light). LXQt's conventional display manager
     # is SDDM, but the DM is chosen independently above. lxqt bundles its
     # own session/panel/file-manager stack.
     install_pkgs lxqt
 elif [ "$DESKTOP_ENV" = "cosmic" ]; then
-    # AI (Big Pickle) ADDITION — v3.2.0 [COSMIC]: COSMIC installed from the
+    # AI (Big Pickle) ADDITION — Beta-v2.4.0 [COSMIC]: COSMIC installed from the
     # third-party community repo (never the official mirrors), so it uses the
     # dedicated install_cosmic() helper instead of install_pkgs(). The
     # maintainer's metapackage is cosmic-desktop-full (all components). The
@@ -4263,7 +4340,7 @@ else
     install_pkgs kde-plasma kde-baseapps ark kio-admin
 fi
 
-# AI (Big Pickle) ADDITION — v3.2.0 [item 2]: polkit authentication
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 2]: polkit authentication
 # agent. The kde-plasma metapackage ships its own (polkit-kde-agent), and
 # GNOME has a built-in agent, but the GTK-family desktops added here
 # (Cinnamon, Xfce, MATE — and LXQt) have no guarantee of one. Without a
@@ -4280,7 +4357,7 @@ install_pkgs xdg-user-dirs xdg-utils xtools bluez tlp tlp-rdw preload rsync git 
 
 if [ "$INSTALL_FLATPAK" = "true" ]; then
     install_pkgs flatpak
-    # AI (Big Pickle) ADDITION — v3.3.0-beta4 [FLATHUB-CHROOT]: add the
+    # AI (Big Pickle) ADDITION — Beta-v2.5.2 [FLATHUB-CHROOT]: add the
     # flathub remote NOW, inside the chroot, instead of at first boot in
     # rc.local. This stage runs with the live-CD's network already up (the
     # package sync above just used it), so `flatpak remote-add` can fetch
@@ -4329,7 +4406,7 @@ if [ "$INSTALL_DOCKER" = "true" ] && [ "$DOCKER_GROUP_ADD" = "true" ]; then
     usermod -aG docker "$TARGET_USER"
 fi
 
-# AI (Claude, Sonnet 5, Medium) ADDITION — v3.1.0-beta1 [DISTROBOX-3] §4.13: podman image pulls
+# AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.3.0 [DISTROBOX-3] §4.13: podman image pulls
 # by short name (e.g. "alpine:latest") fail outright with "no unqualified-
 # search-registries are defined" until this file has at least one entry —
 # confirmed directly against this exact error text on this exact machine.
@@ -4351,7 +4428,7 @@ fi
 # separate from install_pkgs and gated behind its own explicit prompt with
 # a warning.
 #
-# AI (Claude, Sonnet 5, Medium) CHANGE — v3.1.0-beta1 [DISTROBOX-2]/[DISTROBOX-3]/[CLONE-RETRY]:
+# AI (Claude, Sonnet 5, Medium) CHANGE — Beta-v2.3.0 [DISTROBOX-2]/[DISTROBOX-3]/[CLONE-RETRY]:
 #   - "next" track builds the upstream v2 Go rewrite from source instead of
 #     running the legacy install script: installs golang (only if the
 #     "next" track is actually chosen, so stable/current installs never pay
@@ -4479,7 +4556,7 @@ method=auto
 INNER_EOF
 chmod 600 /etc/NetworkManager/system-connections/br0.nmconnection
 
-# AI (Big Pickle) FIX — v3.3.0-beta4 [NM-IFACE]: NetworkManager's `[connection]
+# AI (Big Pickle) FIX — Beta-v2.5.2 [NM-IFACE]: NetworkManager's `[connection]
 # interface-name=` is a LITERAL device name, not a glob (only `[match]` globs).
 # So the detection fallback NET_INTERFACE_MATCH="enp*" must NOT be emitted as an
 # `interface-name=` line — it would never match a real device and the slave would
@@ -4656,7 +4733,7 @@ provision_browser_subvol() {
     chmod 700 "$_pbs_fullpath"
 }
 
-# AI (Big Pickle) ADDITION — v3.2.0 [item 4]: Firefox-specific helper.
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 4]: Firefox-specific helper.
 # Modern Firefox uses the XDG base-dir layout (NOT the legacy ~/.mozilla):
 #   - profile + sqlite DBs  -> ~/.config/mozilla            (@mozilla)
 #   - cache                 -> ~/.cache/mozilla             (@mozilla-cache)
@@ -4678,7 +4755,7 @@ provision_firefox_subvols() {
 [ "$INSTALL_VIVALDI" = "true" ] || [ "$PROVISION_VIVALDI_SUBVOL" = "true" ] && provision_browser_subvol "@vivaldi" ".config/vivaldi"
 [ "$INSTALL_FALKON" = "true" ] || [ "$PROVISION_FALKON_SUBVOL" = "true" ] && provision_browser_subvol "@falkon" ".config/falkon"
 [ "$INSTALL_BRAVE" = "true" ] || [ "$PROVISION_BRAVE_SUBVOL" = "true" ] && provision_browser_subvol "@brave" ".config/BraveSoftware/Brave-Browser"
-# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: Thunderbird and Steam
+# AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: Thunderbird and Steam
 # get the same per-user isolation. Thunderbird's profile dir is exactly the
 # sqlite-heavy case the browser subvols exist for; Steam sits under
 # ~/.local/share/Steam (the helper's nested-parent chain chowns each level,
@@ -4745,12 +4822,12 @@ mount "/home/${TARGET_USER}/.cache"
 chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.cache"
 chmod 700 "/home/${TARGET_USER}/.cache"
 
-# AI (Big Pickle) CHANGE — v3.2.0 [SWAP]: activate the disk swapfile only when
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [SWAP]: activate the disk swapfile only when
 # a disk swapfile backend was chosen (swapfile or both).
 if [ "$SWAP_BACKEND" = "swapfile" ] || [ "$SWAP_BACKEND" = "both" ]; then
     swapon /var/swap/swapfile
 fi
-# AI (Big Pickle) ADDITION — v3.2.0 [SWAP]: provision zram (compressed-RAM
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [SWAP]: provision zram (compressed-RAM
 # swap) when the backend is zram or both. zramen installs the runit service and
 # loads the zram module; we write a sane config here and enable the service for
 # first boot in the rc.local block. (See the __SWAP_BACKEND__ placeholder in
@@ -4758,7 +4835,7 @@ fi
 if [ "$SWAP_BACKEND" = "zram" ] || [ "$SWAP_BACKEND" = "both" ]; then
     install_pkgs zramen
     cat > /etc/sv/zramen/conf << 'ZRAM_CONF'
-# AI (Big Pickle) generated zramen config — v3.2.0 [SWAP]
+# AI (Big Pickle) generated zramen config — Beta-v2.4.0 [SWAP]
 export ZRAM_COMP_ALGORITHM=zstd
 export ZRAM_PRIORITY=100
 export ZRAM_SIZE=50
@@ -4770,7 +4847,7 @@ install_pkgs snapper
 # =============================================================================
 # BOOTLOADER: GRUB or LIMINE, per $BOOTLOADER  [LIMINE-1] [LIMINE-2]
 # =============================================================================
-# AI (Claude, Sonnet 5, Medium) CHANGE — v3.1.0-beta1: both bootloader paths now coexist,
+# AI (Claude, Sonnet 5, Medium) CHANGE — Beta-v2.3.0: both bootloader paths now coexist,
 # gated on the choice made in Stage 1. GRUB's branch below is carried
 # forward essentially unchanged from 3.0.112GC (grub-btrfs dynamic
 # snapshot menu, confirmed real-hardware working including snapshot boot).
@@ -4780,7 +4857,7 @@ install_pkgs snapper
 if [ "$BOOTLOADER" = "grub" ]; then
 
 install_pkgs grub-x86_64-efi efibootmgr
-# AI (Big Pickle) CHANGE — v3.3.0-beta14 [GRUB-ESP-BOOT]: under GRUB+ENCRYPT
+# AI (Big Pickle) CHANGE — Beta-v2.6.2 [GRUB-ESP-BOOT]: under GRUB+ENCRYPT
 # the ESP IS /boot (vfat covering the whole boot tree), so grub-install must
 # point --efi-directory at /boot — GRUB's prefix, modules, and grub.cfg all
 # land on the unencrypted ESP; GRUB never opens the LUKS volume.
@@ -4790,10 +4867,10 @@ else
     grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id="Void_GRUB" --recheck
 fi
 
-# AI (Big Pickle) CHANGE — v3.2.0 [SWAP]: resume-from-disk kernel params are
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [SWAP]: resume-from-disk kernel params are
 # only added when hibernation was enabled at install time (and a disk swapfile
 # actually exists). Otherwise GRUB gets a plain cmdline with no resume= params.
-# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: when encryption is
+# AI (Big Pickle) ADDITION — Beta-v2.5.5 [ENCRYPT]: when encryption is
 # enabled, the LUKS container UUID is injected via rd.luks.uuid= + a fixed
 # rd.luks.name= so dracut's `crypt` module opens void-root before root is
 # mounted. `resume=` keeps the Btrfs filesystem UUID — the swapfile lives
@@ -4861,7 +4938,7 @@ cp /etc/kernel.d/post-install/99-grub-btrfs /etc/kernel.d/post-remove/99-grub-bt
 
 else
 # BOOTLOADER = limine
-# AI (Claude, Sonnet 5, Medium) ADDITION — v3.1.0-beta1: replaces the GRUB install /
+# AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.3.0: replaces the GRUB install /
 # grub-mkconfig / grub-btrfs block above. See CHANGELOG §4.7/§4.9.
 install_pkgs limine
 
@@ -4876,7 +4953,7 @@ fi
 mkdir -p /boot/efi/EFI/BOOT
 cp -f "$LIMINE_EFI_SRC" /boot/efi/EFI/BOOT/BOOTX64.EFI
 
-# AI (Claude, Sonnet 5, Medium) ADDITION — v3.1.0-beta1 [KERNEL-MODE]/[KERNEL-HOOK] §4.8/§4.10:
+# AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.3.0 [KERNEL-MODE]/[KERNEL-HOOK] §4.8/§4.10:
 # esp-copy mode keeps versioned kernel/initramfs copies for every
 # installed kernel on the ESP (see [LIMINE-MULTI-KERNEL]) — limine.conf
 # itself still never needs manual editing across kernel updates, since
@@ -4886,7 +4963,7 @@ if [ "$KERNEL_MODE" = "esp-copy" ]; then
     mkdir -p /boot/efi/void-kernel
 fi
 
-# AI (Claude, Sonnet 5, Medium) CHANGE — v3.1.0-beta1 [LIMINE-SYNC-CRON]: limine-snapper-sync
+# AI (Claude, Sonnet 5, Medium) CHANGE — Beta-v2.3.0 [LIMINE-SYNC-CRON]: limine-snapper-sync
 # (the openSUSE/Arch tool that auto-updates a bootloader's snapshot menu
 # whenever snapper creates a NEW snapshot) has no Void package and no
 # equivalent — Void's snapper build ships no general pre/post-snapshot
@@ -4910,7 +4987,7 @@ fi
 # there's no supervision-correctness (double-fork, signal handling,
 # restart-on-crash) to get wrong.
 #
-# v3.3.0-beta8 ([SNPR-EV-NO-CRON]): the former /etc/cron.d/void-limine-sync
+# Beta-v2.5.6 ([SNPR-EV-NO-CRON]): the former /etc/cron.d/void-limine-sync
 # 15-min safety-net generator was REMOVED. With the snapper plugin proven to
 # fire reliably, the cron's only remaining value was a theoretical guard
 # against snapshot operations that bypass snapper's own plugin runner — and
@@ -4932,16 +5009,16 @@ KERNEL_MODE="${KERNEL_MODE}"
 BTRFS_UUID="${BTRFS_UUID}"
 SYSPREFIX_ESP="${SYSPREFIX_ESP}"
 SYSPREFIX_BTRFS="${SYSPREFIX_BTRFS}"
-# AI (Big Pickle) ADDITION — v3.2.0 [SWAP]: baked at install time so the
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [SWAP]: baked at install time so the
 # kernel/cron generators know whether to emit resume-from-disk kernel params.
 HIBERNATION_ENABLED="${ENABLE_HIBERNATION}"
-# AI (Big Pickle) ADDITION — v3.3.0-beta3 [LIMINE-WALLPAPER]: persisted so
+# AI (Big Pickle) ADDITION — Beta-v2.5.1 [LIMINE-WALLPAPER]: persisted so
 # void-limine-write-conf keeps re-emitting the wallpaper lines on every
 # kernel update / snapper-plugin resync (the regenerated limine.conf overwrites the
 # file each time, so this must be state the generator can re-read).
 LIMINE_WALLPAPER="${LIMINE_WALLPAPER}"
 LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE}"
-# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: persisted so
+# AI (Big Pickle) ADDITION — Beta-v2.5.5 [ENCRYPT]: persisted so
 # void-limine-write-conf re-emits the rd.luks.uuid=/rd.luks.name= kernel
 # params on every kernel update / snapper-plugin resync (the generated limine.conf is
 # rewritten each time, so the LUKS knowledge must be state the generator can
@@ -4950,13 +5027,13 @@ LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE}"
 # boot cmdline), never the passphrase. Empty/unset when not encrypted.
 ENCRYPT="${ENCRYPT}"
 LUKS_UUID="${LUKS_UUID}"
-# AI (Big Pickle) ADDITION — v3.3.0-beta23 [CRYPT-NAME]: the mapper name is
+# AI (Big Pickle) ADDITION — Beta-v2.7.1 [CRYPT-NAME]: the mapper name is
 # persisted (public, non-secret) so void-limine-write-conf re-emits
 # rd.luks.name=<this> on every kernel update / snapper-plugin resync. Defaults
 # to void-root. Used together with LUKS_UUID above; only the name, never the
 # passphrase.
 CRYPT_NAME="${CRYPT_NAME:-void-root}"
-# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: persisted so
+# AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: persisted so
 # void-limine-write-conf re-emits the rd.luks.name=void-root keyscript unlock
 # params on every kernel update / snapper-plugin resync, consistent with how the
 # encryption params above are carried. Only PUBLIC values are baked — SLOT and
@@ -4970,7 +5047,7 @@ YK_TOUCH="${YK_TOUCH}"
 INNER_EOF
 chmod 644 /etc/void-installer/limine-env
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta3 [INSTALL-CONFIG]: write a
+# AI (Big Pickle) ADDITION — Beta-v2.5.1 [INSTALL-CONFIG]: write a
 # human-readable record of every install-time CHOICE into the target, so the
 # finished machine is self-documenting and reproducible without relying on
 # this shell's (now-gone) environment or a USB transfer. This is the recovery-
@@ -4992,7 +5069,7 @@ DESKTOP_ENV="${DESKTOP_ENV:-<unset>}"
 DISPLAY_MANAGER="${DISPLAY_MANAGER:-<unset>}"
 BOOTLOADER="${BOOTLOADER:-<unset>}"
 KERNEL_MODE="${KERNEL_MODE:-<unset>}"
-# AI (Big Pickle) ADDITION — v3.3.0-beta23 [CRYPT-NAME]: record the encryption
+# AI (Big Pickle) ADDITION — Beta-v2.7.1 [CRYPT-NAME]: record the encryption
 # choice + LUKS mapper name in the as-built config. Both are PUBLIC (no
 # passphrase — matches the secret-free rule for this file and limine-env).
 ENCRYPT="${ENCRYPT:-no}"
@@ -5009,7 +5086,7 @@ LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE:-<unset>}"
 INNER_EOF
 chmod 644 /etc/void-installer/install-config
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta14 [DOCS-LOG]: drop a human-readable
+# AI (Big Pickle) ADDITION — Beta-v2.6.2 [DOCS-LOG]: drop a human-readable
 # install record into the target user's ~/Documents so the box itself
 # advertises which installer version built it (and where the full as-built
 # config + archived installer live), without booting rescue media to find
@@ -5019,7 +5096,7 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
     mkdir -p "/home/${TARGET_USER}/Documents"
     # mkdir -p above runs as root and the inner write only chowns the FILE —
     # chown Documents itself too or the shell-owned xdg-user-dirs home leaves a
-    # root-owned Documents dir the user cannot chmod. [DOCS-LOG-CHOWN] v3.3.0-beta30.
+    # root-owned Documents dir the user cannot chmod. [DOCS-LOG-CHOWN] Beta-v2.7.8.
     chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/Documents"
     {
         echo "# ========================================================================="
@@ -5045,7 +5122,7 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
         echo "SESSION_STACK=${SESSION_STACK:-<unset>}"
         echo "DESKTOP_ENV=${DESKTOP_ENV:-<unset>}"
         echo ""
-        # AI (Big Pickle) ADDITION — v3.3.0-beta28 [PKG-LIST]: append the FULL
+        # AI (Big Pickle) ADDITION — Beta-v2.7.6 [PKG-LIST]: append the FULL
         # finished-system package inventory (every package on this box — the
         # base-system, its dependencies, and everything the installer added on
         # top) so the record shows not just the installer version and choices
@@ -5066,7 +5143,7 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
     chmod 644 "/home/${TARGET_USER}/Documents/VOID_INSTALL.txt"
 fi
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta3 [LIMINE-WALLPAPER]: if the user
+# AI (Big Pickle) ADDITION — Beta-v2.5.1 [LIMINE-WALLPAPER]: if the user
 # opted in at the prompt, /tmp/limine-splash.<ext> (staged from /mnt/tmp in
 # the live env — same path chroot_env.sh uses) holds the image. Move it onto
 # the ESP at the fixed name the generator references (boot():/limine-splash.<ext>).
@@ -5091,7 +5168,7 @@ if [ "${LIMINE_WALLPAPER}" = "yes" ]; then
 fi
 
 mkdir -p /usr/local/sbin
-# AI (Big Pickle) ADDITION — v3.3.0-beta3 [LIMINE-ENV-LOAD]: the two Limine
+# AI (Big Pickle) ADDITION — Beta-v2.5.1 [LIMINE-ENV-LOAD]: the two Limine
 # helper scripts (void-limine-write-conf and void-limine-sync-kernels) both
 # needed to load /etc/void-installer/limine-env and both used to duplicate
 # the identical existence-check + source block. That duplicated a load-bearing
@@ -5131,7 +5208,7 @@ cat > /usr/local/sbin/void-limine-write-conf << 'INNER_EOF'
 set -eEo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta3 [LIMINE-ENV-LOAD]: shared loader.
+# AI (Big Pickle) ADDITION — Beta-v2.5.1 [LIMINE-ENV-LOAD]: shared loader.
 # shellcheck disable=SC1090
 . /usr/local/sbin/void-limine-env.inc
 load_limine_env
@@ -5141,7 +5218,7 @@ load_limine_env
 # physical extents even though it's nodatacow, silently invalidating a
 # stale resume_offset baked in at install time. Only applies when the
 # system was installed with hibernation enabled (AI (Big Pickle) [SWAP]).
-# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: when the system was
+# AI (Big Pickle) ADDITION — Beta-v2.5.5 [ENCRYPT]: when the system was
 # installed encrypted (ENCRYPT=yes in limine-env), the LUKS container UUID is
 # injected via rd.luks.uuid= + rd.luks.name= so dracut's `crypt` module opens
 # void-root before root is mounted. `resume=` stays on the Btrfs filesystem
@@ -5191,7 +5268,7 @@ fi
 TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
 {
     echo "timeout: 5"
-    # AI (Big Pickle) CHANGE — v3.3.0-beta2.1 [LIMINE-HDR]: the kernels now
+    # AI (Big Pickle) CHANGE — Beta-v2.5.1 [LIMINE-HDR]: the kernels now
     # live inside a /+Void Linux submenu (see below), so a bare 1-based
     # `default_entry` index can no longer descend into it — Limine instead
     # needs an entry PATH (directory separator is "/") to auto-select a
@@ -5207,7 +5284,7 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
     fi
     echo "remember_last_entry: yes"
 
-    # AI (Big Pickle) ADDITION — v3.3.0-beta3 [LIMINE-WALLPAPER]: the Limine
+    # AI (Big Pickle) ADDITION — Beta-v2.5.1 [LIMINE-WALLPAPER]: the Limine
     # boot-screen background. Emit LIVE `wallpaper:` and `wallpaper_style:`
     # lines only when the user opted in at install time AND the image is still
     # present on the ESP. Limine reads boot():/<name> as the root of the boot
@@ -5227,7 +5304,7 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
             break
         done
     else
-        # AI (Big Pickle) CHANGE — v3.3.0-beta7 [LIMINE-WALLPAPER-OPT-OUT]: when the
+        # AI (Big Pickle) CHANGE — Beta-v2.5.4 [LIMINE-WALLPAPER-OPT-OUT]: when the
         # user declines the wallpaper at install, keep a commented section here so
         # limine.conf still documents the option (Limine ignores '#' lines, so this
         # is harmless). This is regenerated on every resync, so it is NOT a
@@ -5249,7 +5326,7 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
     echo ""
     echo "# Paths below use guid(<PARTUUID>) addressing — no disk-enumeration-"
     echo "# order assumption, unlike the earlier hdd(N):<GUID> form this script"
-    echo "# generated before v3.1.0-beta1 (which was invalid Limine URI syntax"
+    echo "# generated before Beta-v2.3.0 (which was invalid Limine URI syntax"
     echo "# and caused every kernel-mode boot attempt to PANIC with 'Failed to"
     echo "# open kernel with path... Is the path correct?')."
     echo "# Regenerated by void-limine-write-conf — do not hand-edit, it"
@@ -5257,7 +5334,7 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
     echo "# create/delete."
 
     echo ""
-    # AI (Big Pickle) CHANGE — v3.3.0-beta2.1 [LIMINE-HDR]: the kernels are
+    # AI (Big Pickle) CHANGE — Beta-v2.5.1 [LIMINE-HDR]: the kernels are
     # now grouped inside a collapsible "/+Void Linux" submenu, mirroring the
     # existing "/+Snapshots" pattern below — a consistent, closed-by-default
     # top level. So this installer renders BOTH a "Void Linux" submenu
@@ -5284,12 +5361,12 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
             [ -d "$snap_dir" ] || continue
             snap_id="$(basename "$snap_dir")"
             [ -f "${snap_dir}info.xml" ] || continue
-            # AI (Big Pickle) ADDITION — v3.3.0-beta7 [LIMINE-SNAPDATE]: show the
+            # AI (Big Pickle) ADDITION — Beta-v2.5.4 [LIMINE-SNAPDATE]: show the
             # snapshot creation date+time (from snapper info.xml <date>) in the menu
             # entry, so timeline snapshots are distinguishable at a glance.
             snap_date="$(sed -n 's:.*<date>\(.*\)</date>.*:\1:p' "${snap_dir}info.xml" | head -n1)"
             snap_desc="$(sed -n 's:.*<description>\(.*\)</description>.*:\1:p' "${snap_dir}info.xml" | head -n1)"
-            # AI (Big Pickle) CHANGE — v3.3.0-beta7 [LIMINE-SNAPDATE]: reformat the
+            # AI (Big Pickle) CHANGE — Beta-v2.5.4 [LIMINE-SNAPDATE]: reformat the
             # ISO creation date (YYYY-MM-DD HH:MM:SS) to an abbreviated-name date
             # + time (e.g. "Dec 4, 2027 15:04"), falling back to the raw string if
             # the date doesn't parse (so an odd info.xml never breaks the menu).
@@ -5325,7 +5402,7 @@ mv -f "$TMP_CONF" /boot/efi/EFI/BOOT/limine.conf
 INNER_EOF
 chmod 0755 /usr/local/sbin/void-limine-write-conf
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: standalone keyscript that
+# AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: standalone keyscript that
 # dracut's cryptroot-ask runs at boot to obtain the LUKS key WITHOUT a typed
 # passphrase. It challenges the YubiKey (slot $YK_SLOT programmed with hmac-lt64
 # at install time) using $YK_CHALLENGE and prints the HMAC-SHA1 response (the
@@ -5336,7 +5413,7 @@ chmod 0755 /usr/local/sbin/void-limine-write-conf
 # are baked into the file — the HMAC response is never stored, so possession of
 # the YubiKey is the credential. YK_TOUCH=yes adds a button-trigger wait so the
 # response is only issued after physical confirmation.
-# AI (Big Pickle) FIX — v3.3.0-beta10 [YK-KEYSCRIPT-BAKE]: the heredoc below
+# AI (Big Pickle) FIX — Beta-v2.5.8 [YK-KEYSCRIPT-BAKE]: the heredoc below
 # MUST stay UNQUOTED (<< INNER_EOF), exactly like the limine-env heredoc — its
 # ${YK_SLOT}/${YK_CHALLENGE} placeholders are the install-time values that bake
 # the challenge into the file. A quoted heredoc left the literal unexpanded
@@ -5366,7 +5443,7 @@ INNER_EOF
     chmod 0755 /usr/local/sbin/void-reveal-yubikey-key
 fi
 
-# AI (Claude, Sonnet 5, Medium) ADDITION — v3.1.0-beta1 [LIMINE-MULTI-KERNEL]
+# AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.3.0 [LIMINE-MULTI-KERNEL]
 # (item 12): esp-copy mode previously kept exactly ONE kernel/initramfs
 # pair on the ESP under fixed versionless names (vmlinuz-current /
 # initramfs.img), overwritten in place on every update — meaning Limine's
@@ -5397,7 +5474,7 @@ cat > /usr/local/sbin/void-limine-sync-kernels << 'INNER_EOF'
 set -eEo pipefail
 export PATH="/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin"
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta3 [LIMINE-ENV-LOAD]: shared loader.
+# AI (Big Pickle) ADDITION — Beta-v2.5.1 [LIMINE-ENV-LOAD]: shared loader.
 # shellcheck disable=SC1090
 . /usr/local/sbin/void-limine-env.inc
 load_limine_env
@@ -5438,7 +5515,7 @@ done
 INNER_EOF
 chmod 0755 /usr/local/sbin/void-limine-sync-kernels
 
-# AI (Claude, Sonnet 5, Medium) ADDITION — v3.1.0-beta1 [KERNEL-HOOK] §4.10: kernel hook now
+# AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.3.0 [KERNEL-HOOK] §4.10: kernel hook now
 # just delegates to the two shared scripts above — sync-kernels for the
 # ESP copy/cleanup (esp-copy mode; multi-kernel aware as of
 # [LIMINE-MULTI-KERNEL]), then write-conf for the menu itself — so this
@@ -5463,11 +5540,11 @@ chmod +x /etc/kernel.d/post-install/50-sync-limine-kernels.sh
 cp /etc/kernel.d/post-install/50-sync-limine-kernels.sh /etc/kernel.d/post-remove/50-sync-limine-kernels.sh 2>/dev/null || \
     { mkdir -p /etc/kernel.d/post-remove; cp /etc/kernel.d/post-install/50-sync-limine-kernels.sh /etc/kernel.d/post-remove/50-sync-limine-kernels.sh; }
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta4 [SNPR-EV]: event-driven snapshot-menu
+# AI (Big Pickle) ADDITION — Beta-v2.5.2 [SNPR-EV]: event-driven snapshot-menu
 # sync. Empirically verified on the target hardware (see Debug/snpr_ev/probe_void_snapper_plugin.sh):
 # Void's snapper DOES execute /usr/lib/snapper/plugins — the probe observed
 # create-snapshot-pre/post (and the delete-snapshot-pre/post family) firing for
-# a single throwaway snapshot. That contradicts the old v3.1.0-beta1
+# a single throwaway snapshot. That contradicts the old Beta-v2.3.0
 # [LIMINE-SYNC-CRON] assumption that Void's snapper had NO hook mechanism (the
 # premise for the 15-min cron). So instead of waiting up to 15 minutes for a
 # timeline snapshot to appear, we now attach a tiny Void-native plugin that
@@ -5475,7 +5552,7 @@ cp /etc/kernel.d/post-install/50-sync-limine-kernels.sh /etc/kernel.d/post-remov
 # the instant snapper creates or deletes a snapshot. Also see the
 # [LIMINE-SYNC-CRON] block up top for the menu-generation architecture.
 #
-# AI (Big Pickle) SUPERSEDED — v3.3.0-beta8 [SNPR-EV-NO-CRON]: the /etc/cron.d/
+# AI (Big Pickle) SUPERSEDED — Beta-v2.5.6 [SNPR-EV-NO-CRON]: the /etc/cron.d/
 # void-limine-sync 15-min safety-net fallback was REMOVED. The plugin has fired
 # reliably in practice; the cron's only remaining value was a theoretical guard
 # against snapshot operations that bypass snapper's own plugin runner (e.g. a
@@ -5575,7 +5652,7 @@ sed -i 's/EMPTY_PRE_POST_CLEANUP="false"/EMPTY_PRE_POST_CLEANUP="true"/g' /etc/s
 mkdir -p /etc/snapper/filters
 echo "var/service/*" >> /etc/snapper/filters/void-runit.txt
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta16 [PKG-SNAPSHOT]: an explicit
+# AI (Big Pickle) ADDITION — Beta-v2.6.4 [PKG-SNAPSHOT]: an explicit
 # pre/post snapshot wrapper around xbps. Snapper guards accidental/logical
 # damage to the @ root via its timeline snapshots, but a timeline snapshot
 # can be many minutes old when a system update lands, so an "undo this exact
@@ -5598,7 +5675,7 @@ echo "var/service/*" >> /etc/snapper/filters/void-runit.txt
 #   - The wrapper is self-contained in /usr/local/sbin as void-xbps-snap
 #     (already a privileged helper dir holding void-limine-sync-kernels etc.)
 #     and the standalone name is kept so it can also be invoked explicitly.
-#     v3.3.0-beta17 [PKG-SNAPSHOT-AUTO] additionally SHADOWS
+#     Beta-v2.6.5 [PKG-SNAPSHOT-AUTO] additionally SHADOWS
 #     /usr/bin/xbps-install (see the block right after the heredoc) so users
 #     never need to change their normal `xbps-install` habit. The wrapper
 #     always locates the REAL binary (`.real` companion, else PATH with a
@@ -5704,7 +5781,7 @@ INNER_EOF
 chmod 0755 /usr/local/sbin/void-xbps-snap
 echo "void-xbps-snap package-update snapshot wrapper installed (/usr/local/sbin/void-xbps-snap)"
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta17 [PKG-SNAPSHOT-AUTO]: shadow
+# AI (Big Pickle) ADDITION — Beta-v2.6.5 [PKG-SNAPSHOT-AUTO]: shadow
 # /usr/bin/xbps-install so NO behavior change is needed — every invocation
 # (bare or via sudo, any shell) goes through the wrapper and snapshots
 # automatically. The real ELF is renamed to xbps-install.real and a symlink
@@ -5728,7 +5805,7 @@ if [ -f /usr/bin/xbps-install ] && [ -x /usr/local/sbin/void-xbps-snap ]; then
     echo "xbps-install shadowed -> void-xbps-snap (real binary kept at /usr/bin/xbps-install.real)"
 fi
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta18 [TOOLS-DIR]: a persistent,
+# AI (Big Pickle) ADDITION — Beta-v2.6.6 [TOOLS-DIR]: a persistent,
 # self-contained maintenance/tools folder at /root/tools, written ONCE at
 # install time and left for the admin to run later when something needs
 # re-applying. These are the re-runnable recovery scripts the project's
@@ -5746,7 +5823,7 @@ mkdir -p /root/tools
 cp -f /usr/local/sbin/void-xbps-snap /root/tools/void-xbps-snap
 chmod 0755 /root/tools/void-xbps-snap
 
-# 1b) AI (Big Pickle) ADDITION — v3.3.0-beta20 [TOOLS-LIMINE-BACKUP]: canonical
+# 1b) AI (Big Pickle) ADDITION — Beta-v2.6.8 [TOOLS-LIMINE-BACKUP]: canonical
 #    backup copies of the three live Limine menu-engine helpers. Previously
 #    /root/tools could RE-TRIGGER a menu regen (limine-sync.sh) and RE-INSTALL
 #    the snapper trigger plugin (re-provision-snapper.sh) but could NOT rebuild
@@ -5758,7 +5835,7 @@ chmod 0755 /root/tools/void-xbps-snap
 #    (env.inc is sourced by the generator; sync-kernels and write-conf are the
 #    two executables limine-sync.sh drives; void-reveal-yubikey-key is a
 #    dracut keyscript-derived helper and is intentionally NOT backed up here.)
-#    v3.3.0-beta31 [TOOLS-LIMINE-GUARD]: the cp+chmod calls are wrapped in a
+#    Beta-v2.7.9 [TOOLS-LIMINE-GUARD]: the cp+chmod calls are wrapped in a
 #    BOOTLOADER=limine guard — on GRUB installs these files were never created
 #    and the unguarded cp (under set -e) ENOENTed, killing the install.
 if [ "$BOOTLOADER" = "limine" ]; then
@@ -5950,7 +6027,7 @@ echo "==> Snapper provisioning OK. Existing snapshots untouched."
 INNER_EOF
 chmod 0755 /root/tools/re-provision-snapper.sh
 
-# 4b) AI (Big Pickle) ADDITION — v3.3.0-beta25 [SUBVOL-TOOL]:
+# 4b) AI (Big Pickle) ADDITION — Beta-v2.7.3 [SUBVOL-TOOL]:
 # void-subvol-tool.sh — post-install subvolume management. Unlike the
 # install-time SUBVOL_LIST/create-loop/mount/fstab lock-step (Stage 1), this is
 # an on-demand maintenance tool that creates/flattens/detaches an additional
@@ -6587,7 +6664,7 @@ INNER_EOF
 chmod 0644 /root/tools/README.md
 echo "/root/tools maintenance folder complete (void-xbps-snap backup, 3 limine-engine backups, re-shadow-xbps.sh, limine-sync.sh, re-provision-snapper.sh, void-subvol-tool.sh, README.md)"
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta19 [RESHADOW-BOOT]: make the xbps
+# AI (Big Pickle) ADDITION — Beta-v2.6.7 [RESHADOW-BOOT]: make the xbps
 # self-update shadow-clobber SELF-HEALING instead of a manual recovery. The
 # shadow-repair line is added to the TOP of /etc/rc.local (the every-boot
 # section, OUTSIDE the firstboot.log guard) so it runs on every boot via
@@ -6620,7 +6697,7 @@ fi
 INNER_EOF
 chmod +x /etc/cron.weekly/fstrim-discard
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta5 [SCRUB]: monthly btrfs integrity
+# AI (Big Pickle) ADDITION — Beta-v2.5.3 [SCRUB]: monthly btrfs integrity
 # scrub — the physical-corruption half of the recovery story (Snapper guards
 # against logical/accidental damage; scrub catches silent checksum failures
 # and repairs them). One pass per btrfs filesystem (subvolume mounts all
@@ -6677,7 +6754,7 @@ add_dracutmodules+=" btrfs resume snapshot-overlay udev-rules "
 filesystems+=" btrfs "
 install_items+=" /usr/bin/btrfs /usr/sbin/blkid "
 INNER_EOF
-# AI (Big Pickle) ADDITION — v3.3.0-beta6 [ENCRYPT]: when encryption is
+# AI (Big Pickle) ADDITION — Beta-v2.5.5 [ENCRYPT]: when encryption is
 # enabled, dracut must also pull in the `crypt` module (LUKS unlocking — it
 # installs its own copy of cryptsetup + udev rules) so the initramfs can
 # prompt for the passphrase and open void-root before mounting root.
@@ -6685,7 +6762,7 @@ INNER_EOF
 # by every initramfs the kernel-hook regen loop builds.
 if [ "$ENCRYPT" = "yes" ]; then
     echo 'add_dracutmodules+=" crypt "' >> /etc/dracut.conf.d/90-system.conf
-    # AI (Big Pickle) ADDITION — v3.3.0-beta21 [KEYMAP]: pull dracut's `i18n`
+    # AI (Big Pickle) ADDITION — Beta-v2.6.9 [KEYMAP]: pull dracut's `i18n`
     # module and bake the captured keymap into the initramfs, so the EARLY-BOOT
     # passphrase prompt (before root/console is up) maps keys exactly like the
     # install console. Without this the pre-unlock prompt uses the kernel's
@@ -6694,7 +6771,7 @@ if [ "$ENCRYPT" = "yes" ]; then
     echo "rd.vconsole.keymap=${KEYMAP_LIVE:-us}" >> /etc/dracut.conf.d/90-system.conf
 fi
 
-# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: when YubiKey unlock is
+# AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: when YubiKey unlock is
 # enabled, dracut must ship the keyscript + `ykchalresp` (and its libusb
 # runtime) inside the initramfs, otherwise the boot unlock cannot run
 # /usr/local/sbin/void-reveal-yubikey-key. Written as a dedicated `99void-`
@@ -6702,7 +6779,7 @@ fi
 # override wins over 90crypt's) so the initramfs is self-contained. ykpers is
 # a plain C + libusb tool, so `inst` + `inst_libdir_file` cover it — no
 # heavyweight runtime.
-# AI (Big Pickle) ADDITION — v3.3.0-beta7 [YUBIKEY]: the boot-unlock path
+# AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: the boot-unlock path
 # REQUIRES a custom `/sbin/cryptroot-ask` override because upstream dracut
 # (and dracut-ng) does NOT execute the Debian-style `keyscript=` crypttab
 # option — it treats the third-field `luksfile` as a static keyfile (via
@@ -7060,7 +7137,7 @@ done
 INNER_EOF
 fi
 
-# AI (Big Pickle) ADDITION — v3.2.0 [COSMIC]: when cosmic-greeter was chosen as
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [COSMIC]: when cosmic-greeter was chosen as
 # the display manager, rc.local links /etc/sv/${DM_SERVICE_NAME}, so the runit
 # service dir must exist or first boot leaves a dangling symlink. cosmic-greeter
 # is from the third-party COSMIC repo; the maintainer warns it may not work
@@ -7131,7 +7208,7 @@ if [ ! -f /var/log/firstboot.log ]; then
         ln -sfn /etc/sv/seatd /etc/runit/runsvdir/default/seatd
         ln -sfn /etc/sv/acpid /etc/runit/runsvdir/default/acpid
     fi
-    # AI (Big Pickle) CHANGE — v3.3.0-beta2 [LIGHTDM-HW]: enable the mklive
+    # AI (Big Pickle) CHANGE — Beta-v2.5.0 [LIGHTDM-HW]: enable the mklive
     # known-good service set instead of leaving these to D-Bus activation.
     # On Void, accountsservice (org.freedesktop.Accounts) ships with NO
     # runit service — only a D-Bus activation file — and both the Slick and
@@ -7153,7 +7230,7 @@ if [ ! -f /var/log/firstboot.log ]; then
     [ "__SESSION_STACK__" = "elogind" ] && \
         ln -sfn /etc/sv/elogind /etc/runit/runsvdir/default/elogind
     ln -sfn /etc/sv/polkitd /etc/runit/runsvdir/default/polkitd
-    # AI (Big Pickle) ADDITION — v3.2.0 [SWAP]: enable the zramen (zram) runit
+    # AI (Big Pickle) ADDITION — Beta-v2.4.0 [SWAP]: enable the zramen (zram) runit
     # service on first boot when the chosen backend uses zram (zram or both).
     [ "__SWAP_BACKEND__" = "zram" ] || [ "__SWAP_BACKEND__" = "both" ] && \
         ln -sfn /etc/sv/zramen /etc/runit/runsvdir/default/zramen
@@ -7164,7 +7241,7 @@ if [ ! -f /var/log/firstboot.log ]; then
         sleep 1
     done
 
-    # AI (Big Pickle) ADDITION — v3.3.0-beta9 [RCL-VIRT-WAIT]: only wait for
+    # AI (Big Pickle) ADDITION — Beta-v2.5.7 [RCL-VIRT-WAIT]: only wait for
     # libvirtd's socket (and tear down libvirt's default NAT bridge) when
     # virtualization was actually chosen at install time. The libvirt-socket
     # wait below used to run unconditionally; on a non-virt install
@@ -7184,7 +7261,7 @@ if [ ! -f /var/log/firstboot.log ]; then
     fi
 
     if command -v flatpak >/dev/null 2>&1; then
-        # AI (Big Pickle) CHANGE — v3.3.0-beta4 [FLATHUB-RCL]: this block used
+        # AI (Big Pickle) CHANGE — Beta-v2.5.2 [FLATHUB-RCL]: this block used
         # to run `flatpak remote-add` synchronously at first boot. That is a
         # BLOCKING network fetch (flathub.flatpakrepo + summary.idx) and
         # rc.local runs in runit stage 2 BEFORE NetworkManager is up, so when
@@ -7252,7 +7329,7 @@ INNER_EOF
 # this code path regardless of what was chosen at install time. Fixed by
 # baking the real values in at generation time, the same way
 # __TARGET_USER__ already was. __SESSION_STACK__ (added by AI (Big Pickle)
-# — v3.2.0 [item 9]) follows here too so the first-boot block that (only
+# — Beta-v2.4.0 [item 9]) follows here too so the first-boot block that (only
 # when SESSION_STACK=turnstile) links turnstiled/seatd/acpid sees the
 # real choice rather than the always-empty install variable.
 sed -i \
@@ -7286,7 +7363,7 @@ for kver_dir in /lib/modules/*; do
 done
 
 if [ "$BOOTLOADER" = "limine" ]; then
-# AI (Claude, Sonnet 5, Medium) ADDITION — v3.1.0-beta1 [KERNEL-HOOK follow-up] §4.15: re-sync
+# AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.3.0 [KERNEL-HOOK follow-up] §4.15: re-sync
 # the ESP copies (and rewrite limine.conf) AFTER the dracut regen loop
 # above, closing the same ordering gap 3.0.x fixed for grub-mkconfig — the
 # initial sync earlier in this block predates the final, fully-featured
@@ -7336,7 +7413,7 @@ sync
 
 swapoff /mnt/var/swap/swapfile || true
 
-# v3.3.0-beta14 [GRUB-ESP-BOOT]: same ESP-mountpoint change in the clean
+# Beta-v2.6.2 [GRUB-ESP-BOOT]: same ESP-mountpoint change in the clean
 # success teardown (combo mounts the ESP at /mnt/boot; those umounts are
 # harmless no-ops when the combo is not in effect).
 [ "$GRUB_ESP_BOOT" = "true" ] && umount -v /mnt/boot || true
@@ -7351,12 +7428,12 @@ umount -v /mnt/var/swap || true
 umount -v /mnt/var/spool || true
 umount -v /mnt/var/log || true
 umount -v /mnt/var/lib/libvirt || true
-# AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: teardown for @network
+# AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: teardown for @network
 # + the (gated) DB datadirs. All || true — no-op safe when not created.
 umount -v /mnt/var/lib/postgresql || true
 umount -v /mnt/var/lib/mysql || true
 umount -v /mnt/var/lib/NetworkManager || true
-# AI (Big Pickle) CHANGE — v3.2.0 [item 3]: lightdm umount added alongside
+# AI (Big Pickle) CHANGE — Beta-v2.4.0 [item 3]: lightdm umount added alongside
 # sddm; both are no-op-safe (|| true) when the matching DM wasn't chosen.
 umount -v /mnt/var/lib/sddm || true
 umount -v /mnt/var/lib/lightdm || true
@@ -7367,7 +7444,7 @@ umount -v /mnt/.snapshots || true
 umount -v /mnt/home || true
 umount -v /mnt || true
 
-# AI (Big Pickle) ADDITION — v3.2.0 [item 10]: POST-INSTALL "NEXT STEPS" SUMMARY.
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 10]: POST-INSTALL "NEXT STEPS" SUMMARY.
 # Displayed just before the automatic reboot. Because the live environment is
 # ephemeral but the TARGET disk persists, everything the user needs for the
 # first boot of the freshly installed system is echoed here. Passwords were
@@ -7392,12 +7469,12 @@ echo ""
 echo "${C_BOLD}  Target disk:${C_RST}   ${DISK}"
 echo "${C_BOLD}  Hostname:${C_RST}     ${TARGET_FQDN:-$TARGET_HOSTNAME}"
 echo "${C_BOLD}  Primary user:${C_RST}  ${TARGET_USER}"
-# AI (Big Pickle) ADDITION — v3.3.0-beta4 [SHELL]: echo the chosen login shell
+# AI (Big Pickle) ADDITION — Beta-v2.5.2 [SHELL]: echo the chosen login shell
 # so the summary confirms which shell the primary user will get at first login.
 echo "${C_BOLD}  Login shell:${C_RST}  ${USER_SHELL}"
 echo "${C_BOLD}  Desktop:${C_RST}      ${_DE_FRIENDLY} (${DESKTOP_ENV})"
 echo "${C_BOLD}  Display manager:${C_RST} ${DISPLAY_MANAGER}"
-# AI (Big Pickle) CHANGE — v3.3.0-beta2 [LIGHTDM-HW]: echo which LightDM
+# AI (Big Pickle) CHANGE — Beta-v2.5.0 [LIGHTDM-HW]: echo which LightDM
 # greeter was selected (only LightDM has a greeter choice), so the summary
 # confirms the exact greeter that will greet first boot.
 if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
@@ -7411,12 +7488,12 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
     unset _GREETER_FRIENDLY
 fi
 echo "${C_BOLD}  Bootloader:${C_RST}   ${BOOTLOADER}"
-# AI (Big Pickle) ADDITION — v3.2.0 [LOCALIZE]: echo the chosen locale and
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [LOCALIZE]: echo the chosen locale and
 # timezone in the summary so the user knows the target's configured language
 # and zone before first boot.
 echo "${C_BOLD}  Locale:${C_RST}        ${LOCALE}"
 echo "${C_BOLD}  Timezone:${C_RST}     ${TIMEZONE}"
-# AI (Big Pickle) ADDITION — v3.2.0 [SWAP]: echo the swap backend and whether
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [SWAP]: echo the swap backend and whether
 # hibernation is enabled so the user knows the configured swap before boot.
 # Display-only: the stored SWAPFILE_SIZE (lowercase 'g') is kept for the
 # btrfs mkswapfile command; we uppercase just for a friendlier readout.
@@ -7448,14 +7525,14 @@ echo "${C_GRN}  4.${C_RST} A baseline snapper snapshot has already been created 
 echo "${C_GRN}  5.${C_RST} The exact choices + installer version that built this box are archived on it:"
 echo "     ${C_BOLD}/etc/void-installer/install-config${C_RST}  and  ${C_BOLD}/etc/void-installer/Void_Linux_Installer.sh${C_RST}"
 echo "     Quick record: ${C_BOLD}~/Documents/VOID_INSTALL.txt${C_RST} (installed user)"
-# AI (Big Pickle) ADDITION — v3.3.0-beta17 [PKG-SNAPSHOT-AUTO]:
+# AI (Big Pickle) ADDITION — Beta-v2.6.5 [PKG-SNAPSHOT-AUTO]:
 # tell the user that updates now snapshot automatically — no habit change needed.
 echo "${C_GRN}  6.${C_RST} System updates now auto-take a snapper pre/post rollback pair:"
 echo "     xbps-install is shadowed through void-xbps-snap, so your normal"
 echo "     ${C_BOLD}sudo xbps-install -Su${C_RST} is unchanged. If an 'xbps' package"
 echo "     self-update un-shadows the wrapper, the next boot repairs it"
 echo "     automatically (see /root/tools/README.md, re-shadow-xbps.sh)."
-# AI (Big Pickle) ADDITION — v3.3.0-beta18 [TOOLS-DIR]: point the admin at the
+# AI (Big Pickle) ADDITION — Beta-v2.6.6 [TOOLS-DIR]: point the admin at the
 # maintenance/tools folder shipped for future recovery so it is discoverable.
 echo "${C_GRN}  7.${C_RST} Re-runnable maintenance tools shipped in ${C_BOLD}/root/tools${C_RST}:"
 echo "     ${C_BOLD}re-shadow-xbps.sh${C_RST}  restore auto-update snapshots after an xbps update"
@@ -7463,13 +7540,13 @@ echo "     ${C_BOLD}limine-sync.sh${C_RST}      force a manual Limine boot-menu 
 echo "     ${C_BOLD}re-provision-snapper.sh${C_RST}  safely restore snapshots/plugin (no data loss)"
 echo ""
 echo "${C_GRN}======================================================================${C_RST}"
-# AI (Big Pickle) ADDITION — v3.2.0 [RESUME]: The install completed fully, so
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [RESUME]: The install completed fully, so
 # the resume record is no longer needed — remove it so the next run starts
 # fresh instead of offering to resume an already-finished install.
 STAGE_CONTEXT="DONE"
 jl "Install COMPLETED successfully (bootloader=${BOOTLOADER}, DE=${DESKTOP_ENV})"
 [ -f "$STATE_FILE" ] && rm -f "$STATE_FILE"
-# AI (Big Pickle) ADDITION — v3.3.0-beta3 [INSTALL-CONFIG]: carry an exact copy
+# AI (Big Pickle) ADDITION — Beta-v2.5.1 [INSTALL-CONFIG]: carry an exact copy
 # of the installer that built this machine into the target (alongside the
 # /etc/void-installer/install-config summary written in the chroot), so the
 # running system records both WHAT was chosen and WHICH revision built it.
@@ -7479,7 +7556,7 @@ if [ -n "$0" ] && [ -f "$0" ]; then
         && jl "Installer script archived to /etc/void-installer/Void_Linux_Installer.sh" \
         || echo "WARNING: could not archive installer script into target." >&2
 fi
-# AI (Big Pickle) CHANGE — v3.3.0-beta2 [REBOOT-COUNTDOWN]: the pre-reboot
+# AI (Big Pickle) CHANGE — Beta-v2.5.0 [REBOOT-COUNTDOWN]: the pre-reboot
 # wait now prints the ACTUAL remaining seconds (from $REBOOT_DELAY rather
 # than the old canned "a few seconds" message) as a live, self-updating
 # countdown, with optional keyboard control on the installer's terminal:
