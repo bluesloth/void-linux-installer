@@ -10,7 +10,69 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta24** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta25** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta25 — post-install subvolume tool (`void-subvol-tool.sh`, `[SUBVOL-TOOL]`)
+
+Adds a post-install Btrfs subvolume manager to `/root/tools`, letting an admin
+add / inspect / detach / destroy an additional **flat** sibling subvolume at
+runtime — the same topology the installer's stage-1 `SUBVOL_LIST`/mount/fstab
+lock-step produces, but reached for later on a running box.
+
+- **New tool:** `/root/tools/void-subvol-tool.sh`, rewritten as a quoted
+  heredoc (so `Debug/check-heredocs.sh` extracts + `bash -n`/shellchecks it),
+  chmod 0755, with a matching `README.md` section and the `/root/tools` summary
+  echo updated.
+- **Verbs:** `list`, `check <subvol>`, `add <subvol> <mountpoint> [source-dir]
+  [--nodatacow]`, `detach <subvol>`, `destroy <subvol>`.
+- **Purely structural — never installs software.** It creates the sibling
+  subvolume for later manual use of an app (e.g. `@steam`, `@postgresql`,
+  `@containers`, `@docker`) without pulling the owning package, mirroring the
+  install-time `PROVISION_*` guarantee. The former `SUBVOL_PROFILE`
+  "bulk-preset that auto-enables install toggles" design was explicitly
+  **dropped** — it risked accidentally installing software as a side-effect of a
+  subvolume-scope choice. This tool inverts that: subvolume creation and
+  software installed are strictly decoupled — the tool only ever makes the
+  isolated sibling, and you install the software yourself (the same ordering
+  guarantee the pre-create paths give: the folder exists on the isolated
+  subvolume before the software's data ever lands).
+- **Flat-topology correctness (the important fix):** a flat sibling can ONLY be
+  created from the top-level tree (`subvolid=5`) — running
+  `btrfs subvolume create <mountpoint>` from inside the live `@` mount would
+  make a NESTED subvolume inside `@`, silently dragging it into Snapper
+  rollback scope. The tool therefore mounts `subvolid=5` (the same dance the
+  installer's Stage 1 uses) to create/inspect/destroy siblings, then mounts the
+  new subvol at its runtime path via fstab. `[NODATACOW]` is honored: nodatacow
+  is applied only via fstab mount options, never `chattr +C`.
+- **Device discovery:** resolves the running root's btrfs device path
+  (`findmnt -no SOURCE /`) and filesystem UUID (`blkid`/`findmnt -no UUID`), so
+  it stays correct under LUKS/mapper without a hardcoded device name.
+- **Idempotent + safe:** refuses to double-create or double-mount; `destroy`
+  requires typing `YES`; `detach` is the non-destructive undo (umount + drop
+  fstab, subvol + data preserved); the migrate variant copies existing contents
+  into the fresh sibling with ownership/perms preserved before mounting.
+- **Bulk "create the common optional subvolumes" example** in the README: a
+  short idempotent loop over `@libvirt` (nodatacow), `@flatpak`, `@docker`,
+  `@containers`. Excludes the context-dependent siblings the tool can't infer
+  (`@grub` GRUB-only, `@swap` swapfile-only, `@containers-user` needs the
+  per-user path). The tool never installs/checks for the software, so these
+  flat siblings can be created even on a lean system with none installed.
+- **Per-user profiles without typing the whole path:** a `USER_PROFILE_PATH`
+  map holds the known per-user subvolume names → relative path
+  (`@mozilla`→`/.config/mozilla`, `@steam`→`/.local/share/Steam`,
+  `@containers-user`→`/.local/share/containers`, `@usercache`→`/.cache`, the
+  browser profiles, `@thunderbird`, ...). `add` now accepts `--user <name>` to
+  derive the mountpoint as `/home/<name>/<rel>` (confirmed before running), or
+  just the subvol name alone to **prompt** for the username. An explicit
+  `<mountpoint>` still overrides/works as before. CRITICAL: this only resolves
+  the *path* — the per-user parent chain must already exist and be owned by the
+  target user (the installer's `provision_browser_subvol` / `[PERSONAL-DATA]`
+  ownership invariant); the tool never chowns your home.
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (no new `DEFAULT_*`, still
+  all consistent), and `Debug/check-heredocs.sh` (46 heredocs; the 281-line tool
+  is `bash -n` clean + shellcheck-clean) all pass.
 
 ---
 

@@ -200,6 +200,13 @@
 #     boot-menu regen), re-provision-snapper.sh (safe snapper restore, plugin
 #     re-install), plus a canonical copy of void-xbps-snap. Idempotent, not on
 #     PATH (run-on-demand tools, not live helpers).
+#     AI (Big Pickle) ADDITION — v3.3.0-beta25 [SUBVOL-TOOL]: /root/tools also
+#     ships void-subvol-tool.sh, a post-install subvolume manager (list/check/
+#     add/detach/destroy) for the flat Btrfs topology. Purely structural — it
+#     creates additional FLAT siblings (via the subvolid=5 top-level-tree mount,
+#     never nested inside @, so they stay outside Snapper rollback scope) without
+#     installing the software that would normally own them. nodatacow is applied
+#     via fstab mount options, never chattr (matches [NODATACOW]).
 #     AI (Big Pickle) ADDITION — v3.3.0-beta19 [RESHADOW-BOOT]: the xbps
 #     self-update caveat is now SELF-HEALING. /etc/rc.local (executed every
 #     boot by runit stage 2, OUTSIDE the installer's firstboot.log guard) calls
@@ -325,7 +332,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta24"
+SCRIPT_VERSION="3.3.0-beta25"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.3.0-beta24 [PROMPT-DEFAULTS]: EDITABLE DEFAULT
@@ -5763,6 +5770,332 @@ echo "==> Snapper provisioning OK. Existing snapshots untouched."
 INNER_EOF
 chmod 0755 /root/tools/re-provision-snapper.sh
 
+# 4b) AI (Big Pickle) ADDITION — v3.3.0-beta25 [SUBVOL-TOOL]:
+# void-subvol-tool.sh — post-install subvolume management. Unlike the
+# install-time SUBVOL_LIST/create-loop/mount/fstab lock-step (Stage 1), this is
+# an on-demand maintenance tool that creates/flattens/detaches an additional
+# flat sibling subvolume at runtime. It is PURELY STRUCTURAL: it never installs
+# software (it has exactly the same guarantee the PROVISION_* paths give at
+# install — you can build @postgresql, @steam, @containers, etc. for manual use
+# later without pulling the owning package). Additions are top-level siblings
+# (never nested inside @), so they are automatically outside Snapper rollback
+# scope — the same flat-topology property as the base layout. nodatacow is
+# applied ONLY via fstab mount options, never `chattr +C` (AGENTS.md [NODATACOW]
+# invariant: chattr on a btrfs subvolume root is shadowed by the mount). The
+# btrfs device is discovered from the mounted root source (findmnt), and the
+# filesystem UUID for the fstab line resolved via blkid, so it stays correct
+# under LUKS/mapper.
+cat > /root/tools/void-subvol-tool.sh << 'INNER_EOF'
+#!/bin/bash
+# [TOOLS] Post-install subvolume manager for the installer's flat Btrfs layout.
+# Creates / checks / detaches / destroys a FLAT sibling subvolume (a top-level
+# sibling of @, never nested inside it), matching the topology Snapper
+# rollbacks already assume. Purely structural — it never installs software, so
+# you can add @steam/@postgresql/@docker etc. for later manual use.
+#
+# Critical btrfs detail: a flat sibling can ONLY be created from the TOP-LEVEL
+# tree (subvolid=5), NOT from inside the running @ mount. Running
+# `btrfs subvolume create <mountpoint>` from inside @ would create a NESTED
+# subvolume inside @ — silently making it part of Snapper rollback scope. This
+# tool therefore mounts the top-level tree (the same subvolid=5 dance the
+# installer's own Stage-1 uses) to create/inspect/destroy siblings, then mounts
+# the new subvol at its runtime path via fstab.
+#
+# Usage: sudo /root/tools/void-subvol-tool.sh <verb> [args]
+#   list                                  show every flat sibling + mount/fstab state
+#   check <subvol>                        read-only status of one sibling
+#   add <subvol> <mountpoint> [--nodatacow]            create sibling + mount + fstab
+#   add <subvol> <mountpoint> <source-dir> [--nodatacow]  same, migrating source's contents in
+#   add <subvol> --user <name> [--nodatacow]           per-user profile: mountpoint derived from
+#                                                      /home/<name>/<known relative path> (asks to confirm)
+#   add <subvol> [--nodatacow] (per-user profile only) prompts for the username, then derives the
+#                                                      mountpoint from /home/<name>/<known relative path>
+#   detach <subvol>                       umount + drop fstab line (subvol + data preserved)
+#   destroy <subvol>                      umount + drop fstab + btrfs subvolume delete (asks)
+set -euo pipefail
+
+die()  { echo "ERROR: $*" >&2; exit 1; }
+info() { echo "==> $*"; }
+
+DEVDIR=""     # btrfs filesystem device path (e.g. /dev/mapper/void-root or raw)
+FSUUID=""     # btrfs filesystem UUID (for the fstab line)
+TOPMNT=""     # temp mountpoint for the top-level tree (subvolid=5)
+
+# Resolve the running root's btrfs source: a device PATH (not UUID), since the
+# btrfs tools + subvolid=5 mount need a real device. Works on LUKS/mapper and
+# raw partitions alike.
+resolve_dev() {
+    local src
+    src="$(findmnt -no SOURCE / 2>/dev/null)" || die "cannot resolve mounted root device."
+    DEVDIR="$src"
+    FSUUID="$(blkid -s UUID -o value "$DEVDIR" 2>/dev/null || \
+              findmnt -no UUID / 2>/dev/null || true)"
+    [ -n "$DEVDIR" ] || die "empty root device."
+    [ -n "$FSUUID" ] || die "cannot resolve btrfs filesystem UUID for $DEVDIR."
+}
+
+# Mount the top-level tree (subvolid=5) at a temp dir. Call unmount_top()
+# when done. This is required for any operation on flat siblings.
+mount_top() {
+    TOPMNT="$(mktemp -d)"
+    mount -o noatime,subvolid=5 "$DEVDIR" "$TOPMNT" || {
+        rmdir "$TOPMNT"; TOPMNT=""; die "cannot mount top-level tree (subvolid=5) from $DEVDIR."
+    }
+}
+unmount_top() {
+    [ -n "$TOPMNT" ] || return 0
+    umount "$TOPMNT" 2>/dev/null || true
+    rmdir "$TOPMNT" 2>/dev/null || true
+    TOPMNT=""
+}
+trap unmount_top EXIT
+
+norm_subvol() {
+    local name="$1"
+    name="${name#/}"
+    case "$name" in
+        @*) echo "$name" ;;
+        *)  echo "@$name" ;;
+    esac
+}
+
+# Per-user profile subvolumes: their mountpoint lives under /home/<user>, so the
+# relative path is fully known once a username is supplied. `--user <name>`
+# derives the mountpoint; empty = not a per-user profile (plain system path).
+# NOTE: per-user mounts must not pre-exist root-owned. The tool CREATES the
+# sibling but does NOT chown/remake the parent chain — the caller must ensure
+# /home/<user> and the intermediate parents (e.g. .config / .local/share) are
+# owned by <user>, the same rule provision_browser_subvol enforces at install.
+declare -A USER_PROFILE_PATH=(
+    [@mozilla]="/.config/mozilla"
+    [@mozilla-cache]="/.cache/mozilla"
+    [@chromium]="/.config/chromium"
+    [@vivaldi]="/.config/vivaldi"
+    [@falkon]="/.config/falkon"
+    [@brave]="/.config/BraveSoftware/Brave-Browser"
+    [@thunderbird]="/.thunderbird"
+    [@steam]="/.local/share/Steam"
+    [@containers-user]="/.local/share/containers"
+    [@usercache]="/.cache"
+)
+
+# List every top-level sibling (direct child of the top-level tree).
+siblings() { btrfs subvolume list -o "$TOPMNT" 2>/dev/null | sed -n 's/.*path \([^ ]*\)$/\1/p'; }
+
+sibling_path() { echo "$TOPMNT/$1"; }
+
+fstab_line() { grep -E "(^|[[:space:]])subvol=$1([[:space:]]|,)" /etc/fstab || true; }
+is_mounted() { findmnt -n "$1" >/dev/null 2>&1; }
+
+# ---------------------------------------------------------------------------
+# list
+# ---------------------------------------------------------------------------
+cmd_list() {
+    mount_top
+    local found=0
+    while IFS= read -r sv; do
+        [ -n "$sv" ] || continue
+        found=1
+        local mnt
+        mnt="$(awk -v sub="subvol=$sv" '$1 ~ /^UUID=/ && $0 ~ sub {print $2; exit}' /etc/fstab)"
+        printf '  %-20s fstab=%s\n' "$sv" "${mnt:-<no fstab>}"
+    done < <(siblings)
+    [ "$found" = "1" ] || echo "  (no flat siblings found)"
+}
+
+# ---------------------------------------------------------------------------
+# check
+# ---------------------------------------------------------------------------
+cmd_check() {
+    [ $# -eq 1 ] || die "usage: void-subvol-tool.sh check <subvol>"
+    local sv fst
+    sv="$(norm_subvol "$1")"
+    mount_top
+    if [ -e "$(sibling_path "$sv" )" ]; then
+        echo "subvol $sv: PRESENT (top-level sibling; outside Snapper rollback scope)."
+    else
+        echo "subvol $sv: absent."
+    fi
+    fst="$(fstab_line "$sv")"
+    if [ -n "$fst" ]; then
+        echo "fstab: mounted at $(awk '{print $2}' <<<"$fst")"
+    else
+        echo "fstab: no mount entry."
+    fi
+    mnt="$(awk '{print $2}' <<<"$fst")"
+    if [ -n "$mnt" ] && is_mounted "$mnt"; then
+        echo "mounted: yes (at $mnt)"
+    else
+        echo "mounted: no"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# add — create a flat sibling from the top-level tree, then mount at runtime.
+# ---------------------------------------------------------------------------
+cmd_add() {
+    local sv mnt src nodatacow=0 mode opt sp user=""
+    local -a positional=()
+    for opt in "$@"; do
+        case "$opt" in
+            --nodatacow) nodatacow=1 ;;
+            --user)      user="unset-next" ;;
+            --user=*)    user="${opt#--user=}" ;;
+            --*)         die "unknown option '$opt' (--nodatacow | --user <name>)" ;;
+            *)
+                if [ "$user" = "unset-next" ]; then
+                    user="$opt"
+                else
+                    positional+=("$opt")
+                fi
+                ;;
+        esac
+    done
+    [ "$user" = "unset-next" ] && die "--user requires a username (e.g. --user alice)."
+
+    # <subvol> is always the first positional; an explicit <mountpoint> /
+    # <source-dir> come after.
+    [ "${#positional[@]}" -ge 1 ] || die "usage: void-subvol-tool.sh add <subvol> <mountpoint> [source-dir] [--nodatacow] [--user <name>]"
+    sv="$(norm_subvol "${positional[0]}")"
+    mnt="${positional[1]:-}"
+    src="${positional[2]:-}"
+    [ "${#positional[@]}" -le 3 ] || die "too many positional args (subvol mountpoint [source-dir], plus --user/--nodatacow flags)."
+
+    # Derive a per-user mountpoint from --user when no explicit one was given.
+    if [ -z "$mnt" ] && [ -n "$user" ]; then
+        local rel="${USER_PROFILE_PATH[$sv]:-}"
+        [ -n "$rel" ] || die "no known per-user path for '$sv' — supply an explicit <mountpoint>."
+        mnt="/home/$user$rel"
+        echo "Derived per-user mountpoint: $mnt"
+        read -r -p "Use this mountpoint? [Y/n]: " ans
+        case "$ans" in [nN]*) die "aborted." ;; esac
+    fi
+
+    # No mountpoint and no --user: if this is a known per-user profile, offer to
+    # prompt for the username instead of demanding the full path.
+    if [ -z "$mnt" ] && [ -z "$user" ]; then
+        local rel="${USER_PROFILE_PATH[$sv]:-}"
+        if [ -n "$rel" ]; then
+            read -r -p "Per-user profile $sv — enter the username to target (e.g. alice): " user
+            [ -n "$user" ] || die "no username given."
+            mnt="/home/$user$rel"
+            echo "Derived per-user mountpoint: $mnt"
+            read -r -p "Use this mountpoint? [Y/n]: " ans
+            case "$ans" in [nN]*) die "aborted." ;; esac
+        fi
+    fi
+
+    [ -n "$mnt" ] || die "no mountpoint — pass one explicitly, or --user <name> (or just the subvol name for a per-user prompt)."
+    if [ -d "$mnt" ]; then :; else
+        if [ -n "$user" ]; then
+            die "mountpoint '$mnt' does not exist — create and chown it to $user first."
+        else
+            die "mountpoint '$mnt' does not exist."
+        fi
+    fi
+
+    # --user with an explicit mountpoint: warn so a wrong path isn't silent.
+    if [ -n "$user" ] && [ -n "${positional[1]:-}" ]; then
+        echo "Note: --user $user given with explicit mountpoint — using '$mnt' as typed."
+    fi
+
+    mount_top
+    sp="$(sibling_path "$sv")"
+    [ -e "$sp" ] && die "sibling '$sv' already exists (delete it first if you mean to recreate)."
+    [ -z "$(fstab_line "$sv")" ] || die "subvolume '$sv' already has an fstab entry."
+    is_mounted "$mnt" && die "'$mnt' is already a mountpoint in use."
+
+    mnt="$(readlink -f "$mnt")"
+    info "creating flat sibling $sv (top-level tree) for $mnt..."
+    btrfs subvolume create "$sp" || die "btrfs subvolume create failed."
+
+    # optional migration: copy existing contents of $src into the fresh sibling
+    # BEFORE mounting it over $mnt, preserving ownership/permissions. $src is
+    # live under the running @ mount; copying into the subvolid=5-tree path is
+    # a cross-visible copy (both views show the same filesystem).
+    if [ -n "$src" ]; then
+        [ -d "$src" ] || {
+            echo "ERROR: source '$src' not a dir (removing partially-created sibling)." >&2
+            btrfs subvolume delete "$sp"
+            exit 1
+        }
+        info "migrating contents of $src into new sibling..."
+        cp -a -- "$src"/. "$sp"/ 2>/dev/null || true
+    fi
+    unmount_top; trap - EXIT
+
+    # fstab mount options: nodatacow MUST be via mount options, never chattr.
+    if [ "$nodatacow" = "1" ]; then
+        mode="noatime,nodatacow,compress=none"
+        info "mount options: $mode (nodatacow via fstab, per installer [NODATACOW])"
+    else
+        mode="noatime,compress=zstd:1"
+        info "mount options: $mode"
+    fi
+
+    echo "UUID=$FSUUID $mnt btrfs $mode,subvol=$sv 0 0" >> /etc/fstab
+    mount "$mnt"
+    info "done: $sv mounted at $mnt (flat sibling; outside Snapper rollback scope)."
+}
+
+# ---------------------------------------------------------------------------
+# detach — safe undo: drop fstab line + umount, preserving the sibling + data.
+# ---------------------------------------------------------------------------
+cmd_detach() {
+    [ $# -eq 1 ] || die "usage: void-subvol-tool.sh detach <subvol>"
+    local sv fst mnt
+    sv="$(norm_subvol "$1")"
+    fst="$(fstab_line "$sv")"
+    [ -n "$fst" ] || die "no fstab entry for '$sv' (nothing to detach)."
+    mnt="$(awk '{print $2}' <<<"$fst")"
+    info "unmounting $mnt..."
+    umount "$mnt" 2>/dev/null || true
+    sed -i "\~subvol=$sv([[:space:],])~d" /etc/fstab
+    info "detached $sv. Subvolume and data remain on disk. Re-attach with:"
+    echo "  sudo /root/tools/void-subvol-tool.sh add $sv $mnt"
+}
+
+# ---------------------------------------------------------------------------
+# destroy — full teardown (sibling + data deleted). Requires confirmation.
+# ---------------------------------------------------------------------------
+cmd_destroy() {
+    [ $# -eq 1 ] || die "usage: void-subvol-tool.sh destroy <subvol>"
+    local sv fst mnt sp
+    sv="$(norm_subvol "$1")"
+    fst="$(fstab_line "$sv")"
+    mnt="$(awk '{print $2}' <<<"$fst")"
+    if [ -n "$mnt" ] && is_mounted "$mnt"; then
+        info "unmounting $mnt..."
+        umount "$mnt" 2>/dev/null || true
+        sed -i "\~subvol=$sv([[:space:],])~d" /etc/fstab
+    fi
+    echo "WARNING: this DELETES subvolume $sv and ALL data it holds. Cannot be undone."
+    read -r -p "Type YES to confirm: " ans
+    [ "$ans" = "YES" ] || die "aborted."
+    mount_top
+    sp="$(sibling_path "$sv")"
+    [ -e "$sp" ] || die "sibling '$sv' not found in top-level tree."
+    btrfs subvolume delete "$sp" >/dev/null
+    info "destroyed $sv."
+}
+
+# ---------------------------------------------------------------------------
+# dispatch
+# ---------------------------------------------------------------------------
+[ $# -ge 1 ] || { echo "usage: $0 <verb> [args]  (list|check|add|detach|destroy)" >&2; exit 1; }
+verb="$1"; shift
+resolve_dev
+case "$verb" in
+    list)    cmd_list "$@" ;;
+    check)   cmd_check "$@" ;;
+    add)     cmd_add "$@" ;;
+    detach)  cmd_detach "$@" ;;
+    destroy) cmd_destroy "$@" ;;
+    *) die "unknown verb '$verb' (list|check|add|detach|destroy)." ;;
+esac
+INNER_EOF
+chmod 0755 /root/tools/void-subvol-tool.sh
+
 # 5) README.md — user-facing documentation for the tools folder: what each tool
 #    does, WHEN to reach for it, and the exact command to run. This is the
 #    discoverability layer the admin sees first (and the one that survives on a
@@ -5879,6 +6212,79 @@ sudo /root/tools/void-xbps-snap -S <pkg>
 
 ---
 
+### `void-subvol-tool.sh` — add / inspect / detach flat subvolumes (post-install)
+**What it does:** manages the installer's *flat* Btrfs subvolume topology after
+the fact. It creates, checks, detaches, or destroys a **top-level sibling**
+subvolume (never nested inside `@`), so anything you add is automatically
+outside Snapper rollback scope — the same property as `@home`, `@opt`, etc.
+It is **purely structural**: it never installs software, so you can create
+`@steam`, `@postgresql`, `@containers`, etc. ahead of installing that software
+manually, or wall off an existing directory.
+
+**When to use it:** you want the profile/data of an app on its own
+rollback-excluded subvolume but don't want (or already have) the app — e.g.
+creating `@postgresql` before installing PostgreSQL, or turning an existing
+`/var/lib/app` into its own subvol later. It mirrors the installer's own
+flat-topology and nodatacow-via-fstab conventions.
+
+**How:**
+```bash
+sudo /root/tools/void-subvol-tool.sh list
+sudo /root/tools/void-subvol-tool.sh add @steam /home/USER/.local/share/Steam
+sudo /root/tools/void-subvol-tool.sh add @postgresql /var/lib/postgresql --nodatacow
+sudo /root/tools/void-subvol-tool.sh add @app /var/lib/app /var/lib/app   # migrate existing data + wall it off
+sudo /root/tools/void-subvol-tool.sh check @app
+sudo /root/tools/void-subvol-tool.sh detach @app        # umount + drop fstab (data preserved)
+sudo /root/tools/void-subvol-tool.sh destroy @app       # full delete, asks for confirmation
+```
+Per-user profile subvolumes (browser profiles, `@steam`, `@thunderbird`,
+`@containers-user`, `@usercache`, ...) live under `/home/<user>`, so the tool
+can derive the exact mountpoint from the username instead of you typing the
+whole path. Use `--user <name>`, or just the subvol name and it will **prompt**
+for the username:
+```bash
+sudo /root/tools/void-subvol-tool.sh add @chromium --user alice      # -> /home/alice/.config/chromium
+sudo /root/tools/void-subvol-tool.sh add @containers-user --user alice   # -> /home/alice/.local/share/containers
+sudo /root/tools/void-subvol-tool.sh add @steam                     # prompts "enter the username..."
+```
+Important: as at install (`[PERSONAL-DATA]`/`provision_browser_subvol`), the
+per-user parents must already exist and be owned by the target user. Create and
+`chown` the chain **before** the tool call, or run the migrate form
+(`add @x /home/user/... /home/user/...`) so any pre-existing data is copied in
+with ownership preserved. The tool creates the sibling and fstab line only — it
+never chowns/remakes your home.
+
+It refuses to double-create or double-mount, and `destroy` requires typing
+`YES`. `nodatacow` is applied via the fstab mount option (never `chattr +C`),
+matching the installer's `[NODATACOW]` rule that `chattr` on a subvolume root is
+shadowed by the mount.
+
+**Create the common optional subvolumes in one pass** (a short loop; each `add`
+is idempotent, so already-created siblings are skipped). This covers the
+system-path optional subvolumes; it excludes the context-dependent ones
+(`@grub` — GRUB-only, `@swap` — only with a swapfile backend, and
+`@containers-user` — a per-user profile, so give it a username with `--user`).
+The tool never installs or checks for the software, so these flat siblings get
+created even on a lean system with none of it installed:
+```bash
+set -e
+add_pair() { case "$1" in
+    @libvirt)    echo "/var/lib/libvirt --nodatacow" ;;
+    @flatpak)    echo "/var/lib/flatpak" ;;
+    @docker)     echo "/var/lib/docker" ;;
+    @containers) echo "/var/lib/containers" ;;
+esac; }
+for name in @libvirt @flatpak @docker @containers; do
+    read -r mnt opt <<<"$(add_pair "$name")"
+    # shellcheck disable=SC2086  # deliberate word-split of the optional flag
+    sudo /root/tools/void-subvol-tool.sh add "$name" "$mnt" $opt
+done
+```
+Add any other system-path `@name`/mountpoint pair to the `add_pair` case /
+`for name` list as you like.
+
+---
+
 ## Notes
 - All tools assume the installer-provisioned layout (btrfs root, a snapper
   `root` config, and — for the Limine tools — Limine as the bootloader).
@@ -5886,7 +6292,7 @@ sudo /root/tools/void-xbps-snap -S <pkg>
   installer itself; this folder is the deployable/on-box copy for later reuse.
 INNER_EOF
 chmod 0644 /root/tools/README.md
-echo "/root/tools maintenance folder complete (void-xbps-snap backup, 3 limine-engine backups, re-shadow-xbps.sh, limine-sync.sh, re-provision-snapper.sh, README.md)"
+echo "/root/tools maintenance folder complete (void-xbps-snap backup, 3 limine-engine backups, re-shadow-xbps.sh, limine-sync.sh, re-provision-snapper.sh, void-subvol-tool.sh, README.md)"
 
 # AI (Big Pickle) ADDITION — v3.3.0-beta19 [RESHADOW-BOOT]: make the xbps
 # self-update shadow-clobber SELF-HEALING instead of a manual recovery. The
