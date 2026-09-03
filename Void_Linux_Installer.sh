@@ -207,6 +207,14 @@
 #     never nested inside @, so they stay outside Snapper rollback scope) without
 #     installing the software that would normally own them. nodatacow is applied
 #     via fstab mount options, never chattr (matches [NODATACOW]).
+#     AI (Big Pickle) ADDITION — v3.3.0-beta26 [BROWSER-GROUP] / [CONTAINER-GROUP]:
+#     the interactive optional-software prompts are grouped behind category gates
+#     (SETUP_WEB_BROWSERS, SETUP_CONTAINERS) mirroring the tool's --class groups,
+#     while each browser / container backend stays individually selectable. Gates
+#     default to the aggregate of their component defaults (web=YES, containers=NO)
+#     so a bare-Enter run is unchanged; a "no" skips the whole section and forces
+#     every contained toggle off (exported, so SUBVOL_LIST/provision gating stays
+#     correct). Both gates wired to DEFAULT_* per [PROMPT-DEFAULTS].
 #     AI (Big Pickle) ADDITION — v3.3.0-beta19 [RESHADOW-BOOT]: the xbps
 #     self-update caveat is now SELF-HEALING. /etc/rc.local (executed every
 #     boot by runit stage 2, OUTSIDE the installer's firstboot.log guard) calls
@@ -332,7 +340,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta25"
+SCRIPT_VERSION="3.3.0-beta26"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.3.0-beta24 [PROMPT-DEFAULTS]: EDITABLE DEFAULT
@@ -364,10 +372,20 @@ DEFAULT_CHROMIUM="${DEFAULT_CHROMIUM:-true}"          # [Y/n]
 DEFAULT_VIVALDI="${DEFAULT_VIVALDI:-false}"           # [y/N]
 DEFAULT_FALKON="${DEFAULT_FALKON:-false}"             # [y/N]
 DEFAULT_BRAVE="${DEFAULT_BRAVE:-false}"               # [y/N]
+# [BROWSER-GROUP] web-browser category gate: whether to even walk the browser
+# section. Defaults to the OR of the component defaults (Firefox/Chromium are
+# on by default), so a bare-Enter run still installs the same browsers as
+# before; only an explicit "no" skips the whole browser section.
+DEFAULT_WEB_BROWSERS="${DEFAULT_WEB_BROWSERS:-true}"  # [Y/n]
 DEFAULT_PODMAN_ROOTLESS="${DEFAULT_PODMAN_ROOTLESS:-false}"  # [y/N]
 DEFAULT_PODMAN_ROOTFUL="${DEFAULT_PODMAN_ROOTFUL:-false}"    # [y/N]
 DEFAULT_DOCKER="${DEFAULT_DOCKER:-false}"             # [y/N]
 DEFAULT_DOCKER_GROUP_ADD="${DEFAULT_DOCKER_GROUP_ADD:-false}"  # add to docker group? [y/N]
+# [CONTAINER-GROUP] container-category gate. Defaults OFF (all three backends
+# default OFF under [OPT-DEFAULTS]), so a bare-Enter run skips the whole
+# container section exactly as before; only an explicit "yes" walks the
+# individual Podman/Docker prompts.
+DEFAULT_CONTAINERS="${DEFAULT_CONTAINERS:-false}"     # [y/N]
 DEFAULT_VIRT="${DEFAULT_VIRT:-false}"                 # virtualization qemu/libvirt? [y/N]
 DEFAULT_DISTROBOX="${DEFAULT_DISTROBOX:-false}"       # also install distrobox? [y/N]
 DEFAULT_DISTROBOX_TRACK="${DEFAULT_DISTROBOX_TRACK:-1}"       # 1=stable 2=current 3=next
@@ -1806,57 +1824,84 @@ export INSTALL_FLATPAK
 #     below via Flatpak ONLY when Flatpak was also selected — if not,
 #     Brave is skipped with a clear explanation rather than silently
 #     doing nothing or reaching for an unofficial repo.
+# AI (Big Pickle) ADDITION — v3.3.0-beta26 [BROWSER-GROUP]: gate the whole
+# web-browser install section behind one yes/no so a person who wants NO
+# browser can skip past all five prompts at once; anyone who does want
+# browsers then picks each one individually below (same per-browser defaults
+# as before). Bare-Enter => gate reads default (defaults to YES because
+# Firefox/Chromium default on), so an uninterested run behaves exactly as it
+# did before this grouping.
 echo ""
-echo "Choose web browsers to install (each is independent — pick any"
-echo "combination, or none at all):"
-ask "Install Firefox? [Y/n]: "
-read -r INSTALL_FIREFOX_INPUT
-case "$INSTALL_FIREFOX_INPUT" in
-    "") INSTALL_FIREFOX="$DEFAULT_FIREFOX" ;;
-    [nN]*) INSTALL_FIREFOX="false" ;;
-    *) INSTALL_FIREFOX="true" ;;
+ask "Set up web browsers now? (choose each one next) [Y/n]: "
+read -r _setup_web_input
+case "$_setup_web_input" in
+    "")    SETUP_WEB_BROWSERS="$DEFAULT_WEB_BROWSERS" ;;
+    [nN]*) SETUP_WEB_BROWSERS="false" ;;
+    *)     SETUP_WEB_BROWSERS="true" ;;
 esac
-export INSTALL_FIREFOX
+export SETUP_WEB_BROWSERS
 
-ask "Install Chromium? [Y/n]: "
-read -r INSTALL_CHROMIUM_INPUT
-case "$INSTALL_CHROMIUM_INPUT" in
-    "") INSTALL_CHROMIUM="$DEFAULT_CHROMIUM" ;;
-    [nN]*) INSTALL_CHROMIUM="false" ;;
-    *) INSTALL_CHROMIUM="true" ;;
-esac
-export INSTALL_CHROMIUM
+if [ "$SETUP_WEB_BROWSERS" = "true" ]; then
+    echo "Choose web browsers to install (each is independent — pick any"
+    echo "combination, or none at all):"
+    ask "Install Firefox? [Y/n]: "
+    read -r INSTALL_FIREFOX_INPUT
+    case "$INSTALL_FIREFOX_INPUT" in
+        "") INSTALL_FIREFOX="$DEFAULT_FIREFOX" ;;
+        [nN]*) INSTALL_FIREFOX="false" ;;
+        *) INSTALL_FIREFOX="true" ;;
+    esac
+    export INSTALL_FIREFOX
 
-ask "Install Vivaldi (proprietary, nonfree repo)? [y/N]: "
-read -r INSTALL_VIVALDI_INPUT
-case "$INSTALL_VIVALDI_INPUT" in
-    "") INSTALL_VIVALDI="$DEFAULT_VIVALDI" ;;
-    [yY]*) INSTALL_VIVALDI="true" ;;
-    *) INSTALL_VIVALDI="false" ;;
-esac
-export INSTALL_VIVALDI
+    ask "Install Chromium? [Y/n]: "
+    read -r INSTALL_CHROMIUM_INPUT
+    case "$INSTALL_CHROMIUM_INPUT" in
+        "") INSTALL_CHROMIUM="$DEFAULT_CHROMIUM" ;;
+        [nN]*) INSTALL_CHROMIUM="false" ;;
+        *) INSTALL_CHROMIUM="true" ;;
+    esac
+    export INSTALL_CHROMIUM
 
-ask "Install Falkon (KDE's browser, works fine standalone too)? [y/N]: "
-read -r INSTALL_FALKON_INPUT
-case "$INSTALL_FALKON_INPUT" in
-    "") INSTALL_FALKON="$DEFAULT_FALKON" ;;
-    [yY]*) INSTALL_FALKON="true" ;;
-    *) INSTALL_FALKON="false" ;;
-esac
-export INSTALL_FALKON
+    ask "Install Vivaldi (proprietary, nonfree repo)? [y/N]: "
+    read -r INSTALL_VIVALDI_INPUT
+    case "$INSTALL_VIVALDI_INPUT" in
+        "") INSTALL_VIVALDI="$DEFAULT_VIVALDI" ;;
+        [yY]*) INSTALL_VIVALDI="true" ;;
+        *) INSTALL_VIVALDI="false" ;;
+    esac
+    export INSTALL_VIVALDI
 
-echo "NOTICE: Brave has no official Void package. If selected, it will only"
-echo "be installed via Flatpak — and only if Flatpak was selected above. If"
-echo "Flatpak wasn't selected, Brave will be skipped rather than reaching"
-echo "for an unofficial third-party package repository."
-ask "Install Brave? [y/N]: "
-read -r INSTALL_BRAVE_INPUT
-case "$INSTALL_BRAVE_INPUT" in
-    "") INSTALL_BRAVE="$DEFAULT_BRAVE" ;;
-    [yY]*) INSTALL_BRAVE="true" ;;
-    *) INSTALL_BRAVE="false" ;;
-esac
-export INSTALL_BRAVE
+    ask "Install Falkon (KDE's browser, works fine standalone too)? [y/N]: "
+    read -r INSTALL_FALKON_INPUT
+    case "$INSTALL_FALKON_INPUT" in
+        "") INSTALL_FALKON="$DEFAULT_FALKON" ;;
+        [yY]*) INSTALL_FALKON="true" ;;
+        *) INSTALL_FALKON="false" ;;
+    esac
+    export INSTALL_FALKON
+
+    echo "NOTICE: Brave has no official Void package. If selected, it will only"
+    echo "be installed via Flatpak — and only if Flatpak was selected above. If"
+    echo "Flatpak wasn't selected, Brave will be skipped rather than reaching"
+    echo "for an unofficial third-party package repository."
+    ask "Install Brave? [y/N]: "
+    read -r INSTALL_BRAVE_INPUT
+    case "$INSTALL_BRAVE_INPUT" in
+        "") INSTALL_BRAVE="$DEFAULT_BRAVE" ;;
+        [yY]*) INSTALL_BRAVE="true" ;;
+        *) INSTALL_BRAVE="false" ;;
+    esac
+    export INSTALL_BRAVE
+else
+    # No web browsers wanted: force every browser install toggle off so
+    # downstream SUBVOL_LIST / provision_browser_subvol gating stays correct.
+    INSTALL_FIREFOX="false"
+    INSTALL_CHROMIUM="false"
+    INSTALL_VIVALDI="false"
+    INSTALL_FALKON="false"
+    INSTALL_BRAVE="false"
+    export INSTALL_FIREFOX INSTALL_CHROMIUM INSTALL_VIVALDI INSTALL_FALKON INSTALL_BRAVE
+fi
 
 # AI (Claude, Sonnet 5, Medium) ADDITION: for any browser NOT selected above,
 # offer to pre-create its isolated nodatacow subvolume anyway (same
@@ -1866,6 +1911,7 @@ export INSTALL_BRAVE
 # start instead of mixing into @home. Asked individually per browser
 # (not a single bulk yes/no) since the person may only care about this for
 # one or two of them.
+if [ "$SETUP_WEB_BROWSERS" = "true" ]; then
 echo ""
 echo "For any browser you did NOT select above, you can still pre-create its"
 echo "isolated profile subvolume now, in case you install that browser"
@@ -1924,6 +1970,7 @@ if [ "$INSTALL_BRAVE" != "true" ]; then
     esac
 fi
 export PROVISION_BRAVE_SUBVOL
+fi
 
 # AI (Big Pickle) ADDITION — v3.3.0-beta13 [SUBVOLS]: same "pre-create the
 # isolated subvolume for later manual use" pattern, extended beyond web
@@ -1977,40 +2024,57 @@ export PROVISION_DB_SUBVOLS
 # at a time below. You are not choosing between them; you can say yes to
 # any combination (all three, any two, one, or none). If you only need
 # one backend, it's fine to say no to the other two when they're asked.
+# AI (Big Pickle) ADDITION — v3.3.0-beta26 [CONTAINER-GROUP]: gate the whole
+# container section behind one yes/no. All three backends default OFF, so the
+# gate defaults OFF too — a bare-Enter run skips the section exactly as it did
+# before (lean posture, [OPT-DEFAULTS]). Say "yes" to walk Podman rootless /
+# Podman rootful / Docker individually below; each remains a separate,
+# independent choice (rootless vs rootful vs docker have genuinely different
+# security/trust/architecture profiles).
 echo ""
-echo "Container backends — Podman rootless, Podman rootful, and Docker are"
-echo "three independent choices below (any combination is fine, including"
-echo "all three or none)."
-# AI (Big Pickle) CHANGE — v3.3.0-beta2 [OPT-DEFAULTS]: Podman rootless,
-# Podman rootful, Docker, and virtualization are now all default-OFF.
-# A bare "just press Enter" run therefore installs a lean base system —
-# the container/virtualization stack must be explicitly opted into per
-# prompt. This matches the "assume no background daemons unless asked
-# for" posture already applied to the docker-group and distrobox prompts.
-ask "Install Podman rootless? [y/N]: "
-read -r INSTALL_PODMAN_ROOTLESS_INPUT
-case "$INSTALL_PODMAN_ROOTLESS_INPUT" in
-    "") INSTALL_PODMAN_ROOTLESS="$DEFAULT_PODMAN_ROOTLESS" ;;
-    [yY]*) INSTALL_PODMAN_ROOTLESS="true" ;;
-    *) INSTALL_PODMAN_ROOTLESS="false" ;;
+ask "Set up containers (Podman / Docker) now? (choose each backend next) [y/N]: "
+read -r _setup_containers_input
+case "$_setup_containers_input" in
+    "")    SETUP_CONTAINERS="$DEFAULT_CONTAINERS" ;;
+    [yY]*) SETUP_CONTAINERS="true" ;;
+    *)     SETUP_CONTAINERS="false" ;;
 esac
-export INSTALL_PODMAN_ROOTLESS
+export SETUP_CONTAINERS
 
-ask "Install Podman rootful capability? [y/N]: "
-read -r INSTALL_PODMAN_ROOTFUL_INPUT
-case "$INSTALL_PODMAN_ROOTFUL_INPUT" in
-    "") INSTALL_PODMAN_ROOTFUL="$DEFAULT_PODMAN_ROOTFUL" ;;
-    [yY]*) INSTALL_PODMAN_ROOTFUL="true" ;;
-    *) INSTALL_PODMAN_ROOTFUL="false" ;;
-esac
-export INSTALL_PODMAN_ROOTFUL
+if [ "$SETUP_CONTAINERS" = "true" ]; then
+    echo "Container backends — Podman rootless, Podman rootful, and Docker are"
+    echo "three independent choices below (any combination is fine, including"
+    echo "all three or none)."
+    # AI (Big Pickle) CHANGE — v3.3.0-beta2 [OPT-DEFAULTS]: Podman rootless,
+    # Podman rootful, Docker, and virtualization are now all default-OFF.
+    # A bare "just press Enter" run therefore installs a lean base system —
+    # the container/virtualization stack must be explicitly opted into per
+    # prompt. This matches the "assume no background daemons unless asked
+    # for" posture already applied to the docker-group and distrobox prompts.
+    ask "Install Podman rootless? [y/N]: "
+    read -r INSTALL_PODMAN_ROOTLESS_INPUT
+    case "$INSTALL_PODMAN_ROOTLESS_INPUT" in
+        "") INSTALL_PODMAN_ROOTLESS="$DEFAULT_PODMAN_ROOTLESS" ;;
+        [yY]*) INSTALL_PODMAN_ROOTLESS="true" ;;
+        *) INSTALL_PODMAN_ROOTLESS="false" ;;
+    esac
+    export INSTALL_PODMAN_ROOTLESS
 
-if [ "$INSTALL_PODMAN_ROOTLESS" = "true" ] || [ "$INSTALL_PODMAN_ROOTFUL" = "true" ]; then
-    INSTALL_PODMAN="true"
-else
-    INSTALL_PODMAN="false"
-fi
-export INSTALL_PODMAN
+    ask "Install Podman rootful capability? [y/N]: "
+    read -r INSTALL_PODMAN_ROOTFUL_INPUT
+    case "$INSTALL_PODMAN_ROOTFUL_INPUT" in
+        "") INSTALL_PODMAN_ROOTFUL="$DEFAULT_PODMAN_ROOTFUL" ;;
+        [yY]*) INSTALL_PODMAN_ROOTFUL="true" ;;
+        *) INSTALL_PODMAN_ROOTFUL="false" ;;
+    esac
+    export INSTALL_PODMAN_ROOTFUL
+
+    if [ "$INSTALL_PODMAN_ROOTLESS" = "true" ] || [ "$INSTALL_PODMAN_ROOTFUL" = "true" ]; then
+        INSTALL_PODMAN="true"
+    else
+        INSTALL_PODMAN="false"
+    fi
+    export INSTALL_PODMAN
 
 # AI (Claude, Sonnet 5, Medium) ADDITION: Docker's default architecture runs a persistent
 # root-owned background daemon — membership in the "docker" group is
@@ -2153,6 +2217,24 @@ else
     DISTROBOX_DEFAULT_ENGINE=""
 fi
 export DISTROBOX_DEFAULT_ENGINE
+
+else
+    # No containers wanted: force every container toggle off so all the
+    # conditional sub-prompts (docker group-add, distrobox + track,
+    # container-manager) evaluate against false and are skipped, and the
+    # downstream SUBVOL_LIST / Stage-2 gating stays correct.
+    INSTALL_PODMAN_ROOTLESS="false"
+    INSTALL_PODMAN_ROOTFUL="false"
+    INSTALL_PODMAN="false"
+    INSTALL_DOCKER="false"
+    DOCKER_GROUP_ADD="false"
+    INSTALL_DISTROBOX="false"
+    DISTROBOX_TRACK="stable"
+    DISTROBOX_DEFAULT_ENGINE=""
+    export INSTALL_PODMAN_ROOTLESS INSTALL_PODMAN_ROOTFUL INSTALL_PODMAN \
+           INSTALL_DOCKER DOCKER_GROUP_ADD INSTALL_DISTROBOX DISTROBOX_TRACK \
+           DISTROBOX_DEFAULT_ENGINE
+fi
 
 ask "Install virtualization (qemu/libvirt/virt-manager + br0 bridge)? [y/N]: "
 read -r INSTALL_VIRT_INPUT

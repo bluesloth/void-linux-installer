@@ -10,7 +10,39 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta25** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta26** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta26 — optional-software category gates (`[BROWSER-GROUP]` `[CONTAINER-GROUP]`)
+
+Groups the install-time optional-software prompt flow the way the tool's
+`--class` groups subvolumes, while keeping every item individually selectable.
+
+- **Web-browser gate (`SETUP_WEB_BROWSERS`, `[BROWSER-GROUP]`):** a single
+  "Set up web browsers now?" `[Y/n]` prompt gates the whole browser section
+  (Firefox/Chromium/Vivaldi/Falkon/Brave installs **and** their per-browser
+  profile-subvolume pre-create prompts). Bare-Enter reads `DEFAULT_WEB_BROWSERS`
+  (defaults YES because Firefox/Chromium default on), so an uninterested run is
+  byte-for-byte identical to before; only an explicit "no" skips all five browser
+  prompts and forces every browser install toggle off. Saying yes still yields the
+  per-browser individual prompts exactly as before.
+- **Container gate (`SETUP_CONTAINERS`, `[CONTAINER-GROUP]`):** a single
+  "Set up containers (Podman / Docker) now?" `[y/N]` gate. Defaults OFF (all
+  three backends are default-off under `[OPT-DEFAULTS]`), so a bare-Enter run
+  skips the whole container section exactly as before; and the gate forbids the
+  section entirely (forcing Podman rootless/rootful, Docker, docker-group-add,
+  distrobox + track, container-manager all off/exported) when you say no. Saying
+  yes walks Podman rootless / Podman rootful / Docker **individually** (each stays
+  an independent, separately-documented choice — rootless vs rootful vs docker
+  have different security/trust/architecture profiles).
+- **Resume/state correctness:** both gates read a declared `DEFAULT_*`
+  (`DEFAULT_WEB_BROWSERS=true`, `DEFAULT_CONTAINERS=false`) wired through
+  `[PROMPT-DEFAULTS]` and validated by `check-defaults.sh`; all forced-off toggles
+  are `export`ed so downstream `SUBVOL_LIST` / `provision_browser_subvol` /
+  Stage-2 gating stays correct on a gated-off section.
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (both new defaults declared +
+  referenced), and `Debug/check-heredocs.sh` (46 heredocs) all pass.
 
 ---
 
