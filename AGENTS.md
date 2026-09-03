@@ -38,7 +38,7 @@ single-disk GPT with a flat BTRFS subvolume topology.
   archives the installer into the target. This file must stay **secret-free**
   (no password hashes) — it is an as-built, human-readable summary only;
   anything cryptographic lives in limine-env, the resume-state file, or the
-  account provisioning already. In addition, `[DOCS-LOG]` (v3.3.0-beta14)
+  account provisioning already. In addition, `[DOCS-LOG]` (Beta-v2.6.2)
   writes a per-machine quick record at `~/Documents/VOID_INSTALL.txt`
   (installed user): `SCRIPT_VERSION`, install UTC, bootloader, ESP
   mountpoint (flags the GRUB+ENCRYPT `/boot`==ESP combo), encryption/YubiKey
@@ -105,14 +105,14 @@ Known regressions that have already broken a real install:
    `LIMINE_WALLPAPER=yes` (+ style) in limine-env and place the image on the
    ESP; do not reintroduce a commented template that resyncs would wipe out.
    Limine `wallpaper:` works with Void's plain `BOOTX64.EFI` (not limine-gui-only).
-   `[LIMINE-WALLPAPER-OPT-OUT]` (v3.3.0-beta7): when the user declines the
+   `[LIMINE-WALLPAPER-OPT-OUT]` (Beta-v2.5.4): when the user declines the
    wallpaper, `void-limine-write-conf` still emits a HARMLEESS commented
    `# wallpaper:` section documenting how to enable — because the generator
    itself re-emits it on every resync, it does NOT create a hand-uncommented
    enable shortcut and is consistent with the guarded design above.
  10. `[SNPR-EV]` Void's snapper **does** execute `/usr/lib/snapper/plugins`
      (empirically verified on target hardware — `Debug/snpr_ev/probe_void_snapper_plugin.sh`;
-     this refutes the old v3.1.0-beta1 `[LIMINE-SYNC-CRON]` "no hook" premise).
+     this refutes the old Beta-v2.3.0 `[LIMINE-SYNC-CRON]` "no hook" premise).
      The installer writes a Void-native plugin
      `/usr/lib/snapper/plugins/00-void-limine-snapper-sync` (Limine branch only,
      never GRUB) that calls the shared `void-limine-write-conf` on
@@ -125,7 +125,7 @@ Known regressions that have already broken a real install:
      `00-void-probe`. Do NOT rename it without the `NN-` prefix. Do NOT delete
      the plugin "to simplify" — the `00-void-limine-snapper-sync` plugin is now
      the SOLE snapshot-menu trigger. The former 15-min
-     `/etc/cron.d/void-limine-sync` fallback was REMOVED in v3.3.0-beta8
+     `/etc/cron.d/void-limine-sync` fallback was REMOVED in Beta-v2.5.6
      (`[SNPR-EV-NO-CRON]`); do not reintroduce it. The kernel post-install hook
      and the plugin both fire the same single generator, so menu updates have
      exactly two real events: a kernel change or a snapshot change.
@@ -143,7 +143,7 @@ Known regressions that have already broken a real install:
     the ciphertext container UUID that drives crypttab and the
     `rd.luks.uuid=... rd.luks.name=...=$CRYPT_NAME` kernel params. The mapper
     name `$CRYPT_NAME` defaults to `void-root` but is a real optional prompt
-    (`[CRYPT-NAME]`, v3.3.0-beta23); thread it (not a literal `void-root`)
+    (`[CRYPT-NAME]`, Beta-v2.7.1); thread it (not a literal `void-root`)
     through cryptsetup calls, crypttab, chroot_env, limine-env, and the
     rd.luks.name= builders so a custom name still boots. Do NOT
     conflate the two UUIDs, and do NOT persist any passphrase to
@@ -174,7 +174,7 @@ Known regressions that have already broken a real install:
     `keyscript=` line or drop `inst_script ... /sbin/cryptroot-ask`. The module
     is named `99void-yubikey` (99 > 90crypt) specifically so its override wins
     the `/sbin/cryptroot-ask` path in the initramfs; do not renumber it below
-    `90crypt`. CRITICAL (`[YK-KEYSCRIPT-BAKE]`, v3.3.0-beta10): the
+    `90crypt`. CRITICAL (`[YK-KEYSCRIPT-BAKE]`, Beta-v2.5.8): the
     `void-reveal-yubikey-key` heredoc MUST stay UNQUOTED (`<< INNER_EOF`, like
     the limine-env heredoc) so its `${YK_SLOT}`/`${YK_CHALLENGE}` placeholders
     bake at install time — cryptroot-ask execs keyscripts with no environment,
@@ -228,7 +228,7 @@ Known regressions that have already broken a real install:
   generated files themselves carry (SC2154 dracut globals, SC2050 rc.local
   sed placeholders, SC2034 greeter wait counter, SC2086/SC2012 deliberate
   word-splits) are intentional and must stay.
-- The `[PROMPT-DEFAULTS]` (v3.3.0-beta24) top block wires every interactive
+- The `[PROMPT-DEFAULTS]` (Beta-v2.7.2) top block wires every interactive
   prompt's bare-Enter fallback to a `DEFAULT_*` variable. After adding a prompt
   or changing that block, run `Debug/check-defaults.sh` (committed,
   reproducible): it fails if any declared `DEFAULT_*` is never referenced by a
