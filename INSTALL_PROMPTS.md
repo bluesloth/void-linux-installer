@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Beta-v2.8.1**). It exists
+> `Void_Linux_Installer.sh` (current version: **Beta-v2.9.0**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -167,19 +167,16 @@
 
 - **`[*]` Install OctoXBPS (graphical package manager + update notifier)? [Y/n]**
 - **`[*]` Install Flatpak (+ Flathub)? [Y/n]**
+- **Install Thunderbird (email client)? [y/N]** → if `y`: package installed, `@thunderbird` per-user subvol provisioned
+- **Install Steam (gaming client)? [y/N]** → if `y`: package installed (multilib), `@steam` per-user subvol provisioned
 - **`[*]` Set up web browsers now? (choose each one next) [Y/n]** → gate; if `no`, all
-  browser install + profile-subvolume prompts are skipped (toggles forced off).
-  If `yes`, the individual browser prompts run:
-  - **`[*]` Install Firefox? [Y/n]** → if `y`: a separate "Pre-create Firefox's profile subvolume anyway? [y/N]" prompt
-  - **`[*]` Install Chromium? [Y/n]** → if `y`: profile-subvolume prompt
-  - **Install Vivaldi (proprietary, nonfree repo)? [y/N]** → if `y`: profile-subvolume prompt
-  - **Install Falkon (KDE's browser, works fine standalone too)? [y/N]** → if `y`: profile-subvolume prompt
-  - **Install Brave? [y/N]** → if `y`: profile-subvolume prompt
-- After the browsers (each opt-in, for later manual installs):
-  - **Pre-create Thunderbird's profile subvolume anyway? [y/N]** (`@thunderbird`)
-  - **Pre-create Steam's data subvolume (~/.local/share/Steam) anyway? [y/N]** (`@steam`)
-  - **Pre-create VirtualBox's VM folder subvolume (~/VirtualBox VMs) anyway? [y/N]** (`@virtualbox`)
-  - **Pre-create PostgreSQL/MariaDB data subvolumes (/var/lib/postgresql, /var/lib/mysql) anyway? [y/N]** (`@postgresql` + `@mariadb`)
+  browser install prompts are skipped (toggles forced off). If `yes`, the
+  individual browser prompts run:
+  - **`[*]` Install Firefox? [Y/n]**
+  - **`[*]` Install Chromium? [Y/n]**
+  - **Install Vivaldi (proprietary, nonfree repo)? [y/N]**
+  - **Install Falkon (KDE's browser, works fine standalone too)? [y/N]**
+  - **Install Brave? [y/N]**
 - `@network` (`/var/lib/NetworkManager`) is always created — no prompt — and
   rolls back independently of `@`.
 - **`[*]` Set up containers (Podman / Docker) now? (choose each backend next) [y/N]** →
@@ -198,6 +195,19 @@
     - `1` Podman (default)
     - `2` Docker
 - **`[*]` Install virtualization (qemu/libvirt/virt-manager + br0 bridge)? [y/N]**
+- **Master subvolume gates (`[SUBVOL-GATES]`, Beta-v2.9.0)** — asked once, after
+  every install choice above is finalized:
+  - **For software you ARE installing, give each its own isolated subvolume? [Y/n/i]**
+    (`SUBVOL_ISOLATE_INSTALLED`; default `Y`). `i` → walks each installed app
+    individually (each defaults to isolate `Y/n`).
+  - **For software you did NOT install, pre-create an empty isolated subvolume for
+    later manual use? [y/N/i]** (`SUBVOL_PRECREATE`; default `N`). `i` → walks
+    each not-installed app individually (each defaults to pre-create `y/N`).
+  - A table-driven resolver folds each app's install choice + the two gates into a
+    single `PROVISION_*_SUBVOL` ("isolate?") flag that drives all subvolume
+    create/mount/fstab/per-user-provision/teardown sites. Affected apps: browsers
+    (Firefox/Chromium/Vivaldi/Falkon/Brave), Thunderbird, Steam, VirtualBox,
+    Flatpak, Docker, Podman-rootful (`@containers`), Virtualization (`@libvirt`).
 - **`[*]` Press Enter once ready to continue** — br0 USB-Ethernet-port warning
 
 ---

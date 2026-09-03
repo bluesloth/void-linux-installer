@@ -82,11 +82,8 @@
 #     constantly — COW is pure write amplification), the browser
 #     profile/cache subvols @mozilla, @mozilla-cache, @chromium, @vivaldi
 #     (profile sqlite/cache churn constantly — COW there is pure write
-#     amplification), and — Beta-v2.6.1 [SUBVOLS] — the DB datadirs
-#     @postgresql/@mariadb (nodatacow, compress=none, and never snapshotted
-#     so a Snapper rollback of @ cannot rewind a live database) and the
-#     opt-in per-user app subvols @thunderbird (sqlite mail profile) and
-#     @steam (game churn). @network backs /var/lib/NetworkManager runtime
+#     amplification), and the opt-in per-user app subvols @thunderbird (sqlite
+#     mail profile) and @steam (game churn). @network backs /var/lib/NetworkManager runtime
 #     state (leases, NetworkManager.state) with normal compression so a
 #     rollback of @ does not rewind known-network/lease state.
 #     AI (Big Pickle) FIX — Beta-v2.5.2 [NODATACOW]: the var
@@ -230,6 +227,29 @@
 #     so a bare-Enter run is unchanged; a "no" skips the whole section and forces
 #     every contained toggle off (exported, so SUBVOL_LIST/provision gating stays
 #     correct). Both gates wired to DEFAULT_* per [PROMPT-DEFAULTS].
+#     AI (Big Pickle) ADDITION — Beta-v2.8.2 [APPS-GROUP]: a third category gate
+#     (SETUP_APPS) wrapped the extra-app / extra-data subvolume pre-provision
+#     prompts — per-user (Thunderbird/Steam/VirtualBox) plus, new here
+#     [SUBVOL-PRE-SYS], the system-level
+#     "for later manual use" subvols (Flatpak/Docker/Podman-rootful/
+#     Virtualization) that otherwise only exist when the software is installed.
+#     All component defaults were OFF, so SETUP_APPS defaulted OFF ([OPT-DEFAULTS]
+#     lean posture).
+#     AI (Big Pickle) ADDITION — Beta-v2.9.0 [SUBVOL-GATES]: SETUP_APPS and its
+#     scattered per-app pre-provision prompts were REMOVED and replaced by two
+#     master y/n/i gates asked once, after every INSTALL_* is finalized:
+#       Gate 1  SUBVOL_ISOLATE_INSTALLED — isolate each app you ARE installing?
+#       Gate 2  SUBVOL_PRECREATE         — pre-create empty subvols for software
+#                                          you did NOT install (for later manual
+#                                          use)?
+#     A table-driven resolver then folds each app's
+#     INSTALL_* choice against the two gates into its single resolved
+#     PROVISION_*_SUBVOL flag ("isolate?"=true/false). ALL downstream sites
+#     (SUBVOL_LIST, Stage-1 mkdir/mount/fstab, provision_browser_subvol
+#     per-user sites, teardown umounts) read ONLY the resolved PROVISION_*_SUBVOL
+#     flag — never INSTALL_* directly — so the two gates are the single source of
+#     truth driving every stage. Defaults: Gate1=YES (matches the old
+#     always-isolate), Gate2=NO (matches the old lean posture) ([OPT-DEFAULTS]).
 #     AI (Big Pickle) ADDITION — Beta-v2.6.7 [RESHADOW-BOOT]: the xbps
 #     self-update caveat is now SELF-HEALING. /etc/rc.local (executed every
 #     boot by runit stage 2, OUTSIDE the installer's firstboot.log guard) calls
@@ -355,14 +375,14 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.8.1"
+SCRIPT_VERSION="Beta-v2.9.0"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
 # overflow; the minor never carries into the major unless the author makes an
 # explicit major bump. The lineage is split into named eras carrying their
 # own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x), so each era reads
-# monotonic and the current release (Beta-v2.8.1) always carries the highest
+# monotonic and the current release (Beta-v2.9.0) always carries the highest
 # numbering. See Debug/version-renumber-map.txt for the authoritative
 # OLD->NEW mapping recovered from the Debug/Old Versions/ artifacts.
 
@@ -429,6 +449,9 @@ SCRIPT_VERSION="Beta-v2.8.1"
 #     Beta-v2.7.9    [TOOLS-LIMINE-GUARD]
 #     Beta-v2.8.0    [CINNAMON-WALLPAPER]; [NFT-TTL-REMOVED]
 #     Beta-v2.8.1    [VERSION-HISTORY]; [VERSION-CARRY]  (this table)
+#     Beta-v2.8.2    [APPS-GROUP]; [SUBVOL-PRE-SYS]
+#     Beta-v2.8.3    [INSTALL-APPS]; PostgreSQL/MariaDB removed
+#     Beta-v2.9.0    [SUBVOL-GATES]; resolved PROVISION_*_SUBVOL  (current)
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -461,6 +484,17 @@ DEFAULT_OCTOXBPS="${DEFAULT_OCTOXBPS:-true}"          # OctoXBPS GUI pkg mgr? [Y
 DEFAULT_FLATPAK="${DEFAULT_FLATPAK:-true}"            # Flatpak + Flathub? [Y/n]
 DEFAULT_FIREFOX="${DEFAULT_FIREFOX:-true}"            # [Y/n]
 DEFAULT_CHROMIUM="${DEFAULT_CHROMIUM:-true}"          # [Y/n]
+DEFAULT_THUNDERBIRD="${DEFAULT_THUNDERBIRD:-false}"   # Thunderbird email client? [y/N]
+DEFAULT_STEAM="${DEFAULT_STEAM:-false}"               # Steam gaming client? [y/N]
+DEFAULT_VIRTUALBOX="${DEFAULT_VIRTUALBOX:-false}"     # VirtualBox full virtualizer? [y/N]
+# AI (Big Pickle) ADDITION — Beta-v2.9.0 [SUBVOL-GATES]: the two master
+# subvolume gates. DEFAULT_SUBVOL_ISOLATE (Gate 1) defaults YES — installed
+# optional software gets its isolated subvol (matches the always-isolated
+# behavior). DEFAULT_SUBVOL_PRECREATE (Gate 2) defaults NO — a bare-Enter run
+# pre-creates no empty subvols for not-installed software (matches the old
+# lean SETUP_APPS default). Each generates a `_INPUT` read with y/n/i.
+DEFAULT_SUBVOL_ISOLATE="${DEFAULT_SUBVOL_ISOLATE:-true}"    # Gate 1 [Y/n/i]
+DEFAULT_SUBVOL_PRECREATE="${DEFAULT_SUBVOL_PRECREATE:-false}" # Gate 2 [y/N/i]
 DEFAULT_VIVALDI="${DEFAULT_VIVALDI:-false}"           # [y/N]
 DEFAULT_FALKON="${DEFAULT_FALKON:-false}"             # [y/N]
 DEFAULT_BRAVE="${DEFAULT_BRAVE:-false}"               # [y/N]
@@ -484,15 +518,6 @@ DEFAULT_DISTROBOX_TRACK="${DEFAULT_DISTROBOX_TRACK:-1}"       # 1=stable 2=curre
 DEFAULT_DISTROBOX_ENGINE="${DEFAULT_DISTROBOX_ENGINE:-1}"     # 1=podman 2=docker
 DEFAULT_YK_TOUCH="${DEFAULT_YK_TOUCH:-yes}"           # require touch to unlock? [Y/n]
 DEFAULT_YK_FALLBACK="${DEFAULT_YK_FALLBACK:-yes}"     # keep typed-passphrase fallback? [Y/n]
-DEFAULT_PROVISION_FIREFOX_SUBVOL="${DEFAULT_PROVISION_FIREFOX_SUBVOL:-false}"     # [y/N]
-DEFAULT_PROVISION_CHROMIUM_SUBVOL="${DEFAULT_PROVISION_CHROMIUM_SUBVOL:-false}"   # [y/N]
-DEFAULT_PROVISION_VIVALDI_SUBVOL="${DEFAULT_PROVISION_VIVALDI_SUBVOL:-false}"     # [y/N]
-DEFAULT_PROVISION_FALKON_SUBVOL="${DEFAULT_PROVISION_FALKON_SUBVOL:-false}"       # [y/N]
-DEFAULT_PROVISION_BRAVE_SUBVOL="${DEFAULT_PROVISION_BRAVE_SUBVOL:-false}"         # [y/N]
-DEFAULT_PROVISION_THUNDERBIRD_SUBVOL="${DEFAULT_PROVISION_THUNDERBIRD_SUBVOL:-false}"  # [y/N]
-DEFAULT_PROVISION_STEAM_SUBVOL="${DEFAULT_PROVISION_STEAM_SUBVOL:-false}"         # [y/N]
-DEFAULT_PROVISION_VIRTUALBOX_SUBVOL="${DEFAULT_PROVISION_VIRTUALBOX_SUBVOL:-false}"     # [y/N]
-DEFAULT_PROVISION_DB_SUBVOLS="${DEFAULT_PROVISION_DB_SUBVOLS:-false}"             # [y/N]
 
 
 # =============================================================================
@@ -615,7 +640,7 @@ cleanup_on_failure() {
     # unwind list to mirror the new @lightdm subvolume (only ever mounted
     # when DISPLAY_MANAGER=lightdm; the umount is safe/no-op otherwise).
     for m in var/swap var/spool var/log var/lib/libvirt var/lib/sddm var/lib/lightdm \
-             var/lib/postgresql var/lib/mysql var/lib/NetworkManager \
+             var/lib/NetworkManager \
              var/cache srv opt .snapshots home; do
         umount -fl "/mnt/${m}" 2>/dev/null || true
     done
@@ -1903,6 +1928,39 @@ case "$INSTALL_FLATPAK_INPUT" in
 esac
 export INSTALL_FLATPAK
 
+# AI (Big Pickle) ADDITION — Beta-v2.8.3 [INSTALL-APPS]: Thunderbird and Steam
+# become real install-time choices. Previously these only existed as
+# pre-create-only subvolume toggles (the installer never installed them). Both
+# are GUI clients with no daemon and follow the browser-install model (package
+# + isolated subvol). Both default OFF (lean posture — must be opted into,
+# matching containers/virt).
+ask "Install Thunderbird (email client)? [y/N]: "
+read -r INSTALL_THUNDERBIRD_INPUT
+case "$INSTALL_THUNDERBIRD_INPUT" in
+    "") INSTALL_THUNDERBIRD="$DEFAULT_THUNDERBIRD" ;;
+    [yY]*) INSTALL_THUNDERBIRD="true" ;;
+    *) INSTALL_THUNDERBIRD="false" ;;
+esac
+export INSTALL_THUNDERBIRD
+
+ask "Install Steam (gaming client)? [y/N]: "
+read -r INSTALL_STEAM_INPUT
+case "$INSTALL_STEAM_INPUT" in
+    "") INSTALL_STEAM="$DEFAULT_STEAM" ;;
+    [yY]*) INSTALL_STEAM="true" ;;
+    *) INSTALL_STEAM="false" ;;
+esac
+export INSTALL_STEAM
+
+ask "Install VirtualBox (full virtualizer, QEMU/KVM alternative)? [y/N]: "
+read -r INSTALL_VIRTUALBOX_INPUT
+case "$INSTALL_VIRTUALBOX_INPUT" in
+    "") INSTALL_VIRTUALBOX="$DEFAULT_VIRTUALBOX" ;;
+    [yY]*) INSTALL_VIRTUALBOX="true" ;;
+    *) INSTALL_VIRTUALBOX="false" ;;
+esac
+export INSTALL_VIRTUALBOX
+
 # =============================================================================
 # WEB BROWSER SELECTION
 # =============================================================================
@@ -2008,120 +2066,20 @@ else
     export INSTALL_FIREFOX INSTALL_CHROMIUM INSTALL_VIVALDI INSTALL_FALKON INSTALL_BRAVE
 fi
 
-# AI (Claude, Sonnet 5, Medium) ADDITION: for any browser NOT selected above,
-# offer to pre-create its isolated nodatacow subvolume anyway (same
-# treatment already given to every installed browser — see
-# provision_browser_subvol in Stage 2) so that if it's installed manually
-# after the fact, its profile lands on an isolated subvolume from the
-# start instead of mixing into @home. Asked individually per browser
-# (not a single bulk yes/no) since the person may only care about this for
-# one or two of them.
-if [ "$SETUP_WEB_BROWSERS" = "true" ]; then
-echo ""
-echo "For any browser you did NOT select above, you can still pre-create its"
-echo "isolated profile subvolume now, in case you install that browser"
-echo "manually later:"
-PROVISION_FIREFOX_SUBVOL="false"
-if [ "$INSTALL_FIREFOX" != "true" ]; then
-    ask "Pre-create Firefox's profile subvolume anyway? [y/N]: "
-    read -r _pfs_input
-    case "$_pfs_input" in
-        [yY]*) PROVISION_FIREFOX_SUBVOL="true" ;;
-        "")    PROVISION_FIREFOX_SUBVOL="$DEFAULT_PROVISION_FIREFOX_SUBVOL" ;;
-    esac
-fi
-export PROVISION_FIREFOX_SUBVOL
+# (Browser pre-create of isolated profile subvolumes is now handled
+# uniformly by the [SUBVOL-GATES] resolver below — Beta-v2.9.0 — not here.)
 
-PROVISION_CHROMIUM_SUBVOL="false"
-if [ "$INSTALL_CHROMIUM" != "true" ]; then
-    ask "Pre-create Chromium's profile subvolume anyway? [y/N]: "
-    read -r _pcs_input
-    case "$_pcs_input" in
-        [yY]*) PROVISION_CHROMIUM_SUBVOL="true" ;;
-        "")    PROVISION_CHROMIUM_SUBVOL="$DEFAULT_PROVISION_CHROMIUM_SUBVOL" ;;
-    esac
-fi
-export PROVISION_CHROMIUM_SUBVOL
-
-PROVISION_VIVALDI_SUBVOL="false"
-if [ "$INSTALL_VIVALDI" != "true" ]; then
-    ask "Pre-create Vivaldi's profile subvolume anyway? [y/N]: "
-    read -r _pvs_input
-    case "$_pvs_input" in
-        [yY]*) PROVISION_VIVALDI_SUBVOL="true" ;;
-        "")    PROVISION_VIVALDI_SUBVOL="$DEFAULT_PROVISION_VIVALDI_SUBVOL" ;;
-    esac
-fi
-export PROVISION_VIVALDI_SUBVOL
-
-PROVISION_FALKON_SUBVOL="false"
-if [ "$INSTALL_FALKON" != "true" ]; then
-    ask "Pre-create Falkon's profile subvolume anyway? [y/N]: "
-    read -r _pfks_input
-    case "$_pfks_input" in
-        [yY]*) PROVISION_FALKON_SUBVOL="true" ;;
-        "")    PROVISION_FALKON_SUBVOL="$DEFAULT_PROVISION_FALKON_SUBVOL" ;;
-    esac
-fi
-export PROVISION_FALKON_SUBVOL
-
-PROVISION_BRAVE_SUBVOL="false"
-if [ "$INSTALL_BRAVE" != "true" ]; then
-    ask "Pre-create Brave's profile subvolume anyway? [y/N]: "
-    read -r _pbrs_input
-    case "$_pbrs_input" in
-        [yY]*) PROVISION_BRAVE_SUBVOL="true" ;;
-        "")    PROVISION_BRAVE_SUBVOL="$DEFAULT_PROVISION_BRAVE_SUBVOL" ;;
-    esac
-fi
-export PROVISION_BRAVE_SUBVOL
-fi
-
-# AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: same "pre-create the
+# AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: the "pre-create the
 # isolated subvolume for later manual use" pattern, extended beyond web
-# browsers to other per-user apps (Thunderbird mail profile, Steam) and to
-# server datadirs (PostgreSQL/MariaDB). Each is asked individually and only
+# browsers to other per-user apps (Thunderbird mail profile, Steam). Each is
+# asked individually and only
 # provisioned when the subvolume gate in SUBVOL_LIST (Stage 1) AND the
 # matching Stage-2 call agree. Thunderbird's profile (~/.thunderbird) gets
-# the exact browser treatment (nodatacow sqlite mail DB). Steam
-# (~/.local/share/Steam) isolates its churn from snapshots. The DB datadirs
-# are system-level: nodatacow + never snapshotted, so a Snapper rollback of
-# @ can never rewind a database.
-PROVISION_THUNDERBIRD_SUBVOL="false"
-ask "Pre-create Thunderbird's profile subvolume anyway? [y/N]: "
-read -r _ptb_input
-case "$_ptb_input" in
-    [yY]*) PROVISION_THUNDERBIRD_SUBVOL="true" ;;
-    "")    PROVISION_THUNDERBIRD_SUBVOL="$DEFAULT_PROVISION_THUNDERBIRD_SUBVOL" ;;
-esac
-export PROVISION_THUNDERBIRD_SUBVOL
-
-PROVISION_STEAM_SUBVOL="false"
-ask "Pre-create Steam's data subvolume (~/.local/share/Steam) anyway? [y/N]: "
-read -r _pst_input
-case "$_pst_input" in
-    [yY]*) PROVISION_STEAM_SUBVOL="true" ;;
-    "")    PROVISION_STEAM_SUBVOL="$DEFAULT_PROVISION_STEAM_SUBVOL" ;;
-esac
-export PROVISION_STEAM_SUBVOL
-
-PROVISION_VIRTUALBOX_SUBVOL="false"
-ask "Pre-create VirtualBox's VM folder subvolume (~/VirtualBox VMs) anyway? [y/N]: "
-read -r _pvb_input
-case "$_pvb_input" in
-    [yY]*) PROVISION_VIRTUALBOX_SUBVOL="true" ;;
-    "")    PROVISION_VIRTUALBOX_SUBVOL="$DEFAULT_PROVISION_VIRTUALBOX_SUBVOL" ;;
-esac
-export PROVISION_VIRTUALBOX_SUBVOL
-
-PROVISION_DB_SUBVOLS="false"
-ask "Pre-create PostgreSQL/MariaDB data subvolumes (/var/lib/postgresql, /var/lib/mysql) anyway? [y/N]: "
-read -r _pdb_input
-case "$_pdb_input" in
-    [yY]*) PROVISION_DB_SUBVOLS="true" ;;
-    "")    PROVISION_DB_SUBVOLS="$DEFAULT_PROVISION_DB_SUBVOLS" ;;
-esac
-export PROVISION_DB_SUBVOLS
+#     the exact browser treatment (nodatacow sqlite mail DB). Steam
+# (~/.local/share/Steam) isolates its churn from snapshots.
+# (The former [APPS-GROUP] SETUP_APPS gate and its per-app pre-create prompts
+# were removed in Beta-v2.9.0 — pre-create is now governed uniformly by the
+# [SUBVOL-GATES] Gate 2 resolver below.)
 
 # AI (Claude, Sonnet 5, Medium) ADDITION [item 9]: this is the exact case that
 # prompted the retrofit — Podman rootless, Podman rootful, and Docker are
@@ -2349,6 +2307,129 @@ case "$INSTALL_VIRT_INPUT" in
     *) INSTALL_VIRT="false" ;;
 esac
 export INSTALL_VIRT
+
+# (The Docker / Podman-rootful / Virtualization system-datadir pre-create
+# prompts are now governed by the [SUBVOL-GATES] Gate 2 resolver below —
+# Beta-v2.9.0 — not per-app here.)
+
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.9.0 [SUBVOL-GATES]: MASTER SUBVOLUME GATES.
+# =============================================================================
+# Two y/n/i master gates replace the old scattered per-app "pre-create"
+# prompts (browsers, SETUP_APPS per-user apps, container/virt system datadirs).
+# They are asked here, after every INSTALL_* choice is finalized, because each
+# gate's answer must be resolved against the user's real install decisions.
+#
+#   Gate 1  SUBVOL_ISOLATE_INSTALLED  — software you ARE installing:
+#           should each one get an isolated subvol (so a Snapshot rollback of
+#           @/@home can't rewind its data)? y = all, n = none, i = per-app.
+#   Gate 2  SUBVOL_PRECREATE          — software you did NOT install:
+#           pre-create an EMPTY isolated subvol now, in case you install it
+#           manually later (its data stays isolated from day one)?
+#           y = all, n = none, i = per-app.
+#
+# After both gates, every PROVISION_*_SUBVOL is RESOLVED to that app's final
+# "isolate?" decision (true = an isolated subvol is created/mounted for it)
+# and re-exported. All downstream sites (SUBVOL_LIST, mkdir, mount, fstab,
+# provision_browser_subvol, teardown) now read ONLY the resolved
+# PROVISION_*_SUBVOL flag — never INSTALL_* directly — so a single source of
+# truth drives every stage. [PROMPT-DEFAULTS]: bare-Enter on each gate falls
+# back to DEFAULT_SUBVOL_ISOLATE (true) / DEFAULT_SUBVOL_PRECREATE (false).
+echo ""
+echo "Subvolume isolation: most optional software can be given its own"
+echo "isolated Btrfs subvolume, so a Snapper rollback of @ or @home does not"
+echo "rewind that software's data (browser profiles, mail, game libs,"
+echo "container/virtualization state)."
+echo ""
+echo "Two master choices follow:"
+echo "  1) Software you ARE installing now — isolate its data subvolume?"
+echo "  2) Software you did NOT install — pre-create an EMPTY isolated subvolume"
+echo "     now, so that if you install it manually later, its data lands on the"
+echo "     isolated subvolume from day one (no mixing back into @ / @home, and"
+echo "     no migration needed)."
+echo "  Answer 'i' to decide per app instead of one bulk answer."
+ask "For software you ARE installing, give each its own isolated subvolume? [Y/n/i]: "
+read -r SUBVOL_ISOLATE_INPUT
+case "$SUBVOL_ISOLATE_INPUT" in
+    "")  SUBVOL_ISOLATE_INSTALLED="$DEFAULT_SUBVOL_ISOLATE" ;;
+    [nN]) SUBVOL_ISOLATE_INSTALLED="no" ;;
+    [iI]) SUBVOL_ISOLATE_INSTALLED="individual" ;;
+    *) SUBVOL_ISOLATE_INSTALLED="yes" ;;
+esac
+export SUBVOL_ISOLATE_INSTALLED
+
+ask "For software you did NOT install, pre-create an empty isolated subvolume for later manual use? [y/N/i]: "
+read -r SUBVOL_PRECREATE_INPUT
+case "$SUBVOL_PRECREATE_INPUT" in
+    "")  SUBVOL_PRECREATE="$DEFAULT_SUBVOL_PRECREATE" ;;
+    [yY]) SUBVOL_PRECREATE="yes" ;;
+    [iI]) SUBVOL_PRECREATE="individual" ;;
+    *) SUBVOL_PRECREATE="no" ;;
+esac
+export SUBVOL_PRECREATE
+
+# --- Resolve each app's final "isolate?" decision into PROVISION_*_SUBVOL ---
+# Every app follows the same 3x3 rule from the two gates:
+#   Installed app:  Gate1 yes -> isolate; no -> not; individual -> ask (def yes)
+#   Not-installed:  Gate2 yes -> pre-create; no -> not; individual -> ask (def no)
+# This is table-driven: each row is "INSTALL_VAR|PROVISION_VAR|label" (a pipe
+# separator so a label may contain spaces). The loop reads the row, checks the
+# INSTALL_* var, and writes the resolved PROVISION_VAR. Rows whose software has
+_subvol_ask() { # $1=full prompt text, $2=default("true"/"false")
+    local _a
+    ask "$1" >&2
+    read -r _a
+    case "$_a" in
+        [yY]*) echo "true" ;;
+        "")    echo "$2" ;;
+        *)     echo "false" ;;
+    esac
+}
+
+# shellcheck disable=SC2016 # deliberate table of unexpanded var names
+SUBVOL_ROWS="
+INSTALL_FIREFOX|PROVISION_FIREFOX_SUBVOL|Firefox
+INSTALL_CHROMIUM|PROVISION_CHROMIUM_SUBVOL|Chromium
+INSTALL_VIVALDI|PROVISION_VIVALDI_SUBVOL|Vivaldi
+INSTALL_FALKON|PROVISION_FALKON_SUBVOL|Falkon
+INSTALL_BRAVE|PROVISION_BRAVE_SUBVOL|Brave
+INSTALL_THUNDERBIRD|PROVISION_THUNDERBIRD_SUBVOL|Thunderbird
+INSTALL_STEAM|PROVISION_STEAM_SUBVOL|Steam
+INSTALL_VIRTUALBOX|PROVISION_VIRTUALBOX_SUBVOL|VirtualBox
+INSTALL_FLATPAK|PROVISION_FLATPAK_SUBVOL|Flatpak
+INSTALL_DOCKER|PROVISION_DOCKER_SUBVOL|Docker
+INSTALL_PODMAN_ROOTFUL|PROVISION_PODMAN_SUBVOL|Podman (rootful)
+INSTALL_VIRT|PROVISION_VIRT_SUBVOL|Virtualization
+"
+
+echo ""
+echo "Subvolume isolation per app:"
+while IFS='|' read -r _iv _pv _label; do
+    [ -z "$_iv" ] && continue
+    eval "INSTALL_X=\${${_iv}:-false}"
+    if [ "$INSTALL_X" = "true" ]; then
+        if   [ "$SUBVOL_ISOLATE_INSTALLED" = "yes" ]; then
+            _dec="true"
+        elif [ "$SUBVOL_ISOLATE_INSTALLED" = "no" ]; then
+            _dec="false"
+        else
+            _dec="$(_subvol_ask "  $_label — Isolate this installed app? [Y/n]: " true)"
+        fi
+    else
+        if   [ "$SUBVOL_PRECREATE" = "yes" ]; then
+            _dec="true"
+        elif [ "$SUBVOL_PRECREATE" = "no" ]; then
+            _dec="false"
+        else
+            _dec="$(_subvol_ask "  $_label — Pre-create empty subvol for later? [y/N]: " false)"
+        fi
+    fi
+    eval "${_pv}=\$_dec"
+    export "$_pv"
+    echo "  -> ${_pv}=$_dec"
+done <<EOF
+$SUBVOL_ROWS
+EOF
 
 # AI (Claude, Sonnet 5, Medium) CHANGE: This whole detection block only matters for the br0
 # bridge (VM networking), so it's skipped entirely when virtualization
@@ -2852,16 +2933,20 @@ fi
 DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
                 INSTALL_FLATPAK INSTALL_FIREFOX INSTALL_CHROMIUM \
                 INSTALL_VIVALDI INSTALL_FALKON INSTALL_BRAVE \
+                INSTALL_THUNDERBIRD INSTALL_STEAM INSTALL_VIRTUALBOX \
                 SETUP_WEB_BROWSERS SETUP_CONTAINERS \
+                 SUBVOL_ISOLATE_INSTALLED SUBVOL_PRECREATE \
                 INSTALL_PODMAN INSTALL_PODMAN_ROOTLESS INSTALL_PODMAN_ROOTFUL \
                INSTALL_PODMAN INSTALL_PODMAN_ROOTLESS INSTALL_PODMAN_ROOTFUL \
                INSTALL_DOCKER DOCKER_GROUP_ADD INSTALL_DISTROBOX INSTALL_VIRT \
                PROVISION_FIREFOX_SUBVOL PROVISION_CHROMIUM_SUBVOL \
                PROVISION_VIVALDI_SUBVOL PROVISION_FALKON_SUBVOL \
                PROVISION_BRAVE_SUBVOL \
-               PROVISION_THUNDERBIRD_SUBVOL PROVISION_STEAM_SUBVOL \
-               PROVISION_VIRTUALBOX_SUBVOL \
-               PROVISION_DB_SUBVOLS DISK PART_EFI PART_SYS; do
+                PROVISION_THUNDERBIRD_SUBVOL PROVISION_STEAM_SUBVOL \
+                PROVISION_VIRTUALBOX_SUBVOL \
+                PROVISION_FLATPAK_SUBVOL PROVISION_DOCKER_SUBVOL \
+                PROVISION_PODMAN_SUBVOL PROVISION_VIRT_SUBVOL \
+                DISK PART_EFI PART_SYS; do
         printf 'export %s=%q\n' "$_sv" "${!_sv}"
     done
 } > "$STATE_FILE"
@@ -3120,10 +3205,10 @@ SUBVOL_LIST="$BASE_LAYOUT"
 # Snapper rollback of @ does not rewind it. Unconditional because
 # NetworkManager is installed on every build (both $SESSION_STACK branches).
 SUBVOL_LIST="$SUBVOL_LIST @network"
-[ "$INSTALL_VIRT" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @libvirt"
-[ "$INSTALL_FLATPAK" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @flatpak"
-[ "$INSTALL_DOCKER" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @docker"
-[ "$INSTALL_PODMAN_ROOTFUL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @containers"
+[ "$PROVISION_VIRT_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @libvirt"
+[ "$PROVISION_FLATPAK_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @flatpak"
+[ "$PROVISION_DOCKER_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @docker"
+[ "$PROVISION_PODMAN_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @containers"
 [ "$INSTALL_PODMAN_ROOTLESS" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @containers-user"
 # AI (Claude, Sonnet 5, Medium) CHANGE — Beta-v2.4.0: the display-manager state
 # subvolume is now created conditionally, matching whichever DM was actually
@@ -3160,24 +3245,24 @@ SUBVOL_LIST="$SUBVOL_LIST @network"
 # ~/.config/mozilla (nodatacow profile+sqlite) and the new @mozilla-cache
 # backs ~/.cache/mozilla (nodatacow cache). Both created whenever Firefox
 # is installed OR explicitly pre-provisioned for later manual install.
-if [ "$INSTALL_FIREFOX" = "true" ] || [ "$PROVISION_FIREFOX_SUBVOL" = "true" ]; then
+if [ "$PROVISION_FIREFOX_SUBVOL" = "true" ]; then
     SUBVOL_LIST="$SUBVOL_LIST @mozilla @mozilla-cache"
 fi
-[ "$INSTALL_CHROMIUM" = "true" ] || [ "$PROVISION_CHROMIUM_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @chromium"
-[ "$INSTALL_VIVALDI" = "true" ] || [ "$PROVISION_VIVALDI_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @vivaldi"
-[ "$INSTALL_FALKON" = "true" ] || [ "$PROVISION_FALKON_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @falkon"
-[ "$INSTALL_BRAVE" = "true" ] || [ "$PROVISION_BRAVE_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @brave"
+[ "$PROVISION_CHROMIUM_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @chromium"
+[ "$PROVISION_VIVALDI_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @vivaldi"
+[ "$PROVISION_FALKON_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @falkon"
+[ "$PROVISION_BRAVE_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @brave"
 
 # AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: per-user app profile
 # subvolumes (Thunderbird mail profile, Steam data dir) mirror the
-# browser-provision model exactly; system datadirs (@postgresql, @mariadb)
-# are nodatacow/willfully un-snapshotted on top of that. All are gated on
-# their PROVISION_* flags (only ever "true" if the user opted in above) and
-# must agree with the Stage-2 provision_browser_subvol call sites + fstab.
+# browser-provision model exactly. Since Beta-v2.9.0 [SUBVOL-GATES] the
+# PROVISION_*_SUBVOL flag is RESOLVED (folded from the app's install choice +
+# the two master gates) and is the single source of truth here — never
+# INSTALL_* directly — and must agree with the Stage-2 provision_browser_subvol
+# call sites + fstab.
 [ "$PROVISION_THUNDERBIRD_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @thunderbird"
 [ "$PROVISION_STEAM_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @steam"
 [ "$PROVISION_VIRTUALBOX_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @virtualbox"
-[ "$PROVISION_DB_SUBVOLS" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @postgresql @mariadb"
 
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [RESUME]: SUBVOLUME RESET.
 # Stage 2 (chroot provisioning) is deliberately NOT idempotent, so a resumed
@@ -3222,15 +3307,12 @@ mkdir -vp /mnt/var/cache /mnt/var/log /mnt/var/spool /mnt/var/tmp
 [ "$DISPLAY_MANAGER" = "sddm" ] && mkdir -vp /mnt/var/lib/sddm
 [ "$DISPLAY_MANAGER" = "lightdm" ] && mkdir -vp /mnt/var/lib/lightdm
 mkdir -vp /mnt/root
-[ "$INSTALL_VIRT" = "true" ] && mkdir -vp /mnt/var/lib/libvirt
-[ "$INSTALL_FLATPAK" = "true" ] && mkdir -vp /mnt/var/lib/flatpak
-[ "$INSTALL_DOCKER" = "true" ] && mkdir -vp /mnt/var/lib/docker
-[ "$INSTALL_PODMAN_ROOTFUL" = "true" ] && mkdir -vp /mnt/var/lib/containers
+[ "$PROVISION_VIRT_SUBVOL" = "true" ] && mkdir -vp /mnt/var/lib/libvirt
+[ "$PROVISION_FLATPAK_SUBVOL" = "true" ] && mkdir -vp /mnt/var/lib/flatpak
+[ "$PROVISION_DOCKER_SUBVOL" = "true" ] && mkdir -vp /mnt/var/lib/docker
+[ "$PROVISION_PODMAN_SUBVOL" = "true" ] && mkdir -vp /mnt/var/lib/containers
 # AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: @network mountpoint.
-# DB datadirs are nodatacow and never appear in Snapper snapshots, so a
-# rollback of @ can never rewind a live database behind newer code.
 mkdir -vp /mnt/var/lib/NetworkManager
-[ "$PROVISION_DB_SUBVOLS" = "true" ] && mkdir -vp /mnt/var/lib/postgresql /mnt/var/lib/mysql
 
 # AI (Big Pickle) FIX — Beta-v2.5.2 [NODATACOW]: the churn-heavy var
 # subvols are made nodatacow via their MOUNT OPTIONS (below) + fstab. A
@@ -3250,7 +3332,7 @@ if [ "$DISPLAY_MANAGER" = "sddm" ]; then
 elif [ "$DISPLAY_MANAGER" = "lightdm" ]; then
     mount -vo $BTRFS_OPTS,subvol=@lightdm "$BTRFS_DEV" /mnt/var/lib/lightdm
 fi
-if [ "$INSTALL_VIRT" = "true" ]; then
+if [ "$PROVISION_VIRT_SUBVOL" = "true" ]; then
     mount -vo noatime,nodatacow,compress=none,subvol=@libvirt "$BTRFS_DEV" /mnt/var/lib/libvirt
 fi
 mount -vo noatime,nodatacow,compress=none,subvol=@log "$BTRFS_DEV" /mnt/var/log
@@ -3265,16 +3347,12 @@ mount -vo noatime,nodatacow,compress=none,subvol=@spool "$BTRFS_DEV" /mnt/var/sp
 # the nested `btrfs subvolume delete -o` cleanup) — delete it manually if found.
 [ "$BOOTLOADER" = "grub" ] && [ "$GRUB_ESP_BOOT" != "true" ] && mount -vo $BTRFS_OPTS,subvol=@grub "$BTRFS_DEV" /mnt/boot/grub
 
-[ "$INSTALL_FLATPAK" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@flatpak "$BTRFS_DEV" /mnt/var/lib/flatpak
-[ "$INSTALL_DOCKER" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@docker "$BTRFS_DEV" /mnt/var/lib/docker
-[ "$INSTALL_PODMAN_ROOTFUL" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@containers "$BTRFS_DEV" /mnt/var/lib/containers
+[ "$PROVISION_FLATPAK_SUBVOL" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@flatpak "$BTRFS_DEV" /mnt/var/lib/flatpak
+[ "$PROVISION_DOCKER_SUBVOL" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@docker "$BTRFS_DEV" /mnt/var/lib/docker
+[ "$PROVISION_PODMAN_SUBVOL" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@containers "$BTRFS_DEV" /mnt/var/lib/containers
 # AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: @network holds NM's
-# runtime state (leases, NetworkManager.state). DB datadirs are
-# nodatacow+compress=none (database-internal churn; also excluded from
-# snapshots since snapper only walks the @ root's children).
+# runtime state (leases, NetworkManager.state).
 mount -vo $BTRFS_OPTS,subvol=@network "$BTRFS_DEV" /mnt/var/lib/NetworkManager
-[ "$PROVISION_DB_SUBVOLS" = "true" ] && mount -vo noatime,nodatacow,compress=none,subvol=@postgresql "$BTRFS_DEV" /mnt/var/lib/postgresql
-[ "$PROVISION_DB_SUBVOLS" = "true" ] && mount -vo noatime,nodatacow,compress=none,subvol=@mariadb "$BTRFS_DEV" /mnt/var/lib/mysql
 mount -vo $BTRFS_OPTS,subvol=@root "$BTRFS_DEV" /mnt/root
 
 # AI (Big Pickle) CHANGE — Beta-v2.4.0 [SWAP]: @swap mounted + made nodatacow only
@@ -3405,26 +3483,21 @@ if [ "$SWAPFILE_MODE" = "true" ]; then
     echo "/var/swap/swapfile               none  swap  defaults                  0 0" >> /mnt/etc/fstab
 fi
 
-if [ "$INSTALL_VIRT" = "true" ]; then
+if [ "$PROVISION_VIRT_SUBVOL" = "true" ]; then
     echo "UUID=$BTRFS_UUID /var/lib/libvirt btrfs noatime,nodatacow,subvol=@libvirt 0 0" >> /mnt/etc/fstab
 fi
-if [ "$INSTALL_FLATPAK" = "true" ]; then
+if [ "$PROVISION_FLATPAK_SUBVOL" = "true" ]; then
     echo "UUID=$BTRFS_UUID /var/lib/flatpak    btrfs noatime,compress=zstd:1,subvol=@flatpak 0 0" >> /mnt/etc/fstab
 fi
-if [ "$INSTALL_DOCKER" = "true" ]; then
+if [ "$PROVISION_DOCKER_SUBVOL" = "true" ]; then
     echo "UUID=$BTRFS_UUID /var/lib/docker     btrfs noatime,compress=zstd:1,subvol=@docker 0 0" >> /mnt/etc/fstab
 fi
-if [ "$INSTALL_PODMAN_ROOTFUL" = "true" ]; then
+if [ "$PROVISION_PODMAN_SUBVOL" = "true" ]; then
     echo "UUID=$BTRFS_UUID /var/lib/containers btrfs noatime,compress=zstd:1,subvol=@containers 0 0" >> /mnt/etc/fstab
 fi
 # AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: @network fstab entry
-# (unconditional, NM is always installed). DB datadirs keep their
-# nodatacow/compress=none options here too, matching Stage 1.
+# (unconditional, NM is always installed).
 echo "UUID=$BTRFS_UUID /var/lib/NetworkManager btrfs noatime,compress=zstd:1,subvol=@network 0 0" >> /mnt/etc/fstab
-if [ "$PROVISION_DB_SUBVOLS" = "true" ]; then
-    echo "UUID=$BTRFS_UUID /var/lib/postgresql btrfs noatime,nodatacow,compress=none,subvol=@postgresql 0 0" >> /mnt/etc/fstab
-    echo "UUID=$BTRFS_UUID /var/lib/mysql       btrfs noatime,nodatacow,compress=none,subvol=@mariadb 0 0" >> /mnt/etc/fstab
-fi
 # AI (Claude, Sonnet 5, Medium) CHANGE — Beta-v2.4.0: mount the display manager's
 # runtime/state subvolume, matching the one created in Stage 1. @sddm is
 # mounted (via tmpfs in older revisions) for SDDM; when LightDM is chosen, a
@@ -3478,11 +3551,19 @@ echo "export INSTALL_CHROMIUM=\"$INSTALL_CHROMIUM\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_VIVALDI=\"$INSTALL_VIVALDI\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_FALKON=\"$INSTALL_FALKON\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_BRAVE=\"$INSTALL_BRAVE\"" >> /mnt/tmp/chroot_env.sh
-echo "export PROVISION_FIREFOX_SUBVOL=\"$PROVISION_FIREFOX_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_THUNDERBIRD=\"$INSTALL_THUNDERBIRD\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_STEAM=\"$INSTALL_STEAM\"" >> /mnt/tmp/chroot_env.sh
+ echo "export INSTALL_VIRTUALBOX=\"$INSTALL_VIRTUALBOX\"" >> /mnt/tmp/chroot_env.sh
+ echo "export SUBVOL_ISOLATE_INSTALLED=\"$SUBVOL_ISOLATE_INSTALLED\"" >> /mnt/tmp/chroot_env.sh
+ echo "export SUBVOL_PRECREATE=\"$SUBVOL_PRECREATE\"" >> /mnt/tmp/chroot_env.sh
+ echo "export PROVISION_FIREFOX_SUBVOL=\"$PROVISION_FIREFOX_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_CHROMIUM_SUBVOL=\"$PROVISION_CHROMIUM_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_VIVALDI_SUBVOL=\"$PROVISION_VIVALDI_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_FALKON_SUBVOL=\"$PROVISION_FALKON_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_BRAVE_SUBVOL=\"$PROVISION_BRAVE_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
+echo "export PROVISION_THUNDERBIRD_SUBVOL=\"$PROVISION_THUNDERBIRD_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
+echo "export PROVISION_STEAM_SUBVOL=\"$PROVISION_STEAM_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
+echo "export PROVISION_VIRTUALBOX_SUBVOL=\"$PROVISION_VIRTUALBOX_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_PODMAN_ROOTLESS=\"$INSTALL_PODMAN_ROOTLESS\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_DISTROBOX=\"$INSTALL_DISTROBOX\"" >> /mnt/tmp/chroot_env.sh
 echo "export DISTROBOX_TRACK=\"$DISTROBOX_TRACK\"" >> /mnt/tmp/chroot_env.sh
@@ -4388,6 +4469,22 @@ fi
 [ "$INSTALL_CHROMIUM" = "true" ] && install_pkgs chromium
 [ "$INSTALL_VIVALDI" = "true" ] && install_pkgs vivaldi
 [ "$INSTALL_FALKON" = "true" ] && install_pkgs falkon
+# AI (Big Pickle) ADDITION — Beta-v2.8.3 [INSTALL-APPS]: Thunderbird and Steam
+# are now real installable options (previously pre-create-only toggles). Steam
+# needs the multilib/nonfree repos already added above; thunderbird is a
+# plain GUI client. Both are lean-default OFF.
+[ "$INSTALL_THUNDERBIRD" = "true" ] && install_pkgs thunderbird
+[ "$INSTALL_STEAM" = "true" ] && install_pkgs steam
+# AI (Big Pickle) ADDITION — Beta-v2.8.4 [INSTALL-VBOX]: VirtualBox is now a
+# real installable option (previously pre-create-only). The -ose package is
+# in the nonfree repo (already added above); -ose-dkms builds the kernel
+# module for the running kernel. The user is added to the vboxusers group and
+# the vboxdrv runit service is enabled (module load at boot). A kernel module
+# build needs the build toolchain, which is installed for dkms.
+if [ "$INSTALL_VIRTUALBOX" = "true" ]; then
+    install_pkgs virtualbox-ose virtualbox-ose-dkms
+    usermod -aG vboxusers "$TARGET_USER"
+fi
 if [ "$INSTALL_BRAVE" = "true" ]; then
     if [ "$INSTALL_FLATPAK" = "true" ]; then
         echo "==> Brave has no official Void package — will be installed via Flatpak on first boot (flathub remote added at install time; the app itself installs after first-boot network is up)."
@@ -4750,16 +4847,18 @@ provision_firefox_subvols() {
 # browser is being installed OR was explicitly pre-provisioned anyway
 # (mirrors the SUBVOL_LIST conditions from Stage 1 — both need to agree,
 # since the subvolume itself only exists on disk if Stage 1 created it).
-[ "$INSTALL_FIREFOX" = "true" ] || [ "$PROVISION_FIREFOX_SUBVOL" = "true" ] && provision_firefox_subvols
-[ "$INSTALL_CHROMIUM" = "true" ] || [ "$PROVISION_CHROMIUM_SUBVOL" = "true" ] && provision_browser_subvol "@chromium" ".config/chromium"
-[ "$INSTALL_VIVALDI" = "true" ] || [ "$PROVISION_VIVALDI_SUBVOL" = "true" ] && provision_browser_subvol "@vivaldi" ".config/vivaldi"
-[ "$INSTALL_FALKON" = "true" ] || [ "$PROVISION_FALKON_SUBVOL" = "true" ] && provision_browser_subvol "@falkon" ".config/falkon"
-[ "$INSTALL_BRAVE" = "true" ] || [ "$PROVISION_BRAVE_SUBVOL" = "true" ] && provision_browser_subvol "@brave" ".config/BraveSoftware/Brave-Browser"
+[ "$PROVISION_FIREFOX_SUBVOL" = "true" ] && provision_firefox_subvols
+[ "$PROVISION_CHROMIUM_SUBVOL" = "true" ] && provision_browser_subvol "@chromium" ".config/chromium"
+[ "$PROVISION_VIVALDI_SUBVOL" = "true" ] && provision_browser_subvol "@vivaldi" ".config/vivaldi"
+[ "$PROVISION_FALKON_SUBVOL" = "true" ] && provision_browser_subvol "@falkon" ".config/falkon"
+[ "$PROVISION_BRAVE_SUBVOL" = "true" ] && provision_browser_subvol "@brave" ".config/BraveSoftware/Brave-Browser"
 # AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: Thunderbird and Steam
 # get the same per-user isolation. Thunderbird's profile dir is exactly the
 # sqlite-heavy case the browser subvols exist for; Steam sits under
 # ~/.local/share/Steam (the helper's nested-parent chain chowns each level,
-# avoiding the old root-owned ~/.local/share bug class).
+# avoiding the old root-owned ~/.local/share bug class). Fires on the RESOLVED
+# PROVISION_*_SUBVOL flag (Beta-v2.9.0 [SUBVOL-GATES]: folded from the app's
+# install choice + the two master gates) — the single source of truth.
 [ "$PROVISION_THUNDERBIRD_SUBVOL" = "true" ] && provision_browser_subvol "@thunderbird" ".thunderbird"
 [ "$PROVISION_STEAM_SUBVOL" = "true" ] && provision_browser_subvol "@steam" ".local/share/Steam"
 # AI (Big Pickle) ADDITION — [VIRTUALBOX]: VirtualBox keeps its VM library
@@ -7202,6 +7301,7 @@ if [ ! -f /var/log/firstboot.log ]; then
         ln -sfn /etc/sv/virtlogd /etc/runit/runsvdir/default/virtlogd
     fi
     [ "__INSTALL_DOCKER__" = "true" ] && ln -sfn /etc/sv/docker /etc/runit/runsvdir/default/docker
+    [ "__INSTALL_VIRTUALBOX__" = "true" ] && ln -sfn /etc/sv/vboxdrv /etc/runit/runsvdir/default/vboxdrv
     ln -sfn /etc/sv/bluetoothd /etc/runit/runsvdir/default/bluetoothd
     if [ "__SESSION_STACK__" = "turnstile" ]; then
         ln -sfn /etc/sv/turnstiled /etc/runit/runsvdir/default/turnstiled
@@ -7315,7 +7415,7 @@ fi
 INNER_EOF
 
 # AI (Claude, Sonnet 5, Medium) FIX: __BOOTLOADER__/__INSTALL_VIRT__/
-# __INSTALL_DOCKER__/__DISPLAY_MANAGER__ are new placeholders alongside
+# __INSTALL_DOCKER__/__INSTALL_VIRTUALBOX__/__DISPLAY_MANAGER__ are new placeholders alongside
 # __TARGET_USER__ — a real, previously-undiscovered bug found while adding
 # the DISPLAY_MANAGER toggle: the rc.local heredoc above is single-quoted
 # (deliberately, so ITS OWN embedded $(...) / ${...} shell syntax isn't
@@ -7337,6 +7437,7 @@ sed -i \
     -e "s/__BOOTLOADER__/${BOOTLOADER}/g" \
     -e "s/__INSTALL_VIRT__/${INSTALL_VIRT}/g" \
     -e "s/__INSTALL_DOCKER__/${INSTALL_DOCKER}/g" \
+    -e "s/__INSTALL_VIRTUALBOX__/${INSTALL_VIRTUALBOX}/g" \
     -e "s/__DISPLAY_MANAGER__/${DM_SERVICE_NAME}/g" \
     -e "s/__SESSION_STACK__/${SESSION_STACK}/g" \
     -e "s/__SWAP_BACKEND__/${SWAP_BACKEND}/g" \
@@ -7428,11 +7529,16 @@ umount -v /mnt/var/swap || true
 umount -v /mnt/var/spool || true
 umount -v /mnt/var/log || true
 umount -v /mnt/var/lib/libvirt || true
-# AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: teardown for @network
-# + the (gated) DB datadirs. All || true — no-op safe when not created.
-umount -v /mnt/var/lib/postgresql || true
-umount -v /mnt/var/lib/mysql || true
+# AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: teardown for @network.
+# All || true — no-op safe when not created.
 umount -v /mnt/var/lib/NetworkManager || true
+# AI (Big Pickle) ADDITION — Beta-v2.8.2 [SUBVOL-PRE-SYS]: teardown for the
+# system-level "pre-created for later" data subvols (Flatpak/Docker/Podman
+# rootful). No-op safe (|| true) when the matching software is neither being
+# installed now nor pre-provisioned.
+umount -v /mnt/var/lib/flatpak || true
+umount -v /mnt/var/lib/docker || true
+umount -v /mnt/var/lib/containers || true
 # AI (Big Pickle) CHANGE — Beta-v2.4.0 [item 3]: lightdm umount added alongside
 # sddm; both are no-op-safe (|| true) when the matching DM wasn't chosen.
 umount -v /mnt/var/lib/sddm || true

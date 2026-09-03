@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.8.1** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.0** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -29,7 +29,7 @@ Current version: **Beta-v2.8.1** (`SCRIPT_VERSION` in the script).
 >   3.0.112GC) and the tracked `v3.1.0-beta1` … `v3.3.0-beta33` releases
 >   are mapped into a continuous sequential Beta-v numbering per
 >   `Debug/version-renumber-map.txt`. Every release within the Beta era
->   gets a unique number, and the current release (`Beta-v2.8.1`) is always
+>   gets a unique number, and the current release (`Beta-v2.9.0`) is always
 >   the highest — preserving the monotonicity invariant.
 > - The old `v3.x` labels are preserved inline (`was v3.x` in headings and
 >   `version-renumber-map.txt`) for `[TAG]`-marker traceability, but the
@@ -57,8 +57,127 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.3.0** | First tracked release — inline-marker era begins | Tracked |
 | **Beta-v2.4.0** | DESKTOP_ENV, LOCALIZE, SWAP, COSMIC | Tracked |
 | **Beta-v2.4.1** | MIRROR, LIMINE-WALLPAPER, DRY-RUN (Claude's last) | Tracked |
-| **Beta-v2.5.0–v2.8.1** | Big Pickle era — features, hardening, encryption, YubiKey, dynamic subvols (current) | Beta-v2.5.0–v2.8.1 below |
+| **Beta-v2.5.0–v2.9.0** | Big Pickle era — features, hardening, encryption, YubiKey, dynamic subvols, master subvol gates (current) | Beta-v2.5.0–v2.9.0 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
+
+---
+
+## Beta-v2.9.0 — `[SUBVOL-GATES]` (two master subvolume gates replace scattered prompts)
+
+`SCRIPT_VERSION = Beta-v2.9.0`. The optional-software subvolume pre-provision
+surface is re-architected from a pile of per-app prompts behind a `SETUP_APPS`
+gate into two **master `y/n/i` gates** asked once, after every `INSTALL_*`
+choice is finalized:
+
+- **Gate 1 — `SUBVOL_ISOLATE_INSTALLED`:** for software you ARE installing, give
+  each one its own isolated subvolume? Default **YES** (`[Y/n/i]`) — matches the
+  previous always-on isolation of installed apps. `i` = walk per-app.
+- **Gate 2 — `SUBVOL_PRECREATE`:** for software you did NOT install, pre-create an
+  empty isolated subvolume for later manual use? Default **NO** (`[y/N/i]`) —
+  matches the old lean `SETUP_APPS` default. `i` = walk per-app.
+
+A **table-driven resolver** then folds each app's `INSTALL_*` choice against the
+two gates into a single resolved `PROVISION_*_SUBVOL` flag ("isolate?" =
+`true`/`false`). Because installed-app isolation is now a choice, the two gates
+remain meaningful (they no longer collapse). **All** downstream sites — the
+Stage-1 `SUBVOL_LIST`, `mkdir`/`mount`/`fstab`, the Stage-2 per-user
+`provision_browser_subvol` calls (Firefox/Chromium/Vivaldi/Falkon/Brave/
+Thunderbird/Steam/VirtualBox), and the teardown umounts for the system datadirs
+(Flatpak/Docker/Podman-rootful/Virtualization) — now read **only** the resolved
+`PROVISION_*_SUBVOL` flag, never `INSTALL_*` directly, so the two gates are the
+single source of truth driving every stage.
+
+- **Removed:** `SETUP_APPS` gate + its per-app pre-create prompts (browsers,
+  Thunderbird/Steam/VirtualBox, Flatpak), the mid-flow Docker/Podman/Virtualization
+  pre-create prompts, and the now-obsolete `DEFAULT_SETUP_APPS` /
+  `DEFAULT_PROVISION_*_SUBVOL` defaults (`[APPS-GROUP]` / `[SUBVOL-PRE-SYS]`
+  subsumed). Each `PROVISION_*_SUBVOL` is computed by the resolver.
+- **Implementation notes (hard-won):** the resolver table uses a **pipe
+  (`|`) separator** parsed with `IFS='|'` so a label may contain a space
+  (`Podman (rootful)`) without `read` field-splitting corrupting the row; and
+  `_subvol_ask` emits its prompt to **stderr** (`ask ... >&2`) so the prompt text
+  is not captured by the `$( _subvol_ask ... )` command substitution that holds
+  the resolved value. Both verified against the 3×3 gate×install matrix in a
+  `Debug/`-style offline harness.
+- The two gate vars are wired into the resume-state export list and
+  `chroot_env.sh`; `bash -n`, `check-defaults.sh`, and `check-heredocs.sh` all
+  pass.
+
+---
+
+## Beta-v2.8.3 — `[INSTALL-APPS]` (Thunderbird/Steam installable) + PostgreSQL/MariaDB removed
+
+`SCRIPT_VERSION = Beta-v2.8.3`. Two changes to the optional-software surface:
+
+- **`[INSTALL-APPS]` — Thunderbird & Steam become real install-time choices.**
+  Previously these existed only as pre-create-only `PROVISION_*` subvolume
+  toggles (the installer never installed them). Now, choosing to install each
+  one adds the package (`thunderbird` / `steam`), and its per-user isolated
+  subvol (`@thunderbird` at `~/.thunderbird`, `@steam` at
+  `~/.local/share/Steam`) is created/mounted in the same browser-install style.
+  Both are lean-default OFF (`[OPT-DEFAULTS]` — bare-Enter declines), matching
+  containers/virtualization. The Stage-1 `SUBVOL_LIST` and Stage-2
+  `provision_browser_subvol` gating now fire on `INSTALL_*` **or** the
+  `PROVISION_*` pre-create flag, so an installed app and a pre-created
+  subvolume are never double-counted and a pre-created-empty dir still gets
+  the isolation when the app is added manually later.
+- **PostgreSQL & MariaDB removed from the installer entirely.** Their install
+  prompts (never shipped), the `PROVISION_DB_SUBVOLS` pre-create toggle +
+  prompt, and all @postgresql/@mariadb Stage-1/Stage-2 wiring (SUBVOL_LIST,
+  mkdir, mount, fstab, teardown umounts) are gone. The installer no longer
+  provisions, mounts, or fstabs those datadirs. The shipped post-install
+  maintenance tool (`/root/tools/void-subvol-tool.sh`, with its `databases`
+  class) is **deliberately left intact** so a user can still build those
+  subvolumes manually — removal is installer-scope only.
+- **New defaults wired into `[PROMPT-DEFAULTS]`:** `DEFAULT_THUNDERBIRD`,
+  `DEFAULT_STEAM` (both `false`); the obsolete `DEFAULT_PROVISION_DB_SUBVOLS`
+  is removed.
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (ALL CONSISTENT), and
+  `Debug/check-heredocs.sh` (48 heredocs, ALL CLEAN) all pass.
+
+---
+
+## Beta-v2.8.2 — `[APPS-GROUP]` / `[SUBVOL-PRE-SYS]` (optional-software subvol pre-provisioning)
+
+First post-re-base functional release (`SCRIPT_VERSION = Beta-v2.8.2`). Improves
+the optional-software subvolume pre-provisioning:
+
+- **`[APPS-GROUP]` (Fix 1a)** — the app subvolume prompts (Thunderbird / Steam /
+  VirtualBox / PostgreSQL-MariaDB) are now wrapped behind a single
+  `SETUP_APPS` category gate, mirroring the existing `[BROWSER-GROUP]` /
+  `[CONTAINER-GROUP]` gates. All component defaults are OFF, so `SETUP_APPS`
+  defaults OFF (`[OPT-DEFAULTS]` lean posture) — a bare-Enter run skips the
+  whole section instead of walking every app prompt. Selecting "no" forces all
+  contained `PROVISION_*` toggles off (exported, so `SUBVOL_LIST` /
+  Stage-1 / Stage-2 gating stays correct); selecting "yes" walks the individual
+  prompts as before.
+- **`[SUBVOL-PRE-SYS]` (Fix 3)** — extends the same pre-provision pattern to
+  the system-level `@datadir` subvolumes, but ONLY when that software is NOT
+  being installed (the installed case already creates/mounts/fstabs them via
+  its `INSTALL_*` branch):
+  - `PROVISION_FLATPAK_SUBVOL` → `@flatpak` (`/var/lib/flatpak`)
+  - `PROVISION_DOCKER_SUBVOL` → `@docker` (`/var/lib/docker`)
+  - `PROVISION_PODMAN_SUBVOL` → `@containers` (`/var/lib/containers`)
+  - `PROVISION_VIRT_SUBVOL` → `@libvirt` (`/var/lib/libvirt`, nodatacow)
+  
+  This lets a lean base system later adopt Flatpak / Docker / Podman-rootful /
+  libvirt without that software's churn/state ever mixing back into `@`.
+  These follow the `[PROVISION_DB_SUBVOLS]` pattern (Stage-1 `SUBVOL_LIST` +
+  mkdir/mount/fstab at system paths, plus teardown umounts), not the per-user
+  `provision_browser_subvol` helper, because they live under `/var/lib`.
+  Prompt ordering: Flatpak is asked inside the `SETUP_APPS` block (its
+  `INSTALL_FLATPAK` is already finalized), while the Docker / Podman-rootful /
+  Virtualization prompts appear right after their own `INSTALL_*` prompts so
+  the `!= "true"` guard compares against the user's real container/virt
+  choice instead of an empty var (avoiding a spurious double-ask).
+- **New defaults wired into `[PROMPT-DEFAULTS]`** for every new toggle:
+  `DEFAULT_SETUP_APPS`, `DEFAULT_PROVISION_FLATPAK_SUBVOL`,
+  `DEFAULT_PROVISION_DOCKER_SUBVOL`, `DEFAULT_PROVISION_PODMAN_SUBVOL`,
+  `DEFAULT_PROVISION_VIRT_SUBVOL`.
+- **ARCHITECTURE SUMMARY** header note updated; version-history table gains a
+  `Beta-v2.8.2` row.
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (ALL CONSISTENT — 42
+  `DEFAULT_*`), and `Debug/check-heredocs.sh` (48 heredocs, ALL CLEAN) all pass.
 
 ---
 
