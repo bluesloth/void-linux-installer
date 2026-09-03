@@ -16,7 +16,7 @@ the sibling for YubiKey possession-only boot; this file covers everything else.
 
 ## Entry #1 — ENCRYPT boot unlock rejects the correct install-time passphrase (OPEN)
 
-**Reported:** v3.3.0-beta14 install, `ENCRYPT=yes`, YubiKey **declined**
+**Reported:** Beta-v2.6.2 install, `ENCRYPT=yes`, YubiKey **declined**
 (`YK_MODE=off`), `BOOTLOADER=limine`. First boot prints the stock dracut
 prompt `Enter passphrase for /dev/nvme0n1p2:` and, on the SAME passphrase
 that was typed twice during installation, returns:

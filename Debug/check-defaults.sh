@@ -3,7 +3,7 @@
 # [AI (Big Pickle)] Reproducible prompt-defaults consistency check for
 # Void_Linux_Installer.sh.
 #
-# AGENTS.md requires that the `[PROMPT-DEFAULTS]` (v3.3.0-beta24) top block —
+# AGENTS.md requires that the `[PROMPT-DEFAULTS]` (Beta-v2.7.2) top block —
 # the editable `DEFAULT_*` answers that drive every interactive prompt's
 # bare-Enter fallback — stays in sync with the prompts that consume it. This
 # script makes that a committed, one-shot gate instead of a manual grep:

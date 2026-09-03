@@ -54,9 +54,9 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v1.9.6–v1.9.9** | Formally versioned 2.9.x lineage | Pre-BP |
 | **Beta-v2.0.1–v2.0.9** | GRUB-only 3.0.x "GC" line | Pre-BP |
 | **Beta-v2.1.0–v2.2.8** | Feature-rich capstone carpet (snapshot-overlay, dynamic toggles) — renumbered from `3.0.9…3.0.112` | Pre-BP |
-| **Beta-v2.3.0** | First tracked release (`v3.1.0-beta1`) | Tracked |
-| **Beta-v2.4.0** | `v3.2.0` — DESKTOP_ENV, LOCALIZE, SWAP, COSMIC | Tracked |
-| **Beta-v2.4.1** | `v3.3.0-beta`–`beta1` — MIRROR, LIMINE-WALLPAPER, DRY-RUN (Claude's last) | Tracked |
+| **Beta-v2.3.0** | First tracked release — inline-marker era begins | Tracked |
+| **Beta-v2.4.0** | DESKTOP_ENV, LOCALIZE, SWAP, COSMIC | Tracked |
+| **Beta-v2.4.1** | MIRROR, LIMINE-WALLPAPER, DRY-RUN (Claude's last) | Tracked |
 | **Beta-v2.5.0–v2.8.1** | Big Pickle era — features, hardening, encryption, YubiKey, dynamic subvols (current) | Beta-v2.5.0–v2.8.1 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
@@ -73,7 +73,7 @@ under the `[VERSION-CARRY]` scheme:
   pre-tracking artifacts mapped into `Beta-v1.x`/`Beta-v2.x` per the
   author's mapping (`Debug/version-renumber-map.txt`), and tracked releases
   (`v3.1.0-beta1` … `v3.3.0-beta33`) renumbered as `Beta-v2.3.0` …
-  `Beta-v2.8.1` with the old labels preserved inline. Every release within
+  `Beta-v2.8.1`. Every release within
   the Beta era gets a unique number, and the current release is always the
   highest — preserving the monotonicity invariant.
 
