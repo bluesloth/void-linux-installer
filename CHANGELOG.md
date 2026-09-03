@@ -10,7 +10,38 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta28** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta29** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta29 — fix Slick greeter session name (`[LIGHTDM-GREETER-SESSION]`)
+
+**Brings a broken first boot back.** On a fresh install with the **Slick**
+greeter (`LIGHTDM_GREETER=slick`) the new machine booted to a black tty
+instead of the greeter. Root cause: the installer wrote
+`greeter-session=lightdm-slick-greeter` into `/etc/lightdm/lightdm.conf`, but
+Void's `lightdm-slick-greeter` package installs only
+`/usr/share/xgreeters/slick-greeter.desktop` — the greeter `.desktop` is named
+after the *session* (`slick-greeter`), not the *package*. LightDM's error log
+reported `Failed to find session configuration lightdm-slick-greeter` and, after
+exhausting rapid restarts, `sv status lightdm` showed the crash-loop state
+`down: lightdm: is normally up, want up`.
+
+- **`[LIGHTDM-GREETER-SESSION]`** — `LIGHTDM_GREETER_SESSION` for the Slick
+  branch is now `slick-greeter` (matching the installed `.desktop` filename).
+  This value is what gets emitted as `greeter-session=` in the generated
+  lightdm.conf, so the greeter is found on first boot.
+- The display-name `case` blocks that keyed a friendly "Slick / WebKit2 / GTK"
+  label (and the final confirmation text) off `LIGHTDM_GREETER_SESSION` now key
+  off `LIGHTDM_GREETER_PKG` instead — `SESSION` is the `.desktop` name, `PKG`
+  is the package name, and never conflating the two prevents this class of bug.
+- GTK (`lightdm-gtk-greeter`) and WebKit2 (`lightdm-webkit2-greeter`) ship
+  `.desktop` files that match their package names, so their `SESSION` values
+  are unchanged.
+
+> **Live-box recovery** (no reinstall): edit the generated
+> `/etc/lightdm/lightdm.conf` so `greeter-session=slick-greeter`, then
+> `sv start lightdm`.
 
 ---
 

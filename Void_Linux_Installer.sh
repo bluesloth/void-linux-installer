@@ -355,7 +355,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta28"
+SCRIPT_VERSION="3.3.0-beta29"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.3.0-beta24 [PROMPT-DEFAULTS]: EDITABLE DEFAULT
@@ -1737,7 +1737,10 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
     done
     if [ "$LIGHTDM_GREETER" = "slick" ]; then
         LIGHTDM_GREETER_PKG="lightdm-slick-greeter"
-        LIGHTDM_GREETER_SESSION="lightdm-slick-greeter"
+        # Slick installs its greeter .desktop as slick-greeter.desktop, not
+        # lightdm-slick-greeter.desktop, so greeter-session must name that file.
+        # [LIGHTDM-GREETER-SESSION] v3.3.0-beta29: was wrongly "lightdm-slick-greeter".
+        LIGHTDM_GREETER_SESSION="slick-greeter"
     elif [ "$LIGHTDM_GREETER" = "webkit2" ]; then
         LIGHTDM_GREETER_PKG="lightdm-webkit2-greeter"
         LIGHTDM_GREETER_SESSION="lightdm-webkit2-greeter"
@@ -2545,7 +2548,7 @@ fi
 _rev_de=$(case "$DESKTOP_ENV" in kde) echo KDE Plasma;; cinnamon) echo Cinnamon;; gnome) echo GNOME;; xfce) echo Xfce;; mate) echo MATE;; lxqt) echo LXQt;; cosmic) echo COSMIC;; *) echo "$DESKTOP_ENV";; esac)
 _rev_dm="$DISPLAY_MANAGER"
 if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
-    case "$LIGHTDM_GREETER_SESSION" in
+    case "$LIGHTDM_GREETER_PKG" in
         lightdm-slick-greeter)   _rev_dm="LightDM (Slick greeter)" ;;
         lightdm-webkit2-greeter) _rev_dm="LightDM (WebKit2 greeter)" ;;
         lightdm-gtk-greeter)     _rev_dm="LightDM (GTK greeter)" ;;
@@ -7369,11 +7372,11 @@ echo "${C_BOLD}  Display manager:${C_RST} ${DISPLAY_MANAGER}"
 # greeter was selected (only LightDM has a greeter choice), so the summary
 # confirms the exact greeter that will greet first boot.
 if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
-    case "$LIGHTDM_GREETER_SESSION" in
+    case "$LIGHTDM_GREETER_PKG" in
         lightdm-slick-greeter)   _GREETER_FRIENDLY="Slick (lightdm-slick-greeter)" ;;
         lightdm-webkit2-greeter) _GREETER_FRIENDLY="WebKit2 (lightdm-webkit2-greeter)" ;;
         lightdm-gtk-greeter)     _GREETER_FRIENDLY="GTK (lightdm-gtk-greeter)" ;;
-        *)                       _GREETER_FRIENDLY="${LIGHTDM_GREETER_SESSION:-<not selected>}" ;;
+        *)                       _GREETER_FRIENDLY="${LIGHTDM_GREETER_PKG:-<not selected>}" ;;
     esac
     echo "${C_BOLD}  Greeter:${C_RST}       ${_GREETER_FRIENDLY}"
     unset _GREETER_FRIENDLY
