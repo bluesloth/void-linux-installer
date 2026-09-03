@@ -355,7 +355,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="3.3.0-beta30"
+SCRIPT_VERSION="3.3.0-beta31"
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — v3.3.0-beta24 [PROMPT-DEFAULTS]: EDITABLE DEFAULT
@@ -5738,12 +5738,17 @@ chmod 0755 /root/tools/void-xbps-snap
 #    (env.inc is sourced by the generator; sync-kernels and write-conf are the
 #    two executables limine-sync.sh drives; void-reveal-yubikey-key is a
 #    dracut keyscript-derived helper and is intentionally NOT backed up here.)
-cp -f /usr/local/sbin/void-limine-env.inc /root/tools/void-limine-env.inc
-cp -f /usr/local/sbin/void-limine-sync-kernels /root/tools/void-limine-sync-kernels
-cp -f /usr/local/sbin/void-limine-write-conf /root/tools/void-limine-write-conf
-chmod 0644 /root/tools/void-limine-env.inc
-chmod 0755 /root/tools/void-limine-sync-kernels
-chmod 0755 /root/tools/void-limine-write-conf
+#    v3.3.0-beta31 [TOOLS-LIMINE-GUARD]: the cp+chmod calls are wrapped in a
+#    BOOTLOADER=limine guard — on GRUB installs these files were never created
+#    and the unguarded cp (under set -e) ENOENTed, killing the install.
+if [ "$BOOTLOADER" = "limine" ]; then
+    cp -f /usr/local/sbin/void-limine-env.inc /root/tools/void-limine-env.inc
+    cp -f /usr/local/sbin/void-limine-sync-kernels /root/tools/void-limine-sync-kernels
+    cp -f /usr/local/sbin/void-limine-write-conf /root/tools/void-limine-write-conf
+    chmod 0644 /root/tools/void-limine-env.inc
+    chmod 0755 /root/tools/void-limine-sync-kernels
+    chmod 0755 /root/tools/void-limine-write-conf
+fi
 
 # 2) re-shadow-xbps.sh — recovery for the [PKG-SNAPSHOT-AUTO] caveat: an
 #    `xbps` package self-update re-places a REAL ELF over the /usr/bin/xbps-install

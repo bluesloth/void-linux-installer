@@ -10,7 +10,31 @@
 > script's comments) is only partially recoverable and is noted where it
 > applies.
 
-Current version: **3.3.0-beta30** (`SCRIPT_VERSION` in the script).
+Current version: **3.3.0-beta31** (`SCRIPT_VERSION` in the script).
+
+---
+
+## v3.3.0-beta31 — guard Limine tools backup for GRUB installs (`[TOOLS-LIMINE-GUARD]`)
+
+A GRUB install with encryption + LightDM/Slick failed at the very end of
+Stage 2 because the `/root/tools` backup block unconditionally tried to
+`cp` the three Limine engine helpers (`void-limine-env.inc`,
+`void-limine-sync-kernels`, `void-limine-write-conf`) from
+`/usr/local/sbin/` — which are only created inside the Limine `else`
+branch. On a GRUB box those files never exist, so the `cp` (under the
+chroot's `set -e`) hit `ENOENT` and killed the install.
+
+- **`[TOOLS-LIMINE-GUARD]`** — the three `cp` + `chmod` calls that back
+  up the Limine engine helpers into `/root/tools/` are now wrapped in
+  `if [ "$BOOTLOADER" = "limine" ]`. GRUB installs skip the block
+  cleanly; the `/root/tools` directory still gets the xbps-snap backup,
+  `re-shadow-xbps.sh`, `limine-sync.sh` (which self-detects GRUB and
+  exits early), and `re-provision-snapper.sh`.
+
+The `systemctl enable --now snapper-timeline.timer` warning visible in
+the boot log is snapper's own post-install script (not the installer)
+attempting a systemd command on a runit host — non-fatal, cosmetic, and
+already present before this fix.
 
 ---
 
