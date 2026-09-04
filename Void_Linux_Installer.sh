@@ -209,6 +209,13 @@
 #     never nested inside @, so they stay outside Snapper rollback scope) without
 #     installing the software that would normally own them. nodatacow is applied
 #     via fstab mount options, never chattr (matches [NODATACOW]).
+#     AI (Big Pickle) CHANGE — Beta-v2.9.3 [SUBVOL-INSTALL]: void-subvol-tool
+#     gained `add ... --install` / `add --class ... --install`, which xbps-install
+#     the owning package(s) (PKG_MAP) AFTER the sibling is mounted, so data lands
+#     on the isolated subvolume from the first run. Still structural by default.
+#     [SUBVOL-DATA-GUARD]: `add` also refuses a non-empty, unmigrated target
+#     mountpoint, forcing the source-dir migrate form so pre-existing data inside
+#     @ is never silently hidden behind the fresh mount.
 #     AI (Big Pickle) ADDITION — Beta-v2.7.6 [PKG-LIST]: the post-install
 #     ~/Documents/VOID_INSTALL.txt record now appends the FULL finished-system
 #     package inventory (xbps-query -l, status prefix stripped, sorted, one per
@@ -380,14 +387,14 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.2"
+SCRIPT_VERSION="Beta-v2.9.3"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
 # overflow; the minor never carries into the major unless the author makes an
 # explicit major bump. The lineage is split into named eras carrying their
 # own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x), so each era reads
-# monotonic and the current release (Beta-v2.9.2) always carries the highest
+# monotonic and the current release (Beta-v2.9.3) always carries the highest
 # numbering. See Debug/version-renumber-map.txt for the authoritative
 # OLD->NEW mapping recovered from the Debug/Old Versions/ artifacts.
 
@@ -458,7 +465,8 @@ SCRIPT_VERSION="Beta-v2.9.2"
 #     Beta-v2.8.3    [INSTALL-APPS]; PostgreSQL/MariaDB removed
 #     Beta-v2.9.0    [SUBVOL-GATES]; resolved PROVISION_*_SUBVOL
 #     Beta-v2.9.1    [GREETER-NO-WEBKIT2]; WebKit2 greeter removed
-#     Beta-v2.9.2    [PODMAN-ROOTLESS-SUBVOL]; rootless podman subvol gates  (current)
+#     Beta-v2.9.2    [PODMAN-ROOTLESS-SUBVOL]; rootless podman subvol gates
+#     Beta-v2.9.3    [SUBVOL-INSTALL]; void-subvol-tool --install  (current)
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -487,8 +495,8 @@ DEFAULT_TIMEZONE="${DEFAULT_TIMEZONE:-1}"             # 1=America/New_York (menu
 DEFAULT_SWAP_BACKEND="${DEFAULT_SWAP_BACKEND:-1}"     # 1=swapfile 2=zram 3=both 4=none
 DEFAULT_HIBERNATION="${DEFAULT_HIBERNATION:-false}"   # enable suspend-to-disk? [y/N]
 DEFAULT_SNAPSHOT_AUDIO="${DEFAULT_SNAPSHOT_AUDIO:-false}"  # audio on snapshot boots? [y/N]
-DEFAULT_OCTOXBPS="${DEFAULT_OCTOXBPS:-true}"          # OctoXBPS GUI pkg mgr? [Y/n]
-DEFAULT_FLATPAK="${DEFAULT_FLATPAK:-true}"            # Flatpak + Flathub? [Y/n]
+DEFAULT_OCTOXBPS="${DEFAULT_OCTOXBPS:-false}"         # OctoXBPS GUI pkg mgr? [y/N]
+DEFAULT_FLATPAK="${DEFAULT_FLATPAK:-false}"           # Flatpak + Flathub? [y/N]
 DEFAULT_FIREFOX="${DEFAULT_FIREFOX:-true}"            # [Y/n]
 DEFAULT_CHROMIUM="${DEFAULT_CHROMIUM:-true}"          # [Y/n]
 DEFAULT_THUNDERBIRD="${DEFAULT_THUNDERBIRD:-false}"   # Thunderbird email client? [y/N]
@@ -2341,11 +2349,13 @@ export INSTALL_VIRT
 # back to DEFAULT_SUBVOL_ISOLATE (true) / DEFAULT_SUBVOL_PRECREATE (false).
 echo ""
 echo "Subvolume isolation: all of the optional software you selected above"
-echo "(browsers, mail, Steam, VirtualBox, Flatpak, Docker, Podman"
-echo "rootful/rootless, virtualization) can be given its own isolated Btrfs"
-echo "subvolume, so a Snapper rollback of @ or @home does not rewind that"
-echo "software's data. OctoXBPS is not listed — it is a lightweight GUI"
-echo "package-manager frontend with no dedicated data directory to isolate."
+echo "with the exception of OctoXBPS and Flatpak (browsers, mail, Steam,"
+echo "VirtualBox, Docker, Podman rootful/rootless, virtualization) can be"
+echo "given its own isolated Btrfs subvolume, so a Snapper rollback of @"
+echo "or @home does not rewind that software's data. OctoXBPS and Flatpak"
+echo "are excluded — OctoXBPS is a lightweight GUI package-manager frontend"
+echo "with no dedicated data directory to isolate; Flatpak's system-wide"
+echo "store lives under /var/lib/flatpak which is part of the @ root"
 echo ""
 echo "Two master choices follow:"
 echo "  1) Software you ARE installing now — isolate its data subvolume?"
@@ -6160,6 +6170,13 @@ chmod 0755 /root/tools/re-provision-snapper.sh
 # btrfs device is discovered from the mounted root source (findmnt), and the
 # filesystem UUID for the fstab line resolved via blkid, so it stays correct
 # under LUKS/mapper.
+# AI (Big Pickle) CHANGE — Beta-v2.9.3 [SUBVOL-INSTALL]: still PURELY
+# STRUCTURAL by default, but `add ... --install` now ALSO runs xbps-install for
+# the subvol's owning package(s) (see PKG_MAP in the tool body) AFTER the
+# sibling is mounted at its runtime path, so the software's data lands on the
+# isolated subvolume from the first run — mirroring the installer's own
+# provisioning. Without --install the structural guarantee is unchanged: the
+# tool still never pulls the owning package.
 cat > /root/tools/void-subvol-tool.sh << 'INNER_EOF'
 #!/bin/bash
 # [TOOLS] Post-install subvolume manager for the installer's flat Btrfs layout.
@@ -6179,15 +6196,20 @@ cat > /root/tools/void-subvol-tool.sh << 'INNER_EOF'
 # Usage: sudo /root/tools/void-subvol-tool.sh <verb> [args]
 #   list                                  show every flat sibling + mount/fstab state
 #   check <subvol>                        read-only status of one sibling
-#   add <subvol> <mountpoint> [--nodatacow]            create sibling + mount + fstab
-#   add <subvol> <mountpoint> <source-dir> [--nodatacow]  same, migrating source's contents in
-#   add <subvol> --user <name> [--nodatacow]           per-user profile: mountpoint derived from
+#   add <subvol> <mountpoint> [--nodatacow] [--install]   create sibling + mount + fstab
+#   add <subvol> <mountpoint> <source-dir> [--nodatacow] [--install]  same, migrating source's contents in
+#   add <subvol> --user <name> [--nodatacow] [--install]  per-user profile: mountpoint derived from
 #                                                      /home/<name>/<known relative path> (asks to confirm)
-#   add <subvol> [--nodatacow] (per-user profile only) prompts for the username, then derives the
+#   add <subvol> [--nodatacow] [--install] (per-user profile only) prompts for the username, then derives the
 #                                                      mountpoint from /home/<name>/<known relative path>
-#   add --class <name> [--user <name>]              create EVERY subvol in an optional-software family:
+#   add --class <name> [--user <name>] [--install]   create EVERY subvol in an optional-software family:
 #                                                     containers databases web mail gaming virtualization flatpak
 #                                                     (per-user members need a username; pass --user or it prompts once)
+#   --install            additionally run xbps-install for the owning package(s) of
+#                        the subvol(s) being added (see PKG_MAP below). Subvols with
+#                        no xbps mapping (e.g. @postgresql, @mariadb, @usercache,
+#                        @brave — a Flatpak-only app) are created/isolated but no
+#                        package is installed.
 #   detach <subvol>                       umount + drop fstab line (subvol + data preserved)
 #   destroy <subvol>                      umount + drop fstab + btrfs subvolume delete (asks)
 set -euo pipefail
@@ -6288,6 +6310,50 @@ declare -A CLASS_SUBVOLS=(
 )
 CLASS_LIST="containers databases web mail gaming virtualization flatpak"
 
+# xbps package(s) that own each subvol's data directory, for `--install` /
+# `install --class`. Subvols absent here are structural-only (no Void package to
+# install): @postgresql/@mariadb (never auto-installed by the installer — they
+# are pre-create/manual targets), @usercache (cache dir only), @mozilla-cache
+# (companion of @mozilla — installs with it), @brave (no official Void package;
+# Flatpak-only, and this tool is xbps-only by design — see [INSTALL-BRAVE]).
+# Mirrors the installer's own Stage-2 install lines (see grep:
+# `[ "$INSTALL_X" = "true" ] && install_pkgs ...`).
+declare -A PKG_MAP=(
+    [@docker]="docker"
+    [@containers]="podman fuse-overlayfs slirp4netns crun catatonit"
+    [@containers-user]="podman fuse-overlayfs slirp4netns crun catatonit"
+    [@libvirt]="qemu libvirt virt-manager"
+    [@virtualbox]="virtualbox-ose virtualbox-ose-dkms"
+    [@mozilla]="firefox"
+    [@chromium]="chromium"
+    [@vivaldi]="vivaldi"
+    [@falkon]="falkon"
+    [@thunderbird]="thunderbird"
+    [@steam]="steam"
+    [@flatpak]="flatpak"
+)
+
+# Install a set of packages via xbps-install. Like the installer's own
+# install_pkgs, -Sy syncs metadata first so a just-added package is found, and
+# failures are loud (set -e aborts onward). OPTIONAL packages that no longer
+# exist as installable xbps packages are a hard error here — better to fail
+# loudly than silently hand the caller a subvol with nothing in it.
+install_packages() {
+    [ $# -ge 1 ] || return 0
+    info "installing package(s): $*"
+    xbps-install -Sy "$@" || die "xbps-install failed for: $*"
+}
+
+# List of packages that own subvol(s) being added via a class (dedup to avoid
+# re-syncing xbps metadata per member).
+class_packages() {
+    local cls="$1" sv pkgs=""
+    for sv in ${CLASS_SUBVOLS[$cls]:-}; do
+        pkgs="$pkgs ${PKG_MAP[$sv]:-}"
+    done
+    echo "${pkgs# }"
+}
+
 # List every top-level sibling (direct child of the top-level tree).
 siblings() { btrfs subvolume list -o "$TOPMNT" 2>/dev/null | sed -n 's/.*path \([^ ]*\)$/\1/p'; }
 
@@ -6342,14 +6408,30 @@ cmd_check() {
 # ---------------------------------------------------------------------------
 # add_subvol — the actual create/mount/fstab body, shared by `add <subvol>`
 # and `add --class <name>`. nodatacow: 1/0. src: optional migration source.
+# install: 1/0 — when 1, xbps-install the owning package(s) AFTER the subvol is
+# mounted, so the software's data lands on the isolated subvolume from the first
+# run (mirrors the installer's own install-time provisioning).
 # ---------------------------------------------------------------------------
 add_subvol() {
-    local sv="$1" mnt="$2" nodatacow="$3" src="$4" mode sp
+    local sv="$1" mnt="$2" nodatacow="$3" src="$4" install="$5" mode sp pkgs
+    pkgs="${PKG_MAP[$sv]:-}"
     mount_top
     sp="$(sibling_path "$sv")"
     [ -e "$sp" ] && { unmount_top; die "sibling '$sv' already exists (delete it first if you mean to recreate)."; }
     [ -z "$(fstab_line "$sv")" ] || { unmount_top; die "subvolume '$sv' already has an fstab entry."; }
     is_mounted "$mnt" && { unmount_top; die "'$mnt' is already a mountpoint in use."; }
+
+    # Beta-v2.9.3 [SUBVOL-DATA-GUARD]: mounting a fresh (empty) sibling OVER a
+    # non-empty target hides whatever is already at $mnt (it stays on disk inside
+    # @ but becomes inaccessible behind the mount) — e.g. software installed
+    # BEFORE the subvol was built. Refuse unless the caller is migrating the
+    # existing contents in via a source-dir (add <sv> <mnt> <mnt>), which copies
+    # them onto the sibling before mounting. This forces the safe path instead of
+    # silently stranding pre-existing data.
+    if [ -z "$src" ] && [ -d "$mnt" ] && [ -n "$(ls -A "$mnt" 2>/dev/null)" ]; then
+        unmount_top
+        die "target '$mnt' already contains data, but no source-dir was given to migrate it (add $sv $mnt $mnt). Mounting an empty sibling over it would HIDE that data inside @. Provide the source-dir, or empty the target first."
+    fi
 
     mnt="$(readlink -f "$mnt")"
     info "creating flat sibling $sv (top-level tree) for $mnt..."
@@ -6387,20 +6469,34 @@ add_subvol() {
     echo "UUID=$FSUUID $fstab_path btrfs $mode,subvol=$sv 0 0" >> /etc/fstab
     mount "$mnt"
     info "done: $sv mounted at $mnt (flat sibling; outside Snapper rollback scope)."
+
+    # --install: now that the subvol is live at its runtime path, install the
+    # owning package(s) so their data lands on the isolated subvolume directly.
+    if [ "$install" = "1" ]; then
+        if [ -n "$pkgs" ]; then
+            # shellcheck disable=SC2086 # deliberate: $pkgs is a space-separated list of package names
+            install_packages $pkgs
+            info "installed package(s) for $sv: $pkgs"
+        else
+            echo "NOTE: $sv has no xbps package mapping — subvol created/isolated but nothing installed." >&2
+            info "if you install its software manually, its data will land on $mnt (isolated)."
+        fi
+    fi
 }
 
 # ---------------------------------------------------------------------------
 # add — create a single flat sibling (subvol + mountpoint + fstab).
 # ---------------------------------------------------------------------------
 cmd_add() {
-    local sv mnt src nodatacow=0 opt sp user=""
+    local sv mnt src nodatacow=0 opt sp user="" install=0
     local -a positional=()
     for opt in "$@"; do
         case "$opt" in
             --nodatacow) nodatacow=1 ;;
+            --install)   install=1 ;;
             --user)      user="unset-next" ;;
             --user=*)    user="${opt#--user=}" ;;
-            --*)         die "unknown option '$opt' (--nodatacow | --user <name>)" ;;
+            --*)         die "unknown option '$opt' (--nodatacow | --install | --user <name>)" ;;
             *)
                 if [ "$user" = "unset-next" ]; then
                     user="$opt"
@@ -6414,11 +6510,11 @@ cmd_add() {
 
     # <subvol> is always the first positional; an explicit <mountpoint> /
     # <source-dir> come after.
-    [ "${#positional[@]}" -ge 1 ] || die "usage: void-subvol-tool.sh add <subvol> <mountpoint> [source-dir] [--nodatacow] [--user <name>]"
+    [ "${#positional[@]}" -ge 1 ] || die "usage: void-subvol-tool.sh add <subvol> <mountpoint> [source-dir] [--nodatacow] [--install] [--user <name>]"
     sv="$(norm_subvol "${positional[0]}")"
     mnt="${positional[1]:-}"
     src="${positional[2]:-}"
-    [ "${#positional[@]}" -le 3 ] || die "too many positional args (subvol mountpoint [source-dir], plus --user/--nodatacow flags)."
+    [ "${#positional[@]}" -le 3 ] || die "too many positional args (subvol mountpoint [source-dir], plus --user/--nodatacow/--install flags)."
 
     # Derive a per-user mountpoint from --user when no explicit one was given.
     if [ -z "$mnt" ] && [ -n "$user" ]; then
@@ -6458,7 +6554,7 @@ cmd_add() {
         echo "Note: --user $user given with explicit mountpoint — using '$mnt' as typed."
     fi
 
-    add_subvol "$sv" "$mnt" "$nodatacow" "$src"
+    add_subvol "$sv" "$mnt" "$nodatacow" "$src" "$install"
 }
 
 # ---------------------------------------------------------------------------
@@ -6467,23 +6563,33 @@ cmd_add() {
 #   --user <name> seeds the username for all per-user members (or prompts once).
 # ---------------------------------------------------------------------------
 cmd_add_class() {
-    local cls="" user="" opt
+    local cls="" user="" opt install=0
     local -a cls_args=()
     for opt in "$@"; do
         case "$opt" in
             --user)      user="unset-next" ;;
             --user=*)    user="${opt#--user=}" ;;
-            --*)         die "unknown option '$opt' (--user <name>)" ;;
+            --install)   install=1 ;;
+            --*)         die "unknown option '$opt' (--user <name> | --install)" ;;
             *)           if [ "$user" = "unset-next" ]; then user="$opt"; else cls_args+=("$opt"); fi ;;
         esac
     done
     [ "$user" = "unset-next" ] && die "--user requires a username (e.g. --user alice)."
-    [ "${#cls_args[@]}" -eq 1 ] || die "usage: void-subvol-tool.sh add --class <name> [--user <name>]  (classes: $CLASS_LIST)"
+    [ "${#cls_args[@]}" -eq 1 ] || die "usage: void-subvol-tool.sh add --class <name> [--user <name>] [--install]  (classes: $CLASS_LIST)"
     cls="${cls_args[0]}"
     local members="${CLASS_SUBVOLS[$cls]:-}"
     [ -n "$members" ] || die "unknown class '$cls' (classes: $CLASS_LIST)."
 
     info "class '$cls' -> creating: $members"
+    if [ "$install" = "1" ]; then
+        local cpkgs
+        cpkgs="$(class_packages "$cls")"
+        if [ -n "$cpkgs" ]; then
+            info "class '$cls' --install -> packages: $cpkgs"
+        else
+            echo "NOTE: class '$cls' has no xbps package mapping — creating subvols only, nothing installed." >&2
+        fi
+    fi
 
     # If any member is a per-user profile and no --user was given, prompt once
     # for the shared username so browsing/mail/steam/virtualbox land under it.
@@ -6508,7 +6614,7 @@ cmd_add_class() {
             ndc="${SYS_NODATACOW[$sv]:-0}"
         fi
         [ -d "$mnt" ] || die "mountpoint '$mnt' does not exist — create (and for per-user paths chown to $user) first."
-        add_subvol "$sv" "$mnt" "$ndc" ""
+        add_subvol "$sv" "$mnt" "$ndc" "" "$install"
     done
     info "class '$cls' complete."
 }
@@ -6734,12 +6840,21 @@ It refuses to double-create or double-mount, and `destroy` requires typing
 matching the installer's `[NODATACOW]` rule that `chattr` on a subvolume root is
 shadowed by the mount.
 
+**Data-safety guard (`[SUBVOL-DATA-GUARD]`):** if the target mountpoint is
+already non-empty (e.g. the software was installed *before* you built its
+subvol, so its data sits inside `@`), the tool **refuses to proceed** unless you
+supply the migrate form — `add <sv> <mnt> <mnt>` copies that existing data onto
+the fresh sibling *before* it is mounted, so nothing is lost. Mounting an empty
+sibling over a populated directory would HIDE the pre-existing data (it stays on
+disk inside `@` but becomes inaccessible behind the mount). Provide the
+source-dir to migrate, or empty the target first.
+
 **Create every subvol for an optional-software family in one pass** with
 `add --class <name>`. The tool resolves each member's mountpoint (system paths
 from an internal map, per-user profiles under `/home/<user>`) and creates them
 all — idempotently (already-created siblings are skipped by the existing-sibling
-guard). It never installs or checks for the software, so the siblings get
-created even on a lean system with none of it installed:
+guard). By default it never installs or checks for the software, so the siblings
+get created even on a lean system with none of it installed:
 ```bash
 sudo /root/tools/void-subvol-tool.sh add --class containers --user alice
 sudo /root/tools/void-subvol-tool.sh add --class databases          # @postgresql + @mariadb (nodatacow)
@@ -6749,6 +6864,27 @@ sudo /root/tools/void-subvol-tool.sh add --class gaming --user alice# @steam
 sudo /root/tools/void-subvol-tool.sh add --class virtualization --user alice  # @libvirt + @virtualbox
 sudo /root/tools/void-subvol-tool.sh add --class flatpak            # @flatpak
 ```
+
+**Install the software at the same time** with `--install` (on a single `add` or
+an `add --class`). After the subvol is created and mounted at its runtime path,
+the tool runs `xbps-install -Sy` for the owning package(s) (see `PKG_MAP`), so
+the software's data lands on the isolated subvolume from the very first run —
+mirroring the installer's own provisioning:
+```bash
+sudo /root/tools/void-subvol-tool.sh add @steam --user alice --install   # create + install steam
+sudo /root/tools/void-subvol-tool.sh add --class gaming --user alice --install
+sudo /root/tools/void-subvol-tool.sh add --class virtualization --install # @libvirt + @virtualbox + their packages
+```
+Only subvols with an xbps package mapping install something. Subvols with no
+Void package are still created/isolated but nothing is installed: `@postgresql`
+and `@mariadb` (manual/pre-create targets, never auto-installed),
+`@mozilla-cache` (installs with `@mozilla`), `@usercache` (cache dir only), and
+`@brave` (no official Void package — it is Flatpak-only, and this tool is
+xbps-based by design). `@docker`/`@containers`/`@containers-user`/`@libvirt`/
+`@virtualbox`/`@mozilla`/`@chromium`/`@vivaldi`/`@falkon`/`@thunderbird`/
+`@steam`/`@flatpak` all map to their real packages. `--install` needs network
+access and root, like any `xbps-install`.
+
 Classes and their subvolumes:
 
 | class | subvolumes |

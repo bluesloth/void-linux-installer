@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.2** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.3** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -29,7 +29,7 @@ Current version: **Beta-v2.9.2** (`SCRIPT_VERSION` in the script).
 >   3.0.112GC) and the tracked `v3.1.0-beta1` … `v3.3.0-beta33` releases
 >   are mapped into a continuous sequential Beta-v numbering per
 >   `Debug/version-renumber-map.txt`. Every release within the Beta era
-> gets a unique number, and the current release (`Beta-v2.9.2`) is always
+> gets a unique number, and the current release (`Beta-v2.9.3`) is always
 >   the highest — preserving the monotonicity invariant.
 > - The old `v3.x` labels are preserved inline (`was v3.x` in headings and
 >   `version-renumber-map.txt`) for `[TAG]`-marker traceability, but the
@@ -57,8 +57,65 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.3.0** | First tracked release — inline-marker era begins | Tracked |
 | **Beta-v2.4.0** | DESKTOP_ENV, LOCALIZE, SWAP, COSMIC | Tracked |
 | **Beta-v2.4.1** | MIRROR, LIMINE-WALLPAPER, DRY-RUN (Claude's last) | Tracked |
-| **Beta-v2.5.0–v2.9.2** | Big Pickle era — features, hardening, encryption, YubiKey, dynamic subvols, master subvol gates, WebKit2 greeter removal, rootless-podman subvol parity (current) | Beta-v2.5.0–v2.9.2 below |
+| **Beta-v2.5.0–v2.9.2** | Big Pickle era — features, hardening, encryption, YubiKey, dynamic subvols, master subvol gates, WebKit2 greeter removal, rootless-podman subvol parity | Beta-v2.5.0–v2.9.2 below |
+| **Beta-v2.9.3** | `[SUBVOL-INSTALL]` — void-subvol-tool `--install` flag, OctoXBPS/Flatpak default off | Beta-v2.9.3 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
+
+---
+
+## Beta-v2.9.3 — `[SUBVOL-INSTALL]` (subvol-tool `--install` + optional-software defaults)
+
+`SCRIPT_VERSION = Beta-v2.9.3`. Three changes: `--install` on the subvol tool,
+a new data-safety guard, and the OctoXBPS/Flatpak default flip.
+
+**1. `void-subvol-tool.sh` can now install the software it creates a subvolume
+for.** Previously the tool was purely structural — it built/mounted flat
+siblings but never touched packages. Now `add <subvol> ... --install` (and
+`add --class <name> --install`) runs `xbps-install -Sy` for the owning
+package(s) (a new `PKG_MAP` table in the tool body) **after** the sibling is
+mounted at its runtime path, so the software's data lands on the isolated
+subvolume from the very first run — mirroring the installer's own provisioning.
+It is still structural by default: without `--install`, the tool never pulls a
+package.
+
+Subvols with no xbps mapping (postgres/mariadb manual targets, `@usercache`,
+`@mozilla-cache`, and `@brave` which is Flatpak-only) are still created and
+isolated, but print a NOTE that nothing was installed rather than failing.
+
+**2. OctoXBPS and Flatpak now default to `no`.** Their bare-Enter defaults
+(`DEFAULT_OCTOXBPS`, `DEFAULT_FLATPAK`) flipped from `true` to `false`, and the
+subvolume-isolation prompt wording now reads "all of the optional software you
+selected above **with the exception of OctoXBPS and Flatpak**" (Flatpak's
+system store lives under `/var/lib/flatpak` as part of `@`, and OctoXBPS has no
+isolatable data dir) — so neither is presumed on a lean default run.
+
+**Why this matters.** The practical payoff of building a subvolume for an app is
+that the app's data sits outside Snapper rollback scope. Before, that required
+two manual steps on a box where the app wasn't installed yet: build the subvol,
+then install the app. `--install` collapses that into one command and keeps the
+isolation-first guarantee intact (`set -euo pipefail`, fail-loud on a bad
+package). Flipping OctoXBPS/Flatpak off aligns a bare-Enter run with the
+recovery-first, lean motif of the rest of the installer's optional software.
+
+**Tool changes:**
+- `PKG_MAP` — subvol → owning package(s): `@docker`→docker;
+  `@containers`/`@containers-user`→podman rootless stack; `@libvirt`→qemu +
+  libvirt + virt-manager; `@virtualbox`→virtualbox-ose + dkms; browsers,
+  `@steam`, `@thunderbird`, `@flatpak`.
+- `install_packages()` helper runs `xbps-install -Sy` and dies loudly on error.
+- `class_packages()` dedups packages across a class so metadata is synced once.
+- `add_subvol`/`cmd_add`/`cmd_add_class` all gained an `--install` path.
+- `[SUBVOL-DATA-GUARD]`: `add` now **refuses a non-empty, unmigrated target
+  mountpoint**, forcing the source-dir migrate form (`add <sv> <mnt> <mnt>`),
+  so pre-existing data inside `@` is never silently hidden behind a fresh empty
+  mount. (Previously the tool would mount over a populated directory, stranding
+  the old data inside `@`.)
+- Usage header + README updated with `--install` examples and the no-mapping
+  subvol list.
+
+**Validation:** `bash -n` and `Debug/check-heredocs.sh` both ALL CLEAN (one
+SC2086 is the deliberate `$pkgs` word-split, disabled with a one-line
+rationale).
 
 ---
 
