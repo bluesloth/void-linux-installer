@@ -1471,6 +1471,9 @@ if [ "$ENCRYPT" = "yes" ]; then
     echo "  the passphrase. The YubiKey MUST be plugged in now: enrollment programs"
     echo "  a real slot and stamps the HMAC response as a LUKS key slot. Slot 1 is"
     echo "  used by default (also the OTP default); use slot 2 if slot 1 is in use."
+    echo "  ${C_YLW}Note:${C_RST} this boot-unlock path has ${C_BOLD}not been verified on real"
+    echo "  hardware${C_RST} by the author — validate on the target medium before"
+    echo "  trusting a possession-only install (see [YK-KEYSCRIPT-BAKE])."
     echo ""
     ask "Set up YubiKey hmac-sha1 unlock? [y/N]: "
     read -r YK_INPUT
@@ -1785,10 +1788,17 @@ esac
 # independent choice from desktop environment — either DM works with
 # either DE, this just picks which is typically associated with which so
 # the choice is informed rather than a coin flip.
+# AI (Big Pickle) NOTE — Beta-v2.9.3 [DM-UNTESTED]: only the recommended DM for
+# each DE (the RECOMMENDED_DM pairing) has been exercised on real hardware.
+# Choosing a non-default DM for the selected DE (e.g. LightDM on KDE) is
+# functional but UNTESTED — such cross-pairings are offered for flexibility,
+# not verified. See the human-readable note printed in the prompt below.
 echo ""
 echo "${C_BOLD}${C_BLU}Choose display manager${C_RST} (works with any desktop environment — this"
 echo "just picks which is typically paired with which; the recommended pairing"
 echo "for your selected DE (${C_BOLD}${DESKTOP_ENV}${C_RST}) is ${C_GRN}${RECOMMENDED_DM}${C_RST}):"
+echo "  ${C_YLW}Note:${C_RST} the recommended pairing for your DE is tested on real hardware;"
+echo "     choosing a different (non-default) DM for it has ${C_BOLD}not been tested${C_RST}."
 echo "  ${C_BOLD}1)${C_RST} SDDM — Qt-based; typically paired with KDE Plasma and LXQt; this"
 echo "     script's primary tested login manager."
 echo "  ${C_BOLD}2)${C_RST} LightDM — lightweight, greeter-based; typically paired with"
@@ -1880,8 +1890,15 @@ fi
 # This is an explicit choice with elogind kept as the default, since it is
 # the safest/most-tested baseline; turnstile+seatd+acpid is the alternative
 # for anyone who prefers avoiding the logind-is-a-fork-of-systemd runtime.
+# AI (Big Pickle) NOTE — Beta-v2.9.3 [SESSION-UNTESTED]: only elogind has been
+# exercised on real hardware. The turnstile + seatd + acpid stack is
+# functional but UNTESTED — it is offered for leaner no-elogind installs, not
+# verified. See the human-readable note printed in the prompt below.
 echo ""
 echo "${C_BOLD}${C_BLU}Choose session/seat management (logind)${C_RST}"
+echo "  ${C_YLW}Note:${C_RST} ${C_GRN}elogind${C_RST} is the only option tested on real hardware;"
+echo "     turnstile + seatd + acpid has ${C_BOLD}not been tested${C_RST} and may need"
+echo "     manual fixes for some software."
 echo "  ${C_BOLD}1)${C_RST} ${C_GRN}elogind (Default)${C_RST} — the well-tested fork of systemd-logind;"
 echo "     broadly required/compatible with GNOME, KDE, polkit auth."
 echo "  ${C_BOLD}2)${C_RST} turnstile + seatd + acpid — the leaner alternative: turnstile for"
