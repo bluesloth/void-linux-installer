@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Beta-v2.9.3**). It exists
+> `Void_Linux_Installer.sh` (current version: **Beta-v2.9.8**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -170,7 +170,7 @@
 - **`[*]` Install Flatpak (+ Flathub)? [Y/n]**
 - **Install Thunderbird (email client)? [y/N]** → if `y`: package installed, `@thunderbird` per-user subvol provisioned
 - **Install Steam (gaming client)? [y/N]** → if `y`: package installed (multilib), `@steam` per-user subvol provisioned
-- **`[*]` Set up web browsers now? (choose each one next) [Y/n]** → gate; if `no`, all
+- **`[*]` Set up web browsers now? (choose each one next) [y/N]** → gate; if `no`, all
   browser install prompts are skipped (toggles forced off). If `yes`, the
   individual browser prompts run:
   - **`[*]` Install Firefox? [Y/n]**

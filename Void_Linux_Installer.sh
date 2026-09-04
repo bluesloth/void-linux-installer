@@ -393,14 +393,14 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.3"
+SCRIPT_VERSION="Beta-v2.9.8"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
 # overflow; the minor never carries into the major unless the author makes an
 # explicit major bump. The lineage is split into named eras carrying their
 # own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x), so each era reads
-# monotonic and the current release (Beta-v2.9.3) always carries the highest
+# monotonic and the current release (Beta-v2.9.8) always carries the highest
 # numbering. See Debug/version-renumber-map.txt for the authoritative
 # OLD->NEW mapping recovered from the Debug/Old Versions/ artifacts.
 
@@ -472,7 +472,12 @@ SCRIPT_VERSION="Beta-v2.9.3"
 #     Beta-v2.9.0    [SUBVOL-GATES]; resolved PROVISION_*_SUBVOL
 #     Beta-v2.9.1    [GREETER-NO-WEBKIT2]; WebKit2 greeter removed
 #     Beta-v2.9.2    [PODMAN-ROOTLESS-SUBVOL]; rootless podman subvol gates
-#     Beta-v2.9.3    [SUBVOL-INSTALL]; [LIGHTDM-GREETER-BG]; [XFC-AUTOMOUNT]  (current)
+#     Beta-v2.9.3    [SUBVOL-INSTALL]; [LIGHTDM-GREETER-BG]; [XFC-AUTOMOUNT]
+#     Beta-v2.9.4    [SNAPPER-PRESENT]; snapper rmdir abort guard
+#     Beta-v2.9.5    [GREETER-BG-PIPEFAIL]; wallpaper find pipefail guard
+#     Beta-v2.9.6    [LUKS-UNLOCK-LEFT-OPEN]; unwind closes LUKS mapper; resume reuses an open one
+#     Beta-v2.9.7    [BROWSER-GATE-NO]; "Set up web browsers now?" now defaults to No
+#     Beta-v2.9.8    [GREETER-BG-TIMING]; lightdm greeter-bg search moved after the desktop install  (current)
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -520,10 +525,12 @@ DEFAULT_VIVALDI="${DEFAULT_VIVALDI:-false}"           # [y/N]
 DEFAULT_FALKON="${DEFAULT_FALKON:-false}"             # [y/N]
 DEFAULT_BRAVE="${DEFAULT_BRAVE:-false}"               # [y/N]
 # [BROWSER-GROUP] web-browser category gate: whether to even walk the browser
-# section. Defaults to the OR of the component defaults (Firefox/Chromium are
-# on by default), so a bare-Enter run still installs the same browsers as
-# before; only an explicit "no" skips the whole browser section.
-DEFAULT_WEB_BROWSERS="${DEFAULT_WEB_BROWSERS:-true}"  # [Y/n]
+# section. Defaults to OFF, so a bare-Enter run now skips the browser section
+# entirely (the [BROWSER-GATE-NO] default flip, Beta-v2.9.7) — previously it
+# OR'ed the component defaults (Firefox/Chromium on) so a bare-Enter run
+# installed both. Anyone who says yes to the gate still gets the per-browser
+# picks (Firefox/Chromium still individual-default ON inside).
+DEFAULT_WEB_BROWSERS="${DEFAULT_WEB_BROWSERS:-false}"  # [y/N]
 DEFAULT_PODMAN_ROOTLESS="${DEFAULT_PODMAN_ROOTLESS:-false}"  # [y/N]
 DEFAULT_PODMAN_ROOTFUL="${DEFAULT_PODMAN_ROOTFUL:-false}"    # [y/N]
 DEFAULT_DOCKER="${DEFAULT_DOCKER:-false}"             # [y/N]
@@ -666,6 +673,16 @@ cleanup_on_failure() {
         umount -fl "/mnt/${m}" 2>/dev/null || true
     done
     umount -fl /mnt 2>/dev/null || true
+    # AI (Big Pickle) FIX — Beta-v2.9.6 [LUKS-UNLOCK-LEFT-OPEN]: the unwind
+    # previously unmounted everything but never closed an open LUKS mapper, so
+    # a crash left the drive UNLOCKED (/dev/mapper/<name> still active). A
+    # following '-r' resume then hit luksOpen on an already-open device
+    # (cryptsetup refuses: "device already exists") and aborted, and a fresh
+    # re-run choked on luksFormat/mkfs of a busy partition. Close the mapper we
+    # opened so a failure returns the disk to a locked, clean state. CRYPT_NAME
+    # may be unset if the crash pre-dates the prompt; default guards that.
+    cryptsetup luksClose "${CRYPT_NAME:-void-root}" 2>/dev/null || true
+    [ "$ENCRYPT" = "yes" ] && echo "!! Note: the LUKS mapper has been closed — the disk is now LOCKED." >&2
     echo "!! Unwind attempted. Re-check 'mount | grep /mnt' before re-running." >&2
 }
 trap cleanup_on_failure ERR
@@ -2026,11 +2043,11 @@ export INSTALL_VIRTUALBOX
 # web-browser install section behind one yes/no so a person who wants NO
 # browser can skip past all five prompts at once; anyone who does want
 # browsers then picks each one individually below (same per-browser defaults
-# as before). Bare-Enter => gate reads default (defaults to YES because
-# Firefox/Chromium default on), so an uninterested run behaves exactly as it
-# did before this grouping.
+# as before). Bare-Enter => gate reads default (defaults to NO since
+# Beta-v2.9.7 [BROWSER-GATE-NO], so an uninterested/default run skips the
+# whole browser section).
 echo ""
-ask "Set up web browsers now? (choose each one next) [Y/n]: "
+ask "Set up web browsers now? (choose each one next) [y/N]: "
 read -r _setup_web_input
 case "$_setup_web_input" in
     "")    SETUP_WEB_BROWSERS="$DEFAULT_WEB_BROWSERS" ;;
@@ -3066,6 +3083,14 @@ if [ "$RESUME" != "1" ]; then
     sleep 2
 
     if [ "$ENCRYPT" = "yes" ]; then
+        # AI (Big Pickle) FIX — Beta-v2.9.6 [LUKS-UNLOCK-LEFT-OPEN]: a crashed
+        # earlier run can still hold the mapper open (pre-v2.9.6 unwinds never
+        # closed it). Close a leftover mapper BEFORE wiping/formatting so
+        # luksFormat does not refuse a busy device on a plain re-run.
+        if [ -e "$CRYPT_DEV" ]; then
+            echo "==> Closing leftover open mapper ${CRYPT_DEV} from an interrupted run"
+            cryptsetup luksClose "$CRYPT_NAME" 2>/dev/null || true
+        fi
         # Fresh: create the LUKS2 container from the typed passphrase. Fed
         # via stdin so it never appears on the command line or in the
         # process list. The ESP is formatted after this.
@@ -3149,66 +3174,85 @@ else
     umount -l /mnt 2>/dev/null || true
 
     if [ "$ENCRYPT" = "yes" ]; then
-        # Resume: the container exists but the mapper is closed. With YubiKey
-        # unlock enabled, prefer unlocking via the hmac-sha1 response (the
-        # YubiKey is still at hand on the live medium); only a genuine YubiKey
-        # failure falls back to the typed passphrase, and only when a fallback
-        # slot exists. With YK_FALLBACK=no (possession-only) the YubiKey is the
-        # only way in.
-        if [ "$YK_MODE" = "hmac-sha1" ]; then
-            YK_KEY_FILE="/tmp/void-yubikey-key"
-            YK_KEY=$(ykchalresp "-${YK_SLOT}" "$YK_CHALLENGE" 2>&1)
-            [ -n "$YK_KEY" ] || { echo "FATAL: YubiKey unlock failed (ykchalresp did not return a response)." >&2; exit 1; }
-            printf '%s' "$YK_KEY" > "$YK_KEY_FILE"
-            chmod 600 "$YK_KEY_FILE"
-            echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV} (YubiKey)"
-            if ! cryptsetup luksOpen --key-file="$YK_KEY_FILE" "$PART_SYS" "$CRYPT_NAME"; then
-                shred -u "$YK_KEY_FILE" 2>/dev/null || rm -f "$YK_KEY_FILE"
-                unset YK_KEY YK_KEY_FILE
-                if [ "$YK_FALLBACK" = "yes" ]; then
-                    echo "   YubiKey unlock failed (absent/wrong?). Falling back to typed passphrase." >&2
-                    echo ""
-                    echo "Enter the passphrase to unlock ${PART_SYS} (LUKS2):"
-                    read -r -s ENCRYPT_PASSPHRASE
-                    echo
-                    [ -n "$ENCRYPT_PASSPHRASE" ] || { echo "FATAL: empty passphrase." >&2; exit 1; }
-                    echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV} (passphrase fallback)"
-                    # AI (Big Pickle) ADDITION — Beta-v2.6.9 [ENCRYPT-VERIFY]: a
-                    # failed luksOpen on resume must abort, not silently continue
-                    # with a bogus $BTRFS_DEV (which would then mount nothing and
-                    # leave the user assuming the passphrase "worked").
-                    if ! printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksOpen --key-file=- "$PART_SYS" "$CRYPT_NAME"; then
-                        echo "${C_RED}!! FATAL: could not unlock ${PART_SYS} with the passphrase given." >&2
-                        echo "     The volume exists but the passphrase does not open it.${C_RST}" >&2
-                        exit 1
-                    fi
-                    unset ENCRYPT_PASSPHRASE
-                else
-                    echo "FATAL: YubiKey unlock failed and no passphrase fallback exists (possession-only)." >&2
-                    exit 1
-                fi
+        # AI (Big Pickle) FIX — Beta-v2.9.6 [LUKS-UNLOCK-LEFT-OPEN]: a crash
+        # can leave the mapper OPEN (pre-v2.9.6 unwinds never closed it). If
+        # the exact mapper we need is already active and maps the expected
+        # container partition, reuse it — cryptsetup refuses a second luksOpen
+        # of an active device ("device already exists"), which previously
+        # aborted the whole resume with a misleading passphrase FATAL.
+        if [ -e "$CRYPT_DEV" ]; then
+            echo "==> ${CRYPT_DEV} is already active — checking it maps ${PART_SYS}"
+            if cryptsetup status "$CRYPT_NAME" 2>/dev/null | grep -q "device:.*${PART_SYS}"; then
+                echo "   OK: reusing existing mapper (no re-unlock needed)."
+                BTRFS_DEV="$CRYPT_DEV"
+                jl "LUKS2 mapper already open on resume: $PART_SYS -> $BTRFS_DEV"
             else
-                shred -u "$YK_KEY_FILE" 2>/dev/null || rm -f "$YK_KEY_FILE"
-                unset YK_KEY YK_KEY_FILE
-            fi
-        else
-            echo ""
-            echo "Enter the passphrase to unlock ${PART_SYS} (LUKS2):"
-            read -r -s ENCRYPT_PASSPHRASE
-            echo
-            [ -n "$ENCRYPT_PASSPHRASE" ] || { echo "FATAL: empty passphrase." >&2; exit 1; }
-            echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV}"
-            # AI (Big Pickle) ADDITION — Beta-v2.6.9 [ENCRYPT-VERIFY]: abort on
-            # a failed resume unlock rather than continuing with a dead $BTRFS_DEV.
-            if ! printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksOpen --key-file=- "$PART_SYS" "$CRYPT_NAME"; then
-                echo "${C_RED}!! FATAL: could not unlock ${PART_SYS} with the passphrase given." >&2
-                echo "     The volume exists but the passphrase does not open it.${C_RST}" >&2
+                echo "${C_RED}!! FATAL: ${CRYPT_DEV} is active but does NOT map ${PART_SYS}.${C_RST}" >&2
+                echo "     Close it first, e.g. 'cryptsetup luksClose ${CRYPT_NAME}', then re-run." >&2
                 exit 1
             fi
-            unset ENCRYPT_PASSPHRASE
+        else
+            # Resume: the container exists but the mapper is closed. With YubiKey
+            # unlock enabled, prefer unlocking via the hmac-sha1 response (the
+            # YubiKey is still at hand on the live medium); only a genuine YubiKey
+            # failure falls back to the typed passphrase, and only when a fallback
+            # slot exists. With YK_FALLBACK=no (possession-only) the YubiKey is the
+            # only way in.
+            if [ "$YK_MODE" = "hmac-sha1" ]; then
+                YK_KEY_FILE="/tmp/void-yubikey-key"
+                YK_KEY=$(ykchalresp "-${YK_SLOT}" "$YK_CHALLENGE" 2>&1)
+                [ -n "$YK_KEY" ] || { echo "FATAL: YubiKey unlock failed (ykchalresp did not return a response)." >&2; exit 1; }
+                printf '%s' "$YK_KEY" > "$YK_KEY_FILE"
+                chmod 600 "$YK_KEY_FILE"
+                echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV} (YubiKey)"
+                if ! cryptsetup luksOpen --key-file="$YK_KEY_FILE" "$PART_SYS" "$CRYPT_NAME"; then
+                    shred -u "$YK_KEY_FILE" 2>/dev/null || rm -f "$YK_KEY_FILE"
+                    unset YK_KEY YK_KEY_FILE
+                    if [ "$YK_FALLBACK" = "yes" ]; then
+                        echo "   YubiKey unlock failed (absent/wrong?). Falling back to typed passphrase." >&2
+                        echo ""
+                        echo "Enter the passphrase to unlock ${PART_SYS} (LUKS2):"
+                        read -r -s ENCRYPT_PASSPHRASE
+                        echo
+                        [ -n "$ENCRYPT_PASSPHRASE" ] || { echo "FATAL: empty passphrase." >&2; exit 1; }
+                        echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV} (passphrase fallback)"
+                        # AI (Big Pickle) ADDITION — Beta-v2.6.9 [ENCRYPT-VERIFY]: a
+                        # failed luksOpen on resume must abort, not silently continue
+                        # with a bogus $BTRFS_DEV (which would then mount nothing and
+                        # leave the user assuming the passphrase "worked").
+                        if ! printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksOpen --key-file=- "$PART_SYS" "$CRYPT_NAME"; then
+                            echo "${C_RED}!! FATAL: could not unlock ${PART_SYS} with the passphrase given." >&2
+                            echo "     The volume exists but the passphrase does not open it.${C_RST}" >&2
+                            exit 1
+                        fi
+                        unset ENCRYPT_PASSPHRASE
+                    else
+                        echo "FATAL: YubiKey unlock failed and no passphrase fallback exists (possession-only)." >&2
+                        exit 1
+                    fi
+                else
+                    shred -u "$YK_KEY_FILE" 2>/dev/null || rm -f "$YK_KEY_FILE"
+                    unset YK_KEY YK_KEY_FILE
+                fi
+            else
+                echo ""
+                echo "Enter the passphrase to unlock ${PART_SYS} (LUKS2):"
+                read -r -s ENCRYPT_PASSPHRASE
+                echo
+                [ -n "$ENCRYPT_PASSPHRASE" ] || { echo "FATAL: empty passphrase." >&2; exit 1; }
+                echo "==> Opening LUKS2 container ${PART_SYS} -> ${CRYPT_DEV}"
+                # AI (Big Pickle) ADDITION — Beta-v2.6.9 [ENCRYPT-VERIFY]: abort on
+                # a failed resume unlock rather than continuing with a dead $BTRFS_DEV.
+                if ! printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksOpen --key-file=- "$PART_SYS" "$CRYPT_NAME"; then
+                    echo "${C_RED}!! FATAL: could not unlock ${PART_SYS} with the passphrase given." >&2
+                    echo "     The volume exists but the passphrase does not open it.${C_RST}" >&2
+                    exit 1
+                fi
+                unset ENCRYPT_PASSPHRASE
+            fi
+            BTRFS_DEV="$CRYPT_DEV"
+            jl "LUKS2 mapper re-opened for resume: $PART_SYS -> $BTRFS_DEV"
         fi
-        BTRFS_DEV="$CRYPT_DEV"
-        jl "LUKS2 mapper re-opened for resume: $PART_SYS -> $BTRFS_DEV"
     fi
 
     mount -v -o subvolid=5 "$BTRFS_DEV" /mnt
@@ -4143,44 +4187,6 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
     # the mandatory session-wrapper from [LIGHTDM-SWRAP]) on a mid-write
     # interruption; write to a temp file then rename into place.
     mv -f /etc/lightdm/lightdm.conf.tmp /etc/lightdm/lightdm.conf
-    # [LIGHTDM-GREETER-BG] Set the greeter background so a fresh install
-    # doesn't show a solid black login screen. Reuses the same system
-    # background image search as the Cinnamon wallpaper code: prefer the
-    # GNOME adwaita-l stripe, fall back to any image in /usr/share/backgrounds.
-    # GTK greeter reads lightdm-gtk-greeter.conf; Slick greeter reads
-    # slick-greeter.conf — both accept a background=<path> directive.
-    _greeter_bg=""
-    for _greeter_bg_name in adwaita-l.jpg adwaita-l.jxl adwaita-l.png adwaita-l.svg; do
-        _greeter_bg_candidate="$(find /usr/share/backgrounds -maxdepth 2 -type f \
-            -name "$_greeter_bg_name" 2>/dev/null | head -1)"
-        if [[ -n "$_greeter_bg_candidate" ]]; then
-            _greeter_bg="$_greeter_bg_candidate"
-            break
-        fi
-    done
-    if [[ -z "$_greeter_bg" ]]; then
-        _greeter_bg="$(find /usr/share/backgrounds -maxdepth 2 -type f \
-            \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' \
-               -o -name '*.svg' -o -name '*.jxl' -o -name '*.webp' \) \
-            2>/dev/null | head -1)"
-    fi
-    if [[ -n "$_greeter_bg" ]]; then
-        case "$LIGHTDM_GREETER" in
-            gtk)
-                cat > /etc/lightdm/lightdm-gtk-greeter.conf << INNER_EOF
-[greeter]
-background="${_greeter_bg}"
-INNER_EOF
-                ;;
-            slick)
-                cat > /etc/lightdm/slick-greeter.conf << INNER_EOF
-[Greeter]
-background="${_greeter_bg}"
-INNER_EOF
-                ;;
-        esac
-    fi
-    unset _greeter_bg _greeter_bg_candidate _greeter_bg_name
     # AI (Big Pickle) CHANGE — Beta-v2.5.0 [LIGHTDM-HW]: three real-hardware
     # LightDM greeter failures on a Cinnamon install, as-is /var/lib/lightdm
     # ownership would have been root-owned here:
@@ -4341,12 +4347,12 @@ if [ "$DESKTOP_ENV" = "cinnamon" ]; then
     _cinnamon_wallpaper="$(find /usr/share/backgrounds -maxdepth 2 -type f \
         \( -name 'adwaita-l.jpg' -o -name 'adwaita-l.jxl' \
            -o -name 'adwaita-l.png' -o -name 'adwaita-l.svg' \) \
-        2>/dev/null | head -1)"
+        2>/dev/null | head -1)" || true
     if [[ -z "$_cinnamon_wallpaper" ]]; then
         _cinnamon_wallpaper="$(find /usr/share/backgrounds -maxdepth 2 -type f \
             \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' \
                -o -name '*.svg' -o -name '*.jxl' -o -name '*.webp' \) \
-            2>/dev/null | head -1)"
+            2>/dev/null | head -1)" || true
     fi
     if [[ -n "$_cinnamon_wallpaper" ]]; then
         mkdir -p /etc/dconf/profile
@@ -4512,6 +4518,81 @@ elif [ "$DESKTOP_ENV" = "cosmic" ]; then
     install_cosmic cosmic-desktop-full
 else
     install_pkgs kde-plasma kde-baseapps ark kio-admin
+fi
+
+# [LIGHTDM-GREETER-BG] Set the greeter background so a fresh install doesn't
+# show a solid black login screen. Runs AFTER the desktop metapackage install
+# (Beta-v2.9.8 [GREETER-BG-TIMING]) — the original placement inside the lightdm
+# branch ran before ANY desktop package existed, so /usr/share/backgrounds was
+# absent and every fresh MATE/Cinnamon/xfce + lightdm greeter silently booted
+# to black (real-hardware report, Beta-v2.9.6 MATE install). Reuses the same
+# system background image search as the Cinnamon wallpaper code: prefer the
+# GNOME adwaita-l stripe, fall back to any image in /usr/share/backgrounds
+# (MATE ships its own wallpaper set via the mate metapackage, and Cinnamon's
+# gnome-backgrounds was installed by its desktop block above).
+# GTK greeter reads lightdm-gtk-greeter.conf; Slick greeter reads
+# slick-greeter.conf — both accept a background=<path> directive.
+# AI (Big Pickle) FIX — Beta-v2.9.5 [GREETER-BG-PIPEFAIL]: the two
+# `find /usr/share/backgrounds ... | head -1` command substitutions are UNSAFE
+# under the chroot's `set -eEo pipefail` when the directory does not exist yet
+# (e.g. a desktop that ships no wallpapers) — `find` exits 1, `pipefail`
+# turns the pipeline nonzero, the substitution + assignment fail, and `set -e`
+# kills the chroot with ZERO output. `2>/dev/null` hides the error text but
+# NOT the exit code. The `|| true` guards make a missing/empty backgrounds
+# dir simply leave the bg unset (no wallpaper); the gnome-backgrounds retry
+# below then guarantees the greeter is never a bare black screen.
+if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
+    _greeter_bg=""
+    for _greeter_bg_name in adwaita-l.jpg adwaita-l.jxl adwaita-l.png adwaita-l.svg; do
+        _greeter_bg_candidate="$(find /usr/share/backgrounds -maxdepth 2 -type f \
+            -name "$_greeter_bg_name" 2>/dev/null | head -1)" || true
+        if [[ -n "$_greeter_bg_candidate" ]]; then
+            _greeter_bg="$_greeter_bg_candidate"
+            break
+        fi
+    done
+    if [[ -z "$_greeter_bg" ]]; then
+        _greeter_bg="$(find /usr/share/backgrounds -maxdepth 2 -type f \
+            \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' \
+               -o -name '*.svg' -o -name '*.jxl' -o -name '*.webp' \) \
+            2>/dev/null | head -1)" || true
+    fi
+    if [[ -z "$_greeter_bg" ]]; then
+        # No wallpapers on disk at all (e.g. a desktop that ships none). Pull
+        # the smallest standard set — gnome-backgrounds, the same source the
+        # Cinnamon block uses — and re-run the search, so a lightdm greeter is
+        # never left with its black default screen.
+        echo "==> No wallpapers found; installing gnome-backgrounds for the greeter"
+        install_pkgs gnome-backgrounds
+        for _greeter_bg_name in adwaita-l.jpg adwaita-l.jxl adwaita-l.png adwaita-l.svg; do
+            _greeter_bg_candidate="$(find /usr/share/backgrounds -maxdepth 2 -type f \
+                -name "$_greeter_bg_name" 2>/dev/null | head -1)" || true
+            [[ -n "$_greeter_bg_candidate" ]] && { _greeter_bg="$_greeter_bg_candidate"; break; }
+        done
+        if [[ -z "$_greeter_bg" ]]; then
+            _greeter_bg="$(find /usr/share/backgrounds -maxdepth 2 -type f \
+                \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' \
+                   -o -name '*.svg' -o -name '*.jxl' -o -name '*.webp' \) \
+                2>/dev/null | head -1)" || true
+        fi
+    fi
+    if [[ -n "$_greeter_bg" ]]; then
+        case "$LIGHTDM_GREETER" in
+            gtk)
+                cat > /etc/lightdm/lightdm-gtk-greeter.conf << INNER_EOF
+[greeter]
+background="${_greeter_bg}"
+INNER_EOF
+                ;;
+            slick)
+                cat > /etc/lightdm/slick-greeter.conf << INNER_EOF
+[Greeter]
+background="${_greeter_bg}"
+INNER_EOF
+                ;;
+        esac
+    fi
+    unset _greeter_bg _greeter_bg_candidate _greeter_bg_name
 fi
 
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 2]: polkit authentication
@@ -5838,10 +5919,22 @@ fi
 #      `btrfs subvolume delete` needed) and remount OUR @snapshots subvolume
 #      in its place. Snapper's config now points at /.snapshots without
 #      knowing/caring that the subvolume underneath is ours, not its own.
+# AI (Big Pickle) FIX — Beta-v2.9.4 [SNAPPER-PRESENT]: ensure the snapper
+# binary actually exists before configuring it. install_pkgs can report
+# success even when a mid-transaction network drop left the package absent
+# (observed: a failed install died here with the cryptic unguarded `rmdir`
+# below, and the live-medium probe showed `snapper: command not found`).
+# Guarding the binary turns that into a clear, actionable message instead
+# of a confusing abort deep in the chroot.
+if ! command -v snapper >/dev/null 2>&1; then
+    echo "CRITICAL: snapper is not installed in the target (install_pkgs reported the package install succeeded, but 'snapper' is absent — likely a mid-transaction network drop during the package sync)." >&2
+    echo "          Re-running the installer after re-establishing a stable network connection is the recommended recovery." >&2
+    exit 1
+fi
 umount -fl /.snapshots || true
 rmdir /.snapshots || true
 snapper --no-dbus -c root create-config /
-rmdir /.snapshots
+rmdir /.snapshots || true
 mkdir -p /.snapshots
 mount /.snapshots
 chmod 750 /.snapshots

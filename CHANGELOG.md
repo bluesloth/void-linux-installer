@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.3** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.8** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -29,7 +29,7 @@ Current version: **Beta-v2.9.3** (`SCRIPT_VERSION` in the script).
 >   3.0.112GC) and the tracked `v3.1.0-beta1` … `v3.3.0-beta33` releases
 >   are mapped into a continuous sequential Beta-v numbering per
 >   `Debug/version-renumber-map.txt`. Every release within the Beta era
-> gets a unique number, and the current release (`Beta-v2.9.3`) is always
+> gets a unique number, and the current release (`Beta-v2.9.8`) is always
 >   the highest — preserving the monotonicity invariant.
 > - The old `v3.x` labels are preserved inline (`was v3.x` in headings and
 >   `version-renumber-map.txt`) for `[TAG]`-marker traceability, but the
@@ -59,6 +59,11 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.4.1** | MIRROR, LIMINE-WALLPAPER, DRY-RUN (Claude's last) | Tracked |
 | **Beta-v2.5.0–v2.9.2** | Big Pickle era — features, hardening, encryption, YubiKey, dynamic subvols, master subvol gates, WebKit2 greeter removal, rootless-podman subvol parity | Beta-v2.5.0–v2.9.2 below |
 | **Beta-v2.9.3** | `[SUBVOL-INSTALL]` — void-subvol-tool `--install` flag, OctoXBPS/Flatpak default off, `[LIGHTDM-GREETER-BG]`, `[XFC-AUTOMOUNT]` | Beta-v2.9.3 below |
+| **Beta-v2.9.4** | `[SNAPPER-PRESENT]` — snapper-binary guard + unguarded `rmdir /.snapshots` abort fix; real-hardware install failure (network drop left snapper absent) | Beta-v2.9.4 below |
+| **Beta-v2.9.5** | `[GREETER-BG-PIPEFAIL]` — lightdm/cinnamon wallpaper `find | head` command substitutions get `|| true`; pipefail aborted a MATE+lightdm install silently when `/usr/share/backgrounds` didn't exist yet | Beta-v2.9.5 below |
+| **Beta-v2.9.6** | `[LUKS-UNLOCK-LEFT-OPEN]` — failure unwind now `luksClose`s the LUKS mapper (returns disk to LOCKED), resume reuses an already-open mapper instead of failing, and fresh-start closes a leftover mapper before reformat; fixes a `-r` resume that aborted at "decrypt partition" after a crashed run | Beta-v2.9.6 below |
+| **Beta-v2.9.7** | `[BROWSER-GATE-NO]` — the "Set up web browsers now?" gate now defaults to **No** (`[y/N]`); a bare-Enter run skips the whole browser section (Firefox/Chromium still default ON *inside* the gate if you say yes) | Beta-v2.9.7 below |
+| **Beta-v2.9.8** | `[GREETER-BG-TIMING]` — the lightdm greeter-background search ran before any desktop package existed, so every fresh MATE/Cinnamon/xfce+lightdm greeter booted to black; it now runs after the desktop install (with a gnome-backgrounds retry so it's never a bare black screen) | Beta-v2.9.8 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -141,6 +146,202 @@ recovery-first, lean motif of the rest of the installer's optional software.
 **Validation:** `bash -n` and `Debug/check-heredocs.sh` both ALL CLEAN (one
 SC2086 is the deliberate `$pkgs` word-split, disabled with a one-line
 rationale).
+
+---
+
+## Beta-v2.9.4 — `[SNAPPER-PRESENT]` (snapper-binary guard + rmdir abort hardening)
+
+`SCRIPT_VERSION = Beta-v2.9.4`. Turned a real-hardware install failure into a
+clear, actionable error.
+
+**Background of the failure.** A fresh MATE/lightdm/limine install on
+`/dev/nvme0n1` (LUKS2) aborted in Stage 2 with the whole chroot heredoc as the
+failing command (exit 1) — the inner failing line was not named. A probe on the
+target showed `snapper: command not found` and an empty (unmounted)
+`/.snapshots` — i.e., snapper never got installed and the abort predated the
+snapper config dance. Cinnamon and XFCE installs on the same hardware had
+succeeded previously, so the first-time MATE package sync (a large metapackage
+pull) is the prime suspect: a mid-sync network drop makes `xbps-install
+-Suy -R ...` exhaust all three mirrors, `install_pkgs` prints `FATAL: ... failed
+against all configured repositories for: <pkgs>` and `exit 1`s, leaving the
+target with no snapper and a dangling empty `/.snapshots` mountpoint.
+
+**Changes:**
+1. `install_pkgs` hard-exits on total mirror failure, so the snapper install
+   step itself was the likely abort point. The config block therefore now
+   guards the binary before touching the `/.snapshots` dance:
+   ```sh
+   if ! command -v snapper >/dev/null 2>&1; then ...
+       exit 1
+   fi
+   ```
+   so a repeat failure stops with an explicit "snapper is not installed in the
+   target … likely a mid-transaction network drop" message instead of a cryptic
+   `rmdir` abort three lines later.
+2. Hardened the existing `rmdir /.snapshots` (unguarded, after
+   `snapper create-config`) to `rmdir /.snapshots || true` — defense-in-depth
+   in case a future snapper behavior change leaves the directory absent.
+
+Recovery for an affected install: re-run the installer on a stable network
+connection (the failing run kept its resume record, so `-r` resumes the
+remaining steps).
+
+**Validation:** `bash -n`, `Debug/check-heredocs.sh` (ALL CLEAN), and
+`Debug/check-defaults.sh` (ALL CONSISTENT) all pass.
+
+---
+
+## Beta-v2.9.5 — `[GREETER-BG-PIPEFAIL]` (wallpaper `find | head` pipefail guard)
+
+`SCRIPT_VERSION = Beta-v2.9.5`. Fixed a silent, zero-output abort in the
+lightdm/cinnamon greeter-wallpaper search under the chroot's `set -eEo pipefail`.
+
+**Background of the failure.** A second fresh MATE/lightdm/limine install on
+`/dev/nvme0n1` aborted in Stage 2. This time the package sync was clean — the
+48-package lightdm transaction installed and configured successfully — and the
+abort came immediately after, with **no** error text on screen. The new
+`[SNAPPER-PRESENT]` guard from Beta-v2.9.4 never fired (snapper was present),
+ruling out the network-drop theory for this run.
+
+**Root cause.** On the lightdm branch (Beta-v2.9.3 `[LIGHTDM-GREETER-BG]`), the
+greeter-background search does:
+
+```sh
+_greeter_bg_candidate="$(find /usr/share/backgrounds -maxdepth 2 -type f \
+    -name "$_greeter_bg_name" 2>/dev/null | head -1)"
+```
+
+Under `set -eEo pipefail` this is unsafe when `/usr/share/backgrounds` does not
+exist: `find` exits 1, `pipefail` turns the pipeline nonzero, the command
+substitution/assignment fails, and `set -e` kills the chroot. The `2>/dev/null`
+hides the error text but **not** the exit code — hence the zero-output abort.
+The directory legitimately doesn't exist yet on the lightdm path because the
+block runs before any backgrounds package is installed (`gnome-backgrounds` and
+the MATE wallpaper collection arrive only with the desktop-metapackage/xdg-user-dirs
+installs that come *later* in the chroot). Prior successful Cinnamon/XFCE installs
+used SDDM, so this lightdm-specific code path had never executed on real
+hardware until the MATE+lightdm attempt.
+
+**Changes:**
+1. All four greeter/wallpaper `find ... | head -1` command substitutions
+   (greeter loop, greeter fallback, Cinnamon ladder, Cinnamon fallback) get
+   `|| true`, so a missing/empty backgrounds directory simply leaves the
+   wallpaper unset (the correct lean pre-existing behavior) instead of
+   aborting the install.
+
+**Validation:** `bash -n`, `Debug/check-heredocs.sh`, and
+`Debug/check-defaults.sh` all pass.
+
+---
+
+## Beta-v2.9.6 — `[LUKS-UNLOCK-LEFT-OPEN]` (failure unwind closes the LUKS mapper; resume reuses an open one)
+
+`SCRIPT_VERSION = Beta-v2.9.6`. Closed a three-way trap around a LUKS mapper
+left open by a crashed install.
+
+**Background of the failure.** A third attempt on `/dev/nvme0n1` was run with
+`-r` (resume). It failed at "decrypt the partition". The drive appeared
+unlocked, and the operator wondered what a resume did when asked to open a
+drive that was already open. Both observations were right.
+
+**Root cause — the unwind never closed the mapper.** `cleanup_on_failure`
+(lines 611-682) unmounted every `/mnt` path but **never ran
+`cryptsetup luksClose`**. So after any crash, `/dev/mapper/void-root` stayed
+active — "the drive is not locked". Resume then *assumes* the mapper is closed
+(the Beta-v2.5.5 comment at the resume-open site), calls `luksOpen` anyway,
+and cryptsetup refuses a second mapping of an active device ("device already
+exists") — the `!`-guarded `luksOpen` (Beta-v2.6.9 `[ENCRYPT-VERIFY]`) turned
+that into a misleading "FATAL: could not unlock ... with the passphrase given",
+killing the `-r`. A plain fresh re-run was similarly stuck: `luksFormat` /
+`mkfs.btrfs` on a busy partition.
+
+**Changes:**
+1. **Failure unwind now closes the mapper.** `cleanup_on_failure` runs
+   `cryptsetup luksClose "${CRYPT_NAME:-void-root}"` (guarded, `|| true`) and
+   prints a "disk is now LOCKED" note when encryption was enabled — so a
+   failure returns the disk to a locked, clean state, matching what the resume
+   path already assumed.
+2. **Resume reuses an already-open mapper.** The resume ENCRYPT branch first
+   checks `[ -e "$CRYPT_DEV" ]`; if the exact mapper is already active it
+   verifies with `cryptsetup status "$CRYPT_NAME"` that it maps the expected
+   container partition (`grep -q "device:.*${PART_SYS}"`) and reuses it —
+   skipping the passphrase/YubiKey prompt entirely. A mismatch (active mapper
+   belonging to a *different* partition) is a loud FATAL telling the user to
+   `cryptsetup luksClose` it first.
+3. **Fresh-start closes a leftover mapper before reformat.** The
+   `RESUME != 1` ENCRYPT branch `luksClose`s `$CRYPT_DEV` (if it exists) before
+   `luksFormat`, so a plain (non-`-r`) re-run also survives a leftover-open
+   mapper instead of dying on a busy device.
+
+**Operator note from the diagnosis.** The `CRYPT_NAME=void-root` in
+`/tmp/void-installer-state.sh` is *not* a mismatch: journal2 line 3 shows the
+second run itself created and opened `/dev/mapper/void-root` (the Beta-v2.7.1
+prompt default). The earlier `void` (run 1) is a different run's choice. The
+resume failure was the open mapper, not the name.
+
+**Validation:** `bash -n` passes; `Debug/check-heredocs.sh` and
+`Debug/check-defaults.sh` re-run clean after the edits.
+
+---
+
+## Beta-v2.9.7 — `[BROWSER-GATE-NO]` ("Set up web browsers now?" defaults to No)
+
+`SCRIPT_VERSION = Beta-v2.9.7`. Flipped the `[BROWSER-GROUP]` (Beta-v2.7.4)
+category gate's default so a bare-Enter run no longer installs any browsers.
+
+**Behavior change.** Previously `DEFAULT_WEB_BROWSERS` was `true` — the OR of
+the component defaults (Firefox, Chromium) — so a default/uninterested run
+silently installed Firefox + Chromium. Now the gate is `false` (`[y/N]`), so a
+bare-Enter run skips the entire browser section (all five toggles forced off).
+Behavior inside the gate is untouched: saying `y` to the gate still walks the
+same per-browser prompts, with Firefox/Chromium still individual-default ON.
+
+**Changes:**
+- `DEFAULT_WEB_BROWSERS="${DEFAULT_WEB_BROWSERS:-false}"` + updated `[y/N]`
+  indicator and explanation in the `[PROMPT-DEFAULTS]` block.
+- Prompt text at the gate now reads `[y/N]` instead of `[Y/n]`; the inline
+  comment reflecting the old OR-of-defaults rationale updated.
+
+**Validation:** `bash -n` passes, and `Debug/check-defaults.sh` stays
+consistent (the flip only changed a value, not a wiring).
+
+---
+
+## Beta-v2.9.8 — `[GREETER-BG-TIMING]` (lightdm greeter background ran too early)
+
+`SCRIPT_VERSION = Beta-v2.9.8`. The `[LIGHTDM-GREETER-BG]` (Beta-v2.9.3)
+greeter-background block was structurally unable to ever set a wallpaper, on
+every desktop — proven by a real-hardware report: a Beta-v2.9.6 MATE+lightdm
+install booted to a working desktop, but the GTK greeter showed a black/missing
+background.
+
+**Root cause — ordering.** The greeter-background search lived inside the
+lightdm setup branch, which runs **before** any desktop metapackage is
+installed (MATE at the `mate` install, Cinnamon's `gnome-backgrounds` still
+to come). At that point `/usr/share/backgrounds` does not even exist, so the
+`find` (Beta-v2.9.5 `|| true`'d into a no-op after the pipefail fix) found
+nothing, no `lightdm-gtk-greeter.conf` / `slick-greeter.conf` was written, and
+the greeter fell back to its compiled-in black default. The Beta-v2.9.3
+feature had effectively never worked — prior successful Cinnamon/XFCE installs
+used SDDM, so the lightdm code path had never executed on real hardware until
+the MATE+lightdm run.
+
+**Changes:**
+1. **Moved the greeter-background search to AFTER the desktop metapackage
+   install** (end of the DESKTOP_ENV chain, just before the polkit block),
+   gated on `DISPLAY_MANAGER=lightdm`. Now `/usr/share/backgrounds` really
+   holds the desktop's wallpaper set: MATE via the `mate` metapackage,
+   Cinnamon via its `gnome-backgrounds`, Xfce/others via whatever they ship.
+2. **gnome-backgrounds retry fallback.** If the search still comes up empty
+   (a desktop that ships no wallpapers), the block installs `gnome-backgrounds`
+   and re-runs the search — so a lightdm greeter is never left at its black
+   default in any combination.
+3. The v2.9.5 `[GREETER-BG-PIPEFAIL]` `|| true` guards and their rationale
+   moved with the block (and still protect the fallback search).
+
+**Validation:** `bash -n` passes; `Debug/check-heredocs.sh` ALL CLEAN (the
+moved `INNER_EOF` greeter-config heredocs still extract and bash -n cleanly);
+`Debug/check-defaults.sh` unchanged.
 
 ---
 
