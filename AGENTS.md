@@ -70,12 +70,16 @@ Known regressions that have already broken a real install:
 5. Do **not** merge or cross-wire the GRUB and Limine code paths — they are
    deliberately two separate `$BOOTLOADER` branches with no shared
    config-generation logic.
-6. `[LIGHTDM-HW]` LightDM greeters (GTK/Slick/WebKit2) depend on
+6. `[LIGHTDM-HW]` LightDM greeters (GTK/Slick) depend on
    `org.freedesktop.Accounts`, which Void ships with NO runit service. Keep
    the installer's supervised `/etc/sv/accounts-daemon` provisioning plus the
    first-boot rc.local link (gated on `DISPLAY_MANAGER=lightdm`) — do not
-   "simplify" it back to D-Bus activation. Also keep the `@lightdm` chown and
-   the WebKit2 `webkit-theme=void` config.
+   "simplify" it back to D-Bus activation. Also keep the `@lightdm` chown.
+   Do NOT reintroduce the WebKit2 greeter (`lightdm-webkit2-greeter`) as an
+   option (`[GREETER-NO-WEBKIT2]` Beta-v2.9.1): it is abandoned upstream and
+   black-screens against current webkit2gtk; the maintained WebKit-based
+   successors web-greeter/nody-greeter/sea-greeter are NOT in Void's official
+   repos, so the installer ships GTK + Slick only.
 7. `[LIGHTDM-SWRAP]` The generated `/etc/lightdm/lightdm.conf` MUST keep the
    explicit `session-wrapper=/etc/lightdm/Xsession` line. Overwriting Void's
    package-default conf removes the wrapper that would otherwise be set, and
@@ -181,6 +185,20 @@ Known regressions that have already broken a real install:
     so a quoted heredoc leaves unbound vars under `set -u` and a possession-only
     boot can never unlock. This boot unlock path is real-hardware UNPROVEN —
     validate on the target medium before trusting a possession-only install.
+13. `[PODMAN-ROOTLESS-SUBVOL]` (Beta-v2.9.2) Podman rootless's per-user
+    datadir `~/.local/share/containers` (`@containers-user`) is now a **Gate
+    1 / Gate 2 subvolume participant** — whether it is isolated is decided by
+    the resolved `PROVISION_PODMAN_ROOTLESS_SUBVOL` flag (from the
+    `SUBVOL_ROWS` table), exactly like the browser subvols, instead of being
+    unconditionally mounted whenever `INSTALL_PODMAN_ROOTLESS` is true. Do
+    NOT "simplify" it back to an unconditional `@containers-user` mount, and
+    do NOT gate away the essential rootless setup: the `~/.local/share`
+    ownership fix, the subuid/subgid entries, and `containers.conf` must STAY
+    unconditional on `INSTALL_PODMAN_ROOTLESS` so that declining the subvolume
+    can never break rootless podman operation (a declined isolation just
+    leaves a plain, correctly-owned datadir in `@home`). The `@containers-user`
+    entry in the `/root/tools/void-subvol-tool.sh` CLASS/target arrays is
+    maintenance metadata and stays regardless of the gate.
 
 ## System/init constraints
 

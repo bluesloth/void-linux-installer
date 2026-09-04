@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.0** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.2** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -29,7 +29,7 @@ Current version: **Beta-v2.9.0** (`SCRIPT_VERSION` in the script).
 >   3.0.112GC) and the tracked `v3.1.0-beta1` … `v3.3.0-beta33` releases
 >   are mapped into a continuous sequential Beta-v numbering per
 >   `Debug/version-renumber-map.txt`. Every release within the Beta era
->   gets a unique number, and the current release (`Beta-v2.9.0`) is always
+> gets a unique number, and the current release (`Beta-v2.9.2`) is always
 >   the highest — preserving the monotonicity invariant.
 > - The old `v3.x` labels are preserved inline (`was v3.x` in headings and
 >   `version-renumber-map.txt`) for `[TAG]`-marker traceability, but the
@@ -57,8 +57,89 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.3.0** | First tracked release — inline-marker era begins | Tracked |
 | **Beta-v2.4.0** | DESKTOP_ENV, LOCALIZE, SWAP, COSMIC | Tracked |
 | **Beta-v2.4.1** | MIRROR, LIMINE-WALLPAPER, DRY-RUN (Claude's last) | Tracked |
-| **Beta-v2.5.0–v2.9.0** | Big Pickle era — features, hardening, encryption, YubiKey, dynamic subvols, master subvol gates (current) | Beta-v2.5.0–v2.9.0 below |
+| **Beta-v2.5.0–v2.9.2** | Big Pickle era — features, hardening, encryption, YubiKey, dynamic subvols, master subvol gates, WebKit2 greeter removal, rootless-podman subvol parity (current) | Beta-v2.5.0–v2.9.2 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
+
+---
+
+## Beta-v2.9.2 — `[PODMAN-ROOTLESS-SUBVOL]` (rootless podman subvolume parity + gate wording)
+
+`SCRIPT_VERSION = Beta-v2.9.2`. Podman rootless gets the same Gate 1 / Gate 2
+subvolume treatment as the browsers — a `PROVISION_PODMAN_ROOTLESS_SUBVOL`
+flag now controls whether `@containers-user` (per-user `~/.local/share/containers`)
+is isolated on an isolated Btrfs subvolume or left inside `@home`.
+
+**Why this matters.** Prior to this change, rootless podman's per-user datadir
+was **always** mounted on `@containers-user` whenever rootless podman was
+installed — there was no way to turn it off. This is inconsistent with every
+other optional item's subvolume isolation (which is a user choice via Gate 1
+for installed software, or Gate 2 for not-yet-installed software). A user
+who wanted a lean Btrfs layout without per-app subvols could not decline.
+
+**Installer changes:**
+- A new `PROVISION_PODMAN_ROOTLESS_SUBVOL` flag appears in the per-app
+  subvolume table (the `SUBVOL_ROWS` loop at the end of the optional-software
+  section). It follows the identical 3×3 gate rule as every other row.
+- The `@containers-user` line in `SUBVOL_LIST` (Stage 1) is now gated on
+  this flag instead of the bare `INSTALL_PODMAN_ROOTLESS`.
+- In Stage 2, the essential rootless-podman setup — `~/.local/share`
+  ownership fix, subuid/subgid entries, and `containers.conf` — stays
+  **unconditional** on `INSTALL_PODMAN_ROOTLESS`, so declining the subvolume
+  cannot break rootless podman operation. Only the `@containers-user` fstab
+  mount and mountpoint permission are gated on the new flag.
+- The flag is exported to both the resume-state file and `chroot_env.sh`,
+  so a resumed install and Stage 2 see the same decision.
+- The Gate 1 / Gate 2 introductory wording is rephrased to "all of the
+  optional software you selected above" (enumerating browsers, mail, Steam,
+  VirtualBox, Flatpak, Docker, Podman rootful/rootless, virtualization),
+  with a one-line note that OctoXBPS — a lightweight GUI package-manager
+  frontend with no dedicated data directory — is not among them. This makes
+  the bulk/per-app gates self-consistent: the only optional items lacking a
+  subvolume are thinly-scoped ones (OctoXBPS), and the wording no longer
+  overpromises that every optional choice gets isolated.
+
+---
+
+## Beta-v2.9.1 — `[GREETER-NO-WEBKIT2]` (remove abandoned WebKit2 greeter option)
+
+`SCRIPT_VERSION = Beta-v2.9.1`. The WebKit2 greeter option
+(`lightdm-webkit2-greeter`) is **dropped from the LightDM greeter chooser**
+after real-hardware validation confirmed the greeter's failure mode: it
+renders a **black screen with blinking cursor** on AMD (and also NVIDIA) with
+current `webkit2gtk`, while GTK and Slick greeters boot to desktop on the
+same install. Root cause: `lightdm-webkit2-greeter` is an **abandoned upstream
+project** (Antergos/web-greeter repo is archived, README marked archived, no
+upstream patches since 2021). Newer webkit2gtk versions broke the greeter's
+IPC layer (WebKit extensions changed file-descriptor inheritance, per
+WebKit/WebKit#4868); `WEBKIT_DISABLE_DMABUF_RENDERER=1` is a known
+NVIDIA-only partial workaround, but the core abandoned-IPC breakage is
+vendor-independent and has no upstream fix.
+
+The maintained WebKit-based successors (`web-greeter`, `nody-greeter`,
+`sea-greeter` by JezerM) are actively developed but are **NOT packaged in
+Void's official repositories** — they require third-party templates and
+`xbps-src` builds, which is not suitable for a stock-Void installer. GTK and
+Slick are the only LightDM greeters that ship reliably in Void's repos.
+
+**Installer changes:**
+- LightDM greeter chooser is now `[1/2]` (GTK / Slick); WebKit2 is no longer
+  offered (`LIGHTDM_GREETER` can only be `gtk` or `slick`; the `webkit2`
+  branch is deleted).
+- `lightdm-webkit2-greeter.conf` generation (the `webkit-theme=void` fix) is
+  removed — [LIGHTDM-HW] item #2 is annotated as `[GREETER-NO-WEBKIT2] MOOT`.
+- The revision echo, greeter-friendly name-case, and all downstream code paths
+  that previously matched `lightdm-webkit2-greeter` are cleaned up.
+- Header, README, INSTALL_PROMPTS, and AGENTS.md are updated to reflect the
+  removal.
+
+The two `[LIGHTDM-HW]` failures (greeter accounts-daemon service, `@lightdm`
+chown) remain fully in place — they were real-hardware fixes that apply to
+GTK and Slick.
+
+**Investigation documented:** This finding is logged in `Debug/REVIEW.md`
+as Entry #2, with the root cause (abandoned upstream IPC) and the
+vendor-independent failure (AMD: confirmed; NVIDIA: also affected per
+Arch FS#79783).
 
 ---
 

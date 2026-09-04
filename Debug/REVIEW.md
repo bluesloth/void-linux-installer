@@ -82,3 +82,47 @@ that was typed twice during installation, returns:
   `dracut --list-modules`) for `i18n`/`keymap` presence.
 - Note in the entry which hypothesis won and the exact fix + retest result
   before marking RESOLVED. Log the outcome below.
+
+---
+
+## Entry #2 — WebKit2 greeter renders a black screen with blinking cursor (RESOLVED: removed the option)
+
+**Reported:** Beta-v2.9.0 install, `BOOTLOADER=limine`, `ENCRYPT=yes`,
+`DESKTOP_ENV=cinnamon`, `DISPLAY_MANAGER=lightdm`. With `LIGHTDM_GREETER=gtk`
+and `slick` the machine boots to the desktop; with `LIGHTDM_GREETER=webkit2`
+(lightdm-webkit2-greeter) the screen **flashes then goes black with a
+blinking cursor** at the greeter stage. Vendor: **AMD**.
+
+**Facts from investigation:**
+- `lightdm-webkit2-greeter` is an **abandoned upstream project** — the
+  source repo (`Antergos/web-greeter`) is **archived/readonly** and ships no
+  patches past 2021 (its Void template is `lightdm-webkit2-greeter 2.2.5r6`).
+- It renders its HTML/JS theme through the `webkit2gtk` engine. Newer
+  webkit2gtk changed webkit **web-extension file-descriptor inheritance**
+  (WebKit/WebKit#4868), which breaks the greeter's IPC to the LightDM daemon —
+  an intermittently-reappearing, **vendor-independent** breakage (Arch
+  forum threads across 2022–2024; black screen with cursor is the canonical
+  signature). It is NOT caused by the installer's greeter config (GTK/Slick
+  boot fine and use the same lightdm.conf / accounts-daemon service).
+- The `WEBKIT_DISABLE_DMABUF_RENDERER=1` workaround from Arch FS#79783 is
+  **NVIDIA-only** (a DMABUF bug) and does not help the AMD/or the
+  abandoned-IPC case generally.
+- The maintained WebKit-based successors (`web-greeter`, `nody-greeter`,
+  `sea-greeter` by JezerM) work, but **none is in Void's official repos**
+  (no `srcpkgs/*`; third-party templates / `xbps-src` builds only), so a
+  stock-Void install cannot provide a working theme-based greeter without a
+  heavy third-party build the installer will not ship.
+
+**Decision (Beta-v2.9.1 `[GREETER-NO-WEBKIT2]`):** removed the WebKit2 greeter
+option from the LightDM chooser, leaving GTK + Slick (both official Void
+packages that boot reliably). The abandoned greeter's `webkit-theme=void`
+config block was deleted and the [LIGHTDM-HW] comment re-annotated.
+
+**Retest ask (on the target medium):** reinstall with
+`LIGHTDM_GREETER=slick` (the closest look/feel to WebKit2) and confirm the
+greeter boots to desktop; confirm no `lightdm-webkit2-greeter.conf` is
+generated. If a user specifically wants an HTML/JS web-theme greeter, the
+documented path is third-party `nody-greeter`/`web-greeter` from a
+`xbps-src` build — intentionally out of scope for the stock installer.
+
+Log the retest outcome below before considering this fully closed.

@@ -148,14 +148,19 @@
 #     SDDM (default for KDE/LXQt/COSMIC), LightDM (Cinnamon/Xfce/MATE), GDM
 #     (GNOME), or cosmic-greeter (COSMIC's own greeter, offered only when
 #     COSMIC is chosen; its maintainer warns it does not work reliably).
-#     LightDM additionally asks for a greeter (GTK [default] /
-#     Slick / WebKit2). Beta-v2.5.0 [LIGHTDM-HW] hardens the LightDM path
+#     LightDM additionally asks for a greeter (GTK [default] / Slick).
+#     Beta-v2.5.0 [LIGHTDM-HW] hardens the LightDM path
 #     against the greeter failures observed on real hardware: accounts-daemon
 #     (org.freedesktop.Accounts) is granted a real runit service + first-boot
 #     link instead of racy on-demand D-Bus activation (fixes Slick-greeter
-#     hang / GTK-greeter auth flakiness — void-packages#59538), WebKit2's
-#     config is written to point at Void's actually-shipped `void` theme,
-#     and the @lightdm subvolume is chowned to lightdm:lightdm.
+#     hang / GTK-greeter auth flakiness — void-packages#59538), and the
+#     @lightdm subvolume is chowned to lightdm:lightdm.
+#     Beta-v2.9.1 [GREETER-NO-WEBKIT2]: the WebKit2 greeter option
+#     (lightdm-webkit2-greeter) was REMOVED — it is abandoned upstream and
+#     renders a black screen / blinking cursor against current webkit2gtk on
+#     real hardware (all other greeters work; the maintained WebKit-based
+#     successors web-greeter/nody-greeter/sea-greeter are NOT in Void's
+#     official repos, so a stock-Void installer only offers GTK + Slick).
 #     [LIGHTDM-SWRAP] also writes `session-wrapper=/etc/lightdm/Xsession`
 #     into the generated lightdm.conf — mandatory, since overwriting Void's
 #     package-default conf would otherwise leave LightDM using its
@@ -375,14 +380,14 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.0"
+SCRIPT_VERSION="Beta-v2.9.2"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
 # overflow; the minor never carries into the major unless the author makes an
 # explicit major bump. The lineage is split into named eras carrying their
 # own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x), so each era reads
-# monotonic and the current release (Beta-v2.9.0) always carries the highest
+# monotonic and the current release (Beta-v2.9.2) always carries the highest
 # numbering. See Debug/version-renumber-map.txt for the authoritative
 # OLD->NEW mapping recovered from the Debug/Old Versions/ artifacts.
 
@@ -451,7 +456,9 @@ SCRIPT_VERSION="Beta-v2.9.0"
 #     Beta-v2.8.1    [VERSION-HISTORY]; [VERSION-CARRY]  (this table)
 #     Beta-v2.8.2    [APPS-GROUP]; [SUBVOL-PRE-SYS]
 #     Beta-v2.8.3    [INSTALL-APPS]; PostgreSQL/MariaDB removed
-#     Beta-v2.9.0    [SUBVOL-GATES]; resolved PROVISION_*_SUBVOL  (current)
+#     Beta-v2.9.0    [SUBVOL-GATES]; resolved PROVISION_*_SUBVOL
+#     Beta-v2.9.1    [GREETER-NO-WEBKIT2]; WebKit2 greeter removed
+#     Beta-v2.9.2    [PODMAN-ROOTLESS-SUBVOL]; rootless podman subvol gates  (current)
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -1815,8 +1822,12 @@ export DISPLAY_MANAGER
 # greeter. Previously the script hard-attempted the Slick greeter and fell
 # back to GTK with a fragile loop that could fail an install under `set -e`.
 # Now it is an explicit install-time choice, offered only when LightDM was
-# selected. All three greeters below ship as official Void packages, so no
+# selected. The greeters below ship as official Void packages, so no
 # fallback dance is required — the choice is honored directly.
+# Beta-v2.9.1 [GREETER-NO-WEBKIT2]: the WebKit2 greeter option was dropped —
+# lightdm-webkit2-greeter is abandoned upstream and black-screens against
+# current webkit2gtk, and no maintained WebKit-based greeter is in Void's
+# repos, so GTK + Slick are the only offered options.
 if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
     echo ""
     echo "${C_BOLD}${C_BLU}Choose a LightDM greeter${C_RST}"
@@ -1824,17 +1835,13 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
     echo "     reliable, minimal dependencies."
     echo "  ${C_BOLD}2)${C_RST} Slick Greeter (lightdm-slick-greeter) — Linux Mint style,"
     echo "     more polished appearance (GTK-based)."
-    echo "  ${C_BOLD}3)${C_RST} WebKit2 Greeter (lightdm-webkit2-greeter) — HTML/JavaScript"
-    echo "     themable (project development has slowed significantly;"
-    echo "     largest dependency footprint of the three)."
     while true; do
-        ask "Enter choice [1/2/3] (default 1: GTK): "
+        ask "Enter choice [1/2] (default 1: GTK): "
         read -r LIGHTDM_GREETER_INPUT
         case "$LIGHTDM_GREETER_INPUT" in
             ""|1) LIGHTDM_GREETER="gtk"; break ;;
             2) LIGHTDM_GREETER="slick"; break ;;
-            3) LIGHTDM_GREETER="webkit2"; break ;;
-            *) echo "Please enter 1, 2, or 3." >&2 ;;
+            *) echo "Please enter 1 or 2." >&2 ;;
         esac
     done
     if [ "$LIGHTDM_GREETER" = "slick" ]; then
@@ -1843,9 +1850,6 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
         # lightdm-slick-greeter.desktop, so greeter-session must name that file.
         # [LIGHTDM-GREETER-SESSION] Beta-v2.7.7: was wrongly "lightdm-slick-greeter".
         LIGHTDM_GREETER_SESSION="slick-greeter"
-    elif [ "$LIGHTDM_GREETER" = "webkit2" ]; then
-        LIGHTDM_GREETER_PKG="lightdm-webkit2-greeter"
-        LIGHTDM_GREETER_SESSION="lightdm-webkit2-greeter"
     else
         LIGHTDM_GREETER_PKG="lightdm-gtk-greeter"
         LIGHTDM_GREETER_SESSION="lightdm-gtk-greeter"
@@ -2336,10 +2340,12 @@ export INSTALL_VIRT
 # truth drives every stage. [PROMPT-DEFAULTS]: bare-Enter on each gate falls
 # back to DEFAULT_SUBVOL_ISOLATE (true) / DEFAULT_SUBVOL_PRECREATE (false).
 echo ""
-echo "Subvolume isolation: most optional software can be given its own"
-echo "isolated Btrfs subvolume, so a Snapper rollback of @ or @home does not"
-echo "rewind that software's data (browser profiles, mail, game libs,"
-echo "container/virtualization state)."
+echo "Subvolume isolation: all of the optional software you selected above"
+echo "(browsers, mail, Steam, VirtualBox, Flatpak, Docker, Podman"
+echo "rootful/rootless, virtualization) can be given its own isolated Btrfs"
+echo "subvolume, so a Snapper rollback of @ or @home does not rewind that"
+echo "software's data. OctoXBPS is not listed — it is a lightweight GUI"
+echo "package-manager frontend with no dedicated data directory to isolate."
 echo ""
 echo "Two master choices follow:"
 echo "  1) Software you ARE installing now — isolate its data subvolume?"
@@ -2399,6 +2405,7 @@ INSTALL_VIRTUALBOX|PROVISION_VIRTUALBOX_SUBVOL|VirtualBox
 INSTALL_FLATPAK|PROVISION_FLATPAK_SUBVOL|Flatpak
 INSTALL_DOCKER|PROVISION_DOCKER_SUBVOL|Docker
 INSTALL_PODMAN_ROOTFUL|PROVISION_PODMAN_SUBVOL|Podman (rootful)
+INSTALL_PODMAN_ROOTLESS|PROVISION_PODMAN_ROOTLESS_SUBVOL|Podman (rootless)
 INSTALL_VIRT|PROVISION_VIRT_SUBVOL|Virtualization
 "
 
@@ -2425,6 +2432,7 @@ while IFS='|' read -r _iv _pv _label; do
         fi
     fi
     eval "${_pv}=\$_dec"
+    # shellcheck disable=SC2163 # _pv is a dynamically-computed PROVISION_*_SUBVOL name; export deliberately uses the variable name
     export "$_pv"
     echo "  -> ${_pv}=$_dec"
 done <<EOF
@@ -2707,9 +2715,8 @@ _rev_de=$(case "$DESKTOP_ENV" in kde) echo KDE Plasma;; cinnamon) echo Cinnamon;
 _rev_dm="$DISPLAY_MANAGER"
 if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
     case "$LIGHTDM_GREETER_PKG" in
-        lightdm-slick-greeter)   _rev_dm="LightDM (Slick greeter)" ;;
-        lightdm-webkit2-greeter) _rev_dm="LightDM (WebKit2 greeter)" ;;
-        lightdm-gtk-greeter)     _rev_dm="LightDM (GTK greeter)" ;;
+        lightdm-slick-greeter) _rev_dm="LightDM (Slick greeter)" ;;
+        lightdm-gtk-greeter)   _rev_dm="LightDM (GTK greeter)" ;;
     esac
 fi
 _rev_shell="$USER_SHELL"
@@ -2944,8 +2951,9 @@ DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
                PROVISION_BRAVE_SUBVOL \
                 PROVISION_THUNDERBIRD_SUBVOL PROVISION_STEAM_SUBVOL \
                 PROVISION_VIRTUALBOX_SUBVOL \
-                PROVISION_FLATPAK_SUBVOL PROVISION_DOCKER_SUBVOL \
-                PROVISION_PODMAN_SUBVOL PROVISION_VIRT_SUBVOL \
+                 PROVISION_FLATPAK_SUBVOL PROVISION_DOCKER_SUBVOL \
+                 PROVISION_PODMAN_SUBVOL PROVISION_PODMAN_ROOTLESS_SUBVOL \
+                 PROVISION_VIRT_SUBVOL \
                 DISK PART_EFI PART_SYS; do
         printf 'export %s=%q\n' "$_sv" "${!_sv}"
     done
@@ -3209,7 +3217,12 @@ SUBVOL_LIST="$SUBVOL_LIST @network"
 [ "$PROVISION_FLATPAK_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @flatpak"
 [ "$PROVISION_DOCKER_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @docker"
 [ "$PROVISION_PODMAN_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @containers"
-[ "$INSTALL_PODMAN_ROOTLESS" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @containers-user"
+# AI (Big Pickle) ADDITION — Beta-v2.9.2 [PODMAN-ROOTLESS-SUBVOL]: @containers-user
+# (per-user ~/.local/share/containers) is now gated on the resolved
+# PROVISION_PODMAN_ROOTLESS_SUBVOL flag instead of the bare INSTALL_PODMAN_ROOTLESS,
+# so Gate 1 / Gate 2 (per-app or bulk) decide it like the browsers. Default Gate 1
+# (yes) preserves the prior always-isolated behavior for a rootless install.
+[ "$PROVISION_PODMAN_ROOTLESS_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @containers-user"
 # AI (Claude, Sonnet 5, Medium) CHANGE — Beta-v2.4.0: the display-manager state
 # subvolume is now created conditionally, matching whichever DM was actually
 # chosen, instead of @sddm being unconditional. @sddm exists only when
@@ -3565,6 +3578,7 @@ echo "export PROVISION_THUNDERBIRD_SUBVOL=\"$PROVISION_THUNDERBIRD_SUBVOL\"" >> 
 echo "export PROVISION_STEAM_SUBVOL=\"$PROVISION_STEAM_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_VIRTUALBOX_SUBVOL=\"$PROVISION_VIRTUALBOX_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_PODMAN_ROOTLESS=\"$INSTALL_PODMAN_ROOTLESS\"" >> /mnt/tmp/chroot_env.sh
+echo "export PROVISION_PODMAN_ROOTLESS_SUBVOL=\"$PROVISION_PODMAN_ROOTLESS_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_DISTROBOX=\"$INSTALL_DISTROBOX\"" >> /mnt/tmp/chroot_env.sh
 echo "export DISTROBOX_TRACK=\"$DISTROBOX_TRACK\"" >> /mnt/tmp/chroot_env.sh
 echo "export DISTROBOX_DEFAULT_ENGINE=\"$DISTROBOX_DEFAULT_ENGINE\"" >> /mnt/tmp/chroot_env.sh
@@ -4113,6 +4127,10 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
     #      package's default conf still references a theme name that does
     #      not exist under that name. Fix: write a conf that points
     #      webkit-theme at the actually-installed void theme.
+    #      [GREETER-NO-WEBKIT2] Beta-v2.9.1: this whole item is now MOOT —
+    #      the WebKit2 greeter was removed from the installer (abandoned
+    #      upstream, black-screens against current webkit2gtk), so no
+    #      webkit-theme conf is generated anymore.
     #   3. Slick greeter hang AND GTK greeter auth flakiness: both depend on
     #      org.freedesktop.Accounts, which Void ships with NO runit service
     #      — only a D-Bus activation file, so the greeter's very first
@@ -4130,16 +4148,6 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
     #      demand (linked by rc.local, see [LIGHTDM-HW] there).
     chown lightdm:lightdm /var/lib/lightdm 2>/dev/null || \
         echo "WARNING: could not chown /var/lib/lightdm to lightdm:lightdm — greeter may misbehave." >&2
-
-    if [ "$LIGHTDM_GREETER_SESSION" = "lightdm-webkit2-greeter" ]; then
-        mkdir -p /etc/lightdm
-        {
-            echo "[greeter]"
-            echo "webkit-theme=void"
-            echo "webkit-theme-ltr=void"
-            echo "webkit-theme-rtl=void"
-        } > /etc/lightdm/lightdm-webkit2-greeter.conf
-    fi
 
     _accd_bin=""
     for _accd_cand in /usr/libexec/accounts-daemon /usr/lib/accounts-daemon; do
@@ -4894,10 +4902,21 @@ mkdir -p "/home/${TARGET_USER}/.local" "/home/${TARGET_USER}/.local/share"
 chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.local" "/home/${TARGET_USER}/.local/share"
 mkdir -p "/home/${TARGET_USER}/.local/share/containers"
 chown -R "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.local"
-echo "UUID=${BTRFS_UUID} /home/${TARGET_USER}/.local/share/containers btrfs noatime,compress=zstd:1,subvol=@containers-user 0 0" >> /etc/fstab
-mount "/home/${TARGET_USER}/.local/share/containers"
-chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.local/share/containers"
-chmod 700 "/home/${TARGET_USER}/.local/share/containers"
+# AI (Big Pickle) ADDITION — Beta-v2.9.2 [PODMAN-ROOTLESS-SUBVOL]: the
+# @containers-user ISOLATION (fstab mount over the placeholder above) is gated
+# on the resolved PROVISION_PODMAN_ROOTLESS_SUBVOL flag — Gate 1/Gate 2 decide
+# it, exactly like the browser subvols. The mkdir/chown above stay
+# unconditional so a declined isolation still leaves a correctly-owned plain
+# ~/.local/share/containers for rootless podman (its data lands in @home).
+# The subuid/subgid + containers.conf below are MANDATORY for rootless podman
+# to work at all, so they also stay unconditional — declining the subvolume
+# must never break rootless operation.
+if [ "$PROVISION_PODMAN_ROOTLESS_SUBVOL" = "true" ]; then
+    echo "UUID=${BTRFS_UUID} /home/${TARGET_USER}/.local/share/containers btrfs noatime,compress=zstd:1,subvol=@containers-user 0 0" >> /etc/fstab
+    mount "/home/${TARGET_USER}/.local/share/containers"
+    chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.local/share/containers"
+    chmod 700 "/home/${TARGET_USER}/.local/share/containers"
+fi
 
 if ! grep -q "^${TARGET_USER}:" /etc/subuid 2>/dev/null; then
     echo "${TARGET_USER}:100000:65536" >> /etc/subuid
@@ -7585,10 +7604,9 @@ echo "${C_BOLD}  Display manager:${C_RST} ${DISPLAY_MANAGER}"
 # confirms the exact greeter that will greet first boot.
 if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
     case "$LIGHTDM_GREETER_PKG" in
-        lightdm-slick-greeter)   _GREETER_FRIENDLY="Slick (lightdm-slick-greeter)" ;;
-        lightdm-webkit2-greeter) _GREETER_FRIENDLY="WebKit2 (lightdm-webkit2-greeter)" ;;
-        lightdm-gtk-greeter)     _GREETER_FRIENDLY="GTK (lightdm-gtk-greeter)" ;;
-        *)                       _GREETER_FRIENDLY="${LIGHTDM_GREETER_PKG:-<not selected>}" ;;
+        lightdm-slick-greeter) _GREETER_FRIENDLY="Slick (lightdm-slick-greeter)" ;;
+        lightdm-gtk-greeter)   _GREETER_FRIENDLY="GTK (lightdm-gtk-greeter)" ;;
+        *)                     _GREETER_FRIENDLY="${LIGHTDM_GREETER_PKG:-<not selected>}" ;;
     esac
     echo "${C_BOLD}  Greeter:${C_RST}       ${_GREETER_FRIENDLY}"
     unset _GREETER_FRIENDLY

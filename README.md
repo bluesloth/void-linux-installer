@@ -8,7 +8,7 @@ recovery-first, snapshot-friendly system.
 
 | File | Description |
 |------|-------------|
-| `Void_Linux_Installer.sh` | Unified working installer (current version: **Beta-v2.9.0**). Run this. |
+| `Void_Linux_Installer.sh` | Unified working installer (current version: **Beta-v2.9.2**). Run this. |
 | `CHANGELOG.md` | Full lineage changelog using the `[VERSION-CARRY]` scheme: Alpha-v (manual step scripts), Beta-v (unified installer, current era). |
 
 ## Usage
@@ -50,7 +50,7 @@ neither the target nor the live medium.
 - Install-time **choices**:
   - Desktop: KDE Plasma (default), Cinnamon, GNOME, Xfce, MATE, LXQt, or
     COSMIC (community repo, third-party trust choice — use at own risk).
-  - Display manager: SDDM, LightDM (GTK/Slick/WebKit2 greeter), GDM, or
+  - Display manager: SDDM, LightDM (GTK/Slick greeter), GDM, or
     cosmic-greeter (COSMIC only; maintainer warns it is unreliable).
   - Bootloader: **grub** (mature, grub-btrfs menu) or **limine** (experimental,
     static config via `void-limine-write-conf`, synced by a Void-native
@@ -158,11 +158,14 @@ neither the target nor the live medium.
   - Repo mirror auto-derived from timezone with an override menu
     (Beta-v2.5.0): Fastly/repo-default backup mirrors retained for failover.
   - Beta-v2.5.0: LightDM hardening (accounts-daemon supervised service,
-    WebKit2 `void` theme config, `@lightdm` chown) for the greeter failures
+    `@lightdm` chown) for the greeter failures
     seen on real hardware; **`session-wrapper=/etc/lightdm/Xsession`** is now
     written into the generated lightdm.conf (without it, overwriting Void's
     default left LightDM using the nonexistent `lightdm-session`, so every
     login bounced back to the greeter with an empty `.xsession-errors`);
+    Beta-v2.9.1 **removes the WebKit2 greeter option** (lightdm-webkit2-
+    greeter is abandoned upstream and black-screens against current
+    webkit2gtk), leaving GTK + Slick as the only LightDM greeters;
     Podman/Docker/virtualization prompts are now **default-off**; the
     end-of-install wait is a live countdown driven by `REBOOT_DELAY` with
     R/Enter=now, P=pause, C=continue, S=stop keys.

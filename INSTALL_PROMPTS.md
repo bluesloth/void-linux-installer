@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Beta-v2.9.0**). It exists
+> `Void_Linux_Installer.sh` (current version: **Beta-v2.9.2**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -153,10 +153,11 @@
   - `3` GDM — GNOME
   - `4` cosmic-greeter — COSMIC only (offered when COSMIC chosen; maintainer warns it's unreliable)
 - Only if `DISPLAY_MANAGER=lightdm`:
-  - **Greeter `[*] [1/2/3] (default 1: GTK)`**
+  - **Greeter `[*] [1/2] (default 1: GTK)`**
     - `1` GTK
     - `2` Slick
-    - `3` WebKit2
+    (WebKit2 greeter removed in Beta-v2.9.1 — abandoned upstream, black-
+    screens against current webkit2gtk.)
 - **Session/seat `[*] [1/2] (default 1: elogind)`**
   - `1` elogind
   - `2` turnstile
@@ -183,7 +184,8 @@
   gate; defaults off. If `no`, the whole container section (all three backends,
   docker group-add, distrobox + track, container-manager) is skipped with all
   toggles forced off. If `yes`, the individual backends run:
-  - **`[*]` Install Podman rootless? [y/N]**
+  - **`[*]` Install Podman rootless? [y/N]** → if `y`: per-user `@containers-user`
+    subvol offered via the master gates (`[PODMAN-ROOTLESS-SUBVOL]` Beta-v2.9.2)
   - **`[*]` Install Podman rootful capability? [y/N]**
   - **`[*]` Install Docker? [y/N]** → if `y`: "Add your user to the docker group ...? [y/N]"
 - **`[*]` Also install distrobox? [y/N]** → if `y`:
@@ -207,7 +209,14 @@
     single `PROVISION_*_SUBVOL` ("isolate?") flag that drives all subvolume
     create/mount/fstab/per-user-provision/teardown sites. Affected apps: browsers
     (Firefox/Chromium/Vivaldi/Falkon/Brave), Thunderbird, Steam, VirtualBox,
-    Flatpak, Docker, Podman-rootful (`@containers`), Virtualization (`@libvirt`).
+    Flatpak, Docker, Podman-rootful (`@containers`), Podman-rootless
+    (`@containers-user`, `[PODMAN-ROOTLESS-SUBVOL]` Beta-v2.9.2),
+    Virtualization (`@libvirt`). OctoXBPS is excluded — it has no data subvolume.
+  - **NOTE (Beta-v2.9.2):** Podman rootless's per-user `~/.local/share/containers`
+    is now a gate participant (default isolate for an install). Declining it
+    leaves a plain, correctly-owned datadir in `@home`; the mandatory
+    subuid/subgid + containers.conf setup still always runs so rootless podman
+    keeps working either way.
 - **`[*]` Press Enter once ready to continue** — br0 USB-Ethernet-port warning
 
 ---
