@@ -58,15 +58,17 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.4.0** | DESKTOP_ENV, LOCALIZE, SWAP, COSMIC | Tracked |
 | **Beta-v2.4.1** | MIRROR, LIMINE-WALLPAPER, DRY-RUN (Claude's last) | Tracked |
 | **Beta-v2.5.0–v2.9.2** | Big Pickle era — features, hardening, encryption, YubiKey, dynamic subvols, master subvol gates, WebKit2 greeter removal, rootless-podman subvol parity | Beta-v2.5.0–v2.9.2 below |
-| **Beta-v2.9.3** | `[SUBVOL-INSTALL]` — void-subvol-tool `--install` flag, OctoXBPS/Flatpak default off | Beta-v2.9.3 below |
+| **Beta-v2.9.3** | `[SUBVOL-INSTALL]` — void-subvol-tool `--install` flag, OctoXBPS/Flatpak default off, `[LIGHTDM-GREETER-BG]`, `[XFC-AUTOMOUNT]` | Beta-v2.9.3 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
 
-## Beta-v2.9.3 — `[SUBVOL-INSTALL]` (subvol-tool `--install` + optional-software defaults)
+## Beta-v2.9.3 — `[SUBVOL-INSTALL]` + `[LIGHTDM-GREETER-BG]` + `[XFC-AUTOMOUNT]` (subvol-tool `--install`, optional-software defaults, greeter background, Xfce gvfs)
 
-`SCRIPT_VERSION = Beta-v2.9.3`. Three changes: `--install` on the subvol tool,
-a new data-safety guard, and the OctoXBPS/Flatpak default flip.
+`SCRIPT_VERSION = Beta-v2.9.3`. Five changes: `--install` on the subvol tool,
+a new data-safety guard, the OctoXBPS/Flatpak default flip with prompt text
+alignment, a LightDM greeter background on fresh installs, and gvfs for Xfce
+automount parity.
 
 **1. `void-subvol-tool.sh` can now install the software it creates a subvolume
 for.** Previously the tool was purely structural — it built/mounted flat
@@ -87,7 +89,30 @@ isolated, but print a NOTE that nothing was installed rather than failing.
 subvolume-isolation prompt wording now reads "all of the optional software you
 selected above **with the exception of OctoXBPS and Flatpak**" (Flatpak's
 system store lives under `/var/lib/flatpak` as part of `@`, and OctoXBPS has no
-isolatable data dir) — so neither is presumed on a lean default run.
+isolatable data dir) — so neither is presumed on a lean default run. The prompt
+display text is also aligned: `[Y/n]` → `[y/N]` so the capitalized letter
+matches the actual default.
+
+**3. `[LIGHTDM-GREETER-BG]` — greeter background on fresh installs.** The GTK
+and Slick greeters now get a `background=<path>` written into their respective
+config files (`lightdm-gtk-greeter.conf` / `slick-greeter.conf`) during
+provisioning so the login screen shows a real image instead of solid black on a
+fresh install. The search prefers the GNOME adwaita-l stripe (`.jpg`/`.jxl`/`.png`/`.svg`),
+then falls back to any image under `/usr/share/backgrounds`. If no image is found
+(no backgrounds package installed), the greeter is left at its compiled-in
+default — no error, no hang.
+
+**4. `[XFC-AUTOMOUNT]` — gvfs for Xfce/LXQt automount parity.** `gvfs` is now
+installed alongside `xfce4` and `lxqt` so Thunar/pcmanfm-qt get the full
+userspace virtual filesystem backends (MTP phone access, SMB/NFS network shares,
+Google Drive, trash-can-mount). GNOME, Cinnamon, and MATE already receive `gvfs`
+transitively via their file managers (`gnome-core→gvfs`, `nemo→gvfs`,
+`caja→gvfs`); Xfce's Thunar and LXQt's pcmanfm-qt can use gvfs but don't
+depend on it. Without it, basic USB automounting works via `udisks2` but
+network/cloud/phone backends are missing. `udisks2` is pulled in as a `gvfs`
+dependency, so no separate install is needed. COSMIC is deferred to real-hardware
+testing — its file manager is a third-party package with unverifiable
+dependencies.
 
 **Why this matters.** The practical payoff of building a subvolume for an app is
 that the app's data sits outside Snapper rollback scope. Before, that required

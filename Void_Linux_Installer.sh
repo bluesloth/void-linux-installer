@@ -166,7 +166,13 @@
 #     package-default conf would otherwise leave LightDM using its
 #     compiled-in default wrapper `lightdm-session`, which Void does not ship
 #     (this made every session bounce back to the greeter with an empty
-#     .xsession-errors). PipeWire
+#     .xsession-errors).
+#     [LIGHTDM-GREETER-BG] (Beta-v2.9.3) also writes a `background=<path>`
+#     into the chosen greeter's config (lightdm-gtk-greeter.conf or
+#     slick-greeter.conf) so the login screen shows a real image rather
+#     than solid black on a fresh install. Prefers the GNOME adwaita-l
+#     stripe, falls back to any image under /usr/share/backgrounds.
+#     PipeWire
 #     audio (with WirePlumber as session
 #     manager — auto-managed via robust XDG rules).
 #   - Recovery: Snapper (timeline snapshots) + a dracut overlay so a
@@ -466,7 +472,7 @@ SCRIPT_VERSION="Beta-v2.9.3"
 #     Beta-v2.9.0    [SUBVOL-GATES]; resolved PROVISION_*_SUBVOL
 #     Beta-v2.9.1    [GREETER-NO-WEBKIT2]; WebKit2 greeter removed
 #     Beta-v2.9.2    [PODMAN-ROOTLESS-SUBVOL]; rootless podman subvol gates
-#     Beta-v2.9.3    [SUBVOL-INSTALL]; void-subvol-tool --install  (current)
+#     Beta-v2.9.3    [SUBVOL-INSTALL]; [LIGHTDM-GREETER-BG]; [XFC-AUTOMOUNT]  (current)
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -1938,8 +1944,8 @@ echo "any combination is fine."
 # AI (Claude, Sonnet 5, Medium) ADDITION: OctoXBPS (graphical xbps package manager/update
 # notifier) is now a real install-time choice — not everyone wants a
 # graphical package manager or its update-notifier autostarting. Default
-# Yes to match the prior always-installed behavior.
-ask "Install OctoXBPS (graphical package manager + update notifier)? [Y/n]: "
+# No ([y/N]).
+ask "Install OctoXBPS (graphical package manager + update notifier)? [y/N]: "
 read -r INSTALL_OCTOXBPS_INPUT
 case "$INSTALL_OCTOXBPS_INPUT" in
     "") INSTALL_OCTOXBPS="$DEFAULT_OCTOXBPS" ;;
@@ -1948,7 +1954,7 @@ case "$INSTALL_OCTOXBPS_INPUT" in
 esac
 export INSTALL_OCTOXBPS
 
-ask "Install Flatpak (+ Flathub)? [Y/n]: "
+ask "Install Flatpak (+ Flathub)? [y/N]: "
 read -r INSTALL_FLATPAK_INPUT
 case "$INSTALL_FLATPAK_INPUT" in
     "") INSTALL_FLATPAK="$DEFAULT_FLATPAK" ;;
@@ -4137,6 +4143,44 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
     # the mandatory session-wrapper from [LIGHTDM-SWRAP]) on a mid-write
     # interruption; write to a temp file then rename into place.
     mv -f /etc/lightdm/lightdm.conf.tmp /etc/lightdm/lightdm.conf
+    # [LIGHTDM-GREETER-BG] Set the greeter background so a fresh install
+    # doesn't show a solid black login screen. Reuses the same system
+    # background image search as the Cinnamon wallpaper code: prefer the
+    # GNOME adwaita-l stripe, fall back to any image in /usr/share/backgrounds.
+    # GTK greeter reads lightdm-gtk-greeter.conf; Slick greeter reads
+    # slick-greeter.conf — both accept a background=<path> directive.
+    _greeter_bg=""
+    for _greeter_bg_name in adwaita-l.jpg adwaita-l.jxl adwaita-l.png adwaita-l.svg; do
+        _greeter_bg_candidate="$(find /usr/share/backgrounds -maxdepth 2 -type f \
+            -name "$_greeter_bg_name" 2>/dev/null | head -1)"
+        if [[ -n "$_greeter_bg_candidate" ]]; then
+            _greeter_bg="$_greeter_bg_candidate"
+            break
+        fi
+    done
+    if [[ -z "$_greeter_bg" ]]; then
+        _greeter_bg="$(find /usr/share/backgrounds -maxdepth 2 -type f \
+            \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' \
+               -o -name '*.svg' -o -name '*.jxl' -o -name '*.webp' \) \
+            2>/dev/null | head -1)"
+    fi
+    if [[ -n "$_greeter_bg" ]]; then
+        case "$LIGHTDM_GREETER" in
+            gtk)
+                cat > /etc/lightdm/lightdm-gtk-greeter.conf << INNER_EOF
+[greeter]
+background="${_greeter_bg}"
+INNER_EOF
+                ;;
+            slick)
+                cat > /etc/lightdm/slick-greeter.conf << INNER_EOF
+[Greeter]
+background="${_greeter_bg}"
+INNER_EOF
+                ;;
+        esac
+    fi
+    unset _greeter_bg _greeter_bg_candidate _greeter_bg_name
     # AI (Big Pickle) CHANGE — Beta-v2.5.0 [LIGHTDM-HW]: three real-hardware
     # LightDM greeter failures on a Cinnamon install, as-is /var/lib/lightdm
     # ownership would have been root-owned here:
@@ -4428,7 +4472,16 @@ elif [ "$DESKTOP_ENV" = "xfce" ]; then
     # The network-manager-applet secret agent is still useful for
     # X11/GTK desktops where a native tray applet is present, matching the
     # Cinnamon rationale — added here too.
-    install_pkgs xfce4 network-manager-applet
+    # [XFC-AUTOMOUNT]: gvfs provides the userspace virtual filesystem
+    # backends (MTP phone access, SMB/NFS network shares, Google Drive,
+    # trash-can-mount) that Thunar uses for full automount. GNOME,
+    # Cinnamon, and MATE already get gvfs via their own file managers
+    # (gnome-core→gvfs, nemo→gvfs, caja→gvfs); Xfce's Thunar can use
+    # gvfs but doesn't depend on it — without it, Thunar mounts removable
+    # media via thunar-volman/udisks2 but loses network/cloud/phone
+    # backends. udisks2 is pulled in as a gvfs dependency, so no
+    # separate install is needed.
+    install_pkgs xfce4 network-manager-applet gvfs
 elif [ "$DESKTOP_ENV" = "mate" ]; then
     # AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 2]: MATE via the `mate`
     # metapackage (Void's full-MATE route, analogous to cinnamon-all). The
@@ -4441,7 +4494,12 @@ elif [ "$DESKTOP_ENV" = "lxqt" ]; then
     # metapackage (Qt-based, light). LXQt's conventional display manager
     # is SDDM, but the DM is chosen independently above. lxqt bundles its
     # own session/panel/file-manager stack.
-    install_pkgs lxqt
+    # [XFC-AUTOMOUNT]: same rationale as Xfce — pcmanfm-qt's underlying
+    # libfm uses GIO's volume monitor but doesn't depend on gvfs. Without
+    # it, basic USB automounting works via udisks2 but network/cloud/phone
+    # backends are missing. GNOME, Cinnamon, and MATE already get gvfs
+    # via their file managers.
+    install_pkgs lxqt gvfs
 elif [ "$DESKTOP_ENV" = "cosmic" ]; then
     # AI (Big Pickle) ADDITION — Beta-v2.4.0 [COSMIC]: COSMIC installed from the
     # third-party community repo (never the official mirrors), so it uses the
