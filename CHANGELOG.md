@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.9** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.10** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -29,7 +29,7 @@ Current version: **Beta-v2.9.9** (`SCRIPT_VERSION` in the script).
 >   3.0.112GC) and the tracked `v3.1.0-beta1` … `v3.3.0-beta33` releases
 >   are mapped into a continuous sequential Beta-v numbering per
 >   `Debug/version-renumber-map.txt`. Every release within the Beta era
-> gets a unique number, and the current release (`Beta-v2.9.9`) is always
+> gets a unique number, and the current release (`Beta-v2.9.10`) is always
 >   the highest — preserving the monotonicity invariant.
 > - The old `v3.x` labels are preserved inline (`was v3.x` in headings and
 >   `version-renumber-map.txt`) for `[TAG]`-marker traceability, but the
@@ -65,6 +65,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.7** | `[BROWSER-GATE-NO]` — the "Set up web browsers now?" gate now defaults to **No** (`[y/N]`); a bare-Enter run skips the whole browser section (Firefox/Chromium still default ON *inside* the gate if you say yes) | Beta-v2.9.7 below |
 | **Beta-v2.9.8** | `[GREETER-BG-TIMING]` — the lightdm greeter-background search ran before any desktop package existed, so every fresh MATE/Cinnamon/xfce+lightdm greeter booted to black; it now runs after the desktop install (with a gnome-backgrounds retry so it's never a bare black screen) | Beta-v2.9.8 below |
 | **Beta-v2.9.9** | `[MATE-TERMINAL]`/`[MATE-AUDIO]`/`[XFC-VOLUME]`/`[LXQT-EDITOR]` — DE metapackage gap fixes: verified against Void's metapackage templates, `mate` bundles no terminal/editor/volume applet (→ `mate-terminal`+`pluma`+`mate-media`), `xfce4` no volume applet (→ `xfce4-pulseaudio-plugin`), `lxqt` no text editor (→ `FeatherPad`) | Beta-v2.9.9 below |
+| **Beta-v2.9.10** | `[COSMIC-GREETER-DM]`/`[COSMIC-POLKIT]` — cosmic-greeter is provisioned as a greetd-hosted DM (it is a greetd frontend that runs inside `cosmic-comp`, not a standalone DM — a Beta-v2.9.9 COSMIC install that chose it booted to a bare terminal with no login screen); COSMIC desktop gets a `polkit-gnome` privilege agent with a baked autostart entry (the metapackage pulls none) | Beta-v2.9.10 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -343,6 +344,63 @@ the MATE+lightdm run.
 **Validation:** `bash -n` passes; `Debug/check-heredocs.sh` ALL CLEAN (the
 moved `INNER_EOF` greeter-config heredocs still extract and bash -n cleanly);
 `Debug/check-defaults.sh` unchanged.
+
+---
+
+## Beta-v2.9.10 — `[COSMIC-GREETER-DM]`+`[COSMIC-POLKIT]` (cosmic-greeter greetd-hosted DM provisioning; COSMIC polkit agent)
+
+`SCRIPT_VERSION = Beta-v2.9.10`. Two COSMIC gaps closed, found by inspecting a
+fresh Beta-v2.9.9 COSMIC install (cosmic-greeter DM, /home/<user>,
+`VOID_INSTALL.txt` inventory + the running system):
+
+1. **`[COSMIC-GREETER-DM]` — the `DISPLAY_MANAGER=cosmic-greeter` path never
+   reached a login screen.** The machine booted to a bare TTY login instead of
+   the greeter. Root cause: cosmic-greeter is **not** a standalone DM — its own
+   binary self-describes as *"a libcosmic frontend for greetd which can be run
+   inside of cosmic-comp"*. The old Beta-v2.4.0 bespoke service just
+   `exec /usr/bin/cosmic-greeter`, so on boot the greeter found neither greetd
+   nor a `com.system76.CosmicComp` session nor AccountsService and aborted
+   instantly, dropping tty1 to agetty. Verified live: `runsv cosmic-greeter`
+   was up but had **no child process**, greetd was installed but **never
+   enabled**, and no `_cosmicgreeter` user existed (only the group).
+   The community repo (REDACTED/void-packages, the repo audited at
+   `repo.REDACTED.de`) deploys the greeter the intended way, so the installer now
+   bakes the same stack deterministically (never depending on which repos-rev
+   ships):
+   - `/etc/greetd/cosmic-greeter.toml` — greetd config launching
+     `cosmic-comp cosmic-greeter` as the `_cosmicgreeter` user on VT 1
+   - `/etc/sv/cosmic-greeter/run` → `greetd -c …` (maintainer's run logic:
+     dbus → cosmic-greeter-daemon → elogind checks, plus the
+     /var/service/elogind stray-PID sweep)
+   - `/etc/sv/cosmic-greeter-daemon/run` → `cosmic-greeter-daemon`, owning
+     `/run/cosmic-greeter` (0755 `_cosmicgreeter:_cosmicgreeter`)
+   - `_cosmicgreeter` system user provisioned idempotently (newer package revs
+     create it via `system_accounts`; older ones only shipped the group — home
+     `/var/lib/cosmic-greeter`, shell nologin, groups video,input)
+   - `greetd` named explicitly in `install_pkgs` (it was only a transitive dep)
+   - supervised `accounts-daemon` provisioned exactly as the lightdm branch
+     does ([LIGHTDM-HW] pattern — the greeter lists users/icons through
+     `org.freedesktop.Accounts`, which Void ships with NO runit service)
+   - rc.local first-boot links BOTH `cosmic-greeter` and
+     `cosmic-greeter-daemon`, links accounts-daemon for cosmic-greeter too, and
+     removes `agetty-tty1` (the greeter's VT, per greetd's README.voidlinux
+     "disable the agetty for the tty set in config.toml")
+2. **`[COSMIC-POLKIT]` — same gap class as the Beta-v2.9.9 DE fixes: the
+   desktop session has no privilege agent.** `cosmic-desktop-full`'s
+   `run_depends` (verified in the community repo) pull **no polkit agent** —
+   unlike kde-plasma (`polkit-kde-agent`) or the `gnome` metapackage (built-in
+   Shell agent). Without one, GUI privilege prompts (mounting, admin changes,
+   package-manager auth) hang. Fix: `install_pkgs polkit-gnome` for
+   `DESKTOP_ENV=cosmic`, plus an installer-baked
+   `/etc/xdg/autostart/polkit-gnome-authentication-agent-1.desktop` — Void's
+   polkit-gnome ships its desktop file to `/usr/share/applications` gated by
+   `OnlyShowIn=GNOME`, so without the baked entry no COSMIC session would ever
+   start it (cosmic-session honors XDG autostart — verified in the session
+   binary: "looking for autostart folders" / Desktop Entry parsing).
+
+**Validation:** `bash -n` passes; `Debug/check-heredocs.sh` extracts
+`/etc/greetd/cosmic-greeter.toml` + both new service run scripts and
+`bash -n`s them clean; `Debug/check-defaults.sh` still ALL CONSISTENT.
 
 ---
 

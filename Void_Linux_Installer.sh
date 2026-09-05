@@ -151,12 +151,34 @@
 #     applet (xfce4-pulseaudio-plugin now installed); `lxqt` ships a terminal
 #     but no text editor (FeatherPad now installed). A real Beta-v2.9.6 MATE
 #     install had no way to open a terminal from the desktop.
+#     AI (Big Pickle) FIX — Beta-v2.9.10 [COSMIC-POLKIT]: the `cosmic-desktop-full`
+#     metapackage pulls NO polkit privilege agent (verified against its
+#     run_depends in the third-party COSMIC repo), so on a fresh COSMIC
+#     install GUI privilege prompts (mounting, admin changes, package-manager
+#     auth) can hang with nothing to present the dialog — the same gap class as
+#     the MATE/Xfce/LXQt metapackage omissions above. `polkit-gnome` (GTK3 agent,
+#     Void official repo) is now installed explicitly for DESKTOP_ENV=cosmic,
+#     with an installer-baked /etc/xdg/autostart entry (Void's polkit-gnome
+#     ships its desktop file with OnlyShowIn=GNOME and installs it to
+#     /usr/share/applications, so without the baked entry COSMIC would never
+#     start it — cosmic-session honors XDG autostart, verified via the session
+#     binary's "looking for autostart folders" / Desktop Entry parsing).
 #     `wayland`/`wayland-protocols` are still installed unconditionally
 #     for all options (cheap, harmless, future-proofing).
 #     Display manager (Beta-v2.4.0) is an independent choice, $DISPLAY_MANAGER:
 #     SDDM (default for KDE/LXQt/COSMIC), LightDM (Cinnamon/Xfce/MATE), GDM
 #     (GNOME), or cosmic-greeter (COSMIC's own greeter, offered only when
-#     COSMIC is chosen; its maintainer warns it does not work reliably).
+#     COSMIC is chosen). Beta-v2.9.10 [COSMIC-GREETER-DM]: cosmic-greeter is
+#     NOT a standalone DM — its binary self-describes as "a libcosmic frontend
+#     for greetd which can be run inside of cosmic-comp", so the DM path now
+#     provisions it the way the community repo actually builds it: the
+#     `_cosmicgreeter` system user, a greetd invocation (`cosmic-comp
+#     cosmic-greeter` under that user via /etc/greetd/cosmic-greeter.toml),
+#     the supervised `cosmic-greeter-daemon`, and a supervised accounts-daemon
+#     (the greeter reads AccountsService; same D-Bus-activation race as
+#     [LIGHTDM-HW]). A Beta-v2.9.9 COSMIC install that chose this DM booted to
+#     a bare terminal login with no login screen because the former bespoke
+#     service exec'd /usr/bin/cosmic-greeter directly.
 #     LightDM additionally asks for a greeter (GTK [default] / Slick).
 #     Beta-v2.5.0 [LIGHTDM-HW] hardens the LightDM path
 #     against the greeter failures observed on real hardware: accounts-daemon
@@ -402,14 +424,14 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.9"
+SCRIPT_VERSION="Beta-v2.9.10"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
 # overflow; the minor never carries into the major unless the author makes an
 # explicit major bump. The lineage is split into named eras carrying their
 # own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x), so each era reads
-# monotonic and the current release (Beta-v2.9.9) always carries the highest
+# monotonic and the current release (Beta-v2.9.10) always carries the highest
 # numbering. See Debug/version-renumber-map.txt for the authoritative
 # OLD->NEW mapping recovered from the Debug/Old Versions/ artifacts.
 
@@ -487,7 +509,8 @@ SCRIPT_VERSION="Beta-v2.9.9"
 #     Beta-v2.9.6    [LUKS-UNLOCK-LEFT-OPEN]; unwind closes LUKS mapper; resume reuses an open one
 #     Beta-v2.9.7    [BROWSER-GATE-NO]; "Set up web browsers now?" now defaults to No
 #     Beta-v2.9.8    [GREETER-BG-TIMING]; lightdm greeter-bg search moved after the desktop install
-#     Beta-v2.9.9    [MATE-TERMINAL];[MATE-AUDIO];[XFC-VOLUME];[LXQT-EDITOR] — DE metapackage gap fixes  (current)
+#     Beta-v2.9.9    [MATE-TERMINAL];[MATE-AUDIO];[XFC-VOLUME];[LXQT-EDITOR] — DE metapackage gap fixes
+#     Beta-v2.9.10   [COSMIC-GREETER-DM];[COSMIC-POLKIT] — cosmic-greeter greetd-hosted DM provisioning; COSMIC polkit agent  (current)
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -4267,11 +4290,61 @@ elif [ "$DISPLAY_MANAGER" = "cosmic-greeter" ]; then
     # own greeter, available only from the third-party COSMIC repo (NOT the
     # official mirrors, so it cannot go through install_pkgs). The honored
     # DISPLAY_MANAGER value matches the package name. install_cosmic also
-    # handles repo add/verify/trust + graceful abort. NOTE: the COSMIC
-    # maintainer reports cosmic-greeter does not currently work reliably
-    # (elogind doesn't recognize its session) and recommends SDDM instead;
-    # it is installed only because the user explicitly chose it.
+    # handles repo add/verify/trust + graceful abort.
     install_cosmic cosmic-greeter
+    # greetd is a hard dependency of cosmic-greeter (it IS the session manager
+    # that hosts the greeter), but it is named explicitly here — mirroring the
+    # accountsservice-belt-and-suspenders reasoning in the lightdm branch — so
+    # the greetd runit service below never races a transitive pull.
+    install_pkgs greetd
+    # AI (Big Pickle) FIX — Beta-v2.9.10 [COSMIC-GREETER-DM]: the greeter is a
+    # greetd FRONTEND that runs INSIDE cosmic-comp, not a standalone DM (its
+    # binary self-describes: "a libcosmic frontend for greetd which can be run
+    # inside of cosmic-comp"; a Beta-v2.9.9 COSMIC install that chose this DM
+    # booted to a bare terminal login with no login screen, because the former
+    # bespoke service just `exec /usr/bin/cosmic-greeter` with no greetd, no
+    # cosmic-comp, and no AccountsService — the greeter then cannot find the
+    # com.system76.CosmicComp session it needs and aborts instantly).
+    # The community repo's own packaging (REDACTED/void-packages template)
+    # deploys it as: greetd -c /etc/greetd/cosmic-greeter.toml (which launches
+    # `cosmic-comp cosmic-greeter` as the _cosmicgreeter user) PLUS a supervised
+    # cosmic-greeter-daemon (/run/cosmic-greeter owner). The _cosmicgreeter user
+    # is created by the package's system_accounts only in recent revisions
+    # (1.5.0+; the 1.2.0 era shipped the group but not the user), so it is
+    # provisioned here idempotently to never depend on upstream revision luck.
+    if ! grep -q '^_cosmicgreeter:' /etc/passwd 2>/dev/null; then
+        _cg_group_opt=""
+        grep -q '^_cosmicgreeter:' /etc/group 2>/dev/null && _cg_group_opt="-g _cosmicgreeter -G video,input"
+        # shellcheck disable=SC2086  # _cg_group_opt is empty or a fixed flat flag string; deliberate
+        useradd -r -M -s /sbin/nologin -d /var/lib/cosmic-greeter -c 'Cosmic Greeter Account' $_cg_group_opt _cosmicgreeter 2>/dev/null || \
+            echo "WARNING: could not create the _cosmicgreeter system user — the greeter may not start." >&2
+        unset _cg_group_opt
+    fi
+    mkdir -p /var/lib/cosmic-greeter
+    chown -f _cosmicgreeter:_cosmicgreeter /var/lib/cosmic-greeter 2>/dev/null || true
+    # The greeter lists users/icons through org.freedesktop.Accounts; same
+    # D-Bus-activation boot race as [LIGHTDM-HW] (Void ships accountsservice
+    # with NO runit service), so a supervised accounts-daemon is provisioned
+    # here exactly as the lightdm branch does, and linked on first boot by
+    # rc.local. Without it the greeter's first Accounts request can time out.
+    _accd_bin=""
+    for _accd_cand in /usr/libexec/accounts-daemon /usr/lib/accounts-daemon; do
+        [ -x "$_accd_cand" ] && { _accd_bin="$_accd_cand"; break; }
+    done
+    if [ -n "$_accd_bin" ]; then
+        mkdir -p /etc/sv/accounts-daemon
+        cat > /etc/sv/accounts-daemon/run << 'ACCD_EOF'
+#!/bin/sh
+exec 2>&1
+sv check dbus >/dev/null || exit 1
+exec __ACCD_BIN__
+ACCD_EOF
+        sed -i "s|__ACCD_BIN__|${_accd_bin}|" /etc/sv/accounts-daemon/run
+        chmod 0755 /etc/sv/accounts-daemon/run
+    else
+        echo "WARNING: accounts-daemon binary not found — the greeter will rely on D-Bus activation (boot race may resurface)." >&2
+    fi
+    unset _accd_bin _accd_cand
     DM_SERVICE_NAME="cosmic-greeter"
 else
     install_pkgs sddm
@@ -4643,9 +4716,42 @@ fi
 # polkit agent, GUI privilege prompts (NetworkManager, blueman mounting,
 # package managers) can hang with nothing to present the auth dialog.
 # Installed for exactly those desktop environments.
+# AI (Big Pickle) FIX — Beta-v2.9.10 [COSMIC-POLKIT]: COSMIC is in the same
+# gap — `cosmic-desktop-full` pulls NO polkit agent (verified against the
+# community repo's run_depends), unlike kde-plasma (polkit-kde-agent) and the
+# `gnome` metapackage (built-in Shell agent). polkit-gnome (GTK3, Void
+# official repo) is installed for DESKTOP_ENV=cosmic, and an
+# /etc/xdg/autostart entry is baked because Void's polkit-gnome installs its
+# desktop file to /usr/share/applications with OnlyShowIn=GNOME — meaningless
+# to a COSMIC session — and cosmic-session DOES honor XDG autostart
+# (verified: the session binary parses autostart folders / Desktop Entries).
 case "$DESKTOP_ENV" in
     cinnamon|xfce|mate|lxqt)
         install_pkgs lxqt-policykit
+        ;;
+    cosmic)
+        install_pkgs polkit-gnome
+        _pg_auth_bin=""
+        for _pg_cand in /usr/libexec/polkit-gnome-authentication-agent-1 /usr/lib/polkit-gnome-authentication-agent-1; do
+            [ -x "$_pg_cand" ] && { _pg_auth_bin="$_pg_cand"; break; }
+        done
+        if [ -n "$_pg_auth_bin" ]; then
+            mkdir -p /etc/xdg/autostart
+            cat > /etc/xdg/autostart/polkit-gnome-authentication-agent-1.desktop << 'INNER_EOF'
+[Desktop Entry]
+Name=PolicyKit Authentication Agent
+Comment=PolicyKit Authentication Agent
+Exec=__PG_AUTH_BIN__
+Terminal=false
+Type=Application
+Categories=
+NoDisplay=true
+INNER_EOF
+            sed -i "s|__PG_AUTH_BIN__|${_pg_auth_bin}|" /etc/xdg/autostart/polkit-gnome-authentication-agent-1.desktop
+        else
+            echo "WARNING: polkit-gnome agent binary not found — COSMIC privilege prompts will hang." >&2
+        fi
+        unset _pg_auth_bin _pg_cand
         ;;
 esac
 install_pkgs xdg-user-dirs xdg-utils xtools bluez tlp tlp-rdw preload rsync git curl wget make binutils inotify-tools fastfetch chrony cronie bridge-utils
@@ -7600,32 +7706,72 @@ done
 INNER_EOF
 fi
 
-# AI (Big Pickle) ADDITION — Beta-v2.4.0 [COSMIC]: when cosmic-greeter was chosen as
-# the display manager, rc.local links /etc/sv/${DM_SERVICE_NAME}, so the runit
-# service dir must exist or first boot leaves a dangling symlink. cosmic-greeter
-# is from the third-party COSMIC repo; the maintainer warns it may not work
-# reliably with elogind. We create a best-effort runit service that starts the
-# greeter on the first free virtual terminal (matching the sddm wait-for-
-# first-boot behavior so the network/file systems are up). Selecting it is the
-# user's explicit at-own-risk choice.
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [COSMIC]; AI (Big Pickle) FIX —
+# Beta-v2.9.10 [COSMIC-GREETER-DM]: when cosmic-greeter was chosen as the
+# display manager, rc.local links /etc/sv/${DM_SERVICE_NAME}, so the runit
+# service dir must exist or first boot leaves a dangling symlink.
+# Beta-v2.9.10 replaces the old best-effort direct `exec /usr/bin/cosmic-greeter`
+# service (a real Beta-v2.9.9 COSMIC install that chose this DM booted to a
+# bare terminal login with NO login screen: the greeter is a greetd frontend
+# that must run inside cosmic-comp, and without greetd/cosmic-comp/DBus it
+# aborts instantly). A known-good, maintainer-matching runit stack is baked
+# here so the install never depends on which community-repo revision ships:
+#   - /etc/sv/cosmic-greeter/run        -> greetd -c /etc/greetd/cosmic-greeter.toml
+#     (the config launches `cosmic-comp cosmic-greeter` under the
+#     _cosmicgreeter user; logic mirrors the repo maintainer's own run script:
+#     dbus -> cosmic-greeter-daemon -> elogind checks, then execute greetd)
+#   - /etc/sv/cosmic-greeter-daemon/run -> cosmic-greeter-daemon, owning
+#     /run/cosmic-greeter for _cosmicgreeter
+#   - /etc/greetd/cosmic-greeter.toml   -> deterministic greetd config
+# The packaged services shipped by older cosmic-greeter revisions (1.2.0-era)
+# predate the daemon/greetd hosting and would otherwise leave a broken link.
 if [ "$DISPLAY_MANAGER" = "cosmic-greeter" ]; then
-    mkdir -p /etc/sv/cosmic-greeter
+    # greetd config: launches the greeter inside the COSMIC compositor as the
+    # _cosmicgreeter user on VT 1, matching the packaged cosmic-greeter.toml.
+    mkdir -p /etc/greetd
+    cat > /etc/greetd/cosmic-greeter.toml << 'INNER_EOF'
+[terminal]
+vt = "1"
+
+[general]
+service = "cosmic-greeter"
+
+[default_session]
+command = "cosmic-comp cosmic-greeter"
+user = "_cosmicgreeter"
+INNER_EOF
+    chmod 0644 /etc/greetd/cosmic-greeter.toml
+    mkdir -p /etc/sv/cosmic-greeter/log
     cat > /etc/sv/cosmic-greeter/run << 'INNER_EOF'
 #!/bin/sh
-# shellcheck disable=SC2034  # bounded boot-wait counter (greeter must yield to initramfs/firstboot markers)
-for i in $(seq 1 10); do
-    if [ -d /run/initramfs ] || [ -f /var/log/firstboot.log ]; then
-        break
-    fi
-    sleep 1
-done
-exec /usr/bin/cosmic-greeter
+exec 2>&1
+sv check dbus >/dev/null || exit 1
+sv check cosmic-greeter-daemon >/dev/null || exit 1
+# pam_elogind.so (cosmic-greeter's PAM file) needs a running logind to
+# register the session; without this greetd starts but logins fail.
+if [ -d /var/service/elogind ]; then
+    sv check elogind >/dev/null
+    elogind_pid=$(cat /var/service/elogind/supervise/pid 2>/dev/null)
+    for pid in $(pgrep -x 'elogind'; pgrep -x 'elogind-daemon'); do
+        [ "$pid" = "$elogind_pid" ] || kill "$pid"
+    done
+fi
+sv check elogind >/dev/null || exit 1
+exec greetd -c /etc/greetd/cosmic-greeter.toml
 INNER_EOF
     chmod 0755 /etc/sv/cosmic-greeter/run
-    echo "WARNING: cosmic-greeter was chosen as the display manager. Its maintainer reports it" >&2
-    echo "         does not work reliably with elogind and recommends SDDM instead; it is being" >&2
-    echo "         installed because you chose it, at your own risk. If the login screen fails" >&2
-    echo "         to appear on first boot, install/login via a virtual console and switch to SDDM." >&2
+    mkdir -p /etc/sv/cosmic-greeter-daemon/log
+    cat > /etc/sv/cosmic-greeter-daemon/run << 'INNER_EOF'
+#!/bin/sh
+exec 2>&1
+sv check dbus >/dev/null || exit 1
+install -d -m0755 -o _cosmicgreeter -g _cosmicgreeter /run/cosmic-greeter
+exec cosmic-greeter-daemon
+INNER_EOF
+    chmod 0755 /etc/sv/cosmic-greeter-daemon/run
+    echo "WARNING: cosmic-greeter was chosen as the display manager. Selecting it is your" >&2
+    echo "         explicit at-own-risk choice of a third-party-repo greeter; rc.local links" >&2
+    echo "         both the greetd-hosted cosmic-greeter and cosmic-greeter-daemon services." >&2
 fi
 
 cat > /etc/rc.local << 'INNER_EOF'
@@ -7655,6 +7801,17 @@ if [ ! -f /var/log/firstboot.log ]; then
     ln -sfn /etc/sv/dbus /etc/runit/runsvdir/default/dbus
     ln -sfn /etc/sv/nftables /etc/runit/runsvdir/default/nftables
     ln -sfn /etc/sv/__DISPLAY_MANAGER__ /etc/runit/runsvdir/default/__DISPLAY_MANAGER__
+    # AI (Big Pickle) FIX — Beta-v2.9.10 [COSMIC-GREETER-DM]: the cosmic-greeter
+    # DM is a greetd-hosted stack, so its daemon service is linked alongside
+    # the main service (see the baked /etc/sv/cosmic-greeter{,-daemon} above),
+    # and the greeter's own VT (1, per /etc/greetd/cosmic-greeter.toml) is
+    # freed of the base-system agetty — per greetd's README.voidlinux
+    # ("disable the agetty service for the tty set in config.toml"). Other TTYs
+    # stay available for console login if the greeter ever fails.
+    [ "__DISPLAY_MANAGER__" = "cosmic-greeter" ] && \
+        ln -sfn /etc/sv/cosmic-greeter-daemon /etc/runit/runsvdir/default/cosmic-greeter-daemon
+    [ "__DISPLAY_MANAGER__" = "cosmic-greeter" ] && \
+        rm -f /etc/runit/runsvdir/default/agetty-tty1
     ln -sfn /etc/sv/NetworkManager /etc/runit/runsvdir/default/NetworkManager
     ln -sfn /etc/sv/chronyd /etc/runit/runsvdir/default/chronyd
     ln -sfn /etc/sv/cronie /etc/runit/runsvdir/default/cronie
@@ -7686,9 +7843,11 @@ if [ ! -f /var/log/firstboot.log ]; then
     # images do: dbus elogind lightdm NetworkManager polkitd); elogind only
     # under SESSION_STACK=elogind, since the turnstile stack (above)
     # deliberately omits it. accounts-daemon is created in the LightDM
-    # install branch (see [LIGHTDM-HW] there); when it's absent the guard
-    # below refuses to create a dangling link.
-    [ "__DISPLAY_MANAGER__" = "lightdm" ] && \
+    # install branch (see [LIGHTDM-HW] there) and, since Beta-v2.9.10
+    # [COSMIC-GREETER-DM], also in the cosmic-greeter branch (the greeter
+    # lists users through org.freedesktop.Accounts); when it's absent the
+    # guard below refuses to create a dangling link.
+    [ "__DISPLAY_MANAGER__" = "lightdm" ] || [ "__DISPLAY_MANAGER__" = "cosmic-greeter" ] && \
         [ -d /etc/sv/accounts-daemon ] && \
         ln -sfn /etc/sv/accounts-daemon /etc/runit/runsvdir/default/accounts-daemon
     [ "__SESSION_STACK__" = "elogind" ] && \
@@ -7982,7 +8141,11 @@ echo ""
 echo "${C_BOLD}  NEXT STEPS${C_RST}"
 echo "${C_GRN}  1.${C_RST} Remove the live USB, then this system will reboot into your install automatically."
 echo "${C_GRN}  2.${C_RST} First boot is a clean initial-boot state. If no graphical login appears, log in"
-echo "     at the console and run:  ${C_BOLD}ln -sf /etc/sv/${DISPLAY_MANAGER} /etc/runit/runsvdir/default/${C_RST}  (or your chosen DM)."
+if [ "$DISPLAY_MANAGER" = "cosmic-greeter" ]; then
+    echo "     at the console and run:  ${C_BOLD}ln -sf /etc/sv/cosmic-greeter /etc/runit/runsvdir/default/ && ln -sf /etc/sv/cosmic-greeter-daemon /etc/runit/runsvdir/default/${C_RST}"
+else
+    echo "     at the console and run:  ${C_BOLD}ln -sf /etc/sv/${DISPLAY_MANAGER} /etc/runit/runsvdir/default/${C_RST}  (or your chosen DM)."
+fi
 if [ "$BOOTLOADER" = "limine" ]; then
     echo "${C_GRN}  3.${C_RST} Limine boots automatically (no NVRAM entry needed on UEFI)."
     echo "     To snapshot a running system later:  ${C_BOLD}sudo snapper create -d 'manual'${C_RST}"
