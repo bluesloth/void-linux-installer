@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.8** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.9** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -29,7 +29,7 @@ Current version: **Beta-v2.9.8** (`SCRIPT_VERSION` in the script).
 >   3.0.112GC) and the tracked `v3.1.0-beta1` … `v3.3.0-beta33` releases
 >   are mapped into a continuous sequential Beta-v numbering per
 >   `Debug/version-renumber-map.txt`. Every release within the Beta era
-> gets a unique number, and the current release (`Beta-v2.9.8`) is always
+> gets a unique number, and the current release (`Beta-v2.9.9`) is always
 >   the highest — preserving the monotonicity invariant.
 > - The old `v3.x` labels are preserved inline (`was v3.x` in headings and
 >   `version-renumber-map.txt`) for `[TAG]`-marker traceability, but the
@@ -64,6 +64,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.6** | `[LUKS-UNLOCK-LEFT-OPEN]` — failure unwind now `luksClose`s the LUKS mapper (returns disk to LOCKED), resume reuses an already-open mapper instead of failing, and fresh-start closes a leftover mapper before reformat; fixes a `-r` resume that aborted at "decrypt partition" after a crashed run | Beta-v2.9.6 below |
 | **Beta-v2.9.7** | `[BROWSER-GATE-NO]` — the "Set up web browsers now?" gate now defaults to **No** (`[y/N]`); a bare-Enter run skips the whole browser section (Firefox/Chromium still default ON *inside* the gate if you say yes) | Beta-v2.9.7 below |
 | **Beta-v2.9.8** | `[GREETER-BG-TIMING]` — the lightdm greeter-background search ran before any desktop package existed, so every fresh MATE/Cinnamon/xfce+lightdm greeter booted to black; it now runs after the desktop install (with a gnome-backgrounds retry so it's never a bare black screen) | Beta-v2.9.8 below |
+| **Beta-v2.9.9** | `[MATE-TERMINAL]`/`[MATE-AUDIO]`/`[XFC-VOLUME]`/`[LXQT-EDITOR]` — DE metapackage gap fixes: verified against Void's metapackage templates, `mate` bundles no terminal/editor/volume applet (→ `mate-terminal`+`pluma`+`mate-media`), `xfce4` no volume applet (→ `xfce4-pulseaudio-plugin`), `lxqt` no text editor (→ `FeatherPad`) | Beta-v2.9.9 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -342,6 +343,53 @@ the MATE+lightdm run.
 **Validation:** `bash -n` passes; `Debug/check-heredocs.sh` ALL CLEAN (the
 moved `INNER_EOF` greeter-config heredocs still extract and bash -n cleanly);
 `Debug/check-defaults.sh` unchanged.
+
+---
+
+## Beta-v2.9.9 — `[MATE-TERMINAL]`+`[MATE-AUDIO]`+`[XFC-VOLUME]`+`[LXQT-EDITOR]` (DE metapackage gaps: terminal, text editor, volume applet)
+
+`SCRIPT_VERSION = Beta-v2.9.9`. Closes the real-hardware gap: a Beta-v2.9.6
+MATE install booted to a working desktop but had **no way to open a terminal**
+(only a TTY), and no GUI text editor/log reader.
+
+**Root cause.** The MATE branch relied on the claim (in the old comment) that
+Void's `mate` metapackage "bundles mate-terminal". An audit of void-packages'
+metapackage templates against the common desktop basics (terminal, text
+editor, panel volume applet) found three guilty packages:
+
+- `srcpkgs/mate/template`: **no terminal, no text editor, no volume applet**
+  (mate-themes / user-guide / backgrounds / icon-theme / menus /
+  notification-daemon / polkit / desktop / settings-daemon / session-manager /
+  control-center / panel, mate-netbook, caja, marco, elogind, zenity) — the
+  same gap class as Cinnamon's missing gnome-terminal/gedit (Beta-v2.9.3-era
+  fix), and exactly what TODO/Open Item #1 flagged. A real Beta-v2.9.6 MATE
+  install had no way to open a terminal from the desktop.
+- `srcpkgs/xfce4/template`: bundles `xfce4-terminal` + `mousepad` (editor) but
+  **no panel volume applet** — `xfce4-panel` is built without a pulseaudio
+  backend, so a fresh Xfce install has sound but no speaker icon.
+- `srcpkgs/lxqt/template`: bundles `qterminal` (and lxqt-panel has a native
+  volume plugin) but **no text editor**.
+
+KDE (konsole+kate via kde-baseapps, plasma-pa), GNOME (gnome-console +
+gnome-text-editor, in-shell volume), and Cinnamon (already gap-patched) are
+clean.
+
+**Changes:**
+1. **MATE** now installs `mate-terminal` (terminal), `pluma` (editor, doubles
+   as a GUI log reader via File > Open on `/var/log`), and `mate-media` (the
+   "Volume Control" panel applet / speaker icon, `[MATE-AUDIO]`).
+2. **Xfce** now installs `xfce4-pulseaudio-plugin` (panel volume applet,
+   `[XFC-VOLUME]`; pulls `pavucontrol`) alongside `xfce4 network-manager-applet
+   gvfs`.
+3. **LXQt** now installs `FeatherPad` (Qt6 plain-text editor, `[LXQT-EDITOR]` —
+   note the tiled-case package name) alongside `lxqt gvfs`.
+4. All additions verified present in Void's official repos (`srcpkgs/mate-terminal`
+   1.28.1, `srcpkgs/pluma` 1.28.1, `srcpkgs/mate-media` 1.28.1,
+   `srcpkgs/xfce4-pulseaudio-plugin` 0.5.1, `srcpkgs/FeatherPad` 1.6.4).
+5. The stale "bundles mate-terminal" comment is corrected to the verified
+   dependency reality.
+
+**Validation:** `bash -n` passes.
 
 ---
 

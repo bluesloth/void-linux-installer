@@ -142,6 +142,15 @@
 #     unavailable. VERIFIED against Void's docs and real user reports: Void
 #     lists Wayland sessions for GNOME/KDE Plasma only — the GTK/Qt desktops
 #     (Cinnamon/Xfce/MATE/LXQt) are X11 on Void today.
+#     AI (Big Pickle) FIX — Beta-v2.9.9 [MATE-TERMINAL]/[MATE-AUDIO]/
+#     [XFC-VOLUME]/[LXQT-EDITOR]: several DE metapackages omit desktop
+#     basics that the user expects on a fresh install (verified against
+#     void-packages' templates): Void's `mate` metapackage bundles NO
+#     terminal, text editor, or volume applet (mate-terminal/pluma/mate-media
+#     now installed); `xfce4` ships terminal+editor but no panel volume
+#     applet (xfce4-pulseaudio-plugin now installed); `lxqt` ships a terminal
+#     but no text editor (FeatherPad now installed). A real Beta-v2.9.6 MATE
+#     install had no way to open a terminal from the desktop.
 #     `wayland`/`wayland-protocols` are still installed unconditionally
 #     for all options (cheap, harmless, future-proofing).
 #     Display manager (Beta-v2.4.0) is an independent choice, $DISPLAY_MANAGER:
@@ -393,14 +402,14 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.8"
+SCRIPT_VERSION="Beta-v2.9.9"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
 # overflow; the minor never carries into the major unless the author makes an
 # explicit major bump. The lineage is split into named eras carrying their
 # own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x), so each era reads
-# monotonic and the current release (Beta-v2.9.8) always carries the highest
+# monotonic and the current release (Beta-v2.9.9) always carries the highest
 # numbering. See Debug/version-renumber-map.txt for the authoritative
 # OLD->NEW mapping recovered from the Debug/Old Versions/ artifacts.
 
@@ -477,7 +486,8 @@ SCRIPT_VERSION="Beta-v2.9.8"
 #     Beta-v2.9.5    [GREETER-BG-PIPEFAIL]; wallpaper find pipefail guard
 #     Beta-v2.9.6    [LUKS-UNLOCK-LEFT-OPEN]; unwind closes LUKS mapper; resume reuses an open one
 #     Beta-v2.9.7    [BROWSER-GATE-NO]; "Set up web browsers now?" now defaults to No
-#     Beta-v2.9.8    [GREETER-BG-TIMING]; lightdm greeter-bg search moved after the desktop install  (current)
+#     Beta-v2.9.8    [GREETER-BG-TIMING]; lightdm greeter-bg search moved after the desktop install
+#     Beta-v2.9.9    [MATE-TERMINAL];[MATE-AUDIO];[XFC-VOLUME];[LXQT-EDITOR] — DE metapackage gap fixes  (current)
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -4487,14 +4497,39 @@ elif [ "$DESKTOP_ENV" = "xfce" ]; then
     # media via thunar-volman/udisks2 but loses network/cloud/phone
     # backends. udisks2 is pulled in as a gvfs dependency, so no
     # separate install is needed.
-    install_pkgs xfce4 network-manager-applet gvfs
+    # AI (Big Pickle) FIX — Beta-v2.9.9 [XFC-VOLUME]: the `xfce4` metapackage
+    # bundles a terminal (xfce4-terminal) and text editor (mousepad), but NOT
+    # a panel volume applet — xfce4-panel is compiled without a pulseaudio
+    # backend (verified against void-packages' xfce4/xfce4-panel templates), so
+    # a fresh Xfce install has sound but no speaker icon (same gap as MATE's
+    # missing mate-media). xfce4-pulseaudio-plugin (srcpkgs 0.5.1, pulls
+    # pavucontrol) is now installed explicitly.
+    install_pkgs xfce4 network-manager-applet gvfs xfce4-pulseaudio-plugin
 elif [ "$DESKTOP_ENV" = "mate" ]; then
     # AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 2]: MATE via the `mate`
     # metapackage (Void's full-MATE route, analogous to cinnamon-all). The
-    # metapackage bundles mate-terminal, the panel, control center, etc.
+    # metapackage bundles the panel, settings daemon, control center, Caja,
+    # Marco, etc.
+    # AI (Big Pickle) FIX — Beta-v2.9.9 [MATE-TERMINAL]: the older claim that
+    # the metapackage "bundles mate-terminal" was WRONG — verified against
+    # void-packages' `mate` template that its dependency list carries no
+    # terminal and no text editor, and a real Beta-v2.9.6 MATE install ended
+    # up with no way to open a terminal from the desktop (only a TTY) — the
+    # same gap class as Cinnamon's missing gnome-terminal/gedit above.
+    # mate-terminal and pluma (MATE's gedit-equivalent, which also serves as
+    # a GUI log reader) are now installed explicitly; both are confirmed in
+    # Void's official repos (srcpkgs/mate-terminal 1.28.1, srcpkgs/pluma
+    # 1.28.1).
+    # AI (Big Pickle) FIX — Beta-v2.9.9 [MATE-AUDIO]: the `mate` metapackage
+    # also does NOT bundle `mate-media`, which provides the panel's "Volume
+    # Control" applet (the speaker/tray icon) — confirmed against void-packages'
+    # mate template (no mate-media in its depends). Without it audio works but
+    # there is no panel volume control. mate-media (srcpkgs/mate-media 1.28.1)
+    # is now installed explicitly; it controls volume through the installer's
+    # pipewire-pulse layer.
     # network-manager-applet added for the same X11/GTK secret-agent
     # rationale as Cinnamon/Xfce.
-    install_pkgs mate network-manager-applet
+    install_pkgs mate-terminal pluma mate-media network-manager-applet
 elif [ "$DESKTOP_ENV" = "lxqt" ]; then
     # AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 2]: LXQt via the `lxqt`
     # metapackage (Qt-based, light). LXQt's conventional display manager
@@ -4505,7 +4540,13 @@ elif [ "$DESKTOP_ENV" = "lxqt" ]; then
     # it, basic USB automounting works via udisks2 but network/cloud/phone
     # backends are missing. GNOME, Cinnamon, and MATE already get gvfs
     # via their file managers.
-    install_pkgs lxqt gvfs
+    # AI (Big Pickle) FIX — Beta-v2.9.9 [LXQT-EDITOR]: the `lxqt` metapackage
+    # bundles a terminal (qterminal) and lxqt-panel has a native volume
+    # plugin, but it carries NO text editor — verified against void-packages'
+    # lxqt template (no featherpad/editor in its depends). FeatherPad
+    # (srcpkgs/FeatherPad 1.6.4, Qt6 — note the tiled-case package name) is
+    # now installed explicitly.
+    install_pkgs lxqt gvfs FeatherPad
 elif [ "$DESKTOP_ENV" = "cosmic" ]; then
     # AI (Big Pickle) ADDITION — Beta-v2.4.0 [COSMIC]: COSMIC installed from the
     # third-party community repo (never the official mirrors), so it uses the
