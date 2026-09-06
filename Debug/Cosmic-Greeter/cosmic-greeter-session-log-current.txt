@@ -512,3 +512,223 @@ dbus-daemon[4278]: [session uid=988 pid=4278 pidfd=5] Reloaded configuration
 [2m2026-09-06T18:03:32.846495Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
 [2m2026-09-06T18:03:32.846513Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
 [2m2026-09-06T18:03:32.846574Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:03:34.243564Z[0m [31mERROR[0m [2mpanic[0m[2m:[0m thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Errno { code: 107, description: Some("Transport endpoint is not connected") }': /host/cargo/git/checkouts/smithay-312425d48e59d8c8/8eb4076/src/backend/session/libseat.rs:215
+   0: <unknown>
+   1: <unknown>
+   2: <unknown>
+   3: <unknown>
+   4: <unknown>
+   5: <unknown>
+   6: <unknown>
+   7: <unknown>
+   8: <unknown>
+   9: <unknown>
+  10: <unknown>
+  11: <unknown>
+  12: <unknown>
+  13: __libc_start_call_main
+             at ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+  14: __libc_start_main_impl
+             at ./csu/../csu/libc-start.c:360:3
+  15: <unknown>
+
+[2m2026-09-06T19:03:34.245398Z[0m [33m WARN[0m [2msmithay::backend::drm::surface::atomic[0m[2m:[0m Unable to clear state: DRM access error: Failed to commit on clear_state on device `Some("/dev/dri/card0")` (Permission denied (os error 13))
+Io error: Broken pipe (os error 32)
+Io error: [2m2026-09-06T19:03:34.260034Z[0m [31mERROR[0m [2mwinit_wayland::event_loop[0m[2m:[0m Error dispatching event loop: other error during loop operation: underlying IO error: Broken pipe (os error 32)
+Broken pipe (os error 32)
+Io error: Broken pipe (os error [2m2026-09-06T19:03:34.260123Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: other error during loop operation: underlying IO error: Broken pipe (os error 32)
+32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.260219Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.260287Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.260344Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.260379Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.260444Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.260533Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.260642Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.260706Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.260766Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.260831Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.260891Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.260945Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.260974Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.260999Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.261023Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.261046Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.261069Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.261093Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.261116Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+[2m2026-09-06T19:03:34.261120Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK failed to send Control::AboutToWait. TrySendError { kind: Disconnected }
+Error: EventLoop(ExitFailure(1))
+[2m2026-09-06T19:03:34.335489Z[0m [33m WARN[0m [2mcosmic_comp::logger[0m[2m:[0m Failed to init journald logging. [3merr[0m[2m=[0mOs { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T19:03:34.336292Z[0m [31mERROR[0m [2mcosmic_settings_config::shortcuts[0m[2m:[0m shortcuts defaults config error: GetKey("defaults", Os { code: 2, kind: NotFound, message: "No such file or directory" })
+[2m2026-09-06T19:03:34.336601Z[0m [31mERROR[0m [2mcosmic_settings_config::window_rules[0m[2m:[0m tiling exceptions defaults config error: NoConfigDirectory
+[2m2026-09-06T19:03:34.517150Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T19:03:34.599206Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:34.668713Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:34.673421Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:34.675557Z[0m [33m WARN[0m [2mcosmic_greeter::locker[0m[2m:[0m failed to connect to journald
+[2m2026-09-06T19:03:34.675718Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to open icon "/var/lib/AccountsService/icons/_cosmicgreeter": Os { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T19:03:34.676554Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m errors loading cosmic-comp config: [GetKey("workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("pinned_workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_default", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_touchpad_override", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_devices", Os { code: 2, kind: NotFound, message: "No such file or directory" }), RonSpanned(SpannedError { code: ExpectedComma, span: Span { start: Position { line: 4, col: 11 }, end: Position { line: 4, col: 11 } } }), GetKey("keyboard_config", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile_behavior", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("active_hint", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("cursor_follows_focus", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor_delay", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("descale_xwayland", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("xwayland_eavesdropping", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("edge_snap_threshold", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("accessibility_zoom", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("appearance_settings", Os { code: 2, kind: NotFound, message: "No such file or directory" })]
+[2m2026-09-06T19:03:34.681292Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:34.700431Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:03:34.700450Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:03:34.700491Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:03:34.701033Z[0m [33m WARN[0m [2mcosmic_greeter::upower[0m[2m:[0m upower error: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.UPower was not provided by any .service files
+[2m2026-09-06T19:03:35.702827Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:03:35.702914Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:03:35.703102Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+dbus-daemon[17535]: [session uid=988 pid=17535 pidfd=5] Reloaded configuration
+[2m2026-09-06T19:03:37.460483Z[0m [33m WARN[0m [2mcosmic_comp::logger[0m[2m:[0m Failed to init journald logging. [3merr[0m[2m=[0mOs { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T19:03:37.461475Z[0m [31mERROR[0m [2mcosmic_settings_config::shortcuts[0m[2m:[0m shortcuts defaults config error: GetKey("defaults", Os { code: 2, kind: NotFound, message: "No such file or directory" })
+[2m2026-09-06T19:03:37.461861Z[0m [31mERROR[0m [2mcosmic_settings_config::window_rules[0m[2m:[0m tiling exceptions defaults config error: NoConfigDirectory
+[2m2026-09-06T19:03:37.671103Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T19:03:37.742238Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:37.814781Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:37.818043Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:37.819879Z[0m [33m WARN[0m [2mcosmic_greeter::locker[0m[2m:[0m failed to connect to journald
+[2m2026-09-06T19:03:37.820025Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to open icon "/var/lib/AccountsService/icons/_cosmicgreeter": Os { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T19:03:37.820120Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:37.820924Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m errors loading cosmic-comp config: [GetKey("workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("pinned_workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_default", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_touchpad_override", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_devices", Os { code: 2, kind: NotFound, message: "No such file or directory" }), RonSpanned(SpannedError { code: ExpectedComma, span: Span { start: Position { line: 4, col: 11 }, end: Position { line: 4, col: 11 } } }), GetKey("keyboard_config", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile_behavior", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("active_hint", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("cursor_follows_focus", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor_delay", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("descale_xwayland", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("xwayland_eavesdropping", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("edge_snap_threshold", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("accessibility_zoom", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("appearance_settings", Os { code: 2, kind: NotFound, message: "No such file or directory" })]
+[2m2026-09-06T19:03:37.846125Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:03:37.846338Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:03:37.846484Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:03:37.847076Z[0m [33m WARN[0m [2mcosmic_greeter::upower[0m[2m:[0m upower error: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.UPower was not provided by any .service files
+[2m2026-09-06T19:03:38.848702Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:03:38.848822Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:03:38.849008Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:03:40.850915Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:03:40.851025Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:03:40.851100Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:03:44.853671Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:03:44.853790Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:03:44.853982Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:03:48.260396Z[0m [31mERROR[0m [2mpanic[0m[2m:[0m thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Errno { code: 107, description: Some("Transport endpoint is not connected") }': /host/cargo/git/checkouts/smithay-312425d48e59d8c8/8eb4076/src/backend/session/libseat.rs:215
+   0: <unknown>
+   1: <unknown>
+   2: <unknown>
+   3: <unknown>
+   4: <unknown>
+   5: <unknown>
+   6: <unknown>
+   7: <unknown>
+   8: <unknown>
+   9: <unknown>
+  10: <unknown>
+  11: <unknown>
+  12: <unknown>
+  13: __libc_start_call_main
+             at ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+  14: __libc_start_main_impl
+             at ./csu/../csu/libc-start.c:360:3
+  15: <unknown>
+
+Io error: Broken pipe (os error 32)
+Io error: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.275538Z[0m [31mERROR[0m [2mwinit_wayland::event_loop[0m[2m:[0m Error dispatching event loop: other error during loop operation: underlying IO error: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.275556Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: other error during loop operation: underlying IO error: Broken pipe (os error 32)
+Io error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.275614Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.275645Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.275696Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.275746Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.275777Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.275806Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.275834Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.275860Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.275889Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.275918Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.275945Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.275971Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.276004Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.276037Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.276063Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.276089Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.276114Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.276139Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.276164Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.276195Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+Error trying to flush the wayland display: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.276220Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK dispatch error: underlying IO error: Broken pipe (os error 32)
+[2m2026-09-06T19:03:48.276225Z[0m [31mERROR[0m [2miced_winit::platform_specific::wayland::event_loop[0m[2m:[0m SCTK failed to send Control::AboutToWait. TrySendError { kind: Disconnected }
+Error: EventLoop(ExitFailure(1))
+[2m2026-09-06T19:03:48.376054Z[0m [33m WARN[0m [2mcosmic_comp::logger[0m[2m:[0m Failed to init journald logging. [3merr[0m[2m=[0mOs { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T19:03:48.377086Z[0m [31mERROR[0m [2mcosmic_settings_config::shortcuts[0m[2m:[0m shortcuts defaults config error: GetKey("defaults", Os { code: 2, kind: NotFound, message: "No such file or directory" })
+[2m2026-09-06T19:03:48.377316Z[0m [31mERROR[0m [2mcosmic_settings_config::window_rules[0m[2m:[0m tiling exceptions defaults config error: NoConfigDirectory
+[2m2026-09-06T19:03:48.582875Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T19:03:48.648594Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:48.719212Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:48.724202Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:48.726174Z[0m [33m WARN[0m [2mcosmic_greeter::locker[0m[2m:[0m failed to connect to journald
+[2m2026-09-06T19:03:48.726332Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to open icon "/var/lib/AccountsService/icons/_cosmicgreeter": Os { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T19:03:48.727159Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m errors loading cosmic-comp config: [GetKey("workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("pinned_workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_default", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_touchpad_override", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_devices", Os { code: 2, kind: NotFound, message: "No such file or directory" }), RonSpanned(SpannedError { code: ExpectedComma, span: Span { start: Position { line: 4, col: 11 }, end: Position { line: 4, col: 11 } } }), GetKey("keyboard_config", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile_behavior", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("active_hint", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("cursor_follows_focus", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor_delay", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("descale_xwayland", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("xwayland_eavesdropping", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("edge_snap_threshold", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("accessibility_zoom", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("appearance_settings", Os { code: 2, kind: NotFound, message: "No such file or directory" })]
+[2m2026-09-06T19:03:48.731966Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:48.750196Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:03:48.750239Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:03:48.750346Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:03:48.750547Z[0m [33m WARN[0m [2mcosmic_greeter::upower[0m[2m:[0m upower error: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.UPower was not provided by any .service files
+[2m2026-09-06T19:03:49.751809Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:03:49.751809Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:03:49.751976Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:03:51.753830Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:03:51.753901Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:03:51.754150Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:03:55.756230Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:03:55.756293Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:03:55.756417Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:04:03.757938Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:04:03.757956Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:04:03.757966Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:04:19.759634Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:04:19.759765Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:04:19.759852Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:04:51.762271Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:04:51.762421Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:04:51.762572Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:05:55.772644Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:05:55.772750Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:05:55.772893Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:08:03.773870Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:08:03.774061Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:08:03.774316Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:12:19.775545Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:12:19.775597Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:12:19.775652Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
