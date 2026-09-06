@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.10** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.11** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -29,7 +29,7 @@ Current version: **Beta-v2.9.10** (`SCRIPT_VERSION` in the script).
 >   3.0.112GC) and the tracked `v3.1.0-beta1` … `v3.3.0-beta33` releases
 >   are mapped into a continuous sequential Beta-v numbering per
 >   `Debug/version-renumber-map.txt`. Every release within the Beta era
-> gets a unique number, and the current release (`Beta-v2.9.10`) is always
+> gets a unique number, and the current release (`Beta-v2.9.11`) is always
 >   the highest — preserving the monotonicity invariant.
 > - The old `v3.x` labels are preserved inline (`was v3.x` in headings and
 >   `version-renumber-map.txt`) for `[TAG]`-marker traceability, but the
@@ -66,6 +66,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.8** | `[GREETER-BG-TIMING]` — the lightdm greeter-background search ran before any desktop package existed, so every fresh MATE/Cinnamon/xfce+lightdm greeter booted to black; it now runs after the desktop install (with a gnome-backgrounds retry so it's never a bare black screen) | Beta-v2.9.8 below |
 | **Beta-v2.9.9** | `[MATE-TERMINAL]`/`[MATE-AUDIO]`/`[XFC-VOLUME]`/`[LXQT-EDITOR]` — DE metapackage gap fixes: verified against Void's metapackage templates, `mate` bundles no terminal/editor/volume applet (→ `mate-terminal`+`pluma`+`mate-media`), `xfce4` no volume applet (→ `xfce4-pulseaudio-plugin`), `lxqt` no text editor (→ `FeatherPad`) | Beta-v2.9.9 below |
 | **Beta-v2.9.10** | `[COSMIC-GREETER-DM]`/`[COSMIC-POLKIT]` — cosmic-greeter is provisioned as a greetd-hosted DM (it is a greetd frontend that runs inside `cosmic-comp`, not a standalone DM — a Beta-v2.9.9 COSMIC install that chose it booted to a bare terminal with no login screen); COSMIC desktop gets a `polkit-gnome` privilege agent with a baked autostart entry (the metapackage pulls none) | Beta-v2.9.10 below |
+| **Beta-v2.9.11** | `[COSMIC-GREETER-LOG]` — svlogd `log/run` under both cosmic-greeter services (the log dirs existed but had no run script, so runsv spammed and no greeter output survived a reboot, hiding the live grey-screen evidence) | Beta-v2.9.11 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -401,6 +402,41 @@ fresh Beta-v2.9.9 COSMIC install (cosmic-greeter DM, /home/<user>,
 **Validation:** `bash -n` passes; `Debug/check-heredocs.sh` extracts
 `/etc/greetd/cosmic-greeter.toml` + both new service run scripts and
 `bash -n`s them clean; `Debug/check-defaults.sh` still ALL CONSISTENT.
+
+---
+
+## Beta-v2.9.11 — `[COSMIC-GREETER-LOG]` (svlogd logging for the cosmic-greeter greetd DM stack)
+
+`SCRIPT_VERSION = Beta-v2.9.11`. Found during the live 2026-09-05 validity run
+of the Beta-v2.9.10 `[COSMIC-GREETER-DM]` recipe (applied via
+`~/fix-cosmic-greeter.sh` on a real Beta-v2.9.9 COSMIC box):
+
+- The greetd-hosted stack now **launches cleanly** — greetd session-worker 11,
+  `cosmic-comp cosmic-greeter`, Xwayland :0 and the `cosmic-greeter` app all
+  alive as `_cosmicgreeter` on VT 1 — but tty1 renders only a **grey
+  wallpaper + cursor, NO login UI**; the greeter app runs but never draws its
+  user list / login panel. That render bug is still open (see TODO.md); this
+  release adds the logging needed to debug it.
+- **`[COSMIC-GREETER-LOG]` — the logger gap.** The installer created
+  `/etc/sv/cosmic-greeter/log` and `/etc/sv/cosmic-greeter-daemon/log`
+  (`mkdir -p`) but wrote **no `log/run`**, so runsv spammed
+  `fatal: unable to start log/./run: file does not exist` and **no svlogd
+  output survived a reboot** — no `cosmic-greeter`/`cosmic-comp` evidence for
+  the grey-screen investigation. Each service now gets a standard Void svlogd
+  logger (`log/run` → `exec svlogd -tt /var/log/<svc>`, root-owned `0750` log
+  dir; both services exec as root). The box-side `~/fix-cosmic-greeter.sh`
+  still needs the same two `log/run` bodies so its output survives too.
+
+**Remaining open items (tracked in TODO.md):** with the logger runs in place,
+re-test on the box and, with the greeter up, capture the logs to decide whether
+the missing element is accountsservice UI population (accounts-daemon is
+linked) or the greeter theme/wallpaper only; confirm logins start a session and
+the `[COSMIC-POLKIT]` agent dialog appears. Only patch code if conf + image +
+service state are confirmed correct but the greeter still renders grey.
+
+**Validation:** `bash -n` passes; `Debug/check-heredocs.sh` extracts the two new
+`log/run` bodies and `bash -n`s them clean; `Debug/check-defaults.sh`
+unchanged.
 
 ---
 

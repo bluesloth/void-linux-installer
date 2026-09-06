@@ -24,18 +24,26 @@
   target medium first; only patch code if limine-env + ESP file are confirmed
   present but limine.conf still lacks the directive.
 
-## COSMIC + cosmic-greeter DM: new greetd-hosted path is HARDWARE-UNPROVEN
-- A Beta-v2.9.9 COSMIC install choosing `DISPLAY_MANAGER=cosmic-greeter`
-  booted to a bare TTY login (no login screen): the old Beta-v2.4.0 service
-  `exec`'d `/usr/bin/cosmic-greeter` directly, but the binary is a greetd
-  frontend that must run inside `cosmic-comp`. Beta-v2.9.10
-  `[COSMIC-GREETER-DM]` replaces it with the repository's actual deployment
-  (greetd → `cosmic-comp cosmic-greeter` as `_cosmicgreeter`,
-  `cosmic-greeter-daemon`, supervised accounts-daemon, agetty-tty1 removed).
-  This new path is DESIGNED but not yet validated on real hardware — install a
-  fresh COSMIC box with `DISPLAY_MANAGER=cosmic-greeter` and confirm the
-  greeter actually renders and logins start a session. Also confirm the
-  `[COSMIC-POLKIT]` agent presents a dialog (mount a disk in cosmic-files /
-  trigger a polkit prompt). The greeter background the other desktops get via
-  `[LIGHTDM-GREETER-BG]` does not apply (cosmic-greeter is not lightdm; it
-  reads the system COSMIC wallpaper theme through cosmic-bg).
+## COSMIC + cosmic-greeter DM: greetd path RUNS but renders grey (validated 2026-09-05)
+- Live validity run of the Beta-v2.9.10 `[COSMIC-GREETER-DM]` recipe via
+  `~/fix-cosmic-greeter.sh` on a real Beta-v2.9.9 COSMIC box. Result: the
+  greetd-hosted path LAUNCHES cleanly — greetd session-worker 11,
+  `cosmic-comp cosmic-greeter`, Xwayland :0 and the `cosmic-greeter` app are
+  all alive as `_cosmicgreeter` on VT 1 — but tty1 shows only a grey
+  wallpaper + mouse cursor, NO login UI. Greeter app runs but doesn't draw its
+  user list / login panel. STILL OPEN (render bug).
+- DONE — Beta-v2.9.11 `[COSMIC-GREETER-LOG]`: `/etc/sv/cosmic-greeter/log` and
+  `/etc/sv/cosmic-greeter-daemon/log` were created with NO `run` script, so
+  runsv spammed `fatal: unable to start log/./run: file does not exist` and no
+  svlogd logging survived a reboot. The installer now writes a standard Void
+  svlogd `log/run` (`exec svlogd -tt /var/log/<svc>`, root-owned 0750 log dir)
+  under BOTH services. The box-side `~/fix-cosmic-greeter.sh` still needs the
+  same two `log/run` bodies (copy them from the installer's cosmic-greeter
+  branch) or its greeter/compositor output will remain uncaptured.
+- Next debugging step: re-provision the logger runs on the box, capture
+  `cosmic-greeter`/`cosmic-comp` output, and determine whether the missing
+  element is accountsservice UI population (accounts-daemon is linked) or the
+  greeter theme/wallpaper only. Per the old grub branch of this story, test
+  logging in blind is not possible (no UI); instead capture
+  `cosmic-greeter`/`cosmic-comp` output. Confirm logins start a session and
+  the `[COSMIC-POLKIT]` agent dialog appears.

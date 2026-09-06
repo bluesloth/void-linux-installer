@@ -424,14 +424,14 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.10"
+SCRIPT_VERSION="Beta-v2.9.11"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
 # overflow; the minor never carries into the major unless the author makes an
 # explicit major bump. The lineage is split into named eras carrying their
 # own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x), so each era reads
-# monotonic and the current release (Beta-v2.9.10) always carries the highest
+# monotonic and the current release (Beta-v2.9.11) always carries the highest
 # numbering. See Debug/version-renumber-map.txt for the authoritative
 # OLD->NEW mapping recovered from the Debug/Old Versions/ artifacts.
 
@@ -510,7 +510,8 @@ SCRIPT_VERSION="Beta-v2.9.10"
 #     Beta-v2.9.7    [BROWSER-GATE-NO]; "Set up web browsers now?" now defaults to No
 #     Beta-v2.9.8    [GREETER-BG-TIMING]; lightdm greeter-bg search moved after the desktop install
 #     Beta-v2.9.9    [MATE-TERMINAL];[MATE-AUDIO];[XFC-VOLUME];[LXQT-EDITOR] — DE metapackage gap fixes
-#     Beta-v2.9.10   [COSMIC-GREETER-DM];[COSMIC-POLKIT] — cosmic-greeter greetd-hosted DM provisioning; COSMIC polkit agent  (current)
+#     Beta-v2.9.10   [COSMIC-GREETER-DM];[COSMIC-POLKIT] — cosmic-greeter greetd-hosted DM provisioning; COSMIC polkit agent
+#     Beta-v2.9.11   [COSMIC-GREETER-LOG] — svlogd log/run for the cosmic-greeter greetd-DM stack  (current)
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -7723,6 +7724,14 @@ fi
 #   - /etc/sv/cosmic-greeter-daemon/run -> cosmic-greeter-daemon, owning
 #     /run/cosmic-greeter for _cosmicgreeter
 #   - /etc/greetd/cosmic-greeter.toml   -> deterministic greetd config
+#   - log/run (svlogd) under BOTH services. AI (Big Pickle) FIX — Beta-v2.9.11
+#     [COSMIC-GREETER-LOG]: the log/ dirs were created but had no run script,
+#     so runsv spammed "fatal: unable to start log/./run" and no greeter output
+#     survived a reboot — the living-validation run (2026-09-05) showed the
+#     greetd stack launches but renders grey with no UI, and the missing
+#     logging was hiding exactly the evidence needed to debug that. Each
+#     service now writes a standard Void svlogd log/run (root-owned syslog
+#     dir; both services exec as root).
 # The packaged services shipped by older cosmic-greeter revisions (1.2.0-era)
 # predate the daemon/greetd hosting and would otherwise leave a broken link.
 if [ "$DISPLAY_MANAGER" = "cosmic-greeter" ]; then
@@ -7760,6 +7769,12 @@ sv check elogind >/dev/null || exit 1
 exec greetd -c /etc/greetd/cosmic-greeter.toml
 INNER_EOF
     chmod 0755 /etc/sv/cosmic-greeter/run
+    install -d -m0750 -o root -g root /var/log/cosmic-greeter
+    cat > /etc/sv/cosmic-greeter/log/run << 'INNER_EOF'
+#!/bin/sh
+exec svlogd -tt /var/log/cosmic-greeter
+INNER_EOF
+    chmod 0755 /etc/sv/cosmic-greeter/log/run
     mkdir -p /etc/sv/cosmic-greeter-daemon/log
     cat > /etc/sv/cosmic-greeter-daemon/run << 'INNER_EOF'
 #!/bin/sh
@@ -7769,6 +7784,12 @@ install -d -m0755 -o _cosmicgreeter -g _cosmicgreeter /run/cosmic-greeter
 exec cosmic-greeter-daemon
 INNER_EOF
     chmod 0755 /etc/sv/cosmic-greeter-daemon/run
+    install -d -m0750 -o root -g root /var/log/cosmic-greeter-daemon
+    cat > /etc/sv/cosmic-greeter-daemon/log/run << 'INNER_EOF'
+#!/bin/sh
+exec svlogd -tt /var/log/cosmic-greeter-daemon
+INNER_EOF
+    chmod 0755 /etc/sv/cosmic-greeter-daemon/log/run
     echo "WARNING: cosmic-greeter was chosen as the display manager. Selecting it is your" >&2
     echo "         explicit at-own-risk choice of a third-party-repo greeter; rc.local links" >&2
     echo "         both the greetd-hosted cosmic-greeter and cosmic-greeter-daemon services." >&2
