@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.12** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.13** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -29,7 +29,7 @@ Current version: **Beta-v2.9.12** (`SCRIPT_VERSION` in the script).
 >   3.0.112GC) and the tracked `v3.1.0-beta1` … `v3.3.0-beta33` releases
 >   are mapped into a continuous sequential Beta-v numbering per
 >   `Debug/version-renumber-map.txt`. Every release within the Beta era
-> gets a unique number, and the current release (`Beta-v2.9.12`) is always
+> gets a unique number, and the current release (`Beta-v2.9.13`) is always
 >   the highest — preserving the monotonicity invariant.
 > - The old `v3.x` labels are preserved inline (`was v3.x` in headings and
 >   `version-renumber-map.txt`) for `[TAG]`-marker traceability, but the
@@ -68,6 +68,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.10** | `[COSMIC-GREETER-DM]`/`[COSMIC-POLKIT]` — cosmic-greeter is provisioned as a greetd-hosted DM (it is a greetd frontend that runs inside `cosmic-comp`, not a standalone DM — a Beta-v2.9.9 COSMIC install that chose it booted to a bare terminal with no login screen); COSMIC desktop gets a `polkit-gnome` privilege agent with a baked autostart entry (the metapackage pulls none) | Beta-v2.9.10 below |
 | **Beta-v2.9.11** | `[COSMIC-GREETER-LOG]` — svlogd `log/run` under both cosmic-greeter services (the log dirs existed but had no run script, so runsv spammed and no greeter output survived a reboot, hiding the live grey-screen evidence) | Beta-v2.9.11 below |
 | **Beta-v2.9.12** | `[COSMIC-GREETER-USER]` — the greeter account is now EXACTLY `cosmic-greeter` (never `_cosmicgreeter`): the binary dispatches greeter-DM vs silent-locker from the current username, and the template's `_cosmicgreeter` account shipped the bug that produced the dead grey screen (live-verified with WAYLAND_DEBUG; fix upside down: `usermod -l`) | Beta-v2.9.12 below |
+| **Beta-v2.9.13** | `[ACCTSVCS-ICON]` — the fresh user gets a real default avatar at `/var/lib/AccountsService/icons/<user>` (themed Adwaita `avatar-default`, Pop fallback, copied right after useradd), silencing greeter per-boot `failed to open icon ... NotFound`; `[COSMIC-POLKIT-GUARD]` — the COSMIC polkit agent's baked autostart now launches a session-ready guard (`/usr/local/sbin/cosmic-polkit-guard`) that waits for the compositor wl socket + reachable session bus then runs/respawns the agent, fixing the live `<host>` `<defunct>` zombie where the agent died before cosmic-comp/session-bus were up and no polkit dialog ever appeared | Beta-v2.9.13 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -438,6 +439,51 @@ service state are confirmed correct but the greeter still renders grey.
 **Validation:** `bash -n` passes; `Debug/check-heredocs.sh` extracts the two new
 `log/run` bodies and `bash -n`s them clean; `Debug/check-defaults.sh`
 unchanged.
+
+---
+
+## Beta-v2.9.13 — `[ACCTSVCS-ICON]` + `[COSMIC-POLKIT-GUARD]` (default AccountsService avatar; session-ready COSMIC polkit agent)
+
+`SCRIPT_VERSION = Beta-v2.9.13`. Two live `<host>` follow-ups to the Beta-v2.9.12
+login, both post-fix verification findings.
+
+**`[COSMIC-POLKIT-GUARD]` (polkit agent died at autostart → no dialogs).** With
+the greeter fixed and a real user session running on `<host>`, the reserved
+`[COSMIC-POLKIT]` verification finding surfaced: the polkit-gnome agent was a
+`<defunct>` **zombie** under cosmic-session — cosmic-session fired the baked
+autostart entry before the COSMIC compositor/session-bus was up, the agent
+exited instantly, and the session never respawned it, so GUI privilege prompts
+would hang with nothing to present. (Confirmed by test-running the identical
+binary with the live display-session env: it runs clean indefinitely — the
+autostart timing, not the agent, is the fault.) The installer now writes
+`/usr/local/sbin/cosmic-polkit-guard` (waits for the compositor-backed session:
+`$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY` socket + a `dbus-send` that answers on the
+session bus, then runs the real agent; respawns it on exit with a 2s settle so
+a late fire/crash self-heals) and points the baked COSMIC autostart entry at it.
+
+**`[ACCTSVCS-ICON]` (greeter logs `failed to open icon ... NotFound`).** The
+greeters — including cosmic-greeter-daemon on `<host>` — read the user's avatar
+from `/var/lib/AccountsService/icons/<username>`; a clean `useradd` never
+writes it and accounts-daemon does not synthesize one, so every boot logged an
+unhandled icon-open error for the current user. The installer now copies the
+themed `avatar-default` graphic (Adwaita's `scalable/status/avatar-default.svg`
+first, Pop's `avatar-default-symbolic.svg` as fallback — the same graphics the
+greeters already render for users with no icon) to
+`/var/lib/AccountsService/icons/<user>` right after `useradd`, before
+accountsservice's D-Bus write; best-effort (guarded on the icon file existing
+in the target, so a desktop whose icon set lacks it simply skips).
+
+**Residual (documented, unfixable from the installer):** the daemon's
+`errors loading cosmic-comp config: ... RonSpanned(ExpectedComma line 4)` is a
+parse failure inside the binary's **embedded default** config — no `config.ron`
+exists anywhere under the greeter home, `/root`, or the user's config
+(verified by `find / -name config.ron`), so provisioning a file cannot fix it.
+It repeats per start but is benign (this was already the recorded dead lead in
+TODO.md).
+
+**Validation:** `bash -n` passes; `Debug/check-heredocs.sh` extracts the new
+`/usr/local/sbin/cosmic-polkit-guard` body and `bash -n`s it clean;
+`Debug/check-defaults.sh` unchanged (no prompt surface touched).
 
 ---
 

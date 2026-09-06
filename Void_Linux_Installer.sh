@@ -163,6 +163,18 @@
 #     /usr/share/applications, so without the baked entry COSMIC would never
 #     start it — cosmic-session honors XDG autostart, verified via the session
 #     binary's "looking for autostart folders" / Desktop Entry parsing).
+#     Beta-v2.9.13 [COSMIC-POLKIT-GUARD]: that baked entry now launches a
+#     /usr/local/sbin/cosmic-polkit-guard wrapper that waits for a
+#     compositor-backed session (WAYLAND wl socket + reachable session bus)
+#     then runs the agent, and respawns it on exit — on `<host>` the raw binary
+#     died instantly at autostart (launched before cosmic-comp/session-bus
+#     were up), leaving a <defunct> zombie and NO polkit dialog.
+#     Beta-v2.9.13 [ACCTSVCS-ICON]: the fresh user also gets a default avatar
+#     copied to /var/lib/AccountsService/icons/<user> (the themed Adwaita
+#     `avatar-default`, Pop fallback — the same graphics greeters already
+#     render by default) right after useradd, silencing the greeter's per-boot
+#     `failed to open icon ... NotFound` error and giving greeters a real
+#     avatar instead of an empty placeholder.
 #     `wayland`/`wayland-protocols` are still installed unconditionally
 #     for all options (cheap, harmless, future-proofing).
 #     Display manager (Beta-v2.4.0) is an independent choice, $DISPLAY_MANAGER:
@@ -424,14 +436,14 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.12"
+SCRIPT_VERSION="Beta-v2.9.13"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
 # overflow; the minor never carries into the major unless the author makes an
 # explicit major bump. The lineage is split into named eras carrying their
 # own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x), so each era reads
-# monotonic and the current release (Beta-v2.9.12) always carries the highest
+# monotonic and the current release (Beta-v2.9.13) always carries the highest
 # numbering. See Debug/version-renumber-map.txt for the authoritative
 # OLD->NEW mapping recovered from the Debug/Old Versions/ artifacts.
 
@@ -513,7 +525,9 @@ SCRIPT_VERSION="Beta-v2.9.12"
 #     Beta-v2.9.10   [COSMIC-GREETER-DM];[COSMIC-POLKIT] — cosmic-greeter greetd-hosted DM provisioning; COSMIC polkit agent
 #     Beta-v2.9.11   [COSMIC-GREETER-LOG] — svlogd log/run for the cosmic-greeter greetd-DM stack
 #     Beta-v2.9.12   [COSMIC-GREETER-USER] — greeter account is exactly `cosmic-greeter` (never `_cosmicgreeter`);
-#                     the binary picks greeter-DM vs silent locker from the current username  (current)
+#                     the binary picks greeter-DM vs silent locker from the current username
+#     Beta-v2.9.13   [ACCTSVCS-ICON];[COSMIC-POLKIT-GUARD] — default AccountsService avatar provisioned for the
+#                     fresh user; the COSMIC polkit agent is launched through a session-ready guard  (current)
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -4024,6 +4038,29 @@ USER_GROUPS="adm,video,audio"
 [ "$INSTALL_VIRT" = "true" ] && USER_GROUPS="${USER_GROUPS},kvm,libvirt"
 useradd -m -G "$USER_GROUPS" -s "$USER_SHELL" -c "${TARGET_FULL_NAME:-$TARGET_USER}" "$TARGET_USER"
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.13 [ACCTSVCS-ICON]: give the user's
+# org.freedesktop.Accounts entry a real default avatar. The COSMIC greeter
+# (and the LightDM Slick/GTK greeters) read the user's icon from
+# /var/lib/AccountsService/icons/<username>; a clean useradd never writes it,
+# and accounts-daemon does not synthesize one, so on `<host>` the greeter logged
+# `failed to open icon ".../icons/<user>": NotFound` at every startup. No
+# first-boot rc.local path runs before the greeter, so the icon is provisioned
+# here, right after useradd. The source is the themed `avatar-default` graphic
+# from the desktop's fallback icon set — Adwaita first (present wherever GTK
+# is, and what light/dark greeters already render by default), then Pop
+# (COSMIC's Pop theme, which overrides Adwaita). Absent both, the copy is
+# simply skipped and the greeter falls back to its own drawn placeholder.
+if [ -n "${TARGET_USER:-}" ]; then
+    _acct_icon_src="/usr/share/icons/Adwaita/scalable/status/avatar-default.svg"
+    [ -f "$_acct_icon_src" ] || _acct_icon_src="/usr/share/icons/Pop/scalable/status/avatar-default-symbolic.svg"
+    if [ -f "$_acct_icon_src" ]; then
+        mkdir -p /var/lib/AccountsService/icons 2>/dev/null || true
+        cp "$_acct_icon_src" "/var/lib/AccountsService/icons/${TARGET_USER}"
+        chmod 0644 "/var/lib/AccountsService/icons/${TARGET_USER}"
+    fi
+    unset _acct_icon_src
+fi
+
 # AI (Big Pickle) ADDITION — Beta-v2.5.4 [ZSHRC]: when zsh is the login
 # shell, pre-create a minimal ~/.zshrc so the user's first interactive
 # session doesn't dump them into zsh's zsh-newuser-install wizard. Void's
@@ -4745,18 +4782,47 @@ case "$DESKTOP_ENV" in
             [ -x "$_pg_cand" ] && { _pg_auth_bin="$_pg_cand"; break; }
         done
         if [ -n "$_pg_auth_bin" ]; then
-            mkdir -p /etc/xdg/autostart
+            mkdir -p /usr/local/sbin /etc/xdg/autostart
+            # AI (Big Pickle) FIX — Beta-v2.9.13 [COSMIC-POLKIT-GUARD]: on
+            # `<host>`, cosmic-session fired this autostart entry before the
+            # COSMIC compositor/session-bus was up — the agent died instantly
+            # and the session never respawned it, leaving polkit auth (a
+            # <defunct> zombie under cosmic-session) with no dialog. The body
+            # is launched through a guard that waits for a compositor-backed
+            # session (WAYLAND_DISPLAY socket + reachable session bus) before
+            # running the real agent, and respawns it if it dies, so a
+            # late-fire or a crash self-heals instead of dying once.
+            cat > /usr/local/sbin/cosmic-polkit-guard << 'GUARD_EOF'
+#!/bin/sh
+set -u
+# AI (Big Pickle) — Beta-v2.9.13 [COSMIC-POLKIT-GUARD]
+_agent="__PG_AUTH_BIN__"
+_wl_sock="${XDG_RUNTIME_DIR:-/run/user/0}/${WAYLAND_DISPLAY:-wayland-1}"
+_ready=0
+while [ "$_ready" -eq 0 ]; do
+    [ -S "$_wl_sock" ] || { sleep 1; continue; }
+    dbus-send --session --dest=org.freedesktop.DBus --type=method_call \
+        --print-reply / org.freedesktop.DBus.ListNames >/dev/null 2>&1 || \
+        { sleep 1; continue; }
+    _ready=1
+done
+while :; do
+    "$_agent" || { sleep 2; continue; }
+    sleep 2
+done
+GUARD_EOF
+            sed -i "s|__PG_AUTH_BIN__|${_pg_auth_bin}|" /usr/local/sbin/cosmic-polkit-guard
+            chmod 0755 /usr/local/sbin/cosmic-polkit-guard
             cat > /etc/xdg/autostart/polkit-gnome-authentication-agent-1.desktop << 'INNER_EOF'
 [Desktop Entry]
 Name=PolicyKit Authentication Agent
 Comment=PolicyKit Authentication Agent
-Exec=__PG_AUTH_BIN__
+Exec=/usr/local/sbin/cosmic-polkit-guard
 Terminal=false
 Type=Application
 Categories=
 NoDisplay=true
 INNER_EOF
-            sed -i "s|__PG_AUTH_BIN__|${_pg_auth_bin}|" /etc/xdg/autostart/polkit-gnome-authentication-agent-1.desktop
         else
             echo "WARNING: polkit-gnome agent binary not found — COSMIC privilege prompts will hang." >&2
         fi

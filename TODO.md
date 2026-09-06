@@ -78,3 +78,32 @@
 - NEXT (retain as post-fix verification): confirm a login from the now-visible
   COSMIC greeter actually starts the `[COSMIC-GREETER-DM]` session and the
   `[COSMIC-POLKIT]` agent dialog appears.
+- **POST-FIX VERIFICATION (resolved, 2026-09-06, Beta-v2.9.13):** login works —
+  full COSMIC session starts (greetd session-worker → `dbus-run-session
+  cosmic-session`), greeter account/services/logs all healthy. BUT the polkit
+  agent was a `<defunct>` zombie: cosmic-session autostarted it before
+  cosmic-comp/session-bus was up and it died once (verified by test-running
+  the binary with the live session env — it runs clean indefinitely; the
+  timing is the fault). Beta-v2.9.13 `[COSMIC-POLKIT-GUARD]` now launches the
+  agent via `/usr/local/sbin/cosmic-polkit-guard` which waits for the
+  compositor socket + reachable session bus and respawns on exit.
+  Beta-v2.9.13 `[ACCTSVCS-ICON]` clears the other log noise: a real default
+  avatar (Adwaita/Pop `avatar-default`) is now provisioned at
+  `/var/lib/AccountsService/icons/<user>` right after useradd. Residual,
+  unfixable from the installer (documented): the daemon's
+  `config.ron ExpectedComma` error parses the binary's EMBEDDED default — no
+  `config.ron` exists anywhere (greeter home, /root, user config) to provision.
+- **APPLIED LIVE on `<host>` (2026-09-06 ~17:10 EDT, Beta-v2.9.13):**
+  `/usr/local/sbin/cosmic-polkit-guard` written (agent baked in), autostart
+  .desktop repointed at it, and
+  `cp /usr/share/icons/Adwaita/scalable/status/avatar-default.svg /var/lib/AccountsService/icons/<user>`.
+  Verified: `sv restart cosmic-greeter-daemon` → the per-boot
+  `failed to open icon <user>` ERROR is **gone** (residual log now only the
+  WARN journald line); a session-context guard launch produced a **live**
+  `/usr/libexec/polkit-gnome-authentication-agent-1` (STAT Sl, not zombie)
+  connected to both the session bus and polkitd. The old `<defunct>` 2206
+  remains until logout (cosmic-session never reaps it — harmless). Next
+  reboot/login will exercise the guard through the autostart path;
+  confirm a real polkit dialog then (the earlier `timeout 4` test-run
+  already proved the binary runs clean indefinitely given session env, so
+  the guard's only job is correct timing/respawn).

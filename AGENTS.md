@@ -222,7 +222,8 @@ Known regressions that have already broken a real install:
   the whole file. If shellcheck is absent, `bash -n` plus a manual read of
   any changed pipeline is the fallback.
 - The generated helper scripts under `/usr/local/sbin`
-  (`void-limine-env.inc`, `void-limine-write-conf`, `void-limine-sync-kernels`),
+  (`void-limine-env.inc`, `void-limine-write-conf`, `void-limine-sync-kernels`,
+  and — Beta-v2.9.13 `[COSMIC-POLKIT-GUARD]` — `cosmic-polkit-guard`),
   the re-runnable maintenance tools under `/root/tools` (`void-xbps-snap`
   canonical copy, `re-shadow-xbps.sh`, `limine-sync.sh`,
   `re-provision-snapper.sh`),
