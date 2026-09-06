@@ -1,5 +1,37 @@
 # TODO / Open Items
 
+## >>> PICKUP HERE — COSMIC grey-screen, reboot in progress (2026-09-06 ~09:00 EDT) <<<
+- Machine is `<host>` (AMD HawkPoint/amdgpu, eDP-1 1920x1200). Repo is on the
+  USB this machine hosts; scripts + logs live on the box's own disk and
+  SURVIVE reboot: `~/fix-cosmic-greeter.sh`, `~/cosmic-greeter-diagnose.sh`,
+  `/var/log/cosmic-greeter-session.log`, `/var/log/cosmic-greeter-triage.txt`,
+  `/var/log/cosmic-greeter-diagnose.txt`, `/var/log/cosmic-greeter{,-daemon}/current`.
+- BOUNDARY DECISION MADE IMMEDIATELY BEFORE REBOOT: the `config.ron` /
+  `ExpectedComma line 4` lead is DEAD — no `/root/.config/cosmic-comp` exists,
+  no `config.ron` exists anywhere (only `/var/lib/cosmic-greeter/.local/state/
+  cosmic-comp/outputs.ron` and pop-launcher's) — that error comes from bundled
+  in-binary defaults, not disk. Vulkan is fully absent: no `libvulkan.so.1`,
+  only `libvulkan_virtio.so` + virtio ICDs; the radv driver lives in the SEPARATE
+  Void package `mesa-vulkan-radeon`, which is NOT installed (`mesa` metapackage
+  doesn't pull it). The 12:30:13 `Failed to commit on clear_state ... /dev/dri/
+  card0 (Permission denied)` in the session log is an ARTIFACT of the
+  in-place-restart debugging (user session 2 held the seat/DRM master on tty2);
+  a fresh boot leaves `_cosmicgreeter` as the sole seat session, which is the
+  ONLY reproducible reproduction of the grey screen.
+- THE PLAN RIGHT AFTER THIS REBOOT:
+  1. Let it boot to the grey screen on tty1 (do NOT log into tty2 first).
+  2. Run `sudo bash ~/cosmic-greeter-diagnose.sh` (note: it overwrites
+     `/var/log/cosmic-greeter-diagnose.txt`), then read that txt — the boot-time
+     `cosmic-greeter-session.log` capture is the key artifact.
+  3. If boot-time errors are missing/clean, apply the Vulkan avenue:
+     `sudo xbps-install -Sy vulkan-loader mesa-vulkan-radeon` then
+     `sudo sv restart cosmic-greeter` (or reboot).
+  The re-runnable `Debug/Cosmic-Greeter/fix-cosmic-greeter.sh` and
+  `cosmic-greeter-diagnose.sh` are now saved in THIS repo (not just on the box).
+- Session logs live in `Debug/Cosmic-Greeter/` here (diagnose + triage + session
+  log snapshots synced at 08:57). Worker scripts: `Debug/Cosmic-Greeter/
+  fix-cosmic-greeter.sh`, `cosmic-greeter-diagnose.sh`.
+
 ## MATE + Slick greeter still black (real Beta-v2.9.8 MATE install)
 - Slick greeter shows a black login screen despite the Beta-v2.9.8
   `[GREETER-BG-TIMING]` fix (block moved after the desktop install,
@@ -40,10 +72,29 @@
   under BOTH services. The box-side `~/fix-cosmic-greeter.sh` still needs the
   same two `log/run` bodies (copy them from the installer's cosmic-greeter
   branch) or its greeter/compositor output will remain uncaptured.
-- Next debugging step: re-provision the logger runs on the box, capture
-  `cosmic-greeter`/`cosmic-comp` output, and determine whether the missing
-  element is accountsservice UI population (accounts-daemon is linked) or the
-  greeter theme/wallpaper only. Per the old grub branch of this story, test
-  logging in blind is not possible (no UI); instead capture
-  `cosmic-greeter`/`cosmic-comp` output. Confirm logins start a session and
-  the `[COSMIC-POLKIT]` agent dialog appears.
+- DONE — live diagnosis on the box (2026-09-06, greeter was/alive grey):
+  * accounts-daemon is supervised and `org.freedesktop.Accounts.ListCachedUsers`
+    returns `User1000` — the accounts UI-population hypothesis is REFUTED; the
+    greeter can enumerate users.
+  * The grey is cosmic-comp itself: it composites (grey background + cursor)
+    via Mesa LLVMPIPE software fallback — there is NO Vulkan loader
+    (`libvulkan.so.1` absent) and NO AMD Vulkan ICD (only the virtio stub ICD
+    is installed) on this HawkPoint/amdgpu box. So compositing works, but the
+    greeter app's OWN login panel (an iced/wgpu client; the binary also embeds
+    `iced_tiny_skia`) never maps as a Wayland layer. The greeter app process is
+    alive, owns `com.system76.CosmicGreeter` on the system bus, and is a
+    connected Wayland client — so its environment is fine and its render/UI
+    startup is failing silently (stderr was previously dropped by the
+    bare `log/` dirs; the daemon's `log/` had no run at all).
+  * Secondary avenue: install `vulkan-loader mesa-vulkan-radeon` (radeonsi
+    ICD) and retest; cosmic-comp prefers a real Vulkan device to LLVMPIPE.
+    Not strictly required (LLVMPIPE ran), but worth ruling out.
+- NEXT: run the updated `~/fix-cosmic-greeter.sh` (now writes both svlogd
+  `log/run` bodies and restarts both services) and read
+  `/var/log/cosmic-greeter/current` + `/var/log/cosmic-greeter-daemon/current`
+  ~10s after the restart for the iced/wgpu surface/adapter errors. Determine
+  why the iced login panel fails to surface as a layer; only then decide
+  whether a restart-only workaround (relaunch greeter after cosmic-comp is up,
+  add a session bus, grant the greeter VT) or an installer code change is
+  warranted. Confirm logins start a session and the `[COSMIC-POLKIT]` agent
+  dialog appears.
