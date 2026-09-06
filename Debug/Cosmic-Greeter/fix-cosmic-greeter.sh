@@ -1,152 +1,188 @@
 #!/bin/bash
-# fix-cosmic-greeter8.sh -- seatd debug probe v2: KEEP exec 2>&1 so -l debug reaches svlogd
-# root-only. Run: sudo bash ~/fix-cosmic-greeter8.sh
+# fix-cosmic-greeter9.sh -- Vulkan experiment + greeter-stderr readout
+# root-only. Run on the box with:
+#     sudo bash ~/fix-cosmic-greeter9.sh              # capture + install vulkan if absent + restart + verify
+#     sudo bash ~/fix-cosmic-greeter9.sh --check      # capture/report ONLY, no package install, no restart
 # md5 (4 copies): run  md5sum  on all copies and confirm equal BEFORE running.
 set -u
 
-triage="/var/log/cosmic-greeter-triage8.txt"
-debugfs_clients="/sys/kernel/debug/dri/0/clients"
-seatd_old_run="/etc/sv/seatd/run"
-seatd_debug_run="/etc/sv/seatd/run.fix8-debug"
-seatd_run_restored="no"
+triage="/var/log/cosmic-greeter-triage9.txt"
+check_only="no"
+if [ "${1:-}" = "--check" ]; then check_only="yes"; fi
 
-restore_seatd_run() {
-    if [ "$seatd_run_restored" = "no" ]; then
-        echo "[restore] restoring $seatd_old_run from $seatd_debug_run" | tee -a "$triage"
-        if [ -f "$seatd_debug_run" ]; then
-            cp -f "$seatd_debug_run" "$seatd_old_run"
-            chmod 0755 "$seatd_old_run" 2>/dev/null || true
-        else
-            echo "[restore] WARNING: $seatd_debug_run missing; seatd run left in debug state!" | tee -a "$triage"
-        fi
-        seatd_run_restored="yes"
-        sv restart seatd 2>&1 | tee -a "$triage"
-    fi
-}
-trap restore_seatd_run EXIT
+declare -a install_pkgs=("vulkan-loader" "mesa-vulkan-radeon" "vulkan-tools")
+install_missing="no"
 
 {
-    echo "=== triage8 $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+    echo "=== triage9 $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
     echo "--- intent ---"
-    echo "fix7 dropped 'exec 2>&1' from the debug run script, so seatd -l debug never"
-    echo "reached svlogd (step 7 died at 'seatd stopped'). This probe keeps exec 2>&1"
-    echo "and captures the seatd server's CLIENT_OPEN_DEVICE handling verbatim."
+    echo "triage8 proved seatd SERVES card0 to an ACTIVE client (no CLIENT_ACTIVE"
+    echo "EPERM) and cosmic received a dup of seatd's master file (drm-client-id 51"
+    echo "shared by seatd fd 18 and 4 cosmic fds). The CLIENT_ACTIVE gate lead is"
+    echo "DEAD. The grey background + cursor DO scan out on a clean boot; only the"
+    echo "iced/wgpu login panel fails to map, and this box has NO Vulkan at all"
+    echo " (no libvulkan.so.1, no radv ICD; mesa-vulkan-radeon not installed, only"
+    echo " the virtio stub ICD). So this probe (a) READ the greeter/compositor stderr"
+    echo " that Beta-v2.9.11's svlogd log/run finally survives, (b) checks the"
+    echo " Vulkan/GL stack, (c) installs the real Vulkan stack when missing,"
+    echo " (d) restarts the greeter and re-reads the logs to see if the adapter/"
+    echo " layer error is gone. DRM master is only revisited if the WARN +"
+    echo " Permission-denied commits persist WITH Vulkan present."
+    echo "mode: ${check_only}"
+    echo ""
+    echo "--- before: log trees readable ---"
+    chmod -R a+rX /var/log/cosmic-greeter /var/log/cosmic-greeter-daemon 2>/dev/null || true
+    chmod 0644 /var/log/cosmic-greeter-session.log 2>/dev/null || true
+    chmod -R a+rX /var/log/seatd 2>/dev/null || true
 
     echo ""
-    echo "--- before: current seatd run script ---"
-    cat "$seatd_old_run" 2>&1
-
-    echo ""
-    echo "--- step 1: enable seatd DEBUG loglevel (KEYS: exec 2>&1) ---"
-    seatd_run_restored="no"
-    cp -f "$seatd_old_run" "$seatd_debug_run" 2>/dev/null || true
-    printf '#!/bin/sh\nexec 2>&1\nexec /usr/bin/seatd -g _seatd -l debug\n' > "$seatd_old_run"
-    chmod 0755 "$seatd_old_run"
-    cat "$seatd_old_run"
-    # rotate log so we only see the debug run
-    sv t 2>/dev/null || true
-    sv restart seatd/log seatd 2>&1
-    sleep 2
-    sv status seatd 2>&1
-
-    echo ""
-    echo "--- step 2: restart the greeter stack (fresh libseat session) ---"
-    sv restart cosmic-greeter-daemon cosmic-greeter 2>&1
-    echo "waiting for cosmic-comp relaunch..."
-    for i in $(seq 1 30); do
-        pgrep -f 'cosmic-comp cosmic-greeter' >/dev/null 2>&1 && break
-        sleep 1
-    done
-    if pgrep -f 'cosmic-comp cosmic-greeter' >/dev/null 2>&1; then
-        echo "greeter relaunched; warming 12s for full device-open sequence..."
-        sleep 12
-    else
-        echo "WARNING: greeter did NOT relaunch" >&2
-    fi
-
-    echo ""
-    echo "--- step 3: identity snapshot (all cosmic-comp pids) ---"
-    echo "seatd pid:   $(pgrep -x seatd | head -1)"
-    echo "all cosmic-comp pids:"
-    pgrep -af 'cosmic-comp' 2>/dev/null || echo "  (pgrep found none)"
-    cosmic_pid=$(pgrep -f 'cosmic-comp cosmic-greeter' | tail -1)
-    echo "(cosmic pid used below: $cosmic_pid)"
-
-    echo ""
-    echo "--- step 4: /proc fd inventory (card0 fds) ---"
-    for label_pid in "seatd:$(pgrep -x seatd | head -1)" "cosmic:$cosmic_pid"; do
-        label="${label_pid%%:*}"
-        pid="${label_pid#*:}"
-        echo ""
-        echo "[$label pid=$pid]"
-        if [ -n "$pid" ] && [ -d "/proc/$pid/fd" ]; then
-            card0_fds=0
-            render_fds=0
-            for f in /proc/$pid/fd/*; do
-                tgt=$(readlink "$f" 2>/dev/null) || continue
-                fn=$(basename "$f")
-                case "$tgt" in
-                    /dev/dri/card*)
-                        card0_fds=$((card0_fds + 1))
-                        echo "  fd $fn -> $tgt"
-                        echo "  --- fdinfo fd $fn ---"
-                        cat "/proc/$pid/fdinfo/$fn" 2>&1 | grep -E 'pos|flags|ino|drm-driver|drm-client-id|drm-pdev|drm-memory|drm-engine|amd-' || echo "  (no fdinfo)"
-                        ;;
-                    /dev/dri/render*)
-                        render_fds=$((render_fds + 1))
-                        echo "  fd $fn -> $tgt (render node)"
-                        ;;
-                esac
-            done
-            echo "  TOTAL card0 fds: $card0_fds  render-nodes: $render_fds"
+    echo "--- 1. greeter/compositor stderr (svlogd current) — renderer lines ---"
+    for f in /var/log/cosmic-greeter/current /var/log/cosmic-greeter-daemon/current; do
+        echo "[$f]"
+        if [ -f "$f" ]; then
+            grep -aiE 'wgpu|iced|adapter|vulkan|egl|gl_|gl:|surface|renderer|render\b|error|panic|failed|unable|no suitable|no vulkan|libseat|drm' "$f" 2>/dev/null | tail -40 || echo "  (no matching lines)"
+            echo "[raw tail 12:]"
+            tail -n 12 "$f" 2>&1
         else
-            echo "  (no /proc/$pid/fd)"
+            echo "  (missing)"
         fi
     done
 
     echo ""
-    echo "--- step 5: DRM clients table (card0) ---"
-    cat "$debugfs_clients" 2>&1 || echo "(debugfs not available)"
-
-    echo ""
-    echo "--- step 6: LIBSEAT_BACKEND seen by cosmic-comp ---"
-    if [ -n "${cosmic_pid:-}" ] && [ -r "/proc/$cosmic_pid/environ" ]; then
-        tr '\0' '\n' < "/proc/$cosmic_pid/environ" | grep -iE 'LIBSEAT|SEATD|WAYLAND' || echo "  (no LIBSEAT/SEATD env vars seen)"
+    echo "--- 2. Vulkan/GL stack present? ---"
+    echo "[libvulkan:]"
+    ls -l /usr/lib/libvulkan.so* 2>&1 || echo "  NO libvulkan present"
+    echo "[ICD files:]"
+    ls -l /usr/share/vulkan/icd.d/ 2>&1 || echo "  (no icd.d dir)"
+    echo "[packages:]"
+    xbps-query -l 2>/dev/null | grep -iE 'vulkan|mesa|glvnd' || echo "  (xbps-query: none)"
+    echo "[vulkaninfo:]"
+    if command -v vulkaninfo >/dev/null 2>&1; then
+        vulkaninfo --summary 2>&1 | grep -iE 'deviceName|driverName|apiVersion|deviceType|GPU' | head -12 || echo "  (vulkaninfo ran but matched nothing)"
     else
-        echo "  (cannot read /proc/$cosmic_pid/environ)"
+        echo "  vulkan-tools NOT installed"
+    fi
+    echo "[cosmic env VK/EGL vars:]"
+    cosmic_pid=$(pgrep -f 'cosmic-comp cosmic-greeter' | tail -1)
+    if [ -n "${cosmic_pid:-}" ] && [ -r "/proc/$cosmic_pid/environ" ]; then
+        tr '\0' '\n' < "/proc/$cosmic_pid/environ" | grep -iE 'VK_|EGL_|GALLIUM_|LIBGL_|VULKAN' || echo "  (no VK/EGL env vars seen)"
+    else
+        echo "  (no cosmic-comp pid or cannot read /proc/$cosmic_pid/environ)"
     fi
 
     echo ""
-    echo "--- step 7: seatd DEBUG daemon log (FULL, from new svlogd current) ---"
-    echo "[svlogd files present:]"
-    ls -la /var/log/seatd/ 2>&1 || echo "  (cannot list)"
-    echo "[DEBUG log tail 150 lines:]"
-    tail -n 150 /var/log/seatd/current 2>&1 || echo "  (no seatd log)"
-    echo "[DEBUG log grep for device-open sequence:]"
-    grep -iE 'Opening device|Could not open|client is not active|set master|drm master|dup|SERVER_DEVICE_OPENED|reused|New client|Opened client|Removed client|Activating' /var/log/seatd/current 2>&1 | tail -40 || echo "  (no matching lines)"
+    echo "--- 3. DRM master / commit metrics BEFORE (session log) ---"
+    sess=/var/log/cosmic-greeter-session.log
+    sess_lines_before=0
+    if [ -f "$sess" ]; then
+        sess_lines_before=$(wc -l < "$sess" 2>/dev/null | tr -d ' ')
+        echo "[session log line count: $sess_lines_before]"
+        echo "[Unable to become drm master: $(grep -ac 'Unable to become drm master' "$sess" 2>/dev/null)]
+[clear_state Permission denied: $(grep -ac 'clear_state.*Permission denied\|Permission denied (os error 13)' "$sess" 2>/dev/null)]
+[libseat ENOTCONN panic: $(grep -ac 'ENOTCONN.*Transport endpoint is not connected' "$sess" 2>/dev/null)]"
+        echo "[DRM client table now:]"
+        cat /sys/kernel/debug/dri/0/clients 2>&1 || echo "  (debugfs not available)"
+    else
+        echo "  (no $sess)"
+    fi
 
     echo ""
-    echo "--- step 8: seatd socket peer PIDs (who is connected to seatd now) ---"
-    ss -xap 2>&1 | grep -i seatd || echo "  (ss shows no seatd peer)"
-    ls -l /proc/*/fd 2>/dev/null | grep '/run/seatd.sock' | sed -E 's#/proc/([0-9]+)/fd/[0-9]+#\1#' | sort -u | while read p; do echo "  pid $p has seatd.sock open: $(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null)"; done
+    echo "--- 4. decision ---"
+    icd_count=$(ls /usr/share/vulkan/icd.d/*.json 2>/dev/null | wc -l | tr -d ' ')
+    lib_count=$(ls /usr/lib/libvulkan.so* 2>/dev/null | wc -l | tr -d ' ')
+    echo "[ICD json files: $icd_count]  [libvulkan files: $lib_count]"
+    if [ "$icd_count" -ge 1 ] && [ "$lib_count" -ge 1 ]; then
+        echo "  Vulkan loader + >=1 ICD already present -> no install"
+    else
+        echo "  Vulkan stack MISSING (icd=$icd_count lib=$lib_count)"
+        install_missing="yes"
+    fi
+    echo ""
+
+    if [ "$check_only" = "no" ] && [ "$install_missing" = "yes" ]; then
+        echo "--- 5. install real Vulkan stack: ${install_pkgs[*]} ---"
+        for missing_pkg in "${install_pkgs[@]}"; do
+            if ! xbps-query "$missing_pkg" >/dev/null 2>&1; then
+                echo "[will install] $missing_pkg (not currently installed)"
+            else
+                echo "[already installed] $missing_pkg"
+            fi
+        done
+        echo "--- running xbps-install -Sy -y ... ---"
+        xbps-install -Sy -y "${install_pkgs[@]}" 2>&1
+        echo "[xbps-install exit: $?]"
+        echo ""
+        echo "--- post-install stack check ---"
+        ls -l /usr/lib/libvulkan.so* 2>&1 || echo "  libvulkan: STILL MISSING"
+        ls -l /usr/share/vulkan/icd.d/ 2>&1 || echo "  icd.d: STILL MISSING/empty"
+        if command -v vulkaninfo >/dev/null 2>&1; then
+            vulkaninfo --summary 2>&1 | grep -iE 'deviceName|driverName|apiVersion|deviceType' | head -8 || echo "  vulkaninfo matched nothing"
+        fi
+        echo ""
+        echo "--- 6. restart the greeter stack (may pick up new ICDs) ---"
+        sv restart cosmic-greeter-daemon cosmic-greeter 2>&1
+        echo "waiting for cosmic-comp relaunch..."
+        for i in $(seq 1 30); do
+            pgrep -f 'cosmic-comp cosmic-greeter' >/dev/null 2>&1 && break
+            sleep 1
+        done
+        if pgrep -f 'cosmic-comp cosmic-greeter' >/dev/null 2>&1; then
+            echo "greeter relaunched; warming 12s for device-open/adapter init..."
+            sleep 12
+        else
+            echo "WARNING: greeter did NOT relaunch (capture evidence anyway)" >&2
+        fi
+    elif [ "$check_only" = "yes" ]; then
+        echo "--- 5-6. SKIPPED (--check: no install, no restart) ---"
+    else
+        echo "--- 5-6. SKIPPED (Vulkan stack already present; no restart without --force) ---"
+    fi
 
     echo ""
-    echo "--- step 9: greeter session log (FULL grep, not just tail) ---"
-    echo "[smithay/optain/master/device lines in whole log:]"
-    grep -aE 'smithay|optain|master|drm|Unable|FailedToOpenDevice|Failed to open device' /var/log/cosmic-greeter-session.log 2>&1 | tail -30 || echo "  (none)"
-    echo "[seatd/libseat/seat lines in whole log:]"
-    grep -aiE 'seatd|libseat|seat' /var/log/cosmic-greeter-session.log 2>&1 | tail -20 || echo "  (none)"
-    echo "[last 15 raw lines of session log:]"
-    tail -n 15 /var/log/cosmic-greeter-session.log 2>&1
-} 2>&1 | tee -a "$triage"
+    echo "--- 7. greeter/compositor stderr AFTER (renderer lines since restart) ---"
+    for f in /var/log/cosmic-greeter/current /var/log/cosmic-greeter-daemon/current; do
+        echo "[$f]"
+        if [ -f "$f" ]; then
+            grep -aiE 'wgpu|iced|adapter|vulkan|egl|surface|renderer|error|panic|failed|unable|no suitable|libseat|drm' "$f" 2>/dev/null | tail -30 || echo "  (no matching lines)"
+            echo "[raw tail 12:]"
+            tail -n 12 "$f" 2>&1
+        else
+            echo "  (missing)"
+        fi
+    done
+
+    echo ""
+    echo "--- 8. DRM master / commit metrics AFTER ---"
+    if [ -f "$sess" ]; then
+        sess_lines_after=$(wc -l < "$sess" 2>/dev/null | tr -d ' ')
+        echo "[session log new lines since before: $((sess_lines_after - sess_lines_before))]"
+        echo "[Unable to become drm master (total): $(grep -ac 'Unable to become drm master' "$sess" 2>/dev/null)]
+[clear_state Permission denied (total): $(grep -ac 'clear_state.*Permission denied\|Permission denied (os error 13)' "$sess" 2>/dev/null)]
+[libseat ENOTCONN panic (total): $(grep -ac 'ENOTCONN.*Transport endpoint is not connected' "$sess" 2>/dev/null)]"
+        echo "[new session-log lines:]"
+        if [ "$sess_lines_after" -gt "$sess_lines_before" ]; then
+            tail -n +$((sess_lines_before + 1)) "$sess" 2>/dev/null | tail -n 30 || true
+        else
+            echo "  (no new lines — session log did not rotate/grow; check /var/log/cosmic-greeter/current)"
+        fi
+    fi
+    echo ""
+    echo "--- 9. DRM client table AFTER ---"
+    cat /sys/kernel/debug/dri/0/clients 2>&1 || echo "  (debugfs not available)"
+} 2>&1 | tee "$triage"
 chmod 0644 "$triage"
 
 echo ""
 echo "================================================================"
 echo "Triage written to:  $triage"
-echo "KEY: seatd DEBUG lines decide the story:"
-echo "  'Opening device /dev/dri/card0 for client 1 on seat0' + master OK"
-echo "     -> seatd served the dup; cosmic's OWN open is the anomaly"
-echo "  'Could not open device: client is not active'"
-echo "     -> CLIENT_ACTIVE gate blocks the serve; cosmic falls back"
+echo "HOW TO READ:"
+echo "  Step 1/7 renderer lines: if the greeter app logged wgpu/Vulkan"
+echo "     adapter failures and they are GONE in step 7 after the install,"
+echo "     the missing Vulkan stack was the cause -> login panel should draw."
+echo "  Step 8: if 'Unable to become drm master' + 'clear_state Permission"
+echo "     denied' COUNTS CLIMB even with Vulkan present, DRM master is still"
+echo "     the blocker -> revisit which fd DrmDeviceFd wraps (id-55 self-open"
+echo "     vs id-51 seatd dup), do NOT re-open the CLIENT_ACTIVE gate."
+echo "  The ENOTCONN dispatch panic at startup is a seatd open_seat race,"
+echo "     tracked separately; ignore it unless rendering still fails."
 echo "================================================================"

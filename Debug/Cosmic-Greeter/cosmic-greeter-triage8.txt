@@ -1,0 +1,349 @@
+=== triage8 2026-09-06T19:19:48Z ===
+--- intent ---
+fix7 dropped 'exec 2>&1' from the debug run script, so seatd -l debug never
+reached svlogd (step 7 died at 'seatd stopped'). This probe keeps exec 2>&1
+and captures the seatd server's CLIENT_OPEN_DEVICE handling verbatim.
+
+--- before: current seatd run script ---
+#!/bin/sh
+exec 2>&1
+exec /usr/bin/seatd -g _seatd
+
+--- step 1: enable seatd DEBUG loglevel (KEYS: exec 2>&1) ---
+#!/bin/sh
+exec 2>&1
+exec /usr/bin/seatd -g _seatd -l debug
+ok: run: seatd/log: (pid 18528) 1s
+ok: run: seatd: (pid 18530) 1s
+run: seatd: (pid 18530) 3s; run: log: (pid 18528) 3s
+
+--- step 2: restart the greeter stack (fresh libseat session) ---
+ok: run: cosmic-greeter-daemon: (pid 18656) 0s
+ok: run: cosmic-greeter: (pid 18654) 0s
+waiting for cosmic-comp relaunch...
+greeter relaunched; warming 12s for full device-open sequence...
+
+--- step 3: identity snapshot (all cosmic-comp pids) ---
+seatd pid:   18530
+all cosmic-comp pids:
+18688 dbus-run-session -- cosmic-comp cosmic-greeter
+18706 cosmic-comp cosmic-greeter
+(cosmic pid used below: 18706)
+
+--- step 4: /proc fd inventory (card0 fds) ---
+
+[seatd pid=18530]
+  fd 18 -> /dev/dri/card0
+  --- fdinfo fd 18 ---
+pos:	0
+flags:	02504002
+ino:	296
+drm-driver:	amdgpu
+drm-client-id:	51
+drm-pdev:	0000:03:00.0
+drm-memory-vram:	32740 KiB
+drm-memory-gtt: 	12312 KiB
+drm-memory-cpu: 	0 KiB
+amd-evicted-vram:	0 KiB
+amd-requested-vram:	32740 KiB
+amd-requested-gtt:	12312 KiB
+drm-engine-gfx:	440098 ns
+drm-engine-compute:	135726 ns
+  TOTAL card0 fds: 1  render-nodes: 0
+
+[cosmic pid=18706]
+  fd 49 -> /dev/dri/card0
+  --- fdinfo fd 49 ---
+pos:	0
+flags:	02504002
+ino:	296
+drm-driver:	amdgpu
+drm-client-id:	51
+drm-pdev:	0000:03:00.0
+drm-memory-vram:	32740 KiB
+drm-memory-gtt: 	12312 KiB
+drm-memory-cpu: 	0 KiB
+amd-evicted-vram:	0 KiB
+amd-requested-vram:	32740 KiB
+amd-requested-gtt:	12312 KiB
+drm-engine-gfx:	440098 ns
+drm-engine-compute:	135726 ns
+  fd 50 -> /dev/dri/card0
+  --- fdinfo fd 50 ---
+pos:	0
+flags:	02504002
+ino:	296
+drm-driver:	amdgpu
+drm-client-id:	51
+drm-pdev:	0000:03:00.0
+drm-memory-vram:	32740 KiB
+drm-memory-gtt: 	12312 KiB
+drm-memory-cpu: 	0 KiB
+amd-evicted-vram:	0 KiB
+amd-requested-vram:	32740 KiB
+amd-requested-gtt:	12312 KiB
+drm-engine-gfx:	440098 ns
+drm-engine-compute:	135726 ns
+  fd 51 -> /dev/dri/card0
+  --- fdinfo fd 51 ---
+pos:	0
+flags:	02504002
+ino:	296
+drm-driver:	amdgpu
+drm-client-id:	51
+drm-pdev:	0000:03:00.0
+drm-memory-vram:	32740 KiB
+drm-memory-gtt: 	12312 KiB
+drm-memory-cpu: 	0 KiB
+amd-evicted-vram:	0 KiB
+amd-requested-vram:	32740 KiB
+amd-requested-gtt:	12312 KiB
+drm-engine-gfx:	440098 ns
+drm-engine-compute:	135726 ns
+  fd 57 -> /dev/dri/card0
+  --- fdinfo fd 57 ---
+pos:	0
+flags:	02504002
+ino:	296
+drm-driver:	amdgpu
+drm-client-id:	51
+drm-pdev:	0000:03:00.0
+drm-memory-vram:	32740 KiB
+drm-memory-gtt: 	12312 KiB
+drm-memory-cpu: 	0 KiB
+amd-evicted-vram:	0 KiB
+amd-requested-vram:	32740 KiB
+amd-requested-gtt:	12312 KiB
+drm-engine-gfx:	440098 ns
+drm-engine-compute:	135726 ns
+  TOTAL card0 fds: 4  render-nodes: 0
+
+--- step 5: DRM clients table (card0) ---
+             command  tgid dev master a   uid      magic                                                             name                   id
+               seatd 18530   0   y    y     0          0                                                          <unset>                   51
+            Xwayland 18739 128   n    n   988          0                                                          <unset>                   54
+         cosmic-comp 18706   0   n    n   988          0                                                          <unset>                   55
+
+--- step 6: LIBSEAT_BACKEND seen by cosmic-comp ---
+  (no LIBSEAT/SEATD env vars seen)
+
+--- step 7: seatd DEBUG daemon log (FULL, from new svlogd current) ---
+[svlogd files present:]
+total 16
+drwxr-x--- 1 root root    22 Sep  6 12:55 .
+drwxr-xr-x 1 root root   774 Sep  6 15:19 ..
+-rw-r--r-- 1 root root 12663 Sep  6 15:19 current
+-rw------- 1 root root     0 Sep  6 12:55 lock
+[DEBUG log tail 150 lines:]
+2026-09-06_16:55:16.85034 00:00:00.000 [INFO] [seatd/seat.c:48] Created VT-bound seat seat0
+2026-09-06_16:55:16.85043 00:00:00.000 [INFO] [seatd/seatd.c:194] seatd started
+2026-09-06_16:55:17.26570 00:00:00.415 [INFO] [seatd/server.c:145] New client connected (pid: 11186, uid: 988, gid: 993)
+2026-09-06_16:55:17.26573 00:00:00.415 [INFO] [seatd/seat.c:248] Added client 1 to seat0
+2026-09-06_16:55:17.26577 00:00:00.415 [INFO] [seatd/seat.c:584] Opened client 1 on seat0
+2026-09-06_19:03:34.09292 02:08:17.240 [INFO] [seatd/seat.c:158] No clients on seat0 to activate
+2026-09-06_19:03:34.17514 02:08:17.324 [INFO] [seatd/seat.c:297] Removed client 1 from seat0
+2026-09-06_19:03:34.17517 02:08:17.324 [INFO] [seatd/seatd.c:218] seatd stopped
+2026-09-06_19:03:48.16472 00:00:00.000 [INFO] [seatd/seat.c:48] Created VT-bound seat seat0
+2026-09-06_19:03:48.16475 00:00:00.000 [INFO] [seatd/seatd.c:194] seatd started
+2026-09-06_19:03:48.37960 00:00:00.214 [INFO] [seatd/server.c:145] New client connected (pid: 17886, uid: 988, gid: 993)
+2026-09-06_19:03:48.37962 00:00:00.215 [INFO] [seatd/seat.c:248] Added client 1 to seat0
+2026-09-06_19:03:48.37965 00:00:00.215 [INFO] [seatd/seat.c:584] Opened client 1 on seat0
+2026-09-06_19:19:48.94794 00:16:00.783 [INFO] [seatd/seat.c:297] Removed client 1 from seat0
+2026-09-06_19:19:48.94808 00:16:00.783 [INFO] [seatd/seatd.c:218] seatd stopped
+2026-09-06_19:19:48.95034 00:00:00.000 [INFO] [seatd/seat.c:48] Created VT-bound seat seat0
+2026-09-06_19:19:48.95036 00:00:00.000 [INFO] [seatd/seatd.c:194] seatd started
+2026-09-06_19:19:49.15624 00:00:00.205 [INFO] [seatd/server.c:145] New client connected (pid: 18569, uid: 988, gid: 993)
+2026-09-06_19:19:49.15626 00:00:00.205 [INFO] [seatd/seat.c:248] Added client 1 to seat0
+2026-09-06_19:19:49.15627 00:00:00.206 [DEBUG] [common/terminal.c:196] Setting process switching to 1
+2026-09-06_19:19:49.15628 00:00:00.206 [DEBUG] [common/terminal.c:244] Setting KD keyboard state to 0
+2026-09-06_19:19:49.15629 00:00:00.206 [DEBUG] [common/terminal.c:271] Setting KD graphics state to 1
+2026-09-06_19:19:49.15630 00:00:00.206 [INFO] [seatd/seat.c:584] Opened client 1 on seat0
+2026-09-06_19:19:49.15766 00:00:00.207 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event14 for client 1 on seat0
+2026-09-06_19:19:49.15800 00:00:00.207 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event14 for client 1 on seat0
+2026-09-06_19:19:49.18169 00:00:00.231 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event15 for client 1 on seat0
+2026-09-06_19:19:49.18305 00:00:00.232 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event15 for client 1 on seat0
+2026-09-06_19:19:49.19785 00:00:00.247 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event5 for client 1 on seat0
+2026-09-06_19:19:49.19914 00:00:00.248 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event5 for client 1 on seat0
+2026-09-06_19:19:49.21480 00:00:00.264 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event6 for client 1 on seat0
+2026-09-06_19:19:49.21610 00:00:00.265 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event6 for client 1 on seat0
+2026-09-06_19:19:49.22460 00:00:00.274 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event3 for client 1 on seat0
+2026-09-06_19:19:49.22591 00:00:00.275 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event7 for client 1 on seat0
+2026-09-06_19:19:49.22670 00:00:00.276 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event8 for client 1 on seat0
+2026-09-06_19:19:49.22728 00:00:00.276 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event8 for client 1 on seat0
+2026-09-06_19:19:49.24136 00:00:00.291 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event9 for client 1 on seat0
+2026-09-06_19:19:49.24212 00:00:00.291 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event9 for client 1 on seat0
+2026-09-06_19:19:49.25879 00:00:00.308 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event10 for client 1 on seat0
+2026-09-06_19:19:49.27460 00:00:00.324 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event11 for client 1 on seat0
+2026-09-06_19:19:49.27510 00:00:00.324 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event12 for client 1 on seat0
+2026-09-06_19:19:49.27567 00:00:00.325 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event13 for client 1 on seat0
+2026-09-06_19:19:49.27603 00:00:00.325 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event13 for client 1 on seat0
+2026-09-06_19:19:49.29237 00:00:00.342 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event18 for client 1 on seat0
+2026-09-06_19:19:49.29341 00:00:00.343 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event18 for client 1 on seat0
+2026-09-06_19:19:49.30536 00:00:00.355 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event19 for client 1 on seat0
+2026-09-06_19:19:49.30643 00:00:00.356 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event19 for client 1 on seat0
+2026-09-06_19:19:49.32477 00:00:00.374 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event16 for client 1 on seat0
+2026-09-06_19:19:49.32942 00:00:00.379 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event17 for client 1 on seat0
+2026-09-06_19:19:49.33112 00:00:00.380 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event1 for client 1 on seat0
+2026-09-06_19:19:49.33173 00:00:00.381 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event2 for client 1 on seat0
+2026-09-06_19:19:49.33238 00:00:00.382 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event0 for client 1 on seat0
+2026-09-06_19:19:49.33351 00:00:00.383 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event4 for client 1 on seat0
+2026-09-06_19:19:49.33393 00:00:00.383 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event4 for client 1 on seat0
+2026-09-06_19:19:49.35392 00:00:00.403 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event20 for client 1 on seat0
+2026-09-06_19:19:49.35634 00:00:00.406 [DEBUG] [seatd/seat.c:331] Opening device /dev/dri/card0 for client 1 on seat0
+2026-09-06_19:19:51.33209 00:00:02.381 [INFO] [seatd/client.c:480] Client disconnected
+2026-09-06_19:19:51.33216 00:00:02.381 [DEBUG] [seatd/seat.c:481] Closing device /dev/dri/card0 for client 1 on seat0
+2026-09-06_19:19:52.20388 00:00:03.253 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event20 for client 1 on seat0
+2026-09-06_19:19:52.20753 00:00:03.257 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event0 for client 1 on seat0
+2026-09-06_19:19:52.21604 00:00:03.265 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event2 for client 1 on seat0
+2026-09-06_19:19:52.21986 00:00:03.269 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event1 for client 1 on seat0
+2026-09-06_19:19:52.22383 00:00:03.273 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event17 for client 1 on seat0
+2026-09-06_19:19:52.23949 00:00:03.289 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event16 for client 1 on seat0
+2026-09-06_19:19:52.25643 00:00:03.306 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event12 for client 1 on seat0
+2026-09-06_19:19:52.28144 00:00:03.331 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event11 for client 1 on seat0
+2026-09-06_19:19:52.28947 00:00:03.339 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event10 for client 1 on seat0
+2026-09-06_19:19:52.30678 00:00:03.356 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event7 for client 1 on seat0
+2026-09-06_19:19:52.33098 00:00:03.380 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event3 for client 1 on seat0
+2026-09-06_19:19:52.34301 00:00:03.392 [INFO] [seatd/seat.c:158] No clients on seat0 to activate
+2026-09-06_19:19:52.34303 00:00:03.392 [DEBUG] [seatd/seat.c:284] Closing active VT
+2026-09-06_19:19:52.34304 00:00:03.392 [DEBUG] [common/terminal.c:196] Setting process switching to 1
+2026-09-06_19:19:52.34305 00:00:03.392 [DEBUG] [common/terminal.c:244] Setting KD keyboard state to 1
+2026-09-06_19:19:52.34305 00:00:03.392 [DEBUG] [common/terminal.c:271] Setting KD graphics state to 0
+2026-09-06_19:19:52.34307 00:00:03.392 [INFO] [seatd/seat.c:297] Removed client 1 from seat0
+2026-09-06_19:19:52.34311 00:00:03.392 [INFO] [seatd/server.c:145] New client connected (pid: 18706, uid: 988, gid: 993)
+2026-09-06_19:19:52.34314 00:00:03.392 [INFO] [seatd/seat.c:248] Added client 1 to seat0
+2026-09-06_19:19:52.34316 00:00:03.392 [DEBUG] [common/terminal.c:196] Setting process switching to 1
+2026-09-06_19:19:52.34316 00:00:03.392 [DEBUG] [common/terminal.c:244] Setting KD keyboard state to 0
+2026-09-06_19:19:52.34318 00:00:03.392 [DEBUG] [common/terminal.c:271] Setting KD graphics state to 1
+2026-09-06_19:19:52.34321 00:00:03.392 [INFO] [seatd/seat.c:584] Opened client 1 on seat0
+2026-09-06_19:19:52.34615 00:00:03.395 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event14 for client 1 on seat0
+2026-09-06_19:19:52.34681 00:00:03.396 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event14 for client 1 on seat0
+2026-09-06_19:19:52.35826 00:00:03.407 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event15 for client 1 on seat0
+2026-09-06_19:19:52.35894 00:00:03.408 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event15 for client 1 on seat0
+2026-09-06_19:19:52.37143 00:00:03.421 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event5 for client 1 on seat0
+2026-09-06_19:19:52.37215 00:00:03.421 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event5 for client 1 on seat0
+2026-09-06_19:19:52.38015 00:00:03.429 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event6 for client 1 on seat0
+2026-09-06_19:19:52.38081 00:00:03.430 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event6 for client 1 on seat0
+2026-09-06_19:19:52.39331 00:00:03.443 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event3 for client 1 on seat0
+2026-09-06_19:19:52.39430 00:00:03.444 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event7 for client 1 on seat0
+2026-09-06_19:19:52.39509 00:00:03.444 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event8 for client 1 on seat0
+2026-09-06_19:19:52.39565 00:00:03.445 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event8 for client 1 on seat0
+2026-09-06_19:19:52.40773 00:00:03.457 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event9 for client 1 on seat0
+2026-09-06_19:19:52.40839 00:00:03.458 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event9 for client 1 on seat0
+2026-09-06_19:19:52.42530 00:00:03.474 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event10 for client 1 on seat0
+2026-09-06_19:19:52.44101 00:00:03.490 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event11 for client 1 on seat0
+2026-09-06_19:19:52.44148 00:00:03.491 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event12 for client 1 on seat0
+2026-09-06_19:19:52.44200 00:00:03.491 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event13 for client 1 on seat0
+2026-09-06_19:19:52.44231 00:00:03.492 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event13 for client 1 on seat0
+2026-09-06_19:19:52.45255 00:00:03.502 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event18 for client 1 on seat0
+2026-09-06_19:19:52.45317 00:00:03.502 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event18 for client 1 on seat0
+2026-09-06_19:19:52.46930 00:00:03.518 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event19 for client 1 on seat0
+2026-09-06_19:19:52.47064 00:00:03.520 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event19 for client 1 on seat0
+2026-09-06_19:19:52.48331 00:00:03.532 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event16 for client 1 on seat0
+2026-09-06_19:19:52.48902 00:00:03.538 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event17 for client 1 on seat0
+2026-09-06_19:19:52.49061 00:00:03.540 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event1 for client 1 on seat0
+2026-09-06_19:19:52.49120 00:00:03.540 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event2 for client 1 on seat0
+2026-09-06_19:19:52.49186 00:00:03.541 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event0 for client 1 on seat0
+2026-09-06_19:19:52.49297 00:00:03.542 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event4 for client 1 on seat0
+2026-09-06_19:19:52.49337 00:00:03.543 [DEBUG] [seatd/seat.c:481] Closing device /dev/input/event4 for client 1 on seat0
+2026-09-06_19:19:52.50528 00:00:03.554 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event20 for client 1 on seat0
+2026-09-06_19:19:52.50704 00:00:03.556 [DEBUG] [seatd/seat.c:331] Opening device /dev/dri/card0 for client 1 on seat0
+[DEBUG log grep for device-open sequence:]
+2026-09-06_19:19:49.24136 00:00:00.291 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event9 for client 1 on seat0
+2026-09-06_19:19:49.25879 00:00:00.308 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event10 for client 1 on seat0
+2026-09-06_19:19:49.27460 00:00:00.324 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event11 for client 1 on seat0
+2026-09-06_19:19:49.27510 00:00:00.324 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event12 for client 1 on seat0
+2026-09-06_19:19:49.27567 00:00:00.325 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event13 for client 1 on seat0
+2026-09-06_19:19:49.29237 00:00:00.342 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event18 for client 1 on seat0
+2026-09-06_19:19:49.30536 00:00:00.355 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event19 for client 1 on seat0
+2026-09-06_19:19:49.32477 00:00:00.374 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event16 for client 1 on seat0
+2026-09-06_19:19:49.32942 00:00:00.379 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event17 for client 1 on seat0
+2026-09-06_19:19:49.33112 00:00:00.380 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event1 for client 1 on seat0
+2026-09-06_19:19:49.33173 00:00:00.381 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event2 for client 1 on seat0
+2026-09-06_19:19:49.33238 00:00:00.382 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event0 for client 1 on seat0
+2026-09-06_19:19:49.33351 00:00:00.383 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event4 for client 1 on seat0
+2026-09-06_19:19:49.35392 00:00:00.403 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event20 for client 1 on seat0
+2026-09-06_19:19:49.35634 00:00:00.406 [DEBUG] [seatd/seat.c:331] Opening device /dev/dri/card0 for client 1 on seat0
+2026-09-06_19:19:52.34307 00:00:03.392 [INFO] [seatd/seat.c:297] Removed client 1 from seat0
+2026-09-06_19:19:52.34311 00:00:03.392 [INFO] [seatd/server.c:145] New client connected (pid: 18706, uid: 988, gid: 993)
+2026-09-06_19:19:52.34321 00:00:03.392 [INFO] [seatd/seat.c:584] Opened client 1 on seat0
+2026-09-06_19:19:52.34615 00:00:03.395 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event14 for client 1 on seat0
+2026-09-06_19:19:52.35826 00:00:03.407 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event15 for client 1 on seat0
+2026-09-06_19:19:52.37143 00:00:03.421 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event5 for client 1 on seat0
+2026-09-06_19:19:52.38015 00:00:03.429 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event6 for client 1 on seat0
+2026-09-06_19:19:52.39331 00:00:03.443 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event3 for client 1 on seat0
+2026-09-06_19:19:52.39430 00:00:03.444 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event7 for client 1 on seat0
+2026-09-06_19:19:52.39509 00:00:03.444 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event8 for client 1 on seat0
+2026-09-06_19:19:52.40773 00:00:03.457 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event9 for client 1 on seat0
+2026-09-06_19:19:52.42530 00:00:03.474 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event10 for client 1 on seat0
+2026-09-06_19:19:52.44101 00:00:03.490 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event11 for client 1 on seat0
+2026-09-06_19:19:52.44148 00:00:03.491 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event12 for client 1 on seat0
+2026-09-06_19:19:52.44200 00:00:03.491 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event13 for client 1 on seat0
+2026-09-06_19:19:52.45255 00:00:03.502 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event18 for client 1 on seat0
+2026-09-06_19:19:52.46930 00:00:03.518 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event19 for client 1 on seat0
+2026-09-06_19:19:52.48331 00:00:03.532 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event16 for client 1 on seat0
+2026-09-06_19:19:52.48902 00:00:03.538 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event17 for client 1 on seat0
+2026-09-06_19:19:52.49061 00:00:03.540 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event1 for client 1 on seat0
+2026-09-06_19:19:52.49120 00:00:03.540 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event2 for client 1 on seat0
+2026-09-06_19:19:52.49186 00:00:03.541 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event0 for client 1 on seat0
+2026-09-06_19:19:52.49297 00:00:03.542 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event4 for client 1 on seat0
+2026-09-06_19:19:52.50528 00:00:03.554 [DEBUG] [seatd/seat.c:331] Opening device /dev/input/event20 for client 1 on seat0
+2026-09-06_19:19:52.50704 00:00:03.556 [DEBUG] [seatd/seat.c:331] Opening device /dev/dri/card0 for client 1 on seat0
+
+--- step 8: seatd socket peer PIDs (who is connected to seatd now) ---
+u_str ESTAB  0      0                         /run/seatd.sock 123636            * 132473 users:(("seatd",pid=18530,fd=6))
+u_str LISTEN 0      16                        /run/seatd.sock 131647            * 0      users:(("seatd",pid=18530,fd=5))
+
+--- step 9: greeter session log (FULL grep, not just tail) ---
+[smithay/optain/master/device lines in whole log:]
+[2m2026-09-06T17:27:38.809236Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:34.243564Z[0m [31mERROR[0m [2mpanic[0m[2m:[0m thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Errno { code: 107, description: Some("Transport endpoint is not connected") }': /host/cargo/git/checkouts/smithay-312425d48e59d8c8/8eb4076/src/backend/session/libseat.rs:215
+[2m2026-09-06T19:03:34.245398Z[0m [33m WARN[0m [2msmithay::backend::drm::surface::atomic[0m[2m:[0m Unable to clear state: DRM access error: Failed to commit on clear_state on device `Some("/dev/dri/card0")` (Permission denied (os error 13))
+[2m2026-09-06T19:03:34.517150Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T19:03:34.599206Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:34.668713Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:34.673421Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:34.681292Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:37.671103Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T19:03:37.742238Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:37.814781Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:37.818043Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:37.820120Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:48.260396Z[0m [31mERROR[0m [2mpanic[0m[2m:[0m thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Errno { code: 107, description: Some("Transport endpoint is not connected") }': /host/cargo/git/checkouts/smithay-312425d48e59d8c8/8eb4076/src/backend/session/libseat.rs:215
+[2m2026-09-06T19:03:48.582875Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T19:03:48.648594Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:48.719212Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:48.724202Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:03:48.731966Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:19:49.053994Z[0m [31mERROR[0m [2mpanic[0m[2m:[0m thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Errno { code: 107, description: Some("Transport endpoint is not connected") }': /host/cargo/git/checkouts/smithay-312425d48e59d8c8/8eb4076/src/backend/session/libseat.rs:215
+[2m2026-09-06T19:19:49.356585Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T19:19:49.436977Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:19:49.508970Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:19:49.512936Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:19:49.515120Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:19:52.507213Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T19:19:52.593458Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:19:52.664881Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:19:52.668856Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:19:52.670836Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[seatd/libseat/seat lines in whole log:]
+[2m2026-09-06T19:03:34.243564Z[0m [31mERROR[0m [2mpanic[0m[2m:[0m thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Errno { code: 107, description: Some("Transport endpoint is not connected") }': /host/cargo/git/checkouts/smithay-312425d48e59d8c8/8eb4076/src/backend/session/libseat.rs:215
+[2m2026-09-06T19:03:48.260396Z[0m [31mERROR[0m [2mpanic[0m[2m:[0m thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Errno { code: 107, description: Some("Transport endpoint is not connected") }': /host/cargo/git/checkouts/smithay-312425d48e59d8c8/8eb4076/src/backend/session/libseat.rs:215
+[2m2026-09-06T19:19:49.053994Z[0m [31mERROR[0m [2mpanic[0m[2m:[0m thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Errno { code: 107, description: Some("Transport endpoint is not connected") }': /host/cargo/git/checkouts/smithay-312425d48e59d8c8/8eb4076/src/backend/session/libseat.rs:215
+[last 15 raw lines of session log:]
+[2m2026-09-06T19:19:52.670836Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T19:19:52.671653Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m errors loading cosmic-comp config: [GetKey("workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("pinned_workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_default", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_touchpad_override", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_devices", Os { code: 2, kind: NotFound, message: "No such file or directory" }), RonSpanned(SpannedError { code: ExpectedComma, span: Span { start: Position { line: 4, col: 11 }, end: Position { line: 4, col: 11 } } }), GetKey("keyboard_config", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile_behavior", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("active_hint", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("cursor_follows_focus", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor_delay", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("descale_xwayland", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("xwayland_eavesdropping", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("edge_snap_threshold", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("accessibility_zoom", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("appearance_settings", Os { code: 2, kind: NotFound, message: "No such file or directory" })]
+[2m2026-09-06T19:19:52.694799Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:19:52.695014Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:19:52.695011Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:19:52.695244Z[0m [33m WARN[0m [2mcosmic_greeter::upower[0m[2m:[0m upower error: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.UPower was not provided by any .service files
+[2m2026-09-06T19:19:53.697037Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:19:53.697160Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:19:53.697200Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:19:55.699136Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:19:55.699247Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[2m2026-09-06T19:19:55.699360Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:19:59.702296Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Mode
+[2m2026-09-06T19:19:59.702386Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTk
+[2m2026-09-06T19:19:59.702674Z[0m [31mERROR[0m [2mcosmic_config::dbus[0m[2m:[0m Failed to create watcher for com.system76.CosmicTheme.Dark
+[restore] restoring /etc/sv/seatd/run from /etc/sv/seatd/run.fix8-debug
+ok: run: seatd: (pid 19171) 0s
