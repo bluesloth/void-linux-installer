@@ -1,0 +1,231 @@
+===== cosmic-greeter DRM/seat diagnose: 2026-09-06 11:33:09 EDT =====
+host: <host>  uname: 7.2.3_1
+
+--- 1. libseat / seatd / elogind packages + linkage ---
+ii elogind-252.39_1                          Standalone logind fork
+ii libelogind-252.39_1                       Standalone logind fork - elogind library
+ii libseat-0.9.3_1                           Universal seat management library
+-- ldd cosmic-comp (seat-related) --
+	libseat.so.1 => /usr/lib/libseat.so.1 (0x00007fa2cb032000)
+	libelogind.so.0 => /usr/lib/libelogind.so.0 (0x00007fa2c8ff7000)
+-- seatd socket / service --
+ls: cannot access '/run/seatd.sock': No such file or directory
+ls: cannot access '/etc/sv/seatd': No such file or directory
+fail: seatd: unable to change to service directory: file does not exist
+
+--- 2. the greetd-launched greeter session environment ---
+(reading /proc/4261/environ — the dbus-run-session wrapper greetd spawned)
+-- XDG_*/DBUS/LIBSEAT/WAYLAND/DISPLAY --
+USER=_cosmicgreeter
+XDG_SEAT=seat0
+XDG_SESSION_TYPE=tty
+HOME=/var/lib/cosmic-greeter
+LOGNAME=_cosmicgreeter
+TERM=linux
+XDG_SESSION_ID=7
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+XDG_RUNTIME_DIR=/run/user/988
+LANG=en_US.UTF-8
+SHELL=/sbin/nologin
+XDG_VTNR=1
+XDG_DATA_DIRS=/var/lib/cosmic-greeter/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share:/usr/share
+-- @LIBSEAT search path override --
+(no LD_LIBRARY_PATH)
+
+--- 3. /run/user/988 (elogind runtime dir for _cosmicgreeter) ---
+total 0
+drwx------ 3 _cosmicgreeter _cosmicgreeter 140 Sep  6 11:19 .
+drwxr-xr-x 4 root           root            80 Sep  6 11:19 ..
+drwx------ 3 _cosmicgreeter _cosmicgreeter  60 Sep  6 11:19 dbus-1
+srwxr-xr-x 1 _cosmicgreeter _cosmicgreeter   0 Sep  6 11:19 wayland-1
+-rw-r----- 1 _cosmicgreeter _cosmicgreeter   0 Sep  6 11:19 wayland-1.lock
+srwxr-xr-x 1 _cosmicgreeter _cosmicgreeter   0 Sep  6 11:19 wayland-1-renderD128
+-rw-r----- 1 _cosmicgreeter _cosmicgreeter   0 Sep  6 11:19 wayland-1-renderD128.lock
+-- session bus / elogind artifacts --
+ls: cannot access '/run/user/988/bus': No such file or directory
+ls: cannot access '/run/user/988/systemd': No such file or directory
+
+--- 4. elogind sessions + greeter session detail ---
+SESSION  UID USER           SEAT  TTY
+      3 1000 <user>               pts/0
+      4 1000 <user>               pts/1
+      7  988 _cosmicgreeter seat0 tty1
+
+3 sessions listed.
+-- show each seat session --
+session 3 (uid=):
+Id=3
+User=1000
+Name=<user>
+VTNr=0
+Leader=1870
+Type=tty
+Class=user
+Active=yes
+State=active
+--
+session 4 (uid=):
+Id=4
+User=1000
+Name=<user>
+VTNr=0
+Leader=1892
+Type=tty
+Class=user
+Active=yes
+State=active
+--
+session 7 (uid=):
+Id=7
+User=988
+Name=_cosmicgreeter
+VTNr=1
+Seat=seat0
+Leader=4260
+Type=tty
+Class=greeter
+Active=yes
+State=active
+--
+-- seat status --
+seat0
+	Sessions: *7
+	 Devices:
+		  ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.0/drm/card0
+		  │ [MASTER] drm:card0
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.0/drm/card0/card0-DP-1
+		  │ │ [MASTER] drm:card0-DP-1
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.0/drm/card0/card0-DP-2
+		  │ │ [MASTER] drm:card0-DP-2
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.0/drm/card0/card0-DP-3
+		  │ │ [MASTER] drm:card0-DP-3
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.0/drm/card0/card0-DP-4
+		  │ │ [MASTER] drm:card0-DP-4
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.0/drm/card0/card0-DP-5
+		  │ │ [MASTER] drm:card0-DP-5
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.0/drm/card0/card0-DP-6
+		  │ │ [MASTER] drm:card0-DP-6
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.0/drm/card0/card0-HDMI-A-1
+		  │ │ [MASTER] drm:card0-HDMI-A-1
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.0/drm/card0/card0-Writeback-1
+		  │ │ [MASTER] drm:card0-Writeback-1
+		  │ └─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.0/drm/card0/card0-eDP-1
+		  │   [MASTER] drm:card0-eDP-1
+		  │   └─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.0/drm/card0/card0-eDP-1/amdgpu_bl0
+		  │     backlight:amdgpu_bl0
+		  ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.0/graphics/fb0
+		  │ graphics:fb0 "amdgpudrmfb"
+		  ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.1/sound/card0
+		  │ sound:card0 "Generic"
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.1/sound/card0/input16
+		  │ │ input:input16 "HD-Audio Generic HDMI/DP,pcm=3"
+		  │ └─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.1/sound/card0/input17
+		  │   input:input17 "HD-Audio Generic HDMI/DP,pcm=7"
+		  ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.3/usb1
+		  │ usb:usb1
+		  │ └─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.3/usb1/1-2
+		  │   usb:1-2
+		  ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.3/usb2
+		  │ usb:usb2
+		  ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.4/usb3
+		  │ usb:usb3
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.4/usb3/3-1/3-1:1.0/media0
+		  │ │ media:media0
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.4/usb3/3-1/3-1:1.0/video4linux/video0
+		  │ │ video4linux:video0 "HP 5MP Camera: HP 5MP Camera"
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.4/usb3/3-1/3-1:1.0/video4linux/video1
+		  │ │ video4linux:video1 "HP 5MP Camera: HP 5MP Camera"
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.4/usb3/3-1/3-1:1.2/media1
+		  │ │ media:media1
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.4/usb3/3-1/3-1:1.2/video4linux/video2
+		  │ │ video4linux:video2 "HP 5MP Camera: HP IR Camera"
+		  │ └─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.4/usb3/3-1/3-1:1.2/video4linux/video3
+		  │   video4linux:video3 "HP 5MP Camera: HP IR Camera"
+		  ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.4/usb4
+		  │ usb:usb4
+		  ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.5/acp_ps_mach/sound/card2
+		  │ sound:card2 "acp63"
+		  ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.6/sound/card1
+		  │ sound:card1 "Generic_1"
+		  │ ├─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.6/sound/card1/input22
+		  │ │ input:input22 "HD-Audio Generic Mic"
+		  │ └─/sys/devices/pci0000:00/0000:00:08.1/0000:03:00.6/sound/card1/input23
+		  │   input:input23 "HD-Audio Generic Headphone"
+		  ├─/sys/devices/pci0000:00/0000:00:08.1/acpi.video_bus.0/input/input3
+		  │ input:input3 "Video Bus"
+		  ├─/sys/devices/pci0000:00/0000:00:08.3/0000:05:00.3/usb5
+		  │ usb:usb5
+		  ├─/sys/devices/pci0000:00/0000:00:08.3/0000:05:00.3/usb6
+		  │ usb:usb6
+		  ├─/sys/devices/pci0000:00/0000:00:08.3/0000:05:00.4/usb7
+		  │ usb:usb7
+		  ├─/sys/devices/pci0000:00/0000:00:08.3/0000:05:00.4/usb8
+		  │ usb:usb8
+		  ├─/sys/devices/platform/AMDI0010:02/i2c-18/i2c-ELAN2514:00/0018:04F3:42C7.0002/input/input24
+		  │ input:input24 "ELAN2514:00 04F3:42C7"
+		  ├─/sys/devices/platform/AMDI0010:02/i2c-18/i2c-ELAN2514:00/0018:04F3:42C7.0002/input/input25
+		  │ input:input25 "ELAN2514:00 04F3:42C7 UNKNOWN"
+		  ├─/sys/devices/platform/AMDI0010:02/i2c-18/i2c-ELAN2514:00/0018:04F3:42C7.0002/input/input26
+		  │ input:input26 "ELAN2514:00 04F3:42C7 UNKNOWN"
+		  ├─/sys/devices/platform/AMDI0010:02/i2c-18/i2c-ELAN2514:00/0018:04F3:42C7.0002/input/input27
+		  │ input:input27 "ELAN2514:00 04F3:42C7 Stylus"
+		  ├─/sys/devices/platform/AMDI0010:02/i2c-18/i2c-ELAN2514:00/0018:04F3:42C7.0002/input/input28
+		  │ input:input28 "ELAN2514:00 04F3:42C7 Keyboard"
+		  ├─/sys/devices/platform/AMDI0010:02/i2c-18/i2c-ELAN2514:00/0018:04F3:42C7.0002/input/input29
+		  │ input:input29 "ELAN2514:00 04F3:42C7 Mouse"
+		  ├─/sys/devices/platform/AMDI0010:02/i2c-18/i2c-ELAN2514:00/0018:04F3:42C7.0002/input/input31
+		  │ input:input31 "ELAN2514:00 04F3:42C7 UNKNOWN"
+		  ├─/sys/devices/platform/AMDI0010:02/i2c-18/i2c-ELAN2514:00/0018:04F3:42C7.0002/input/input32
+		  │ input:input32 "ELAN2514:00 04F3:42C7 UNKNOWN"
+		  ├─/sys/devices/platform/AMDI0010:02/i2c-18/i2c-ELAN2514:00/0018:04F3:42C7.0002/input/input33
+		  │ input:input33 "ELAN2514:00 04F3:42C7 UNKNOWN"
+		  ├─/sys/devices/platform/AMDI0010:03/i2c-19/i2c-ELAN07EB:00/0018:04F3:32ED.0003/input/input35
+		  │ input:input35 "ELAN07EB:00 04F3:32ED Mouse"
+		  ├─/sys/devices/platform/AMDI0010:03/i2c-19/i2c-ELAN07EB:00/0018:04F3:32ED.0003/input/input37
+		  │ input:input37 "ELAN07EB:00 04F3:32ED Touchpad"
+		  ├─/sys/devices/platform/PNP0C0C:00/input/input1
+		  │ input:input1 "Power Button"
+		  ├─/sys/devices/platform/PNP0C0D:00/input/input2
+		  │ input:input2 "Lid Switch"
+		  ├─/sys/devices/platform/i8042/serio0/input/input0
+		  │ input:input0 "AT Translated Set 2 keyboard"
+		  │ ├─/sys/devices/platform/i8042/serio0/input/input0/input0::capslock
+		  │ │ leds:input0::capslock
+		  │ ├─/sys/devices/platform/i8042/serio0/input/input0/input0::numlock
+		  │ │ leds:input0::numlock
+		  │ └─/sys/devices/platform/i8042/serio0/input/input0/input0::scrolllock
+		  │   leds:input0::scrolllock
+		  ├─/sys/devices/platform/pcspkr/input/input4
+		  │ input:input4 "PC Speaker"
+		  ├─/sys/devices/virtual/input/input18
+		  │ input:input18 "HP WMI hotkeys"
+		  └─/sys/devices/virtual/misc/rfkill
+		    misc:rfkill
+
+--- 5. DRM devices + ACL ---
+total 0
+drwxr-xr-x  2 root root        80 Sep  6 10:54 by-path
+crw-rw----+ 1 root video 226,   0 Sep  6 10:54 card0
+crw-rw-rw-  1 root video 226, 128 Sep  6 10:54 renderD128
+-- getfacl card0 (does the active session hold uaccess?) --
+/home/<user>/cosmic-greeter-drm-diagnose.sh: line 87: getfacl: command not found
+(no getfacl/setfacl)
+-- renderD128 --
+/home/<user>/cosmic-greeter-drm-diagnose.sh: line 89: getfacl: command not found
+
+--- 6. greeter session log: latest drm-master / clear-state evidence ---
+[2m2026-09-06T13:53:16.228641Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T14:00:45.546993Z[0m [33m WARN[0m [2msmithay::backend::drm::surface::atomic[0m[2m:[0m Unable to clear state: DRM access error: Failed to commit on clear_state on device `Some("/dev/dri/card0")` (Permission denied (os error 13))
+[2m2026-09-06T14:10:16.217348Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T14:53:35.484006Z[0m [33m WARN[0m [2msmithay::backend::drm::surface::atomic[0m[2m:[0m Unable to clear state: DRM access error: Failed to commit on clear_state on device `Some("/dev/dri/card0")` (Permission denied (os error 13))
+[2m2026-09-06T14:54:35.353547Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T15:12:47.634391Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T15:19:31.922915Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T15:19:47.715894Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+
+--- 7. greetd session-worker cmdline (VT/terminal handling) ---
+4260 /usr/bin/greetd --session-worker 11
+-- tty1 owner --
+crw--w---- 1 _cosmicgreeter tty 4, 1 Sep  6 11:19 /dev/tty1
+
+===== end DRM/seat diagnose =====

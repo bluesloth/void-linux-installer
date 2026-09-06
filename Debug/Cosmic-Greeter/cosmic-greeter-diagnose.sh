@@ -2,6 +2,22 @@
 # One-shot diagnostic for the cosmic-greeter grey-screen on the live box.
 # Run as:  sudo bash ~/cosmic-greeter-diagnose.sh
 #
+# v5 (2026-09-06): matches fix-cosmic-greeter5.sh / this session's v5 logs.
+#   The 2026-09-06 10:54 clean-boot capture (Debug/Cosmic-Greeter/
+#   cosmic-greeter-diagnose5.txt + cosmic-greeter-session-log5.log) proved:
+#   - _cosmicgreeter is the sole seat session on tty1, accounts-daemon lists
+#     users, and WAYLAND socket/renderD128 exist (stack healthy).
+#   - Every greeter start fails cosmic_comp session-DBus init + activation
+#     env update (os error 2) - NO session D-Bus in the greetd spawn. That is
+#     the leading cause of the missing login panel (fixed by fix-cosmic-greeter5.sh
+#     wrapping the exec in dbus-run-session --).
+#   - smithay: "Unable to become drm master, assuming unprivileged mode" + the
+#     periodic "clear_state ... Permission denied" recur on a clean boot too
+#     (previously misread as a tty2-restart artifact).
+#   - The ExpectedComma/config.ron errors are bundled-default noise; no
+#     config.ron exists anywhere (config.ron lead confirmed DEAD).
+#   - Vulkan still absent (no libvulkan.so.1, only virtio ICD) - secondary avenue.
+#
 # Writes the entire evidence bundle to /var/log/cosmic-greeter-diagnose.txt
 # (world-readable 0644) so no further permission juggling is needed to read it.
 #

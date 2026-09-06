@@ -1,0 +1,80 @@
+===== DRM master probe: Sun Sep  6 12:23:10 PM EDT 2026 =====
+host: <host>   uname: 7.2.3_1
+
+--- 0. who has /dev/dri/card0 open right now ---
+pid=1444 ppid=1429 cgroup= cmd=/usr/libexec/elogind/elogind 
+    lrwx------ 1 root root 64 Sep  6 12:15 33 -> /dev/dri/card0
+pid=4279 ppid=4261 cgroup=
+7 cmd=cosmic-comp cosmic-greeter 
+    lrwx------ 1 _cosmicgreeter _cosmicgreeter 64 Sep  6 12:15 49 -> /dev/dri/card0
+    lrwx------ 1 _cosmicgreeter _cosmicgreeter 64 Sep  6 11:19 50 -> /dev/dri/card0
+    lrwx------ 1 _cosmicgreeter _cosmicgreeter 64 Sep  6 12:15 51 -> /dev/dri/card0
+    lrwx------ 1 _cosmicgreeter _cosmicgreeter 64 Sep  6 12:15 57 -> /dev/dri/card0
+pid=4310 ppid=4279 cgroup=
+7 cmd=Xwayland :0 -verbose -rootless -terminate -wm 67 -displayfd 74 -listenfd 71 -listenfd 72 
+    lrwx------ 1 _cosmicgreeter _cosmicgreeter 64 Sep  6 12:15 9 -> /dev/dri/card0
+
+--- 1. kernel DRM device + fb0 state ---
+total 0
+drwxr-xr-x  2 root root        80 Sep  6 10:54 by-path
+crw-rw----+ 1 root video 226,   0 Sep  6 11:41 card0
+crw-rw-rw-  1 root video 226, 128 Sep  6 10:54 renderD128
+fb0 name:   amdgpudrmfb
+fb0 active: 0
+
+--- 2. VT state (which VT active, who owns it, console mode) ---
+tty0 active: tty1
+  vtcon0: name=(S) dummy device bind=0
+  vtcon1: name=(M) frame buffer device bind=1
+fbcon owns the console if vtcon1(m)=bind=1 and active VT is tty1
+
+--- 3. DRM fd sanity + SET_MASTER/DROP_MASTER test (python3, no struct-passing) ---
+opened /dev/dri/card0 fd=3
+GET_MAGIC: ok (0x00000000) -> valid DRM primary fd
+SET_MASTER: FAILED 16 Device or resource busy
+  => something else holds the DRM master on card0 right now
+
+--- 3b. kernel DRM master holder via debugfs (mount if needed) ---
+debugfs mounted
+--- /sys/kernel/debug/dri/0/state (master/clients relevant lines) ---
+	connectors_changed=0
+	connector_mask=1
+	encoder_mask=1
+	connectors_changed=0
+	connector_mask=0
+	encoder_mask=0
+	connectors_changed=0
+	connector_mask=0
+	encoder_mask=0
+	connectors_changed=0
+	connector_mask=0
+	encoder_mask=0
+connector[393]: eDP-1
+connector[401]: HDMI-A-1
+connector[408]: DP-1
+connector[415]: DP-2
+connector[421]: DP-3
+connector[427]: DP-4
+connector[433]: DP-5
+connector[439]: DP-6
+connector[445]: Writeback-1
+--- /sys/kernel/debug/dri/0/clients (who holds fds/master) ---
+             command  tgid dev master a   uid      magic                                                             name                   id
+             elogind  1444   0   y    y     0          0                                                          <unset>                   18
+            Xwayland  4310 128   n    n   988          0                                                          <unset>                   21
+         cosmic-comp  4279   0   n    n   988          0                                                          <unset>                   22
+
+--- 4. poll master holder candidates ---
+(getfacl not available; acl pkg not installed)
+crw-rw----+ 1 root video 226,   0 Sep  6 11:41 /dev/dri/card0
+crw-rw-rw-  1 root video 226, 128 Sep  6 10:54 /dev/dri/renderD128
+
+--- 5. elogind seat0 state (for the record) ---
+Id=seat0
+ActiveSession=7
+CanTTY=yes
+CanGraphical=yes
+Sessions=7
+
+===== end DRM master probe Sun Sep  6 12:23:11 PM EDT 2026 =====
+done -> /var/log/cosmic-greeter-drm-master-probe.txt

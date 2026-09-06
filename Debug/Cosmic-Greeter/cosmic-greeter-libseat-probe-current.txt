@@ -1,0 +1,25 @@
+===== libseat logind-backend probe: 2026-09-06 11:56:35 EDT =====
+host: <host>   uname: 7.2.3_1
+
+cosmic-comp pid: 4279
+session cgroup (from /proc/4279/cgroup): 0::/7
+re-enterable as: /sys/fs/cgroup/7
+
+--- 0. which backend would libseat-0.9.3 even have compiled in? ---
+	libelogind.so.0 => /usr/lib/libelogind.so.0 (0x00007f4786a8d000)
+
+--- 1. the D-Bus sequence libseat does, replayed ALONGSIDE cosmic-comp ---
+(replaying from a helper moved into /sys/fs/cgroup/7 so elogind sees caller = session /7)
+
+Manager.GetSession("7") -> /org/freedesktop/login1/session/_37
+Session.Active FAIL: object of type `GDBusProxy' does not have property `Active'
+Session.Controller FAIL: object of type `GDBusProxy' does not have property `Controller'
+Session.Type FAIL: object of type `GDBusProxy' does not have property `Type'
+Session.Seat FAIL: object of type `GDBusProxy' does not have property `Seat'
+Seat.ActiveSession FAIL: object of type `GDBusProxy' does not have property `ActiveSession'
+-- Session.TakeControl(false) --
+TakeControl FAIL: g-io-error-quark: GDBus.Error:System.Error.EBUSY: Device or resource busy (36)
+-- Session.TakeDevice(226,0)=/dev/dri/card0 --
+TakeDevice FAIL: g-io-error-quark: GDBus.Error:org.freedesktop.login1.NotInControl: You are not in control of this session (36)
+ReleaseControl FAIL: g-io-error-quark: GDBus.Error:org.freedesktop.login1.NotInControl: You are not in control of this session (36)
+===== end libseat probe =====

@@ -1,0 +1,760 @@
+===== cosmic-greeter diagnose: 2026-09-06 11:03:34 EDT =====
+host: <host>  uname: 7.2.3_1
+
+--- 1. package versions ---
+ii accountsservice-23.13.9_2                 D-Bus interfaces for querying and manipulating user account information
+ii cosmic-applets-1.2.0_1                    Applets for COSMIC
+ii cosmic-applibrary-1.2.0_1                 Cosmic App Library
+ii cosmic-bg-1.2.0_1                         COSMIC session service which applies backgrounds to displays
+ii cosmic-comp-1.2.0_1                       Wayland compositor of pop-os cosmic shell
+ii cosmic-desktop-full-1.2.0_2               Full Cosmic Desktop
+ii cosmic-edit-1.2.0_1                       COSMIC Text Editor
+ii cosmic-files-1.2.0_1                      COSMIC file manager
+ii cosmic-greeter-1.2.0_1                    COSMIC Display Manager
+ii cosmic-icons-1.2.0_1                      COSMIC Icon Package
+ii cosmic-idle-1.2.0_1                       COSMIC idle daemon
+ii cosmic-launcher-1.2.0_1                   COSMIC App Launcher
+ii cosmic-monitor-1.2.0_1                    COSMIC System Monitor
+ii cosmic-notifications-1.2.0_1              COSMIC Notifications
+ii cosmic-osd-1.2.0_1                        COSMIC OSD
+ii cosmic-panel-1.2.0_1                      XDG Shell Wrapper Panel for COSMIC
+ii cosmic-player-1.2.0_1                     Cosmic Media Player
+ii cosmic-randr-1.2.0_1                      Display and configure wayland display outputs
+ii cosmic-screenshot-1.2.0_1                 COSMIC Screenshot Utility
+ii cosmic-session-1.2.0_1                    Session for the COSMIC desktop
+ii cosmic-settings-1.2.0_1                   Settings App for COSMIC
+ii cosmic-settings-daemon-1.2.0_1            COSMIC settings daemon
+ii cosmic-term-1.2.0_1                       COSMIC terminal emulator application
+ii cosmic-wallpapers-1.2.0_1                 COSMIC wallpaper collection
+ii cosmic-workspaces-epoch-1.2.0_1           COSMIC workspaces
+ii greetd-0.10.3_2                           Minimal and flexible login manager daemon
+ii libgbm-26.1.8_1                           Mesa Generic buffer management API - runtime
+ii libinput-1.31.3_1                         Provides handling input devices in Wayland compositors and X
+ii mesa-26.1.8_1                             Open source implementation of OpenGL and Vulkan
+ii mesa-dri-26.1.8_1                         Mesa DRI drivers
+ii mesa-libgallium-26.1.8_1                  Mesa internal shared platform for building graphics drivers
+ii xdg-desktop-portal-cosmic-1.2.0_1         Cosmic backend for xdg-desktop-portal
+ii xf86-input-libinput-1.5.0_1               Generic input driver for the X.Org server based on libinput
+ii xorg-server-xwayland-24.1.13_2            Nested X server that runs as a wayland client
+
+--- 2. root cosmic-comp config (daemon runs as root -> this is the malformed one) ---
+(no /root/.config/cosmic-comp)
+-- whole /root/.config/cosmic --
+/root/.config/cosmic
+/root/.config/cosmic/com.system76.CosmicTheme.Mode
+/root/.config/cosmic/com.system76.CosmicTheme.Mode/v1
+/root/.config/cosmic/com.system76.CosmicTheme.Dark
+/root/.config/cosmic/com.system76.CosmicTheme.Dark/v1
+/root/.config/cosmic/com.system76.CosmicTheme.Dark.Builder
+/root/.config/cosmic/com.system76.CosmicTheme.Dark.Builder/v1
+/root/.config/cosmic/com.system76.CosmicComp
+/root/.config/cosmic/com.system76.CosmicComp/v1
+/root/.config/cosmic/com.system76.CosmicAppletTime
+/root/.config/cosmic/com.system76.CosmicAppletTime/v1
+/root/.config/cosmic/com.system76.CosmicTk
+/root/.config/cosmic/com.system76.CosmicTk/v1
+
+--- 3. _cosmicgreeter config/state ---
+  /var/lib/cosmic-greeter
+  /var/lib/cosmic-greeter/.config
+  /var/lib/cosmic-greeter/.config/cosmic
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicComp
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicComp/v1
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicTk
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicTk/v1
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicSettings.Shortcuts
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicSettings.Shortcuts/v1
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicSettings.WindowRules
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicSettings.WindowRules/v1
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicTheme.Mode
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicTheme.Mode/v1
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicTheme.Dark
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicTheme.Dark/v1
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicTheme.Light
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicTheme.Light/v1
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicTheme.Dark.Builder
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicTheme.Dark.Builder/v1
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicAppletTime
+  /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicAppletTime/v1
+  /var/lib/cosmic-greeter/.local
+  /var/lib/cosmic-greeter/.local/state
+  /var/lib/cosmic-greeter/.local/state/cosmic-comp
+  /var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron
+  /var/lib/cosmic-greeter/.local/state/cosmic
+  /var/lib/cosmic-greeter/.local/state/cosmic/com.system76.CosmicBackground
+  /var/lib/cosmic-greeter/.cache
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/marker
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/index
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/b4
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/b4/0fba2bf3d7f94457c7a4645a7f25829cdd40c1c0506166d55c2c39d2797a47
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/ef
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/ef/41df9b8f6694e5644e4c7fc5fdfe54cfacaa01337c4b26c1e3432e284d7a5e
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/27
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/27/26687ec05cd4cd1a80fcce4c56fdbdb13315f6e3fa38a1a58f92007207f723
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/27/1941e4bf323fa151054dca47695e3e2afa9b4d60f9cbb2108a3d1274cfab22
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/f2
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/f2/d7f94bfba348bb97c984e209eb9e0ac514f878f7e92dff3554ab7631b40b85
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/a4
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/a4/99c3bbe16e4de079744d7141cd66e30bea2a118f4e08d0f0ac5a0906293bcd
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/cb
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/cb/17e28c3543306fdc7f823019a46c0d7b6de0274f1429555496cfcb4029d874
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/e7
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/e7/fab85c89a213c66d0e2e778e34984f74db2193f5b46f548d7944e954f4b581
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/34
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/34/2ecf2979d0a326229123bc38ca2c0686234a7b9054ac351f0837fb6f61bd9d
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/c0
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/c0/5c42d84acdc7f417fe39ed167afd9c2ca5607a06fd787cf0ead4570adadc70
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/90
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/90/dc23b3b8977ba475f137c1670012b4a7005e10f6c5eda83da26943844f942b
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/c2
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/c2/c366f63c8758f6874674bfaa9ae5f2bc90cfa8af3b4b1ab22837b500a76721
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/96
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/96/169247223f48751ba27addb0fda2ed23dcefe4a88a8aca7324c596bbad8dbf
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/96/ac3fc9c4f2a0ca2a1ecd9d0339ccaa8cda5e71242e648b6f26126b8ae3b81b
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/6a
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/6a/e8d50f8b8a54d69f6ceaed123be92b33c7488b0c912e6722847d8e6129542c
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/40
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/40/1e5a3d5f4b0331dbd16d17ee920cffc06e7bd6b5596dd07beb6b8522f26799
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/b8
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/b8/af12674f26aea47d9210a21f4c6f10cd1612a49c14c4d1acf53a307944f37d
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/e5
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/e5/cf02bbb3ae42657b9dc1d155a81a5bd198175076d66e439f5ea92faaf0a0de
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/e5/5478c7a97048266be433bccf907566363109ccb7b5fd34072179c308feefbf
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/bc
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/bc/925ae78151ddc282ee8ad54fd849040c8f818abe67ba76f0d2558c2fea6d62
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/60
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/60/179f8f54c137e2e9dd2f304980ba47ce78952298e96153c4d477a01fd61518
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/d5
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/d5/2a118001ba6217986b716ea2eb627377d58c9fcd78d6ab8c9f61c17ba8318a
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/59
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/59/a99fe0413f46e323d9622106d960414339e2d26cb2a9f39668d827ea20b05c
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/c6
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/c6/c3989649fff92fbad54a85a4ff66ab49fd3499ffd6ad586b5e4fb8fbb9cb4f
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/cc
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/cc/62e4645d977549cb7b30130e40e2f532ec899bb3ed9029188fa8f3e24f39a3
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/76
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/76/6a1be37782797ce02048636fe5289c712c4dbf2785b1a22b7b369b4ac06748
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/2a
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/2a/567b5d0dacc1ef7031b073259a4455c9f53548c060b6abfa3488984fc16a1c
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/58
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/58/f2ef53a1a282b41b5650a8059f4e40504ef9161903994dafd962017ffd7717
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/77
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/77/11c6d4efa4dea028dde62764bdcae0536cb4ab71485717a65ff82e3cfb0a9f
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/2b
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/2b/0b37825fbdff1f20000fb1993f1f592f087892a09dcafbae9122d08c6f475f
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/d2
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/d2/2db11aee852e528180452f33d4f16b0763d569337edd17bfc869ad60e04efa
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/89
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/89/6e4881229e7d73b5f13b8bf937e19c4833000476f17cb025b4fbda15ef065c
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/35
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/35/c2da4d44f08f281914ede3d591545ad29e4493ce4c81ce63be22676fec4d65
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/14
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/14/8186ca2364ec6aa285ef7755567841e31ccb05b81043bd85b7ec40e2141431
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/01
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/01/c0c7f21b6cc4a2a471563e3007d0e948e3c48c0e8f78fd03f1c7030e7e3970
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/c1
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/c1/cf8110f19d91293c09b9fd94a969c06a899d0d8020774360e5729707656928
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/c1/5601e65ca8ad8ffcee59766e3d48b477de32d044d7b8086838d1d9c993419d
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/e8
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/e8/dad24474d541020091df23e49819e1cfc5c6ff3cd12776a89d7ddd183ef9b3
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/94
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/94/04cad8344c84274f4b39e44042f28e9e672df5b89b8e3f7cd5f9f2f4da1ceb
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/1a
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/1a/b2e02b2d11e0126e7b9806d451b4d3a2739283f57ca99b184baaf2017c50c6
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/15
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/15/19c4e5535faa3756ef5ccf5d2096b0344518835189d8a92de1c17657755392
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/c7
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/c7/ab4f0a5d66768916ddb801736606c63c9ed40d2d7cb31e665a4c30b5e15e6c
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/c7/a2c28ed17b489061fa5497251b4fae80e15605a83cc2bbb76e1c629cbccb58
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/ee
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/ee/be91c39f8c3a497f0b424e9e558c085ff184729e6e17ff421368d1fef1ec8a
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/e4
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/e4/3cf9fdb7169326b7b0b114b49d159d6cbcbb84e1a165612fce7daa2609d4ad
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/93
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/93/070c58588c45f09c4ee84a47149d006a316cbd028c46b3229eb093801bdda8
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/37
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/37/a85231e4d577f4be20855b88103691b70156618462031861cfd538a02fd432
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/3c
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/3c/32b5895ee6ff4c7c5ee1efe084819da45630c484ba9a87948aa78b7ff9faa1
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/d7
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/d7/f2dd0f0c89ded95e84a5728f8225a96208f688389b61224736512256f51d89
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/d1
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/d1/96c69120dceb0e0f37b3cd0460d4f2c912661882bae4aff54dc5ed8e4c1158
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/5b
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/5b/26ecd454b7fbccfe31e34861755a7276ad2a71989675b7048953570dce23ac
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/56
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/56/3f922029ee8d3361d4d3a745811f7e94b1c4eff68a6a7e29bd37ca64948bea
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/f4
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/f4/5524af6199e60438d9a027fc27d5197d3f771a39dcc3d9734c71ad210872f5
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/5f
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/5f/b6d2879e0c793cf39614063ad5109d4eebfcfe3af0e1a6ea9afa9d7107fc84
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/d4
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/d4/9fc5ed3f6e2f720487e962de0d9965e9617c4ccecd8dd31d171f15dbb9cc5d
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/43
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/43/f74702fac01f434778d83630fa47790f5c317558b6ca1ea04aa857167910d7
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/43/38768bd780d5a0a3d29e376f78011ed5a048601bca1f76efbd4babef03a8ea
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/ec
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/ec/c17b623bb9269ed2789611a7a3419c8c46a718446027c8000b09b96370f9ea
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/88
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/88/8fa67268ea2d119de4e221aed1f7d2d84f875882b3562bdb3b7f723bd8054d
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/1e
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/1e/cd4625a37153f6e09d50f02c456921169942eac02b7d44347b8f69bcd9209d
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/63
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/63/67aa0b9747514d3b2f5a646f83e44a6f324227a7effce243e33d3e7152e508
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/39
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/39/5a52460b474788fa85320a28a9ce16eb9f0f0dc91776cbcfa261aba96eb2b5
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/bb
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/bb/0e4ee373446dc17742c823f7df7c3a69beba760c51a84d8e9cc07aad72740a
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/65
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/65/db4fbcde64f42cd88ccd68447c979bbab0949d8b205247a6442c7ef66896b6
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/a0
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/a0/d4f119e9546ce1521950bca6a3364725ef05e40fea0db80a2d409396ac8553
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/1f
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/1f/50c7356c9d4e3236a44858bb4e06f44168af005f9c7f194a6f56757af9bdb3
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/a6
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/a6/aa454cb92f5c8df9e37d9bb05876b6749f83176706f8be7270a58680b75819
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/f5
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/f5/7e862f4e75bf88c2ffa2c02e767cc28d472ec81e103f1e78ad7dcdf2b9254f
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/da
+  /var/lib/cosmic-greeter/.cache/mesa_shader_cache/da/e24858da78f2703364a8409e8dc1822c57fe29bf8bedf92e5ffc6856452454
+-- outputs.ron --
+     1	(
+     2	    config: {
+     3	        [
+     4	            (
+     5	                connector: "eDP-1",
+     6	                make: "BOE",
+     7	                model: "0x0C67",
+     8	            ),
+     9	        ]: [
+    10	            (
+    11	                mode: ((1920, 1200), Some(60003)),
+    12	                vrr: r#true,
+    13	                scale: 1.0,
+    14	                transform: Normal,
+    15	                position: (0, 0),
+    16	                enabled: r#true,
+    17	                max_bpc: Some(16),
+    18	                xwayland_primary: true,
+    19	            ),
+    20	        ],
+    21	    },
+    22	)
+--- 4. process tree ---
+ 1396  1361 root     ?              08:59 runsv cosmic-greeter
+ 1412  1396 root     ?              08:59 svlogd -tt /var/log/cosmic-greeter
+ 1417  1396 root     ?              08:59 greetd -c /etc/greetd/cosmic-greeter.toml
+ 1451  1361 root     ?              08:59 runsv cosmic-greeter-daemon
+ 1452  1361 root     ?              08:59 runsv accounts-daemon
+ 1459  1452 root     ?              08:59 /usr/libexec/accounts-daemon
+ 1460  1451 root     ?              08:59 svlogd -tt /var/log/cosmic-greeter-daemon
+ 1463  1451 root     ?              08:59 cosmic-greeter-daemon
+ 1566  1417 root     tty1           08:59 /usr/bin/greetd --session-worker 11
+ 1568  1566 _cosmic+ tty1           08:59 cosmic-comp cosmic-greeter
+ 1624  1568 _cosmic+ tty1           08:58 Xwayland :0 -verbose -rootless -terminate -wm 66 -displayfd 73 -listenfd 70 -listenfd 71
+ 1642  1568 _cosmic+ tty1           08:58 cosmic-greeter
+ 2465  1895 root     pts/1          00:04 sudo bash /home/<user>/cosmic-greeter-diagnose.sh
+ 2466  2465 root     pts/2          00:00 sudo bash /home/<user>/cosmic-greeter-diagnose.sh
+ 2467  2466 root     pts/2          00:00 bash /home/<user>/cosmic-greeter-diagnose.sh
+
+--- 5. elogind sessions (which seat session owns DRM master?) ---
+SESSION  UID USER           SEAT  TTY
+      2  988 _cosmicgreeter seat0 tty1
+      3 1000 <user>               pts/0
+      4 1000 <user>               pts/1
+
+3 sessions listed.
+
+--- 6. DRM devices ---
+total 0
+drwxr-xr-x  2 root root        80 Sep  6 10:54 by-path
+crw-rw----+ 1 root video 226,   0 Sep  6 10:54 card0
+crw-rw-rw-  1 root video 226, 128 Sep  6 10:54 renderD128
+
+--- 7. listen sockets / runtime dir of _cosmicgreeter ---
+total 0
+drwx------ 2 _cosmicgreeter _cosmicgreeter 120 Sep  6 10:54 .
+drwxr-xr-x 4 root           root            80 Sep  6 10:56 ..
+srwxr-xr-x 1 _cosmicgreeter _cosmicgreeter   0 Sep  6 10:54 wayland-1
+-rw-r----- 1 _cosmicgreeter _cosmicgreeter   0 Sep  6 10:54 wayland-1.lock
+srwxr-xr-x 1 _cosmicgreeter _cosmicgreeter   0 Sep  6 10:54 wayland-1-renderD128
+-rw-r----- 1 _cosmicgreeter _cosmicgreeter   0 Sep  6 10:54 wayland-1-renderD128.lock
+-- wayland sockets --
+srwxr-xr-x 1 _cosmicgreeter _cosmicgreeter 0 Sep  6 10:54 /run/user/988/wayland-1
+-rw-r----- 1 _cosmicgreeter _cosmicgreeter 0 Sep  6 10:54 /run/user/988/wayland-1.lock
+srwxr-xr-x 1 _cosmicgreeter _cosmicgreeter 0 Sep  6 10:54 /run/user/988/wayland-1-renderD128
+-rw-r----- 1 _cosmicgreeter _cosmicgreeter 0 Sep  6 10:54 /run/user/988/wayland-1-renderD128.lock
+-- X11 sockets --
+total 0
+drwxrwxrwt 2 root           root            60 Sep  6 10:54 .
+drwxrwxrwt 5 root           root           160 Sep  6 10:59 ..
+srwxr-xr-x 1 _cosmicgreeter _cosmicgreeter   0 Sep  6 10:54 X0
+
+--- 8. Vulkan/GL stack present? ---
+-rwxr-xr-x 1 root root 1741240 Aug 20 08:34 /usr/lib/libvulkan_virtio.so
+total 8
+-rw-r--r-- 1 root root 179 Aug 20 08:34 virtio_icd.i686.json
+-rw-r--r-- 1 root root 179 Aug 20 08:34 virtio_icd.x86_64.json
+
+--- 9. greetd config + wrapper ---
+total 12
+drwxr-xr-x 1 root root  100 Sep  6 08:29 .
+drwxr-xr-x 1 root root 2210 Sep  5 21:54 ..
+-rw-r--r-- 1 root root  537 Dec  7  2024 config.toml
+-rwxr-xr-x 1 root root   86 Sep  6 08:29 cosmic-greeter.start
+-rw-r--r-- 1 root root  146 Sep  6 08:29 cosmic-greeter.toml
+-- /etc/greetd/cosmic-greeter.toml --
+     1	[terminal]
+     2	vt = "1"
+     3	
+     4	[general]
+     5	service = "cosmic-greeter"
+     6	
+     7	[default_session]
+     8	command = "/etc/greetd/cosmic-greeter.start"
+     9	user = "_cosmicgreeter"
+-- /etc/greetd/cosmic-greeter.start --
+     1	#!/bin/sh
+     2	exec cosmic-comp cosmic-greeter >> /var/log/cosmic-greeter-session.log 2>&1
+
+--- 10. runit services involved ---
+-- /etc/sv/cosmic-greeter --
+/etc/sv/cosmic-greeter:
+total 8
+drwxr-xr-x 1 root root   30 Sep  4 22:36 .
+drwxr-xr-x 1 root root 1238 Sep  5 20:12 ..
+drwxr-xr-x 1 root root   24 Sep  4 22:36 log
+-rwxr-xr-x 1 root root  462 Sep  6 08:29 run
+lrwxrwxrwx 1 root root   35 Jul  1 14:14 supervise -> /run/runit/supervise.cosmic-greeter
+
+/etc/sv/cosmic-greeter/log:
+total 8
+drwxr-xr-x 1 root root 24 Sep  4 22:36 .
+drwxr-xr-x 1 root root 30 Sep  4 22:36 ..
+-rwxr-xr-x 1 root root 50 Sep  6 08:29 run
+lrwxrwxrwx 1 root root 39 Jul  1 14:14 supervise -> /run/runit/supervise.cosmic-greeter-log
+-- /etc/sv/cosmic-greeter/run --
+     1	#!/bin/sh
+     2	exec 2>&1
+     3	sv check dbus >/dev/null || exit 1
+     4	sv check cosmic-greeter-daemon >/dev/null || exit 1
+     5	if [ -d /var/service/elogind ]; then
+     6	    sv check elogind >/dev/null
+     7	    elogind_pid=$(cat /var/service/elogind/supervise/pid 2>/dev/null)
+     8	    for pid in $(pgrep -x 'elogind'; pgrep -x 'elogind-daemon'); do
+     9	        [ "$pid" = "$elogind_pid" ] || kill "$pid"
+    10	    done
+    11	fi
+    12	sv check elogind >/dev/null || exit 1
+    13	exec greetd -c /etc/greetd/cosmic-greeter.toml
+-- /etc/sv/cosmic-greeter/log/run --
+     1	#!/bin/sh
+     2	exec svlogd -tt /var/log/cosmic-greeter
+-- /etc/sv/cosmic-greeter-daemon --
+/etc/sv/cosmic-greeter-daemon:
+total 4
+drwxr-xr-x 1 root root   30 Sep  5 20:12 .
+drwxr-xr-x 1 root root 1238 Sep  5 20:12 ..
+drwxr-xr-x 1 root root   24 Sep  6 08:19 log
+-rwxr-xr-x 1 root root  156 Sep  6 08:29 run
+drwx------ 1 root root   52 Sep  6 10:54 supervise
+
+/etc/sv/cosmic-greeter-daemon/log:
+total 4
+drwxr-xr-x 1 root root 24 Sep  6 08:19 .
+drwxr-xr-x 1 root root 30 Sep  5 20:12 ..
+-rwxr-xr-x 1 root root 57 Sep  6 08:29 run
+drwx------ 1 root root 52 Sep  6 10:54 supervise
+-- /etc/sv/cosmic-greeter-daemon/run --
+     1	#!/bin/sh
+     2	exec 2>&1
+     3	sv check dbus >/dev/null || exit 1
+     4	install -d -m0755 -o _cosmicgreeter -g _cosmicgreeter /run/cosmic-greeter
+     5	exec cosmic-greeter-daemon
+-- /etc/sv/cosmic-greeter-daemon/log/run --
+     1	#!/bin/sh
+     2	exec svlogd -tt /var/log/cosmic-greeter-daemon
+-- /etc/sv/accounts-daemon --
+ls: cannot access '/etc/sv/accounts-daemon/log': No such file or directory
+/etc/sv/accounts-daemon:
+total 4
+drwxr-xr-x 1 root root   24 Sep  5 20:12 .
+drwxr-xr-x 1 root root 1238 Sep  5 20:12 ..
+-rwxr-xr-x 1 root root   89 Sep  6 08:29 run
+drwx------ 1 root root   52 Sep  6 10:54 supervise
+-- /etc/sv/accounts-daemon/run --
+     1	#!/bin/sh
+     2	exec 2>&1
+     3	sv check dbus >/dev/null || exit 1
+     4	exec /usr/libexec/accounts-daemon
+-- /etc/sv/accounts-daemon/log/run --
+cat: /etc/sv/accounts-daemon/log/run: No such file or directory
+-- link status in runsvdir default --
+lrwxrwxrwx 1 root root  23 Sep  6 08:29 accounts-daemon -> /etc/sv/accounts-daemon
+lrwxrwxrwx 1 root root  19 Sep  4 22:30 agetty-tty2 -> /etc/sv/agetty-tty2
+lrwxrwxrwx 1 root root  19 Sep  4 22:30 agetty-tty3 -> /etc/sv/agetty-tty3
+lrwxrwxrwx 1 root root  19 Sep  4 22:30 agetty-tty4 -> /etc/sv/agetty-tty4
+lrwxrwxrwx 1 root root  19 Sep  4 22:30 agetty-tty5 -> /etc/sv/agetty-tty5
+lrwxrwxrwx 1 root root  19 Sep  4 22:30 agetty-tty6 -> /etc/sv/agetty-tty6
+lrwxrwxrwx 1 root root  22 Sep  4 22:40 cosmic-greeter -> /etc/sv/cosmic-greeter
+lrwxrwxrwx 1 root root  29 Sep  6 08:29 cosmic-greeter-daemon -> /etc/sv/cosmic-greeter-daemon
+
+--- 11. greeter session log (compositor + greeter app stderr) ---
+[2m2026-09-06T12:29:13.534867Z[0m [33m WARN[0m [2mcosmic_comp::logger[0m[2m:[0m Failed to init journald logging. [3merr[0m[2m=[0mOs { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T12:29:13.536837Z[0m [31mERROR[0m [2mcosmic_settings_config::shortcuts[0m[2m:[0m shortcuts defaults config error: GetKey("defaults", Os { code: 2, kind: NotFound, message: "No such file or directory" })
+[2m2026-09-06T12:29:13.537418Z[0m [31mERROR[0m [2mcosmic_settings_config::window_rules[0m[2m:[0m tiling exceptions defaults config error: NoConfigDirectory
+[2m2026-09-06T12:29:13.786167Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T12:29:13.917922Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T12:29:13.919068Z[0m [31mERROR[0m [2mcosmic_comp::dbus[0m[2m:[0m Failed to initialize session DBus connection: I/O error: No such file or directory (os error 2)
+[2m2026-09-06T12:29:14.074682Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T12:29:14.077605Z[0m [31mERROR[0m [2mcosmic_comp[0m[2m:[0m Failed to update the D-Bus activation environment [3merr[0m[2m=[0morg.freedesktop.zbus.Error: i/o error
+[2m2026-09-06T12:29:14.082577Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T12:29:14.086564Z[0m [33m WARN[0m [2mcosmic_greeter::locker[0m[2m:[0m failed to connect to journald
+[2m2026-09-06T12:29:14.086926Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to open icon "/var/lib/AccountsService/icons/_cosmicgreeter": Os { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T12:29:14.087323Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T12:29:14.088831Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m errors loading cosmic-comp config: [GetKey("workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("pinned_workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_default", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_touchpad_override", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_devices", Os { code: 2, kind: NotFound, message: "No such file or directory" }), RonSpanned(SpannedError { code: ExpectedComma, span: Span { start: Position { line: 4, col: 11 }, end: Position { line: 4, col: 11 } } }), GetKey("keyboard_config", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile_behavior", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("active_hint", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("cursor_follows_focus", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor_delay", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("descale_xwayland", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("xwayland_eavesdropping", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("edge_snap_threshold", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("accessibility_zoom", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("appearance_settings", Os { code: 2, kind: NotFound, message: "No such file or directory" })]
+[2m2026-09-06T12:29:14.142961Z[0m [33m WARN[0m [2mcosmic_greeter::upower[0m[2m:[0m upower error: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.UPower was not provided by any .service files
+[2m2026-09-06T12:30:13.723267Z[0m [33m WARN[0m [2msmithay::backend::drm::surface::atomic[0m[2m:[0m Unable to clear state: DRM access error: Failed to commit on clear_state on device `Some("/dev/dri/card0")` (Permission denied (os error 13))
+[2m2026-09-06T13:03:19.748078Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748136Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748145Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748151Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748159Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748168Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748173Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748179Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748184Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748195Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748202Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748209Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748218Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748224Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748230Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748238Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748245Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748252Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748261Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748268Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748273Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748279Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748285Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748295Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748303Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748310Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748318Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748323Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748339Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748355Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748361Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748368Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748374Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748380Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748386Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748397Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748406Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748413Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748439Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748446Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748452Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748461Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748467Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748473Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748479Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748485Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748490Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748497Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748504Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748511Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748521Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748529Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748537Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748545Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748553Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748561Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748568Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748576Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748583Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748590Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748607Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748619Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748627Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748638Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748647Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748659Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748665Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748671Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748678Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748684Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748690Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748699Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748709Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748714Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748721Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748727Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748740Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748748Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748762Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748775Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748784Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748792Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748803Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.748818Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749133Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749149Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749156Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749164Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749171Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749177Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749192Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749200Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749214Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749225Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749232Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749238Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749244Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749253Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749259Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749267Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749276Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749282Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749288Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749297Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749304Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749310Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749317Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749323Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749329Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749343Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749349Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749356Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749363Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749370Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749377Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749384Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749391Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749405Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749424Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749430Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749436Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749443Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749449Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749455Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749468Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749477Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:19.749483Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:03:41.708962Z[0m [33m WARN[0m [2mcosmic_comp::logger[0m[2m:[0m Failed to init journald logging. [3merr[0m[2m=[0mOs { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T13:03:41.714378Z[0m [31mERROR[0m [2mcosmic_settings_config::shortcuts[0m[2m:[0m shortcuts defaults config error: GetKey("defaults", Os { code: 2, kind: NotFound, message: "No such file or directory" })
+[2m2026-09-06T13:03:41.714899Z[0m [31mERROR[0m [2mcosmic_settings_config::window_rules[0m[2m:[0m tiling exceptions defaults config error: NoConfigDirectory
+[2m2026-09-06T13:03:41.981473Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T13:03:42.282124Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T13:03:42.283817Z[0m [31mERROR[0m [2mcosmic_comp::dbus[0m[2m:[0m Failed to initialize session DBus connection: I/O error: No such file or directory (os error 2)
+[2m2026-09-06T13:03:42.470220Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T13:03:42.473130Z[0m [31mERROR[0m [2mcosmic_comp[0m[2m:[0m Failed to update the D-Bus activation environment [3merr[0m[2m=[0morg.freedesktop.zbus.Error: i/o error
+[2m2026-09-06T13:03:42.480746Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T13:03:42.485436Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T13:03:42.508654Z[0m [33m WARN[0m [2mcosmic_greeter::locker[0m[2m:[0m failed to connect to journald
+[2m2026-09-06T13:03:42.508996Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to open icon "/var/lib/AccountsService/icons/_cosmicgreeter": Os { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T13:03:42.513566Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m errors loading cosmic-comp config: [GetKey("workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("pinned_workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_default", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_touchpad_override", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_devices", Os { code: 2, kind: NotFound, message: "No such file or directory" }), RonSpanned(SpannedError { code: ExpectedComma, span: Span { start: Position { line: 4, col: 11 }, end: Position { line: 4, col: 11 } } }), GetKey("keyboard_config", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile_behavior", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("active_hint", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("cursor_follows_focus", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor_delay", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("descale_xwayland", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("xwayland_eavesdropping", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("edge_snap_threshold", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("accessibility_zoom", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("appearance_settings", Os { code: 2, kind: NotFound, message: "No such file or directory" })]
+[2m2026-09-06T13:03:42.823175Z[0m [33m WARN[0m [2mcosmic_greeter::upower[0m[2m:[0m upower error: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.UPower was not provided by any .service files
+[2m2026-09-06T13:03:45.698858Z[0m [33m WARN[0m [2msmithay::backend::drm::surface::atomic[0m[2m:[0m Unable to clear state: DRM access error: Failed to commit on clear_state on device `Some("/dev/dri/card0")` (Permission denied (os error 13))
+[2m2026-09-06T13:05:08.733152Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T13:05:08.736203Z[0m [33m WARN[0m [2mcosmic_comp::xwayland[0m[2m:[0m Failed to set xwayland primary output: The provided output wasn't known to Xwayland
+[2m2026-09-06T13:27:40.897147Z[0m [33m WARN[0m [2msmithay::backend::drm::surface::atomic[0m[2m:[0m Failed to destroy old mode property blob: No such file or directory (os error 2)
+libinput error: event15 - ELAN07EB:00 04F3:32ED Touchpad: client bug: event processing lagging behind by 820ms, your system is too slow
+libinput error: event0  - AT Translated Set 2 keyboard: client bug: event processing lagging behind by 439ms, your system is too slow
+[2m2026-09-06T13:27:41.650008Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T13:27:41.652604Z[0m [33m WARN[0m [2mcosmic_comp::xwayland[0m[2m:[0m Failed to set xwayland primary output: The provided output wasn't known to Xwayland
+libinput error: event15 - ELAN07EB:00 04F3:32ED Touchpad: kernel bug: Touch jump detected and discarded.
+See https://wayland.freedesktop.org/libinput/doc/1.31.3/touchpad-jumping-cursors.html for details
+libinput error: event15 - ELAN07EB:00 04F3:32ED Touchpad: kernel bug: Touch jump detected and discarded.
+See https://wayland.freedesktop.org/libinput/doc/1.31.3/touchpad-jumping-cursors.html for details
+libinput error: event15 - ELAN07EB:00 04F3:32ED Touchpad: kernel bug: Touch jump detected and discarded.
+See https://wayland.freedesktop.org/libinput/doc/1.31.3/touchpad-jumping-cursors.html for details
+[2m2026-09-06T13:52:54.141789Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.141824Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.141835Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.141891Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.141906Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.141916Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.141924Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.141946Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.141957Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.141966Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.141976Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.141993Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142005Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142013Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142022Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142030Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142039Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142048Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142061Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142070Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142078Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142087Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142098Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142116Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142125Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142134Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142142Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142150Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142158Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142166Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142175Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142185Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142196Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142205Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142215Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142224Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142233Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142244Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142254Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142268Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142277Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142287Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142294Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142318Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142330Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142340Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142348Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142365Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142582Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142601Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142610Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142618Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142628Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142635Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142642Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142652Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142659Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142665Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142671Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142680Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142694Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142701Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142709Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142716Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142723Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142729Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142735Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142742Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142748Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142757Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142763Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142770Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142777Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142791Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:52:54.142798Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T13:53:16.002841Z[0m [33m WARN[0m [2mcosmic_comp::logger[0m[2m:[0m Failed to init journald logging. [3merr[0m[2m=[0mOs { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T13:53:16.005628Z[0m [31mERROR[0m [2mcosmic_settings_config::shortcuts[0m[2m:[0m shortcuts defaults config error: GetKey("defaults", Os { code: 2, kind: NotFound, message: "No such file or directory" })
+[2m2026-09-06T13:53:16.005893Z[0m [31mERROR[0m [2mcosmic_settings_config::window_rules[0m[2m:[0m tiling exceptions defaults config error: NoConfigDirectory
+[2m2026-09-06T13:53:16.228641Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T13:53:16.415008Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T13:53:16.415881Z[0m [31mERROR[0m [2mcosmic_comp::dbus[0m[2m:[0m Failed to initialize session DBus connection: I/O error: No such file or directory (os error 2)
+[2m2026-09-06T13:53:16.495860Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T13:53:16.497217Z[0m [31mERROR[0m [2mcosmic_comp[0m[2m:[0m Failed to update the D-Bus activation environment [3merr[0m[2m=[0morg.freedesktop.zbus.Error: i/o error
+[2m2026-09-06T13:53:16.501274Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T13:53:16.503126Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T13:53:16.517296Z[0m [33m WARN[0m [2mcosmic_greeter::locker[0m[2m:[0m failed to connect to journald
+[2m2026-09-06T13:53:16.517442Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to open icon "/var/lib/AccountsService/icons/_cosmicgreeter": Os { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T13:53:16.519995Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m errors loading cosmic-comp config: [GetKey("workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("pinned_workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_default", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_touchpad_override", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_devices", Os { code: 2, kind: NotFound, message: "No such file or directory" }), RonSpanned(SpannedError { code: ExpectedComma, span: Span { start: Position { line: 4, col: 11 }, end: Position { line: 4, col: 11 } } }), GetKey("keyboard_config", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile_behavior", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("active_hint", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("cursor_follows_focus", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor_delay", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("descale_xwayland", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("xwayland_eavesdropping", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("edge_snap_threshold", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("accessibility_zoom", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("appearance_settings", Os { code: 2, kind: NotFound, message: "No such file or directory" })]
+[2m2026-09-06T13:53:16.704660Z[0m [33m WARN[0m [2mcosmic_greeter::upower[0m[2m:[0m upower error: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.UPower was not provided by any .service files
+[2m2026-09-06T14:00:45.546993Z[0m [33m WARN[0m [2msmithay::backend::drm::surface::atomic[0m[2m:[0m Unable to clear state: DRM access error: Failed to commit on clear_state on device `Some("/dev/dri/card0")` (Permission denied (os error 13))
+[2m2026-09-06T14:09:53.869036Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869063Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869077Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869085Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869093Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869100Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869107Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869126Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869133Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869145Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869151Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869162Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869169Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869176Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869183Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869190Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869206Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869213Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869220Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869227Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:09:53.869235Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:10:15.975400Z[0m [33m WARN[0m [2mcosmic_comp::logger[0m[2m:[0m Failed to init journald logging. [3merr[0m[2m=[0mOs { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T14:10:15.978278Z[0m [31mERROR[0m [2mcosmic_settings_config::shortcuts[0m[2m:[0m shortcuts defaults config error: GetKey("defaults", Os { code: 2, kind: NotFound, message: "No such file or directory" })
+[2m2026-09-06T14:10:15.978557Z[0m [31mERROR[0m [2mcosmic_settings_config::window_rules[0m[2m:[0m tiling exceptions defaults config error: NoConfigDirectory
+[2m2026-09-06T14:10:16.217348Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T14:10:16.387172Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T14:10:16.388223Z[0m [31mERROR[0m [2mcosmic_comp::dbus[0m[2m:[0m Failed to initialize session DBus connection: I/O error: No such file or directory (os error 2)
+[2m2026-09-06T14:10:16.466980Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T14:10:16.468368Z[0m [31mERROR[0m [2mcosmic_comp[0m[2m:[0m Failed to update the D-Bus activation environment [3merr[0m[2m=[0morg.freedesktop.zbus.Error: i/o error
+[2m2026-09-06T14:10:16.473176Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T14:10:16.475260Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T14:10:16.488706Z[0m [33m WARN[0m [2mcosmic_greeter::locker[0m[2m:[0m failed to connect to journald
+[2m2026-09-06T14:10:16.488867Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to open icon "/var/lib/AccountsService/icons/_cosmicgreeter": Os { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T14:10:16.491643Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m errors loading cosmic-comp config: [GetKey("workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("pinned_workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_default", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_touchpad_override", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_devices", Os { code: 2, kind: NotFound, message: "No such file or directory" }), RonSpanned(SpannedError { code: ExpectedComma, span: Span { start: Position { line: 4, col: 11 }, end: Position { line: 4, col: 11 } } }), GetKey("keyboard_config", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile_behavior", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("active_hint", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("cursor_follows_focus", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor_delay", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("descale_xwayland", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("xwayland_eavesdropping", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("edge_snap_threshold", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("accessibility_zoom", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("appearance_settings", Os { code: 2, kind: NotFound, message: "No such file or directory" })]
+[2m2026-09-06T14:10:16.680348Z[0m [33m WARN[0m [2mcosmic_greeter::upower[0m[2m:[0m upower error: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.UPower was not provided by any .service files
+[2m2026-09-06T14:53:35.484006Z[0m [33m WARN[0m [2msmithay::backend::drm::surface::atomic[0m[2m:[0m Unable to clear state: DRM access error: Failed to commit on clear_state on device `Some("/dev/dri/card0")` (Permission denied (os error 13))
+[2m2026-09-06T14:54:13.162229Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162257Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162266Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162283Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162295Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162302Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162310Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162331Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162339Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162347Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162354Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162363Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162373Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162380Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162388Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162395Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162401Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162410Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162417Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162426Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162433Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162444Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162451Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162458Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162465Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162472Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162478Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162484Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:13.162491Z[0m [33m WARN[0m [2mcosmic_greeter::logind[0m[2m:[0m logind prepare to sleep missing data
+[2m2026-09-06T14:54:35.118581Z[0m [33m WARN[0m [2mcosmic_comp::logger[0m[2m:[0m Failed to init journald logging. [3merr[0m[2m=[0mOs { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T14:54:35.121291Z[0m [31mERROR[0m [2mcosmic_settings_config::shortcuts[0m[2m:[0m shortcuts defaults config error: GetKey("defaults", Os { code: 2, kind: NotFound, message: "No such file or directory" })
+[2m2026-09-06T14:54:35.121566Z[0m [31mERROR[0m [2mcosmic_settings_config::window_rules[0m[2m:[0m tiling exceptions defaults config error: NoConfigDirectory
+[2m2026-09-06T14:54:35.353547Z[0m [33m WARN[0m [2msmithay::backend::drm::device::fd[0m[2m:[0m Unable to become drm master, assuming unprivileged mode
+[2m2026-09-06T14:54:35.534020Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T14:54:35.534863Z[0m [31mERROR[0m [2mcosmic_comp::dbus[0m[2m:[0m Failed to initialize session DBus connection: I/O error: No such file or directory (os error 2)
+[2m2026-09-06T14:54:35.615553Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T14:54:35.616798Z[0m [31mERROR[0m [2mcosmic_comp[0m[2m:[0m Failed to update the D-Bus activation environment [3merr[0m[2m=[0morg.freedesktop.zbus.Error: i/o error
+[2m2026-09-06T14:54:35.620823Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T14:54:35.627481Z[0m [33m WARN[0m [2mcosmic_comp::backend::render::cursor[0m[2m:[0m Unable to load xcursor, using fallback cursor [3merr[0m[2m=[0mNoDefaultCursor
+[2m2026-09-06T14:54:35.636410Z[0m [33m WARN[0m [2mcosmic_greeter::locker[0m[2m:[0m failed to connect to journald
+[2m2026-09-06T14:54:35.636554Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to open icon "/var/lib/AccountsService/icons/_cosmicgreeter": Os { code: 2, kind: NotFound, message: "No such file or directory" }
+[2m2026-09-06T14:54:35.639124Z[0m [31mERROR[0m [2mcosmic_greeter_daemon[0m[2m:[0m errors loading cosmic-comp config: [GetKey("workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("pinned_workspaces", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_default", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_touchpad_override", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("input_devices", Os { code: 2, kind: NotFound, message: "No such file or directory" }), RonSpanned(SpannedError { code: ExpectedComma, span: Span { start: Position { line: 4, col: 11 }, end: Position { line: 4, col: 11 } } }), GetKey("keyboard_config", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("autotile_behavior", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("active_hint", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("cursor_follows_focus", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("focus_follows_cursor_delay", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("descale_xwayland", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("xwayland_eavesdropping", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("edge_snap_threshold", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("accessibility_zoom", Os { code: 2, kind: NotFound, message: "No such file or directory" }), GetKey("appearance_settings", Os { code: 2, kind: NotFound, message: "No such file or directory" })]
+[2m2026-09-06T14:54:35.825381Z[0m [33m WARN[0m [2mcosmic_greeter::upower[0m[2m:[0m upower error: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.UPower was not provided by any .service files
+
+--- 12. svlogd current logs ---
+-- /var/log/cosmic-greeter/current --
+-- /var/log/cosmic-greeter-daemon/current --
+2026-09-06_12:19:51.02711 [2m2026-09-06T11:28:54.508470Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_12:19:51.03666 [2m2026-09-06T12:19:51.036584Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_12:24:21.85943 [2m2026-09-06T12:24:21.859382Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_12:29:13.37020 [2m2026-09-06T12:29:13.370158Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_13:03:19.74846 [2m2026-09-06T13:03:19.748006Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_13:03:41.53187 [2m2026-09-06T13:03:41.531828Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_13:52:54.14120 [2m2026-09-06T13:52:54.141143Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_13:53:15.91613 [2m2026-09-06T13:53:15.916102Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_14:09:53.86876 [2m2026-09-06T14:09:53.868650Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_14:10:15.89352 [2m2026-09-06T14:10:15.893485Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_14:54:13.16160 [2m2026-09-06T14:54:13.161563Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_14:54:35.03675 [2m2026-09-06T14:54:35.036722Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+
+===== end diagnose =====
