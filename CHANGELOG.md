@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.11** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.12** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -29,7 +29,7 @@ Current version: **Beta-v2.9.11** (`SCRIPT_VERSION` in the script).
 >   3.0.112GC) and the tracked `v3.1.0-beta1` … `v3.3.0-beta33` releases
 >   are mapped into a continuous sequential Beta-v numbering per
 >   `Debug/version-renumber-map.txt`. Every release within the Beta era
-> gets a unique number, and the current release (`Beta-v2.9.11`) is always
+> gets a unique number, and the current release (`Beta-v2.9.12`) is always
 >   the highest — preserving the monotonicity invariant.
 > - The old `v3.x` labels are preserved inline (`was v3.x` in headings and
 >   `version-renumber-map.txt`) for `[TAG]`-marker traceability, but the
@@ -67,6 +67,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.9** | `[MATE-TERMINAL]`/`[MATE-AUDIO]`/`[XFC-VOLUME]`/`[LXQT-EDITOR]` — DE metapackage gap fixes: verified against Void's metapackage templates, `mate` bundles no terminal/editor/volume applet (→ `mate-terminal`+`pluma`+`mate-media`), `xfce4` no volume applet (→ `xfce4-pulseaudio-plugin`), `lxqt` no text editor (→ `FeatherPad`) | Beta-v2.9.9 below |
 | **Beta-v2.9.10** | `[COSMIC-GREETER-DM]`/`[COSMIC-POLKIT]` — cosmic-greeter is provisioned as a greetd-hosted DM (it is a greetd frontend that runs inside `cosmic-comp`, not a standalone DM — a Beta-v2.9.9 COSMIC install that chose it booted to a bare terminal with no login screen); COSMIC desktop gets a `polkit-gnome` privilege agent with a baked autostart entry (the metapackage pulls none) | Beta-v2.9.10 below |
 | **Beta-v2.9.11** | `[COSMIC-GREETER-LOG]` — svlogd `log/run` under both cosmic-greeter services (the log dirs existed but had no run script, so runsv spammed and no greeter output survived a reboot, hiding the live grey-screen evidence) | Beta-v2.9.11 below |
+| **Beta-v2.9.12** | `[COSMIC-GREETER-USER]` — the greeter account is now EXACTLY `cosmic-greeter` (never `_cosmicgreeter`): the binary dispatches greeter-DM vs silent-locker from the current username, and the template's `_cosmicgreeter` account shipped the bug that produced the dead grey screen (live-verified with WAYLAND_DEBUG; fix upside down: `usermod -l`) | Beta-v2.9.12 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -436,6 +437,65 @@ service state are confirmed correct but the greeter still renders grey.
 
 **Validation:** `bash -n` passes; `Debug/check-heredocs.sh` extracts the two new
 `log/run` bodies and `bash -n`s them clean; `Debug/check-defaults.sh`
+unchanged.
+
+---
+
+## Beta-v2.9.12 — `[COSMIC-GREETER-USER]` (greeter account is exactly `cosmic-greeter`; fixes the dead grey screen)
+
+`SCRIPT_VERSION = Beta-v2.9.12`. Root cause of the Beta-v2.9.10/11 open item
+("grey wallpaper + cursor, NO login UI") found and **fixed live** on `<host>`
+(2026-09-06), then propagated into the installer.
+
+**Root cause.** cosmic-greeter's `src/main.rs` dispatches on the **current
+username**:
+
+```rust
+"cosmic-greeter" => greeter::main(),   // greetd DM: user list, layer surfaces, greetd IPC
+_                  => locker::main(),  // NO main window; waits for an ext-session-lock event, maps nothing
+```
+
+The REDACTED/void-packages template ships `system_accounts="_cosmicgreeter"`,
+and the Beta-v2.9.10 `[COSMIC-GREETER-DM]` recipe copied it — so greetd launched
+`cosmic-comp cosmic-greeter` under a user that is *not* `cosmic-greeter`, and
+the binary silently took the **locker** branch: no windows, no user list, just
+the compositor's grey wallpaper + cursor. Every prior theory (AccountsService
+population, D-Bus session, XDG_SESSION_TYPE, wayland globals) was a red herring.
+
+**Evidence** (live box, documented in
+`Debug/Cosmic-Greeter/triage10-wayland-debug.md`, uncommitted until this
+release): `WAYLAND_DEBUG=1` showed the greeter client binding
+`xdg_wm_base`/`zwlr_layer_shell_v1`/`ext_session_lock_manager_v1` and creating
+**exactly one `wl_surface` that never got a role** (no `get_xdg_surface`, no
+`get_layer_surface`, no `get_lock`, no attach, no commit). The session log
+carried the `cosmic_greeter::locker` tracing target and the process never
+connected to the `GREETD_SOCK` — both fingerprints of the locker branch. The
+`cosmic_greeter::common: []` DEBUG line earlier read as "empty user list" was
+actually the *keyboard layouts* log (`active_layouts`); real user data DID
+arrive via daemon `GetUserData` (the wallpaper update ran) — consistent with a
+client that had given up on ever mapping a window.
+
+**Fix.** Renamed the account to exactly `cosmic-greeter`:
+`usermod -l cosmic-greeter _cosmicgreeter -d /var/lib/cosmic-greeter` (home
+already matched) + group rename + `usermod -aG video,input cosmic-greeter`,
+then `sv up` the greetd host stack. The session log switched from
+`cosmic_greeter::locker` to `cosmic_greeter::greeter`, Xwayland/the greeter
+started drawing its panels, the greeter connected to the greetd socket
+(`/run/greetd-*.sock` ESTAB), and the **COSMIC login panel appeared on tty1**.
+Greeter-side residual noise (`Failed to apply user display config`, session
+directory warnings for absent flatpak/xsession paths, UPower absent) is benign.
+
+**Installer change** (`[COSMIC-GREETER-USER]`): provision the account as
+`cosmic-greeter` (not `_cosmicgreeter`) — `useradd ... cosmic-greeter`,
+`user = "cosmic-greeter"` in `/etc/greetd/cosmic-greeter.toml`, and
+`install -d -o cosmic-greeter -g cosmic-greeter /run/cosmic-greeter` in the
+daemon run script; comments updated to document the username dispatch and warn
+against reintroducing the underscore variant (the package's `_cosmicgreeter`
+system_accounts is the bug, not the answer).
+
+**Validation:** `bash -n` passes; `Debug/check-heredocs.sh` — unchanged since
+this release touches no heredoc body, only the useradd/toml text outside the
+`INNER_EOF` blocks and comments, but rerun to be safe; `Debug/check-defaults.sh`
 unchanged.
 
 ---

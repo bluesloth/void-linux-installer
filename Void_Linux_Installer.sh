@@ -172,7 +172,7 @@
 #     NOT a standalone DM — its binary self-describes as "a libcosmic frontend
 #     for greetd which can be run inside of cosmic-comp", so the DM path now
 #     provisions it the way the community repo actually builds it: the
-#     `_cosmicgreeter` system user, a greetd invocation (`cosmic-comp
+#     `cosmic-greeter` system user, a greetd invocation (`cosmic-comp
 #     cosmic-greeter` under that user via /etc/greetd/cosmic-greeter.toml),
 #     the supervised `cosmic-greeter-daemon`, and a supervised accounts-daemon
 #     (the greeter reads AccountsService; same D-Bus-activation race as
@@ -424,14 +424,14 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.11"
+SCRIPT_VERSION="Beta-v2.9.12"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
 # overflow; the minor never carries into the major unless the author makes an
 # explicit major bump. The lineage is split into named eras carrying their
 # own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x), so each era reads
-# monotonic and the current release (Beta-v2.9.11) always carries the highest
+# monotonic and the current release (Beta-v2.9.12) always carries the highest
 # numbering. See Debug/version-renumber-map.txt for the authoritative
 # OLD->NEW mapping recovered from the Debug/Old Versions/ artifacts.
 
@@ -511,7 +511,9 @@ SCRIPT_VERSION="Beta-v2.9.11"
 #     Beta-v2.9.8    [GREETER-BG-TIMING]; lightdm greeter-bg search moved after the desktop install
 #     Beta-v2.9.9    [MATE-TERMINAL];[MATE-AUDIO];[XFC-VOLUME];[LXQT-EDITOR] — DE metapackage gap fixes
 #     Beta-v2.9.10   [COSMIC-GREETER-DM];[COSMIC-POLKIT] — cosmic-greeter greetd-hosted DM provisioning; COSMIC polkit agent
-#     Beta-v2.9.11   [COSMIC-GREETER-LOG] — svlogd log/run for the cosmic-greeter greetd-DM stack  (current)
+#     Beta-v2.9.11   [COSMIC-GREETER-LOG] — svlogd log/run for the cosmic-greeter greetd-DM stack
+#     Beta-v2.9.12   [COSMIC-GREETER-USER] — greeter account is exactly `cosmic-greeter` (never `_cosmicgreeter`);
+#                     the binary picks greeter-DM vs silent locker from the current username  (current)
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -4298,31 +4300,37 @@ elif [ "$DISPLAY_MANAGER" = "cosmic-greeter" ]; then
     # accountsservice-belt-and-suspenders reasoning in the lightdm branch — so
     # the greetd runit service below never races a transitive pull.
     install_pkgs greetd
-    # AI (Big Pickle) FIX — Beta-v2.9.10 [COSMIC-GREETER-DM]: the greeter is a
-    # greetd FRONTEND that runs INSIDE cosmic-comp, not a standalone DM (its
-    # binary self-describes: "a libcosmic frontend for greetd which can be run
-    # inside of cosmic-comp"; a Beta-v2.9.9 COSMIC install that chose this DM
-    # booted to a bare terminal login with no login screen, because the former
-    # bespoke service just `exec /usr/bin/cosmic-greeter` with no greetd, no
-    # cosmic-comp, and no AccountsService — the greeter then cannot find the
-    # com.system76.CosmicComp session it needs and aborts instantly).
-    # The community repo's own packaging (REDACTED/void-packages template)
-    # deploys it as: greetd -c /etc/greetd/cosmic-greeter.toml (which launches
-    # `cosmic-comp cosmic-greeter` as the _cosmicgreeter user) PLUS a supervised
-    # cosmic-greeter-daemon (/run/cosmic-greeter owner). The _cosmicgreeter user
-    # is created by the package's system_accounts only in recent revisions
-    # (1.5.0+; the 1.2.0 era shipped the group but not the user), so it is
-    # provisioned here idempotently to never depend on upstream revision luck.
-    if ! grep -q '^_cosmicgreeter:' /etc/passwd 2>/dev/null; then
+    # AI (Big Pickle) FIX — Beta-v2.9.12 [COSMIC-GREETER-USER]: the greeter
+    # account MUST be named EXACTLY `cosmic-greeter` (as upstream ships it).
+    # cosmic-greeter's src/main.rs dispatches on the current username:
+    # `"cosmic-greeter" => greeter::main()` (the greetd DM: user list, layer
+    # surfaces, greetd IPC) vs `_ => locker::main()` (a locker that waits for
+    # an ext-session-lock event and maps nothing — the dead grey screen).
+    # The REDACTED/void-packages template ships `system_accounts=
+    # "_cosmicgreeter"`, which is WRONG: it silently forces the locker branch
+    # (verified live 2026-09-06 on `<host>` via WAYLAND_DEBUG: the client bound
+    # xdg_wm_base/layer-shell/lock globals, created one wl_surface, then sat
+    # idle with no role — the login panel only appeared after `usermod -l
+    # cosmic-greeter _cosmicgreeter`). The old Beta-v2.9.10 comment claiming
+    # `_cosmicgreeter` "matches the repo" documented the bug, not the fix.
+    # The community repo also deploys it as: greetd -c
+    # /etc/greetd/cosmic-greeter.toml (which launches `cosmic-comp
+    # cosmic-greeter` as the cosmic-greeter user) PLUS a supervised
+    # cosmic-greeter-daemon (/run/cosmic-greeter owner). The cosmic-greeter user
+    # is created by the package's system_accounts (as `_cosmicgreeter`) only in
+    # recent revisions (1.5.0+; the 1.2.0 era shipped the group but not the
+    # user), so it is provisioned here idempotently to never depend on upstream
+    # revision luck — and now with the DM-correct account name.
+    if ! grep -q '^cosmic-greeter:' /etc/passwd 2>/dev/null; then
         _cg_group_opt=""
-        grep -q '^_cosmicgreeter:' /etc/group 2>/dev/null && _cg_group_opt="-g _cosmicgreeter -G video,input"
+        grep -q '^cosmic-greeter:' /etc/group 2>/dev/null && _cg_group_opt="-g cosmic-greeter -G video,input"
         # shellcheck disable=SC2086  # _cg_group_opt is empty or a fixed flat flag string; deliberate
-        useradd -r -M -s /sbin/nologin -d /var/lib/cosmic-greeter -c 'Cosmic Greeter Account' $_cg_group_opt _cosmicgreeter 2>/dev/null || \
-            echo "WARNING: could not create the _cosmicgreeter system user — the greeter may not start." >&2
+        useradd -r -M -s /sbin/nologin -d /var/lib/cosmic-greeter -c 'Cosmic Greeter Account' $_cg_group_opt cosmic-greeter 2>/dev/null || \
+            echo "WARNING: could not create the cosmic-greeter system user — the greeter may not start." >&2
         unset _cg_group_opt
     fi
     mkdir -p /var/lib/cosmic-greeter
-    chown -f _cosmicgreeter:_cosmicgreeter /var/lib/cosmic-greeter 2>/dev/null || true
+    chown -f cosmic-greeter:cosmic-greeter /var/lib/cosmic-greeter 2>/dev/null || true
     # The greeter lists users/icons through org.freedesktop.Accounts; same
     # D-Bus-activation boot race as [LIGHTDM-HW] (Void ships accountsservice
     # with NO runit service), so a supervised accounts-daemon is provisioned
@@ -7719,10 +7727,14 @@ fi
 # here so the install never depends on which community-repo revision ships:
 #   - /etc/sv/cosmic-greeter/run        -> greetd -c /etc/greetd/cosmic-greeter.toml
 #     (the config launches `cosmic-comp cosmic-greeter` under the
-#     _cosmicgreeter user; logic mirrors the repo maintainer's own run script:
+#     cosmic-greeter user; logic mirrors the repo maintainer's own run script:
 #     dbus -> cosmic-greeter-daemon -> elogind checks, then execute greetd)
 #   - /etc/sv/cosmic-greeter-daemon/run -> cosmic-greeter-daemon, owning
-#     /run/cosmic-greeter for _cosmicgreeter
+#     /run/cosmic-greeter for cosmic-greeter. AI (Big Pickle) FIX —
+#     Beta-v2.9.12 [COSMIC-GREETER-USER]: the account is EXACTLY `cosmic-greeter`
+#     (never `_cosmicgreeter`); the binary picks greeter-vs-locker from the
+#     current username and anything other than `cosmic-greeter` silently locks
+#     the screen instead of showing the DM (verified live on <host> 2026-09-06).
 #   - /etc/greetd/cosmic-greeter.toml   -> deterministic greetd config
 #   - log/run (svlogd) under BOTH services. AI (Big Pickle) FIX — Beta-v2.9.11
 #     [COSMIC-GREETER-LOG]: the log/ dirs were created but had no run script,
@@ -7736,7 +7748,8 @@ fi
 # predate the daemon/greetd hosting and would otherwise leave a broken link.
 if [ "$DISPLAY_MANAGER" = "cosmic-greeter" ]; then
     # greetd config: launches the greeter inside the COSMIC compositor as the
-    # _cosmicgreeter user on VT 1, matching the packaged cosmic-greeter.toml.
+    # cosmic-greeter user on VT 1 (Beta-v2.9.12 [COSMIC-GREETER-USER]: the match
+    # name must be exactly this — matching the packaged cosmic-greeter.toml).
     mkdir -p /etc/greetd
     cat > /etc/greetd/cosmic-greeter.toml << 'INNER_EOF'
 [terminal]
@@ -7747,7 +7760,7 @@ service = "cosmic-greeter"
 
 [default_session]
 command = "cosmic-comp cosmic-greeter"
-user = "_cosmicgreeter"
+user = "cosmic-greeter"
 INNER_EOF
     chmod 0644 /etc/greetd/cosmic-greeter.toml
     mkdir -p /etc/sv/cosmic-greeter/log
@@ -7780,7 +7793,7 @@ INNER_EOF
 #!/bin/sh
 exec 2>&1
 sv check dbus >/dev/null || exit 1
-install -d -m0755 -o _cosmicgreeter -g _cosmicgreeter /run/cosmic-greeter
+install -d -m0755 -o cosmic-greeter -g cosmic-greeter /run/cosmic-greeter
 exec cosmic-greeter-daemon
 INNER_EOF
     chmod 0755 /etc/sv/cosmic-greeter-daemon/run

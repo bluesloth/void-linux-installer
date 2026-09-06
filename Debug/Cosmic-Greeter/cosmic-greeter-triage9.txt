@@ -1,0 +1,155 @@
+=== triage9 2026-09-06T19:55:36Z ===
+--- intent ---
+triage8 proved seatd SERVES card0 to an ACTIVE client (no CLIENT_ACTIVE
+EPERM) and cosmic received a dup of seatd's master file (drm-client-id 51
+shared by seatd fd 18 and 4 cosmic fds). The CLIENT_ACTIVE gate lead is
+DEAD. The grey background + cursor DO scan out on a clean boot; only the
+iced/wgpu login panel fails to map, and this box has NO Vulkan at all
+ (no libvulkan.so.1, no radv ICD; mesa-vulkan-radeon not installed, only
+ the virtio stub ICD). So this probe (a) READ the greeter/compositor stderr
+ that Beta-v2.9.11's svlogd log/run finally survives, (b) checks the
+ Vulkan/GL stack, (c) installs the real Vulkan stack when missing,
+ (d) restarts the greeter and re-reads the logs to see if the adapter/
+ layer error is gone. DRM master is only revisited if the WARN +
+ Permission-denied commits persist WITH Vulkan present.
+mode: yes
+
+--- before: log trees readable ---
+
+--- 1. greeter/compositor stderr (svlogd current) — renderer lines ---
+[/var/log/cosmic-greeter/current]
+2026-09-06_19:03:34.26661 error: check_children: greeter exited without creating a session
+2026-09-06_19:03:48.29337 error: check_children: greeter exited without creating a session
+2026-09-06_19:19:49.08244 error: check_children: greeter exited without creating a session
+2026-09-06_19:20:05.37026 error: check_children: greeter exited without creating a session
+[raw tail 12:]
+2026-09-06_19:03:34.26661 error: check_children: greeter exited without creating a session
+2026-09-06_19:03:48.29337 error: check_children: greeter exited without creating a session
+2026-09-06_19:19:49.08244 error: check_children: greeter exited without creating a session
+2026-09-06_19:20:05.37026 error: check_children: greeter exited without creating a session
+[/var/log/cosmic-greeter-daemon/current]
+2026-09-06_12:19:51.02711 [2m2026-09-06T11:28:54.508470Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_12:19:51.03666 [2m2026-09-06T12:19:51.036584Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_12:24:21.85943 [2m2026-09-06T12:24:21.859382Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_12:29:13.37020 [2m2026-09-06T12:29:13.370158Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_13:03:19.74846 [2m2026-09-06T13:03:19.748006Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_13:03:41.53187 [2m2026-09-06T13:03:41.531828Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_13:52:54.14120 [2m2026-09-06T13:52:54.141143Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_13:53:15.91613 [2m2026-09-06T13:53:15.916102Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_14:09:53.86876 [2m2026-09-06T14:09:53.868650Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_14:10:15.89352 [2m2026-09-06T14:10:15.893485Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_14:54:13.16160 [2m2026-09-06T14:54:13.161563Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_14:54:35.03675 [2m2026-09-06T14:54:35.036722Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_15:12:47.26402 [2m2026-09-06T15:12:47.263989Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_16:55:17.05002 [2m2026-09-06T16:55:17.049973Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_19:03:36.52273 [2m2026-09-06T19:03:36.522702Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_19:19:51.32512 [2m2026-09-06T19:19:51.325087Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+[raw tail 12:]
+2026-09-06_13:03:19.74846 [2m2026-09-06T13:03:19.748006Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_13:03:41.53187 [2m2026-09-06T13:03:41.531828Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_13:52:54.14120 [2m2026-09-06T13:52:54.141143Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_13:53:15.91613 [2m2026-09-06T13:53:15.916102Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_14:09:53.86876 [2m2026-09-06T14:09:53.868650Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_14:10:15.89352 [2m2026-09-06T14:10:15.893485Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_14:54:13.16160 [2m2026-09-06T14:54:13.161563Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_14:54:35.03675 [2m2026-09-06T14:54:35.036722Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_15:12:47.26402 [2m2026-09-06T15:12:47.263989Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_16:55:17.05002 [2m2026-09-06T16:55:17.049973Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_19:03:36.52273 [2m2026-09-06T19:03:36.522702Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_19:19:51.32512 [2m2026-09-06T19:19:51.325087Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+
+--- 2. Vulkan/GL stack present? ---
+[libvulkan:]
+lrwxrwxrwx 1 root root     20 Jul 27 22:43 /usr/lib/libvulkan.so.1 -> libvulkan.so.1.4.350
+-rwxr-xr-x 1 root root 567424 Jul 27 22:43 /usr/lib/libvulkan.so.1.4.350
+[ICD files:]
+total 16
+-rw-r--r-- 1 root root 179 Aug 20 08:34 radeon_icd.i686.json
+-rw-r--r-- 1 root root 179 Aug 20 08:34 radeon_icd.x86_64.json
+-rw-r--r-- 1 root root 179 Aug 20 08:34 virtio_icd.i686.json
+-rw-r--r-- 1 root root 179 Aug 20 08:34 virtio_icd.x86_64.json
+[packages:]
+ii libgbm-26.1.8_1                           Mesa Generic buffer management API - runtime
+ii libglvnd-1.7.0_1                          GL Vendor-Neutral Dispatch library
+ii mesa-26.1.8_1                             Open source implementation of OpenGL and Vulkan
+ii mesa-dri-26.1.8_1                         Mesa DRI drivers
+ii mesa-libgallium-26.1.8_1                  Mesa internal shared platform for building graphics drivers
+ii mesa-vulkan-radeon-26.1.8_1               Mesa Radeon Vulkan driver
+ii vulkan-loader-1.4.350.1_1                 Vulkan Installable Client Driver (ICD) loader
+[vulkaninfo:]
+  vulkan-tools NOT installed
+[cosmic env VK/EGL vars:]
+  (no VK/EGL env vars seen)
+
+--- 3. DRM master / commit metrics BEFORE (session log) ---
+[session log line count: 930]
+[Unable to become drm master: 15]
+[clear_state Permission denied: 6]
+[libseat ENOTCONN panic: 0]
+[DRM client table now:]
+             command  tgid dev master a   uid      magic                                                             name                   id
+               seatd 19171   0   y    y     0          0                                                          <unset>                   56
+            Xwayland 19232 128   n    n   988          0                                                          <unset>                   59
+         cosmic-comp 19201   0   n    n   988          0                                                          <unset>                   60
+
+--- 4. decision ---
+[ICD json files: 4]  [libvulkan files: 2]
+  Vulkan loader + >=1 ICD already present -> no install
+
+--- 5-6. SKIPPED (--check: no install, no restart) ---
+
+--- 7. greeter/compositor stderr AFTER (renderer lines since restart) ---
+[/var/log/cosmic-greeter/current]
+2026-09-06_19:03:34.26661 error: check_children: greeter exited without creating a session
+2026-09-06_19:03:48.29337 error: check_children: greeter exited without creating a session
+2026-09-06_19:19:49.08244 error: check_children: greeter exited without creating a session
+2026-09-06_19:20:05.37026 error: check_children: greeter exited without creating a session
+[raw tail 12:]
+2026-09-06_19:03:34.26661 error: check_children: greeter exited without creating a session
+2026-09-06_19:03:48.29337 error: check_children: greeter exited without creating a session
+2026-09-06_19:19:49.08244 error: check_children: greeter exited without creating a session
+2026-09-06_19:20:05.37026 error: check_children: greeter exited without creating a session
+[/var/log/cosmic-greeter-daemon/current]
+2026-09-06_12:19:51.02711 [2m2026-09-06T11:28:54.508470Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_12:19:51.03666 [2m2026-09-06T12:19:51.036584Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_12:24:21.85943 [2m2026-09-06T12:24:21.859382Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_12:29:13.37020 [2m2026-09-06T12:29:13.370158Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_13:03:19.74846 [2m2026-09-06T13:03:19.748006Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_13:03:41.53187 [2m2026-09-06T13:03:41.531828Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_13:52:54.14120 [2m2026-09-06T13:52:54.141143Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_13:53:15.91613 [2m2026-09-06T13:53:15.916102Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_14:09:53.86876 [2m2026-09-06T14:09:53.868650Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_14:10:15.89352 [2m2026-09-06T14:10:15.893485Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_14:54:13.16160 [2m2026-09-06T14:54:13.161563Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_14:54:35.03675 [2m2026-09-06T14:54:35.036722Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_15:12:47.26402 [2m2026-09-06T15:12:47.263989Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_16:55:17.05002 [2m2026-09-06T16:55:17.049973Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_19:03:36.52273 [2m2026-09-06T19:03:36.522702Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_19:19:51.32512 [2m2026-09-06T19:19:51.325087Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+[raw tail 12:]
+2026-09-06_13:03:19.74846 [2m2026-09-06T13:03:19.748006Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_13:03:41.53187 [2m2026-09-06T13:03:41.531828Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_13:52:54.14120 [2m2026-09-06T13:52:54.141143Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_13:53:15.91613 [2m2026-09-06T13:53:15.916102Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_14:09:53.86876 [2m2026-09-06T14:09:53.868650Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_14:10:15.89352 [2m2026-09-06T14:10:15.893485Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_14:54:13.16160 [2m2026-09-06T14:54:13.161563Z[0m [33m WARN[0m [2mzbus::connection[0m[2m:[0m Failed to parse `NameLost` signal: I/O error: failed to read from socket
+2026-09-06_14:54:35.03675 [2m2026-09-06T14:54:35.036722Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_15:12:47.26402 [2m2026-09-06T15:12:47.263989Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_16:55:17.05002 [2m2026-09-06T16:55:17.049973Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_19:03:36.52273 [2m2026-09-06T19:03:36.522702Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+2026-09-06_19:19:51.32512 [2m2026-09-06T19:19:51.325087Z[0m [33m WARN[0m [2mcosmic_greeter_daemon[0m[2m:[0m failed to connect to journald
+
+--- 8. DRM master / commit metrics AFTER ---
+[session log new lines since before: 0]
+[Unable to become drm master (total): 15]
+[clear_state Permission denied (total): 6]
+[libseat ENOTCONN panic (total): 0]
+[new session-log lines:]
+  (no new lines — session log did not rotate/grow; check /var/log/cosmic-greeter/current)
+
+--- 9. DRM client table AFTER ---
+             command  tgid dev master a   uid      magic                                                             name                   id
+               seatd 19171   0   y    y     0          0                                                          <unset>                   56
+            Xwayland 19232 128   n    n   988          0                                                          <unset>                   59
+         cosmic-comp 19201   0   n    n   988          0                                                          <unset>                   60
