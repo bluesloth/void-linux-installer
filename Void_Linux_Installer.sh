@@ -3542,6 +3542,21 @@ umount -v /mnt
 BTRFS_OPTS="noatime,compress=zstd:1"
 mount -vo $BTRFS_OPTS,subvol=@ "$BTRFS_DEV" /mnt
 
+# AI (Big Pickle) FIX — Beta-v2.9.18 [LIMINE-WALLPAPER-STAGE2] (+ v2.9.19e
+# [LIMINE-WP-REGUARD]): re-stage the picked wallpaper into the target right
+# AFTER the @ root mount. The prompt-phase copy went to /mnt/tmp/limine-splash.*
+# while /mnt was still the live root's plain dir; mounting the target @ here
+# COVERS that path, so the chroot's /tmp/limine-splash.* loop would find
+# nothing and the ESP copy never ran. Guard on $WP_SRC (live on the USB/media,
+# still reachable) — NOT the now-covered $WP_STAGED path, which tests false
+# exactly when this block is needed. A missing/declined source leaves the
+# guarded "no wallpaper" default.
+if [ "$LIMINE_WALLPAPER" = "yes" ] && [ -f "${WP_SRC:-}" ]; then
+    mkdir -p /mnt/tmp
+    cp -f "$WP_SRC" "/mnt/tmp/limine-splash.${WP_EXT,,}"
+    echo "  Wallpaper re-staged into target → /mnt/tmp/limine-splash.${WP_EXT,,}"
+fi
+
 mkdir -vp /mnt/home /mnt/.snapshots /mnt/opt /mnt/srv
 # AI (Big Pickle) CHANGE — Beta-v2.6.2 [GRUB-ESP-BOOT]: in the GRUB+ENCRYPT
 # combo the ESP mounts AT /boot, so the mountpoint is /mnt/boot (no nested
@@ -4102,7 +4117,25 @@ install_pkgs nftables runit-nftables iptables polkit
 # were non-portable cruft. Removed so this config is host-agnostic; the
 # drop-by-default filter firewall (with loopback / established+related /
 # rate-limited ping, and br0 / virbr* KVM forwards) is kept.
-cat > /etc/nftables.conf << 'INNER_EOF'
+# [NFT-VIRT-GATE] (AI (Big Pickle), Beta-v2.9.19) — the br0 / virbr* KVM
+# forward accepts are now a fragment emitted into the forward chain ONLY when
+# virtualization was chosen ($INSTALL_VIRT=true). Both interfaces exist only
+# when QEMU/libvirt is installed; on a non-virt build the unconditional
+# accepts matched interfaces that never exist (dead cruft inconsistent with
+# the rest of the script's $INSTALL_VIRT gating). $INSTALL_VIRT is live in the
+# chroot (exported via chroot_env.sh), so the nested heredoc gates it here.
+# The nftables heredoc below is UNQUOTED so ${NFT_FWD_RULES} expands.
+NFT_FWD_RULES=""
+if [ "$INSTALL_VIRT" = "true" ]; then
+    NFT_FWD_RULES=$(cat << 'NFT_FWD_EOF'
+        iifname "br0" accept
+        oifname "br0" accept
+        iifname "virbr*" accept
+        oifname "virbr*" accept
+NFT_FWD_EOF
+    )
+fi
+cat > /etc/nftables.conf << INNER_EOF
 #!/usr/sbin/nft -f
 flush ruleset
 
@@ -4119,10 +4152,7 @@ table inet filter {
     }
     chain forward {
         type filter hook forward priority filter; policy drop;
-        iifname "br0" accept
-        oifname "br0" accept
-        iifname "virbr*" accept
-        oifname "virbr*" accept
+${NFT_FWD_RULES}
     }
     chain output {
         type filter hook output priority filter; policy accept;
@@ -4904,7 +4934,13 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
         fi
     done
     if [[ -z "$_greeter_bg" ]]; then
-        _greeter_bg="$(find /usr/share/backgrounds -maxdepth 2 -type f \
+        # AI (Big Pickle) FIX — Beta-v2.9.19b [GREETER-BG-DEPTH]: the generic
+        # wildcard fallback must descend to depth 3 (and beyond) — mate-backgrounds
+        # puts images at /usr/share/backgrounds/mate/<category>/<file> (depth 3),
+        # invisible to every -maxdepth 2 search on a MATE-only install. The
+        # adwaita-l.* specific-name passes stay at -maxdepth 2 (adwaita files are
+        # top-level; harmless either way).
+        _greeter_bg="$(find /usr/share/backgrounds -maxdepth 5 -type f \
             \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' \
                -o -name '*.svg' -o -name '*.jxl' -o -name '*.webp' \) \
             2>/dev/null | head -1)" || true
@@ -4922,7 +4958,7 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
             [[ -n "$_greeter_bg_candidate" ]] && { _greeter_bg="$_greeter_bg_candidate"; break; }
         done
         if [[ -z "$_greeter_bg" ]]; then
-            _greeter_bg="$(find /usr/share/backgrounds -maxdepth 2 -type f \
+            _greeter_bg="$(find /usr/share/backgrounds -maxdepth 5 -type f \
                 \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' \
                    -o -name '*.svg' -o -name '*.jxl' -o -name '*.webp' \) \
                 2>/dev/null | head -1)" || true
