@@ -606,6 +606,20 @@ DEFAULT_DISTROBOX_ENGINE="${DEFAULT_DISTROBOX_ENGINE:-1}"     # 1=podman 2=docke
 DEFAULT_DEVICE_PROFILE="${DEFAULT_DEVICE_PROFILE:-1}"
 DEFAULT_YK_TOUCH="${DEFAULT_YK_TOUCH:-yes}"           # require touch to unlock? [Y/n]
 DEFAULT_YK_FALLBACK="${DEFAULT_YK_FALLBACK:-yes}"     # keep typed-passphrase fallback? [Y/n]
+# AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]/[SSH-KEYS]: OpenSSH
+# server toggle + port + access policy, plus SSH key import/generate/backup.
+# Server default-OFF (matches the post-Beta-v2.1 [OPT-DEFAULTS] posture of
+# NOT shipping network-facing daemons by default); access sub-prompts default
+# to reachable-without-key-setup (password auth via bare-Enter stays on) and
+# Void's stock root posture (prohibit-password).
+DEFAULT_INSTALL_SSH_SERVER="${DEFAULT_INSTALL_SSH_SERVER:-false}"  # install+enable sshd? [y/N]
+DEFAULT_SSH_PORT="${DEFAULT_SSH_PORT:-22}"                        # sshd port [1-65535]
+DEFAULT_SSH_PASSWORD_AUTH="${DEFAULT_SSH_PASSWORD_AUTH:-yes}"     # allow password auth? [Y/n]
+DEFAULT_SSH_ROOT_LOGIN="${DEFAULT_SSH_ROOT_LOGIN:-prohibit-password}"  # root over SSH? [Y/n]
+DEFAULT_IMPORT_SSH_KEY="${DEFAULT_IMPORT_SSH_KEY:-false}"         # import existing key? [y/N]
+DEFAULT_GENERATE_SSH_KEY="${DEFAULT_GENERATE_SSH_KEY:-false}"     # generate fresh key? [y/N]
+DEFAULT_SSH_KEY_PROTECTED="${DEFAULT_SSH_KEY_PROTECTED:-yes}"     # passphrase-protect key? [Y/n]
+DEFAULT_EXPORT_SSH_KEY="${DEFAULT_EXPORT_SSH_KEY:-false}"         # export/backup key? [y/N]
 
 
 # =============================================================================
@@ -666,6 +680,110 @@ note() { echo "${C_GRN}==>${C_RST} $*"; }
 warn() { echo "${C_YLW}!! ${C_RST}$*" >&2; }
 critical() { echo "${C_RED}!!!! CRITICAL:${C_RST} $*" >&2; }
 
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-KEYS] browse_pick(): a reusable
+# pure-bash numbered file/dir browser (extracted from the original
+# [LIMINE-WALLPAPER-BROWSE] picker; the wallpaper prompt is now just the
+# img-mode caller). Modes:
+#   img  — list subdirectories + image files (bmp/png/jpg/jpeg/qoi); returns a
+#          selected image path, or empty on a declined/absent selection.
+#   file — list subdirectories + ANY file; returns the selected path.
+#   dir  — list subdirectories only; returns the selected directory.
+# Start in /run/media (mounted USB stick) if present, else /root. `..` goes up
+# a level; `m` or `drives` jumps back to the /run/media drive list; a path
+# (absolute or relative) is accepted as an escape hatch; numbers select an item.
+# Prints the chosen path on stdout (nothing on a declined empty selection).
+# =============================================================================
+browse_pick() { # browse_pick <mode> <what-label>
+    local _bp_mode="${1:-file}" _bp_label="${2:-file}"
+    local _bp_start _bp_ok=0 _bp_src="" _bp_ext="" _bp_i
+    local -a _bp_items=()
+    if [ -d /run/media ]; then
+        _bp_start="/run/media"
+    else
+        _bp_start="/root"
+    fi
+    while [ "$_bp_ok" -eq 0 ]; do
+        # A fresh menu pass carries the copyright-free note that Ctrl-C aborts.
+        echo ""
+        echo "  Browse for ${_bp_label}: ${C_BOLD}${C_CYN}/${_bp_start#/}${C_RST}"
+        echo "  Enter ${C_BOLD}..${C_RST} to go up a level, an absolute/relative path to jump there,"
+        echo "  ${C_BOLD}m${C_RST}/${C_BOLD}drives${C_RST} to jump back to the mounted-drive list at /run/media,"
+        if [ "$_bp_mode" = "img" ]; then
+            echo "  or the number of an image below. ${C_BOLD}Enter alone${C_RST} declines (no image)."
+        else
+            echo "  or the number of an entry below. ${C_BOLD}Enter alone${C_RST} declines."
+        fi
+        _bp_items=()
+        if [ "$_bp_start" != "/" ]; then
+            _bp_items+=( ".." )
+        fi
+        while IFS= read -r _bp_ent; do
+            if [ "$_bp_mode" = "dir" ] && [ -d "$_bp_ent" ]; then
+                _bp_items+=( "$_bp_ent" )
+            elif [ "$_bp_mode" != "dir" ] && { [ -d "$_bp_ent" ] || \
+                    { [ "$_bp_mode" = "file" ] || [[ "$_bp_ent" =~ \.(bmp|png|jpg|jpeg|qoi)$ ]]; }; }; then
+                _bp_items+=( "$_bp_ent" )
+            fi
+        done < <(find "$_bp_start" -maxdepth 1 -mindepth 1 -printf '%p\n' 2>/dev/null | sort)
+        if [ "${#_bp_items[@]}" -le 1 ]; then
+            echo "  (nothing matching here)"
+        fi
+        for _bp_i in "${!_bp_items[@]}"; do
+            _bp_ent="${_bp_items[$_bp_i]}"
+            if [ -d "$_bp_ent" ]; then
+                echo "  ${C_BLU}${C_BOLD}$((_bp_i + 1))${C_RST}) ${_bp_ent##*/}/"
+            else
+                echo "  ${C_BOLD}$((_bp_i + 1))${C_RST}) ${C_GRN}${_bp_ent##*/}${C_RST}"
+            fi
+        done
+        printf '\n%s' "${C_BOLD}${C_YLW}-- Select [dir | number | path ( .. = up, m = drives)]${C_RST} "
+        read -r _bp_src
+        if [ -z "$_bp_src" ]; then
+            echo "  Declined." >&2
+            _bp_src=""
+            break
+        fi
+        if [ "$_bp_src" = ".." ]; then
+            _bp_start="$(dirname "$_bp_start")"
+            continue
+        fi
+        if [ "$_bp_src" = "m" ] || [ "$_bp_src" = "drives" ]; then
+            if [ -d /run/media ]; then
+                _bp_start="/run/media"
+            else
+                echo "  No /run/media on this live env — staying in ${_bp_start}." >&2
+            fi
+            continue
+        fi
+        if [[ "$_bp_src" =~ ^[0-9]+$ ]]; then
+            _bp_i=$((_bp_src - 1))
+            if [ "$_bp_i" -lt 0 ] || [ "$_bp_i" -ge "${#_bp_items[@]}" ]; then
+                echo "  '$_bp_src' is not a valid choice." >&2
+                continue
+            fi
+            _bp_src="${_bp_items[$_bp_i]}"
+        fi
+        if [ -d "$_bp_src" ]; then
+            _bp_start="$_bp_src"
+            continue
+        fi
+        if [ ! -f "$_bp_src" ]; then
+            echo "  File not found: ${_bp_src:-<empty>}" >&2
+            continue
+        fi
+        if [ "$_bp_mode" = "img" ]; then
+            _bp_ext="${_bp_src##*.}"
+            case "${_bp_ext,,}" in
+                bmp|png|jpg|jpeg|qoi) ;;
+                *) echo "  Unsupported extension '${_bp_ext}'. Use BMP/PNG/JPEG/QOI." >&2; continue ;;
+            esac
+        fi
+        _bp_ok=1
+    done
+    printf '%s' "$_bp_src"
+}
+
 echo "=============================================================================="
 echo " ${C_BOLD}${C_CYN}Void Linux Unified Installer${C_RST} — version ${C_BOLD}${SCRIPT_VERSION}${C_RST}"
 echo " Bootloader: choose GRUB or Limine below — UEFI only, BIOS unsupported"
@@ -714,6 +832,12 @@ cleanup_on_failure() {
 
     swapoff /mnt/var/swap/swapfile 2>/dev/null || true
     rm -f /mnt/tmp/chroot_env.sh 2>/dev/null || true
+    # AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-KEYS]: an aborted run must
+    # never leave staged SSH key material on the live USB. Shred the LIVE
+    # /tmp stage (prompt-phase originals) — the target /tmp copies die with the
+    # mount teardown below, but these are on the live runtime itself.
+    shred -u /tmp/ssh-keygen/* /tmp/ssh-import/* 2>/dev/null || true
+    rm -rf /tmp/ssh-keygen /tmp/ssh-import 2>/dev/null || true
     # Beta-v2.6.2 [GRUB-ESP-BOOT]: in the GRUB+ENCRYPT combo the ESP
     # mountpoint is /mnt/boot itself (no /mnt/boot/efi, no /mnt/boot/grub).
     # All || true so unwinding a non-combo /mnt/boot btrfs dir is a no-op.
@@ -1535,85 +1659,20 @@ if [ "$BOOTLOADER" = "limine" ]; then
         # absent it says so and stays in place instead of jumping to nothing. The
         # keyword check runs BEFORE the path-exists test, so a literal file/dir named
         # `m` or `drives` cannot collide (numbers are expanded to full paths earlier).
-        if [ -d /run/media ]; then
-            WP_DIR="/run/media"
-        else
-            WP_DIR="/root"
+        # AI (Big Pickle) CHANGE — Beta-v2.9.23 [SSH-KEYS]: the browser below was
+        # refactored into a shared browse_pick() (modes: img = image files,
+        # file = any file, dir = directories only) so the SSH key import/export
+        # prompts reuse it. The wallpaper prompt is now just the img-mode caller;
+        # behavior is unchanged.
+        WP_SRC="$(browse_pick img "wallpaper image (BMP/PNG/JPEG/QOI)")" || WP_SRC=""
+        if [ -n "$WP_SRC" ]; then
+            WP_EXT="${WP_SRC##*.}"
         fi
-        while true; do
-            ok_supported_img=0
-            while true; do
-                echo ""
-                echo "  Browsing: ${C_BOLD}${C_CYN}/${WP_DIR#/}${C_RST}"
-                echo "  Enter ${C_BOLD}..${C_RST} to go up a level, an absolute/relative path to jump there,"
-                echo "  ${C_BOLD}m${C_RST}/${C_BOLD}drives${C_RST} to jump back to the mounted-drive list at /run/media,"
-                printf '  or the number of a wallpaper image below. Press %sCtrl-C%s to abort.\n' "${C_BOLD}" "${C_RST}"
-                _wp_items=()
-                if [ "$WP_DIR" != "/" ]; then
-                    _wp_items+=( ".." )
-                fi
-                while IFS= read -r _wp_ent; do
-                    if [ -d "$_wp_ent" ] || [[ "$_wp_ent" =~ \.(bmp|png|jpg|jpeg|qoi)$ ]]; then
-                        _wp_items+=( "$_wp_ent" )
-                    fi
-                done < <(find "$WP_DIR" -maxdepth 1 -mindepth 1 \( -type d -o -type f \) -printf '%p\n' 2>/dev/null | sort)
-                if [ "${#_wp_items[@]}" -eq 1 ] && [ "${_wp_items[0]}" = ".." ]; then
-                    echo "  (no image files or subdirectories here)"
-                fi
-                for _i in "${!_wp_items[@]}"; do
-                    _wp_ent="${_wp_items[$_i]}"
-                    if [ -d "$_wp_ent" ]; then
-                        echo "  ${C_BLU}${C_BOLD}$((_i + 1))${C_RST}) ${_wp_ent##*/}/"
-                    else
-                        echo "  ${C_BOLD}$((_i + 1))${C_RST}) ${C_GRN}${_wp_ent##*/}${C_RST}"
-                    fi
-                done
-                printf '\n%s' "${C_BOLD}${C_YLW}-- Select wallpaper [dir | number | path ( .. = up, m = drives)]${C_RST} "
-                read -r WP_SRC
-                if [ -z "$WP_SRC" ]; then
-                    echo "  Please enter a directory, number, or path." >&2
-                    continue
-                fi
-                if [ "$WP_SRC" = ".." ]; then
-                    WP_DIR="$(dirname "$WP_DIR")"
-                    continue
-                fi
-                if [ "$WP_SRC" = "m" ] || [ "$WP_SRC" = "drives" ]; then
-                    if [ -d /run/media ]; then
-                        WP_DIR="/run/media"
-                    else
-                        echo "  No /run/media on this live env — staying in ${WP_DIR}." >&2
-                    fi
-                    continue
-                fi
-                if [[ "$WP_SRC" =~ ^[0-9]+$ ]]; then
-                    _sel=$((WP_SRC - 1))
-                    if [ "$_sel" -lt 0 ] || [ "$_sel" -ge "${#_wp_items[@]}" ]; then
-                        echo "  '${WP_SRC}' is not a valid choice." >&2
-                        continue
-                    fi
-                    WP_SRC="${_wp_items[$_sel]}"
-                fi
-                if [ -d "$WP_SRC" ]; then
-                    WP_DIR="$WP_SRC"
-                    continue
-                fi
-                if [ -f "$WP_SRC" ]; then
-                    WP_EXT="${WP_SRC##*.}"
-                    case "${WP_EXT,,}" in
-                        bmp|png|jpg|jpeg|qoi)
-                            ok_supported_img=1
-                            break ;;
-                        *) echo "  Unsupported extension '${WP_EXT}'. Use BMP/PNG/JPEG/QOI." >&2 ;;
-                    esac
-                else
-                    echo "  File not found: ${WP_SRC:-<empty>}" >&2
-                fi
-            done
-            if [ "$ok_supported_img" -eq 1 ]; then
-                break
-            fi
-        done
+        echo "  Selected wallpaper: ${WP_SRC:-<none>}"
+        if [ -z "$WP_SRC" ]; then
+            LIMINE_WALLPAPER="none"
+            echo "  No image selected — proceeding without a wallpaper." >&2
+        else
         # Style; stretched is Limine's default and the safest with an image
         # that may not match screen aspect — tiled and centered exist too.
         while true; do
@@ -1633,6 +1692,7 @@ if [ "$BOOTLOADER" = "limine" ]; then
         mkdir -p /mnt/tmp
         cp -f "$WP_SRC" "$WP_STAGED"
         echo "  Wallpaper staged → ${WP_STAGED}"
+        fi
     fi
 fi
 export LIMINE_WALLPAPER
@@ -2588,6 +2648,180 @@ case "$INSTALL_VIRT_INPUT" in
     *) INSTALL_VIRT="false" ;;
 esac
 export INSTALL_VIRT
+
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]: optional OpenSSH server.
+# =============================================================================
+# The <host> as-built proved SSH is NOT in the default package set and /etc/sv/sshd
+# is not linked out of the box, so administering a fresh box over SSH meant a
+# post-install xbps-install, a hand-edited sshd_config, AND an nftables.conf edit
+# (the input chain is policy drop — simply installing sshd leaves it unreachable).
+# This prompt makes the whole setup a first-class choice, default-OFF to match
+# the "no network-facing daemons by default" post-Beta-v2.1 [OPT-DEFAULTS] posture.
+INSTALL_SSH_SERVER="false"
+SSH_PORT="22"
+SSH_PASSWORD_AUTH="yes"
+SSH_ROOT_LOGIN="prohibit-password"
+ask "Install and enable the OpenSSH server (sshd)? [y/N]: "
+read -r INSTALL_SSH_SERVER_INPUT
+case "$INSTALL_SSH_SERVER_INPUT" in
+    "") INSTALL_SSH_SERVER="$DEFAULT_INSTALL_SSH_SERVER" ;;
+    [yY]*) INSTALL_SSH_SERVER="true" ;;
+    *) INSTALL_SSH_SERVER="false" ;;
+esac
+if [ "$INSTALL_SSH_SERVER" = "true" ]; then
+    while true; do
+        ask "OpenSSH server port (default ${DEFAULT_SSH_PORT}): "
+        read -r SSH_PORT_INPUT
+        SSH_PORT="${SSH_PORT_INPUT:-$DEFAULT_SSH_PORT}"
+        if [[ "$SSH_PORT" =~ ^[0-9]+$ ]] && [ "$SSH_PORT" -ge 1 ] && [ "$SSH_PORT" -le 65535 ]; then
+            break
+        fi
+        echo "  Please enter a valid port number (1-65535)." >&2
+    done
+    ask "Allow password authentication over SSH? [Y/n]: "
+    read -r SSH_PASSWORD_AUTH_INPUT
+    case "${SSH_PASSWORD_AUTH_INPUT:-$DEFAULT_SSH_PASSWORD_AUTH}" in
+        ""|"$DEFAULT_SSH_PASSWORD_AUTH") SSH_PASSWORD_AUTH="$DEFAULT_SSH_PASSWORD_AUTH" ;;
+        [yY]*) SSH_PASSWORD_AUTH="yes" ;;
+        *) SSH_PASSWORD_AUTH="no" ;;
+    esac
+    ask "Allow root to log in over SSH (public-key only)? [Y/n]: "
+    read -r SSH_ROOT_LOGIN_INPUT
+    case "${SSH_ROOT_LOGIN_INPUT:-$DEFAULT_SSH_ROOT_LOGIN}" in
+        ""|"$DEFAULT_SSH_ROOT_LOGIN") SSH_ROOT_LOGIN="$DEFAULT_SSH_ROOT_LOGIN" ;;
+        [yY]*) SSH_ROOT_LOGIN="prohibit-password" ;;
+        *) SSH_ROOT_LOGIN="no" ;;
+    esac
+fi
+export INSTALL_SSH_SERVER SSH_PORT SSH_PASSWORD_AUTH SSH_ROOT_LOGIN
+
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-KEYS]: import existing key /
+# generate fresh key / back up the keypair. Uses the shared browse_pick browser
+# (refactored below from the wallpaper picker).
+# =============================================================================
+# Two independent toggles (import an existing keypair from removable media /
+# generate a fresh ed25519 keypair). Whatever is NOT imported is generated only
+# when asked; a bare-Enter run skips both (DEFAULT_* false), leaving ~/.ssh
+# untouched exactly as before. No key material is ever persisted to
+# install-config / limine-env / resume state / chroot_env — only public facts.
+#
+# Covered-path note (AI (Big Pickle) — Beta-v2.9.23 [SSH-KEYS]): staging
+# happens in THIS prompt phase, long before the target @ subvolume is mounted
+# over /mnt (line ~3830) — so a /mnt/tmp staging dir would get covered by the
+# mount and the keys would vanish (the same bug [LIMINE-WALLPAPER-STAGE2]
+# v2.9.18/2.9.19e had to fix for the wallpaper). Keys are therefore staged on
+# the LIVE env's own /tmp (tmpfs, never covered) and transplanted into the
+# TARGET's /mnt/tmp right after the mount, where the chroot then sees them at
+# /tmp/ssh-* (SPEC's "/mnt/tmp → /tmp mapping"). Export reads back from the
+# live stage during this phase, so it needs no transplant.
+IMPORT_SSH_KEY="false"
+GENERATE_SSH_KEY="false"
+EXPORT_SSH_KEY="false"
+SSH_KEY_COMMENT="${TARGET_USER}@${TARGET_HOSTNAME}"
+SSH_KEY_PROTECTED="yes"
+SSH_IMPORT_DIR="/tmp/ssh-import"
+SSH_KEYGEN_DIR="/tmp/ssh-keygen"
+ask "Import an existing SSH private key from removable media? [y/N]: "
+read -r IMPORT_SSH_KEY_INPUT
+case "$IMPORT_SSH_KEY_INPUT" in
+    "") IMPORT_SSH_KEY="$DEFAULT_IMPORT_SSH_KEY" ;;
+    [yY]*) IMPORT_SSH_KEY="true" ;;
+    *) IMPORT_SSH_KEY="false" ;;
+esac
+if [ "$IMPORT_SSH_KEY" = "true" ]; then
+    mkdir -p "$SSH_IMPORT_DIR"
+    _imported_key="$(browse_pick "file" "private key to import")"
+    if [ -n "$_imported_key" ]; then
+        if [[ "$_imported_key" =~ \.pub$ ]]; then
+            echo "  NOTICE: '${_imported_key##*/}' looks like a PUBLIC key (.pub)."
+            echo "  Skipping import — feed me the private key file instead." >&2
+            IMPORT_SSH_KEY="false"
+        else
+            cp -f "$_imported_key" "${SSH_IMPORT_DIR}/imported"
+            echo "  Imported private key staged → ${SSH_IMPORT_DIR}/imported"
+            _imported_key_pub="${_imported_key}.pub"
+            if [ -f "$_imported_key_pub" ]; then
+                cp -f "$_imported_key_pub" "${SSH_IMPORT_DIR}/imported.pub"
+                echo "  Imported public key sibling staged → ${SSH_IMPORT_DIR}/imported.pub"
+            fi
+        fi
+    else
+        IMPORT_SSH_KEY="false"
+    fi
+fi
+ask "Generate a fresh ed25519 SSH keypair? [y/N]: "
+read -r GENERATE_SSH_KEY_INPUT
+case "$GENERATE_SSH_KEY_INPUT" in
+    "") GENERATE_SSH_KEY="$DEFAULT_GENERATE_SSH_KEY" ;;
+    [yY]*) GENERATE_SSH_KEY="true" ;;
+    *) GENERATE_SSH_KEY="false" ;;
+esac
+if [ "$GENERATE_SSH_KEY" = "true" ]; then
+    echo "${C_BOLD}SSH key comment${C_RST} (a public identifier embedded in the .pub;"
+    echo "  default ${C_BOLD}${SSH_KEY_COMMENT}${C_RST} — Enter to keep, type to override):"
+    read -r SSH_KEY_COMMENT_INPUT
+    [ -n "$SSH_KEY_COMMENT_INPUT" ] && SSH_KEY_COMMENT="$SSH_KEY_COMMENT_INPUT"
+    ask "Protect the key with a passphrase? [Y/n]: "
+    read -r SSH_KEY_PROTECTED_INPUT
+    case "${SSH_KEY_PROTECTED_INPUT:-$DEFAULT_SSH_KEY_PROTECTED}" in
+        ""|"$DEFAULT_SSH_KEY_PROTECTED") SSH_KEY_PROTECTED="$DEFAULT_SSH_KEY_PROTECTED" ;;
+        [yY]*) SSH_KEY_PROTECTED="yes" ;;
+        *) SSH_KEY_PROTECTED="no" ;;
+    esac
+    mkdir -p "$SSH_KEYGEN_DIR"
+    if [ "$SSH_KEY_PROTECTED" = "yes" ]; then
+        while true; do
+            read -r -s -p "  Enter passphrase for the new key: " _ssh_key_pass_1; echo ""
+            read -r -s -p "  Re-enter passphrase: " _ssh_key_pass_2; echo ""
+            if [ -n "$_ssh_key_pass_1" ] && [ "$_ssh_key_pass_1" = "$_ssh_key_pass_2" ]; then
+                break
+            fi
+            echo "  Passphrases empty or do not match — try again." >&2
+        done
+        SSH_KEY_PASSPHRASE="$_ssh_key_pass_1"
+    else
+        SSH_KEY_PASSPHRASE=""
+    fi
+    unset _ssh_key_pass_1 _ssh_key_pass_2
+    # shellcheck disable=SC2086  # empty passphrase expands to zero args (no -N/-P flags)
+    ssh-keygen -q -t ed25519 -C "$SSH_KEY_COMMENT" ${SSH_KEY_PASSPHRASE:+-N "$SSH_KEY_PASSPHRASE"} \
+        -f "$SSH_KEYGEN_DIR/id_ed25519"
+    SSH_KEY_PASSPHRASE=""
+    unset SSH_KEY_PASSPHRASE _ssh_key_input
+    echo "  Generated keypair → ${SSH_KEYGEN_DIR}/id_ed25519{,.pub} (comment '${SSH_KEY_COMMENT}')"
+fi
+ask "Export a backup copy of the SSH keypair to removable media? [y/N]: "
+read -r EXPORT_SSH_KEY_INPUT
+case "$EXPORT_SSH_KEY_INPUT" in
+    "") EXPORT_SSH_KEY="$DEFAULT_EXPORT_SSH_KEY" ;;
+    [yY]*) EXPORT_SSH_KEY="true" ;;
+    *) EXPORT_SSH_KEY="false" ;;
+esac
+if [ "$EXPORT_SSH_KEY" = "true" ]; then
+    _export_src=""
+    [ -f "$SSH_KEYGEN_DIR/id_ed25519" ] && _export_src="$SSH_KEYGEN_DIR/id_ed25519"
+    # shellcheck disable=SC2012  # single newest/most-relevant import copy is intended
+    [ -z "$_export_src" ] && [ -f "$SSH_IMPORT_DIR/imported" ] && _export_src="$SSH_IMPORT_DIR/imported"
+    if [ -z "$_export_src" ]; then
+        echo "  No key present to export (import+generate were both declined)." >&2
+        EXPORT_SSH_KEY="false"
+    else
+        _export_dst="$(browse_pick "dir" "backup destination directory")"
+        if [ -d "$_export_dst" ]; then
+            cp -f "$_export_src" "${_export_dst}/id_ed25519-backup"
+            cp -f "${_export_src}.pub" "${_export_dst}/id_ed25519-backup.pub" 2>/dev/null || true
+            chmod 600 "${_export_dst}/id_ed25519-backup"
+            echo "  Key exported → ${_export_dst}/id_ed25519-backup{,.pub}"
+        else
+            echo "  No destination chosen; skipping export." >&2
+            EXPORT_SSH_KEY="false"
+        fi
+    fi
+fi
+unset _imported_key _imported_key_pub _export_src _export_dst
+export IMPORT_SSH_KEY GENERATE_SSH_KEY EXPORT_SSH_KEY SSH_KEY_COMMENT SSH_KEY_PROTECTED
 
 # (The Docker / Podman-rootful / Virtualization system-datadir pre-create
 # prompts are now governed by the [SUBVOL-GATES] Gate 2 resolver below —
@@ -3626,6 +3860,19 @@ if [ "$LIMINE_WALLPAPER" = "yes" ] && [ -f "${WP_SRC:-}" ]; then
     echo "  Wallpaper re-staged into target → /mnt/tmp/limine-splash.${WP_EXT,,}"
 fi
 
+# AI (Big Pickle) FIX — Beta-v2.9.23 [SSH-KEYS]: transplant the SSH key
+# material staged on the LIVE /tmp during the prompt phase into the target's
+# /mnt/tmp right after the @ root mount — same covered-path rationale as the
+# wallpaper re-stage above. The chroot deposit below then sees the keys at
+# /tmp/ssh-* (the /mnt/tmp → /tmp mapping). Nothing to do when no keys were
+# staged.
+if [ -d /tmp/ssh-keygen ] || [ -d /tmp/ssh-import ]; then
+    mkdir -p /mnt/tmp/ssh-keygen /mnt/tmp/ssh-import
+    cp -f /tmp/ssh-keygen/* /mnt/tmp/ssh-keygen/ 2>/dev/null || true
+    cp -f /tmp/ssh-import/* /mnt/tmp/ssh-import/ 2>/dev/null || true
+    chmod -R go-rwx /mnt/tmp/ssh-keygen /mnt/tmp/ssh-import 2>/dev/null || true
+fi
+
 mkdir -vp /mnt/home /mnt/.snapshots /mnt/opt /mnt/srv
 # AI (Big Pickle) CHANGE — Beta-v2.6.2 [GRUB-ESP-BOOT]: in the GRUB+ENCRYPT
 # combo the ESP mounts AT /boot, so the mountpoint is /mnt/boot (no nested
@@ -3927,6 +4174,13 @@ echo "export LIGHTDM_GREETER_SESSION=\"$LIGHTDM_GREETER_SESSION\"" >> /mnt/tmp/c
 # conf was ever written (black login screen). Same bug family as
 # [DEVICE-PROFILE-RCL] (2.9.19).
 echo "export LIGHTDM_GREETER=\"$LIGHTDM_GREETER\"" >> /mnt/tmp/chroot_env.sh
+# AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]: carry the OpenSSH
+# server decision into the chroot so Stage 2 can install openssh, write the
+# sshd_config.d drop-in, and emit the input-chain fragment. Public facts only.
+echo "export INSTALL_SSH_SERVER=\"$INSTALL_SSH_SERVER\"" >> /mnt/tmp/chroot_env.sh
+echo "export SSH_PORT=\"$SSH_PORT\"" >> /mnt/tmp/chroot_env.sh
+echo "export SSH_PASSWORD_AUTH=\"$SSH_PASSWORD_AUTH\"" >> /mnt/tmp/chroot_env.sh
+echo "export SSH_ROOT_LOGIN=\"$SSH_ROOT_LOGIN\"" >> /mnt/tmp/chroot_env.sh
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [LOCALIZE]: carry the chosen locale/timezone
 # into the chroot so Stage 2 can generate+activate the locale and set the zone.
 echo "export LOCALE=\"$LOCALE\"" >> /mnt/tmp/chroot_env.sh
@@ -4212,6 +4466,22 @@ if [ "$INSTALL_VIRT" = "true" ]; then
 NFT_FWD_EOF
     )
 fi
+# AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]: the sshd port accept
+# is a fragment emitted into the INPUT chain ONLY when the OpenSSH server is
+# enabled. The input chain is policy-drop, so merely installing sshd leaves
+# it unreachable without this rule; on a no-sshd build the fragment stays
+# empty and the chain stays closed (exactly the [NFT-VIRT-GATE] pattern).
+# $INSTALL_SSH_SERVER / $SSH_PORT are live in the chroot (chroot_env.sh).
+# Unlike NFT_FWD_RULES (pure literals, quote-tolerant), this fragment carries
+# ${SSH_PORT}, so its inner heredoc is UNQUOTED — a quoted terminator would
+# bake a literal "${SSH_PORT}" into nftables.conf and kill the input accept.
+SSH_PORT_RULE=""
+if [ "$INSTALL_SSH_SERVER" = "true" ]; then
+    SSH_PORT_RULE=$(cat << SSH_PORT_EOF
+        tcp dport "${SSH_PORT}" ct state new accept
+SSH_PORT_EOF
+    )
+fi
 cat > /etc/nftables.conf << INNER_EOF
 #!/usr/sbin/nft -f
 flush ruleset
@@ -4226,6 +4496,7 @@ table inet filter {
         ct state invalid drop
         ip protocol icmp icmp type echo-request counter limit rate 1/second burst 5 packets accept
         meta l4proto ipv6-icmp accept
+${SSH_PORT_RULE}
     }
     chain forward {
         type filter hook forward priority filter; policy drop;
@@ -4236,6 +4507,62 @@ ${NFT_FWD_RULES}
     }
 }
 INNER_EOF
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]: optional OpenSSH
+# server install + config. The input chain above already carries the
+# ${SSH_PORT_RULE} accept when INSTALL_SSH_SERVER=true; here we install
+# openssh and write a drop-in with the chosen port + access policy. Void's
+# /etc/sv/sshd generates host keys on first start, so no keygen needed.
+if [ "$INSTALL_SSH_SERVER" = "true" ]; then
+    install_pkgs openssh
+    SSH_DROP="/etc/ssh/sshd_config.d/10-void-installer.conf"
+    mkdir -p /etc/ssh/sshd_config.d
+    if ! grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config 2>/dev/null; then
+        echo "" >> /etc/ssh/sshd_config
+        echo "Include /etc/ssh/sshd_config.d/*.conf" >> /etc/ssh/sshd_config
+    fi
+    cat > "$SSH_DROP" << INNER_EOF
+# Void_Linux_Installer.sh v${SCRIPT_VERSION} [SSH-SERVER] (Beta-v2.9.23)
+Port ${SSH_PORT}
+PasswordAuthentication ${SSH_PASSWORD_AUTH}
+PermitRootLogin ${SSH_ROOT_LOGIN}
+INNER_EOF
+    chmod 0644 "$SSH_DROP"
+    echo "==> OpenSSH configured (port ${SSH_PORT}) → ${SSH_DROP}"
+fi
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-KEYS]: deposit any staged SSH
+# key material into the target user's ~/.ssh with correct perms, then shred
+# the TARGET staging copies (in the chroot, /tmp == the target's /mnt/tmp —
+# the transplanted copies; the LIVE /tmp original stage is shredded by the
+# parent script after the chroot exits, and by cleanup_on_failure on abort).
+# Guarded on the account existing (created earlier).
+if [ -d /tmp/ssh-keygen ] || [ -d /tmp/ssh-import ]; then
+    if [ -n "$TARGET_USER" ] && id -u "$TARGET_USER" >/dev/null 2>&1; then
+        _ssh_dir="/home/${TARGET_USER}/.ssh"
+        mkdir -p "$_ssh_dir"
+        chmod 0700 "$_ssh_dir"
+        if [ -f /tmp/ssh-keygen/id_ed25519 ]; then
+            cp -f /tmp/ssh-keygen/id_ed25519 "$_ssh_dir/id_ed25519"
+            cp -f /tmp/ssh-keygen/id_ed25519.pub "$_ssh_dir/id_ed25519.pub"
+            chmod 0600 "$_ssh_dir/id_ed25519"
+            chmod 0644 "$_ssh_dir/id_ed25519.pub"
+            echo "==> Generated key deposited → ${TARGET_USER}/.ssh/id_ed25519"
+        fi
+        if [ -f /tmp/ssh-import/imported ]; then
+            cp -f /tmp/ssh-import/imported "$_ssh_dir/imported"
+            chmod 0600 "$_ssh_dir/imported"
+            [ -f /tmp/ssh-import/imported.pub ] && cp -f /tmp/ssh-import/imported.pub "$_ssh_dir/imported.pub" && chmod 0644 "$_ssh_dir/imported.pub"
+            echo "==> Imported key deposited → ${TARGET_USER}/.ssh/imported"
+        fi
+        chown -R "${TARGET_USER}:${TARGET_USER}" "$_ssh_dir"
+    else
+        echo "NOTE: SSH keys staged but target account '${TARGET_USER:-<unset>}' missing — keys NOT deposited." >&2
+    fi
+    # Shred the target staging copies (/tmp inside the chroot).
+    shred -u /tmp/ssh-keygen/id_ed25519* /tmp/ssh-import/imported* 2>/dev/null || true
+    rm -rf /tmp/ssh-keygen /tmp/ssh-import
+fi
 
 echo "${TARGET_HOSTNAME}" > /etc/hostname
 
@@ -5911,6 +6238,16 @@ ENABLE_HIBERNATION="${ENABLE_HIBERNATION:-<unset>}"
 SWAPFILE_SIZE="${SWAPFILE_SIZE:-<unset>}"
 LIMINE_WALLPAPER="${LIMINE_WALLPAPER:-<unset>}"
 LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]/[SSH-KEYS]: as-built
+# record of the OpenSSH server decision + the PUBLIC key facts (comment /
+# protection flag). Never any key material or passphrase here — matches the
+# secret-free rule for this file.
+INSTALL_SSH_SERVER="${INSTALL_SSH_SERVER:-false}"
+SSH_PORT="${SSH_PORT:-<unset>}"
+SSH_PASSWORD_AUTH="${SSH_PASSWORD_AUTH:-<unset>}"
+SSH_ROOT_LOGIN="${SSH_ROOT_LOGIN:-<unset>}"
+SSH_KEY_COMMENT="${SSH_KEY_COMMENT:-<unset>}"
+SSH_KEY_PROTECTED="${SSH_KEY_PROTECTED:-<unset>}"
 INNER_EOF
 chmod 644 /etc/void-installer/install-config
 
@@ -8275,6 +8612,10 @@ if [ ! -f /var/log/firstboot.log ]; then
     fi
     [ "__INSTALL_DOCKER__" = "true" ] && ln -sfn /etc/sv/docker /etc/runit/runsvdir/default/docker
     [ "__INSTALL_VIRTUALBOX__" = "true" ] && ln -sfn /etc/sv/vboxdrv /etc/runit/runsvdir/default/vboxdrv
+    # AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]: link sshd on
+    # first boot via the same baked-placeholder pattern (invariant #3 — the
+    # /etc/sv tree is not available at first-boot via /var/service).
+    [ "__INSTALL_SSH_SERVER__" = "true" ] && ln -sfn /etc/sv/sshd /etc/runit/runsvdir/default/sshd
     # AI (Big Pickle) ADDITION — Beta-v2.9.17 [DEVICE-PROFILE] + Beta-v2.9.19d
     # [DEVICE-PROFILE-RCL]: these links are gated on __PROFILE_*__ placeholders
     # (sed-substituted to the resolved booleans downstream) so the laptop
@@ -8421,6 +8762,7 @@ sed -i \
     -e "s/__INSTALL_VIRT__/${INSTALL_VIRT}/g" \
     -e "s/__INSTALL_DOCKER__/${INSTALL_DOCKER}/g" \
     -e "s/__INSTALL_VIRTUALBOX__/${INSTALL_VIRTUALBOX}/g" \
+    -e "s/__INSTALL_SSH_SERVER__/${INSTALL_SSH_SERVER}/g" \
     -e "s/__DISPLAY_MANAGER__/${DM_SERVICE_NAME}/g" \
     -e "s/__SESSION_STACK__/${SESSION_STACK}/g" \
     -e "s/__SWAP_BACKEND__/${SWAP_BACKEND}/g" \
@@ -8489,6 +8831,17 @@ else
     /usr/local/sbin/void-limine-write-conf
 fi
 CHROOT_EOF
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-KEYS]: the chroot deposit
+# shredded the TARGET /tmp copies; now shred the LIVE /tmp stage behind it
+# (still on the live runtime after the chroot exits). Belt-and-braces with the
+# deposit shred + the cleanup_on_failure shred below, so no key material ever
+# persists on the live medium after a successful or aborted run.
+if [ -d /tmp/ssh-keygen ] || [ -d /tmp/ssh-import ]; then
+    shred -u /tmp/ssh-keygen/* /tmp/ssh-import/* 2>/dev/null || true
+    rm -rf /tmp/ssh-keygen /tmp/ssh-import
+    echo "  SSH key stage shredded from live environment."
+fi
 
 # =============================================================================
 # STAGE 3: CLEAN POST-CHROOT RECOVERY TEARDOWN ON LIVE SYSTEM
