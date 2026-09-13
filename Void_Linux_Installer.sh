@@ -1400,7 +1400,7 @@ echo ""
 echo "${C_BOLD}${C_BLU}Device profile${C_RST}"
 echo "  What kind of machine is this? Gates tlp (battery power management),"
 echo "  the bluetooth stack, and preload (adaptive readahead cache):"
-echo "  ${C_BOLD}1)${C_RST} Automatic (default) — probe chassis + bluetooth hardware"
+echo "  ${C_BOLD}1)${C_RST} Automatic (default) — probe chassis + bluetooth hardware, then confirm/override"
 echo "  ${C_BOLD}2)${C_RST} Laptop with Bluetooth"
 echo "  ${C_BOLD}3)${C_RST} Laptop, no Bluetooth"
 echo "  ${C_BOLD}4)${C_RST} Desktop/server with Bluetooth"
@@ -1432,6 +1432,40 @@ while true; do
                         *) DEVICE_PROFILE="laptop" ;;
                     esac ;;
             esac
+            # AI (Big Pickle) ADDITION — Beta-v2.9.19c [DEVICE-PROFILE-CONFIRM]:
+            # Automatic used to silently accept whatever SMBIOS resolved (or the
+            # unresolvable fallback) with no feedback and no way to correct a
+            # wrong guess before the tlp/bluez/preload gates committed. Now the
+            # detected profile is shown and the user can confirm it (bare
+            # Enter / y / yes) or override to 2-5. An unresolvable chassis still
+            # falls back to laptop-bt but the user is told so and gets the same
+            # confirm/override chance.
+            show_profile() {
+                case "$DEVICE_PROFILE" in
+                    laptop-bt)  _dp_desc="Laptop with Bluetooth" ;;
+                    laptop)     _dp_desc="Laptop, no Bluetooth" ;;
+                    desktop-bt) _dp_desc="Desktop/server with Bluetooth" ;;
+                    desktop)    _dp_desc="Desktop/server, no Bluetooth" ;;
+                esac
+                echo "  Detected profile: ${DEVICE_PROFILE} (${_dp_desc})"
+            }
+            show_profile
+            while true; do
+                ask "   Keep this profile? [Y/n] or pick 2-5 to override: "
+                read -r DP_CONFIRM
+                case "${DP_CONFIRM:-y}" in
+                    y|Y|yes|YES) break ;;
+                    n|N|no|NO)
+                        echo "  Overriding — pick an explicit profile from the menu (2-5)." >&2 ;;
+                    2) DEVICE_PROFILE="laptop-bt"; show_profile; break ;;
+                    3) DEVICE_PROFILE="laptop"; show_profile; break ;;
+                    4) DEVICE_PROFILE="desktop-bt"; show_profile; break ;;
+                    5) DEVICE_PROFILE="desktop"; show_profile; break ;;
+                    *) echo "  Please enter y to keep, or 2-5 to override." >&2 ;;
+                esac
+            done
+            unset DP_CONFIRM _dp_desc
+            unset -f show_profile
             break ;;
         2) DEVICE_PROFILE="laptop-bt"; break ;;
         3) DEVICE_PROFILE="laptop"; break ;;
@@ -1492,6 +1526,15 @@ if [ "$BOOTLOADER" = "limine" ]; then
         # neither). Start in /run/media (where a USB stick holding the image is
         # typically mounted) if present, else /root. `..` goes up a level; typing a
         # path (absolute or relative) is still accepted as an escape hatch.
+        # AI (Big Pickle) CHANGE — Beta-v2.9.20 [LIMINE-WP-DRIVES]: `..` from inside
+        # a mounted drive only climbs to the per-user parent (/run/media/<user>),
+        # whose siblings are just that one user's mounts — so drives mounted under a
+        # different username parent are invisible and there was no on-screen way back
+        # to the "every drive" list. Added explicit jump keywords `m` / `drives` that
+        # set WP_DIR back to /run/media (the drive-list root); if /run/media is
+        # absent it says so and stays in place instead of jumping to nothing. The
+        # keyword check runs BEFORE the path-exists test, so a literal file/dir named
+        # `m` or `drives` cannot collide (numbers are expanded to full paths earlier).
         if [ -d /run/media ]; then
             WP_DIR="/run/media"
         else
@@ -1503,6 +1546,7 @@ if [ "$BOOTLOADER" = "limine" ]; then
                 echo ""
                 echo "  Browsing: ${C_BOLD}${C_CYN}/${WP_DIR#/}${C_RST}"
                 echo "  Enter ${C_BOLD}..${C_RST} to go up a level, an absolute/relative path to jump there,"
+                echo "  ${C_BOLD}m${C_RST}/${C_BOLD}drives${C_RST} to jump back to the mounted-drive list at /run/media,"
                 printf '  or the number of a wallpaper image below. Press %sCtrl-C%s to abort.\n' "${C_BOLD}" "${C_RST}"
                 _wp_items=()
                 if [ "$WP_DIR" != "/" ]; then
@@ -1524,7 +1568,7 @@ if [ "$BOOTLOADER" = "limine" ]; then
                         echo "  ${C_BOLD}$((_i + 1))${C_RST}) ${C_GRN}${_wp_ent##*/}${C_RST}"
                     fi
                 done
-                printf '\n%s' "${C_BOLD}${C_YLW}-- Select wallpaper [dir | number | path ( .. = up)]${C_RST} "
+                printf '\n%s' "${C_BOLD}${C_YLW}-- Select wallpaper [dir | number | path ( .. = up, m = drives)]${C_RST} "
                 read -r WP_SRC
                 if [ -z "$WP_SRC" ]; then
                     echo "  Please enter a directory, number, or path." >&2
@@ -1532,6 +1576,14 @@ if [ "$BOOTLOADER" = "limine" ]; then
                 fi
                 if [ "$WP_SRC" = ".." ]; then
                     WP_DIR="$(dirname "$WP_DIR")"
+                    continue
+                fi
+                if [ "$WP_SRC" = "m" ] || [ "$WP_SRC" = "drives" ]; then
+                    if [ -d /run/media ]; then
+                        WP_DIR="/run/media"
+                    else
+                        echo "  No /run/media on this live env — staying in ${WP_DIR}." >&2
+                    fi
                     continue
                 fi
                 if [[ "$WP_SRC" =~ ^[0-9]+$ ]]; then
@@ -2246,6 +2298,23 @@ if [ "$SETUP_WEB_BROWSERS" = "true" ]; then
     esac
     export INSTALL_VIVALDI
 
+    # AI (Big Pickle) ADDITION — Beta-v2.9.22 [FALKON-QT-NOTICE]: closes the
+    # long-standing "Falkon KDE-dependency awareness" discussion. On Void,
+    # falkon's real dependencies are qt5-webengine + qt5-x11extras + qt5-svg —
+    # it pulls the Qt + QtWebEngine stack but does NOT install a KDE desktop.
+    # Warn-not-gate (matches the Vivaldi/Brave notice pattern): inline notice
+    # before the [y/N] prompt, only when the desktop isn't KDE. LXQt already
+    # shares the Qt5 base so only the WebEngine set is new there; GTK/session
+    # desktops get the full wording. No extra confirm gate, prompt unchanged.
+    if [ "$DESKTOP_ENV" != "kde" ]; then
+        if [ "$DESKTOP_ENV" = "lxqt" ]; then
+            echo "NOTICE: Falkon shares LXQt's Qt5 but still pulls in the Qt"
+            echo "WebEngine stack on top (it does not install KDE)."
+        else
+            echo "NOTICE: Falkon runs standalone but pulls in the Qt + QtWebEngine"
+            echo "stack on top of your ${DESKTOP_ENV} desktop (it does not install KDE)."
+        fi
+    fi
     ask "Install Falkon (KDE's browser, works fine standalone too)? [y/N]: "
     read -r INSTALL_FALKON_INPUT
     case "$INSTALL_FALKON_INPUT" in
@@ -3850,6 +3919,14 @@ echo "export DESKTOP_ENV=\"$DESKTOP_ENV\"" >> /mnt/tmp/chroot_env.sh
 echo "export DISPLAY_MANAGER=\"$DISPLAY_MANAGER\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIGHTDM_GREETER_PKG=\"$LIGHTDM_GREETER_PKG\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIGHTDM_GREETER_SESSION=\"$LIGHTDM_GREETER_SESSION\"" >> /mnt/tmp/chroot_env.sh
+# AI (Big Pickle) ADDITION — Beta-v2.9.21 [GREETER-BG-EXPORT]: the greeter-bg
+# block lives inside the single-quoted chroot heredoc, so its
+# `case "$LIGHTDM_GREETER"` must resolve IN-CHROOT at runtime — only the
+# derived _PKG / _SESSION were threaded in before, leaving the bare gtk/slick
+# choice unset in the chroot, so the case matched neither branch and NO greeter
+# conf was ever written (black login screen). Same bug family as
+# [DEVICE-PROFILE-RCL] (2.9.19).
+echo "export LIGHTDM_GREETER=\"$LIGHTDM_GREETER\"" >> /mnt/tmp/chroot_env.sh
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [LOCALIZE]: carry the chosen locale/timezone
 # into the chroot so Stage 2 can generate+activate the locale and set the zone.
 echo "export LOCALE=\"$LOCALE\"" >> /mnt/tmp/chroot_env.sh
