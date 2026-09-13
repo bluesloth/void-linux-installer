@@ -551,6 +551,12 @@ DEFAULT_LOGIN_SHELL="${DEFAULT_LOGIN_SHELL:-1}"       # 1=bash 2=zsh 3=fish 4=mk
 DEFAULT_DESKTOP="${DEFAULT_DESKTOP:-1}"               # 1=kde 2=cinnamon 3=gnome 4=xfce 5=mate 6=lxqt 7=cosmic
 DEFAULT_SESSION_STACK="${DEFAULT_SESSION_STACK:-1}"   # 1=elogind 2=turnstile
 DEFAULT_BOOTLOADER="${DEFAULT_BOOTLOADER:-1}"         # 1=limine 2=grub (EFI size follows)
+# AI (Big Pickle) ADDITION — Beta-v2.9.16 [KERNEL-SELECT]: the kernel the
+# installer deploys is now a real Stage-1 choice. The base `linux` (rolling)
+# kernel is ALWAYS installed — Void's base-system meta-package depends on it,
+# so this is a per-flavor toggle pair for the two extras on top.
+DEFAULT_KERNEL_MAINLINE="${DEFAULT_KERNEL_MAINLINE:-false}"  # linux-mainline (experts) [y/N]
+DEFAULT_KERNEL_LTS="${DEFAULT_KERNEL_LTS:-true}"             # linux-lts (conservative) [Y/n]
 DEFAULT_LOCALE="${DEFAULT_LOCALE:-1}"                 # 1=en_US.UTF-8 (menu index)
 DEFAULT_TIMEZONE="${DEFAULT_TIMEZONE:-1}"             # 1=America/New_York (menu index)
 DEFAULT_SWAP_BACKEND="${DEFAULT_SWAP_BACKEND:-1}"     # 1=swapfile 2=zram 3=both 4=none
@@ -594,6 +600,10 @@ DEFAULT_VIRT="${DEFAULT_VIRT:-false}"                 # virtualization qemu/libv
 DEFAULT_DISTROBOX="${DEFAULT_DISTROBOX:-false}"       # also install distrobox? [y/N]
 DEFAULT_DISTROBOX_TRACK="${DEFAULT_DISTROBOX_TRACK:-1}"       # 1=stable 2=current 3=next
 DEFAULT_DISTROBOX_ENGINE="${DEFAULT_DISTROBOX_ENGINE:-1}"     # 1=podman 2=docker
+# AI (Big Pickle) ADDITION — Beta-v2.9.17 [DEVICE-PROFILE]: laptop vs
+# desktop/server (tlp + bluetooth gates). 1=Automatic (default) 2=laptop+BT
+# 3=laptop no-BT 4=desktop/server+BT 5=desktop/server no-BT.
+DEFAULT_DEVICE_PROFILE="${DEFAULT_DEVICE_PROFILE:-1}"
 DEFAULT_YK_TOUCH="${DEFAULT_YK_TOUCH:-yes}"           # require touch to unlock? [Y/n]
 DEFAULT_YK_FALLBACK="${DEFAULT_YK_FALLBACK:-yes}"     # keep typed-passphrase fallback? [Y/n]
 
@@ -1339,6 +1349,106 @@ echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snaps
  done
 export BOOTLOADER
 export EFI_PART_SIZE
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.16 [KERNEL-SELECT]: real Stage-1 kernel
+# choice. Void's x86_64 repo ships exactly three flavors; the base `linux`
+# (rolling) is ALWAYS installed (base-system depends on it), so this is a
+# toggle pair for the two extras. Bare Enter ships linux + linux-lts (the
+# conservative default flipped 2026-09-07 per maintainer request); `y` to both
+# gives linux + linux-mainline + linux-lts.
+INSTALL_KERNEL_MAINLINE="${DEFAULT_KERNEL_MAINLINE}"
+INSTALL_KERNEL_LTS="${DEFAULT_KERNEL_LTS}"
+echo ""
+echo "${C_BOLD}${C_BLU}Kernel packages${C_RST}"
+echo "  The base rolling kernel (linux) is always installed. You can add:"
+echo "  ${C_BOLD}linux-mainline${C_RST} — newest features, shortest support window (Void: \"for experts only\")."
+echo "  ${C_BOLD}linux-lts${C_RST}      — Long Term Support; most conservative, longest window; best for servers."
+while true; do
+    ask "${C_GRN}Also install linux-mainline?${C_RST} [y/N]: "
+    read -r K_MAINLINE
+    case "${K_MAINLINE,,}" in
+        y|yes) INSTALL_KERNEL_MAINLINE=true; break ;;
+        ""|n|no) INSTALL_KERNEL_MAINLINE=false; break ;;
+        *) echo "Please enter y or n." >&2 ;;
+    esac
+done
+while true; do
+    ask "${C_GRN}Also install linux-lts?${C_RST} [Y/n]: "
+    read -r K_LTS
+    case "${K_LTS,,}" in
+        ""|y|yes) INSTALL_KERNEL_LTS=true; break ;;
+        n|no) INSTALL_KERNEL_LTS=false; break ;;
+        *) echo "Please enter y or n." >&2 ;;
+    esac
+done
+KERNEL_PKGS="linux"
+[ "$INSTALL_KERNEL_MAINLINE" = "true" ] && KERNEL_PKGS="$KERNEL_PKGS linux-mainline"
+[ "$INSTALL_KERNEL_LTS" = "true" ] && KERNEL_PKGS="$KERNEL_PKGS linux-lts"
+export INSTALL_KERNEL_MAINLINE INSTALL_KERNEL_LTS KERNEL_PKGS
+echo "  Resolved kernel set: ${KERNEL_PKGS}"
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.17 [DEVICE-PROFILE]: laptop vs
+# desktop/server — a real Stage-1 choice gating tlp (battery power), the
+# bluetooth stack, and preload. Resolved to a CONCRETE profile
+# (laptop-bt/laptop/desktop-bt/desktop, never "auto") plus the three booleans
+# that actually drive the install.
+DEVICE_PROFILE=""
+PROFILE_TLP="false"
+PROFILE_BT="false"
+PROFILE_PRELOAD="false"
+echo ""
+echo "${C_BOLD}${C_BLU}Device profile${C_RST}"
+echo "  What kind of machine is this? Gates tlp (battery power management),"
+echo "  the bluetooth stack, and preload (adaptive readahead cache):"
+echo "  ${C_BOLD}1)${C_RST} Automatic (default) — probe chassis + bluetooth hardware"
+echo "  ${C_BOLD}2)${C_RST} Laptop with Bluetooth"
+echo "  ${C_BOLD}3)${C_RST} Laptop, no Bluetooth"
+echo "  ${C_BOLD}4)${C_RST} Desktop/server with Bluetooth"
+echo "  ${C_BOLD}5)${C_RST} Desktop/server, no Bluetooth"
+_bt_hw="no"
+for _m in /sys/bus/usb/devices/*/modalias /sys/bus/usb/devices/*/*/modalias; do
+    [ -r "$_m" ] || continue
+    if grep -qi 'icE0isc01ip01' "$_m"; then _bt_hw="yes"; break; fi
+done
+_cc="$(cat /sys/class/dmi/id/chassis_type 2>/dev/null || true)"
+_auto_device_profile="" # resolved inside the loop below per Auto path
+while true; do
+    ask "Enter choice [1/2/3/4/5] (default ${DEFAULT_DEVICE_PROFILE}: Automatic): "
+    read -r DP_INPUT
+    case "${DP_INPUT:-$DEFAULT_DEVICE_PROFILE}" in
+        1)
+            case "$_cc" in
+                8|9|10|11|14|30|31|32) DEVICE_PROFILE="laptop-bt" ;;
+                3|4|5|6|7|13|15) DEVICE_PROFILE="desktop-bt" ;;
+                *) DEVICE_PROFILE="laptop-bt" ;;  # unresolvable → historical laptop baseline
+            esac
+            [ "$_bt_hw" = "yes" ] && case "$DEVICE_PROFILE" in
+                desktop*) DEVICE_PROFILE="desktop-bt" ;;
+                *) DEVICE_PROFILE="laptop-bt" ;;
+            esac
+            case "$_bt_hw" in
+                no) case "$DEVICE_PROFILE" in
+                        desktop*) DEVICE_PROFILE="desktop" ;;
+                        *) DEVICE_PROFILE="laptop" ;;
+                    esac ;;
+            esac
+            break ;;
+        2) DEVICE_PROFILE="laptop-bt"; break ;;
+        3) DEVICE_PROFILE="laptop"; break ;;
+        4) DEVICE_PROFILE="desktop-bt"; break ;;
+        5) DEVICE_PROFILE="desktop"; break ;;
+        *) echo "Please enter 1-5." >&2 ;;
+    esac
+done
+case "$DEVICE_PROFILE" in
+    laptop-bt) PROFILE_TLP=true;  PROFILE_BT=true;  PROFILE_PRELOAD=false ;;
+    laptop)    PROFILE_TLP=true;  PROFILE_BT=false; PROFILE_PRELOAD=false ;;
+    desktop-bt)PROFILE_TLP=false; PROFILE_BT=true;  PROFILE_PRELOAD=true ;;
+    desktop)   PROFILE_TLP=false; PROFILE_BT=false; PROFILE_PRELOAD=true ;;
+esac
+unset _bt_hw _cc
+export DEVICE_PROFILE PROFILE_TLP PROFILE_BT PROFILE_PRELOAD
+echo "  Resolved profile: ${DEVICE_PROFILE} (tlp=${PROFILE_TLP} bluetooth=${PROFILE_BT} preload=${PROFILE_PRELOAD})"
 
 # AI (Big Pickle) ADDITION — Beta-v2.5.1 [LIMINE-WALLPAPER]: optional boot-
 # screen background image for Limine. Void's limine package ships the plain
@@ -3033,6 +3143,8 @@ fi
                LIMINE_WALLPAPER LIMINE_WALLPAPER_STYLE \
                SESSION_STACK ENABLE_SNAPSHOT_AUDIO \
                LOCALE LOCALE_CODESET TIMEZONE SWAP_BACKEND SWAPFILE_MODE ENABLE_HIBERNATION SWAPFILE_SIZE \
+               INSTALL_KERNEL_MAINLINE INSTALL_KERNEL_LTS KERNEL_PKGS \
+               DEVICE_PROFILE PROFILE_TLP PROFILE_BT PROFILE_PRELOAD \
                ENCRYPT \
                CRYPT_NAME \
                YK_MODE YK_FALLBACK YK_SLOT YK_CHALLENGE YK_TOUCH \
@@ -3517,7 +3629,7 @@ cp /var/db/xbps/keys/* /mnt/var/db/xbps/keys/
 BOOTSTRAP_OK=0
 for REPO_ATTEMPT in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2"; do
     echo "==> Attempting base-system bootstrap against repository: ${REPO_ATTEMPT}"
-    if XBPS_ARCH=$ARCH xbps-install -Suv -R "$REPO_ATTEMPT" -r /mnt base-system btrfs-progs linux-mainline glibc-locales -y; then
+    if XBPS_ARCH=$ARCH xbps-install -Suv -R "$REPO_ATTEMPT" -r /mnt base-system btrfs-progs $KERNEL_PKGS glibc-locales -y; then
         BOOTSTRAP_OK=1
         echo "==> Bootstrap succeeded using: ${REPO_ATTEMPT}"
         break
@@ -3673,6 +3785,11 @@ KEYMAP_LIVE=$(sed -n 's/^[[:space:]]*KEYMAP="\([^"]*\)".*/\1/p' /etc/rc.conf 2>/
 export KEYMAP_LIVE
 # shellcheck disable=SC2129  # per-line appends, grouped for readability
 echo "export BTRFS_UUID=\"$BTRFS_UUID\"" >> /mnt/tmp/chroot_env.sh
+echo "export KERNEL_PKGS=\"$KERNEL_PKGS\"" >> /mnt/tmp/chroot_env.sh
+echo "export DEVICE_PROFILE=\"$DEVICE_PROFILE\"" >> /mnt/tmp/chroot_env.sh
+echo "export PROFILE_TLP=\"$PROFILE_TLP\"" >> /mnt/tmp/chroot_env.sh
+echo "export PROFILE_BT=\"$PROFILE_BT\"" >> /mnt/tmp/chroot_env.sh
+echo "export PROFILE_PRELOAD=\"$PROFILE_PRELOAD\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_USER=\"$TARGET_USER\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_FULL_NAME=\"$TARGET_FULL_NAME\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_HOSTNAME=\"$TARGET_HOSTNAME\"" >> /mnt/tmp/chroot_env.sh
@@ -3852,6 +3969,40 @@ if [ "$BOOTLOADER" = "limine" ]; then
         exit 1
     fi
 fi
+# AI (Big Pickle) ADDITION — Beta-v2.9.16 [KERNEL-SELECT]: hard-validate the
+# resolved kernel set inside the chroot. It must be non-empty and every
+# element must be a real Void flavor; anything else aborts rather than
+# silently reconfiguring whatever the last xbps run touched.
+if [ -z "${KERNEL_PKGS:-}" ]; then
+    echo "CRITICAL: KERNEL_PKGS is empty ('${KERNEL_PKGS:-<unset>}') inside target environment. Aborting." >&2
+    exit 1
+fi
+for _kp in $KERNEL_PKGS; do
+    case "$_kp" in
+        linux|linux-lts|linux-mainline) : ;;
+        *)
+            echo "CRITICAL: KERNEL_PKGS contains unknown flavor '$_kp' inside target environment. Aborting." >&2
+            exit 1 ;;
+    esac
+done
+unset _kp
+# AI (Big Pickle) ADDITION — Beta-v2.9.17 [DEVICE-PROFILE]: hard-validate the
+# concrete device profile + booleans; anything else would silently push a
+# desktop through tlp or drop bluetooth on a laptop.
+case "$DEVICE_PROFILE" in
+    laptop-bt|laptop|desktop-bt|desktop) : ;;
+    *)
+        echo "CRITICAL: DEVICE_PROFILE is missing or invalid ('${DEVICE_PROFILE:-<unset>}') inside target environment. Aborting." >&2
+        exit 1 ;;
+esac
+for _dpb in PROFILE_TLP PROFILE_BT PROFILE_PRELOAD; do
+    v="${!_dpb:-}"
+    [ "$v" = "true" ] || [ "$v" = "false" ] || {
+        echo "CRITICAL: ${_dpb} is missing or invalid ('${v:-<unset>}') inside target environment. Aborting." >&2
+        exit 1
+    }
+done
+unset _dpb
 # AI (Big Pickle) ADDITION — Beta-v2.5.2 [SHELL]: a missing/mangled
 # USER_SHELL aborts in-chroot rather than creating the account with a bogus
 # -s path (the chroot consumes it directly in useradd, so it must be real).
@@ -4351,8 +4502,10 @@ elif [ "$DISPLAY_MANAGER" = "cosmic-greeter" ]; then
     # cosmic-greeter _cosmicgreeter`). The old Beta-v2.9.10 comment claiming
     # `_cosmicgreeter` "matches the repo" documented the bug, not the fix.
     # The community repo also deploys it as: greetd -c
-    # /etc/greetd/cosmic-greeter.toml (which launches `cosmic-comp
-    # cosmic-greeter` as the cosmic-greeter user) PLUS a supervised
+    # /etc/greetd/cosmic-greeter.toml (which launches the
+    # /etc/greetd/cosmic-greeter.start dbus-run-session wrapper — see
+    # Beta-v2.9.14 [COSMIC-GREETER-SESSION-BUS] — as the cosmic-greeter user)
+    # PLUS a supervised
     # cosmic-greeter-daemon (/run/cosmic-greeter owner). The cosmic-greeter user
     # is created by the package's system_accounts (as `_cosmicgreeter`) only in
     # recent revisions (1.5.0+; the 1.2.0 era shipped the group but not the
@@ -4391,6 +4544,34 @@ ACCD_EOF
         echo "WARNING: accounts-daemon binary not found — the greeter will rely on D-Bus activation (boot race may resurface)." >&2
     fi
     unset _accd_bin _accd_cand
+    # AI (Big Pickle) FIX — Beta-v2.9.15 [COSMIC-GREETER-DBUS-POLICY]: the
+    # packaged /usr/share/dbus-1/system.d/com.system76.CosmicGreeter.conf ships
+    # bus grants for group="_cosmicgreeter" (the package's historical account
+    # name), but [COSMIC-GREETER-USER] creates the account as exactly
+    # `cosmic-greeter`, so the greeter's GetUserData call to the root
+    # cosmic-greeter-daemon matched no allow rule and dbus-daemon rejected it
+    # ("AccessDenied" + "Failed to apply user display config" every start).
+    # Re-emit the policy to /etc/dbus-1/system.d (a real includedir read AFTER
+    # the packaged tree; D-Bus policy is additive per-allow, so this supersedes
+    # the stale grant) with the renamed group. A leftover `_cosmicgreeter` group
+    # then matches nothing — harmless.
+    mkdir -p /etc/dbus-1/system.d
+    cat > /etc/dbus-1/system.d/com.system76.CosmicGreeter.conf << 'PDBUS_EOF'
+<?xml version="1.0"?>
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <policy group="cosmic-greeter">
+    <allow send_destination="com.system76.CosmicGreeter"/>
+    <allow receive_sender="com.system76.CosmicGreeter"/>
+  </policy>
+  <policy user="root">
+    <allow own="com.system76.CosmicGreeter"/>
+    <allow send_destination="com.system76.CosmicGreeter"/>
+    <allow receive_sender="com.system76.CosmicGreeter"/>
+  </policy>
+</busconfig>
+PDBUS_EOF
+    chmod 0644 /etc/dbus-1/system.d/com.system76.CosmicGreeter.conf
     DM_SERVICE_NAME="cosmic-greeter"
 else
     install_pkgs sddm
@@ -4648,7 +4829,18 @@ elif [ "$DESKTOP_ENV" = "mate" ]; then
     # pipewire-pulse layer.
     # network-manager-applet added for the same X11/GTK secret-agent
     # rationale as Cinnamon/Xfce.
-    install_pkgs mate-terminal pluma mate-media network-manager-applet
+    # AI (Big Pickle) FIX — Beta-v2.9.18 [MATE-METAPACKAGE-REGRESSION]: restore
+    # the `mate` metapackage. Beta-v2.9.9's [MATE-TERMINAL] change replaced
+    # `install_pkgs mate network-manager-applet` with the explicit-helpers line
+    # below, silently dropping `mate` itself — so a fresh MATE install had no
+    # mate-session/panel/settings-daemon and NO /usr/share/xsessions/mate.desktop.
+    # The installer writes user-session=mate into lightdm.conf, so the greeter
+    # selected a session that did not exist: post-password the wrapper had nothing
+    # to exec, the session died, and LightDM bounced back to the greeter — the
+    # "cannot login at the greeter" showstopper. `mate` pulls mate-base /
+    # mate-session-manager → /usr/share/xsessions/mate.desktop; xbps dedups the
+    # overlapping helper deps.
+    install_pkgs mate mate-terminal pluma mate-media network-manager-applet
 elif [ "$DESKTOP_ENV" = "lxqt" ]; then
     # AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 2]: LXQt via the `lxqt`
     # metapackage (Qt-based, light). LXQt's conventional display manager
@@ -4829,7 +5021,14 @@ INNER_EOF
         unset _pg_auth_bin _pg_cand
         ;;
 esac
-install_pkgs xdg-user-dirs xdg-utils xtools bluez tlp tlp-rdw preload rsync git curl wget make binutils inotify-tools fastfetch chrony cronie bridge-utils
+# AI (Big Pickle) CHANGE — Beta-v2.9.17 [DEVICE-PROFILE]: the everyday
+# roll-up line no longer ships tlp + bluez + preload unconditionally. Profile
+# booleans gate each: tlp (battery) only on laptop profiles, bluez only with
+# bluetooth, preload (adaptive readahead, CPU/IO wakeups) desktop/server-only.
+install_pkgs xdg-user-dirs xdg-utils xtools rsync git curl wget make binutils inotify-tools fastfetch chrony cronie bridge-utils
+[ "$PROFILE_TLP" = "true" ] && install_pkgs tlp tlp-rdw
+[ "$PROFILE_BT" = "true" ] && install_pkgs bluez
+[ "$PROFILE_PRELOAD" = "true" ] && install_pkgs preload
 [ "$INSTALL_OCTOXBPS" = "true" ] && install_pkgs octoxbps
 
 if [ "$INSTALL_FLATPAK" = "true" ]; then
@@ -5085,7 +5284,8 @@ INNER_EOF
 # AUDIO AND HYPERVISOR SERVICE ORCHESTRATION LAYER
 # =============================================================================
 
-install_pkgs alsa-utils alsa-ucm-conf alsa-pipewire pipewire wireplumber sof-firmware libspa-bluetooth libjack-pipewire
+install_pkgs alsa-utils alsa-ucm-conf alsa-pipewire pipewire wireplumber sof-firmware libjack-pipewire
+[ "$PROFILE_BT" = "true" ] && install_pkgs libspa-bluetooth
 # plasma-pa (the Plasma systray volume applet) only means anything under
 # KDE — Cinnamon's own cinnamon-settings-daemon already provides a volume
 # applet, no separate package needed.
@@ -5575,6 +5775,15 @@ DESKTOP_ENV="${DESKTOP_ENV:-<unset>}"
 DISPLAY_MANAGER="${DISPLAY_MANAGER:-<unset>}"
 BOOTLOADER="${BOOTLOADER:-<unset>}"
 KERNEL_MODE="${KERNEL_MODE:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.16 [KERNEL-SELECT]: as-built record of
+# the resolved kernel set (always starts with linux; space-joined).
+KERNEL_PKGS="${KERNEL_PKGS:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.17 [DEVICE-PROFILE]: as-built record
+# of the resolved profile + the booleans that actually drove the install.
+DEVICE_PROFILE="${DEVICE_PROFILE:-<unset>}"
+PROFILE_TLP="${PROFILE_TLP:-<unset>}"
+PROFILE_BT="${PROFILE_BT:-<unset>}"
+PROFILE_PRELOAD="${PROFILE_PRELOAD:-<unset>}"
 # AI (Big Pickle) ADDITION — Beta-v2.7.1 [CRYPT-NAME]: record the encryption
 # choice + LUKS mapper name in the as-built config. Both are PUBLIC (no
 # passphrase — matches the secret-free rule for this file and limine-env).
@@ -7816,7 +8025,37 @@ if [ "$DISPLAY_MANAGER" = "cosmic-greeter" ]; then
     # greetd config: launches the greeter inside the COSMIC compositor as the
     # cosmic-greeter user on VT 1 (Beta-v2.9.12 [COSMIC-GREETER-USER]: the match
     # name must be exactly this — matching the packaged cosmic-greeter.toml).
+    # AI (Big Pickle) FIX — Beta-v2.9.14 [COSMIC-GREETER-SESSION-BUS]: the
+    # toml's command is NOT a bare `cosmic-comp cosmic-greeter` but the
+    # /etc/greetd/cosmic-greeter.start wrapper below. Verified live on `<host>`
+    # 2026-09-06: with the account fixed, a bare greetd spawn still rendered
+    # grey + cursor — cosmic-greeter is built to run *inside* a COSMIC session
+    # that provides DBUS_SESSION_BUS_ADDRESS, and with no session bus
+    # cosmic-comp cannot init its own session D-Bus or update the activation
+    # environment, so the iced login panel never maps as a layer. The wrapper
+    # delegates the session bus to dbus-run-session (matching the proven-good
+    # as-built /etc/greetd/cosmic-greeter.start on <host>) and keeps the whole
+    # compositor+greeter tree a single direct child of greetd.
     mkdir -p /etc/greetd
+    cat > /etc/greetd/cosmic-greeter.start << 'INNER_EOF'
+#!/bin/sh
+# v5 [COSMIC-GREETER-SESSION-BUS]: run the whole compositor+greeter tree
+# inside a session D-Bus. cosmic-greeter is built to run "inside cosmic-comp"
+# (i.e. under a COSMIC session that provides DBUS_SESSION_BUS_ADDRESS); a bare
+# greetd spawn had no session bus, so cosmic_comp could not init its session
+# DBus nor update the activation environment, and the iced login panel never
+# mapped as a layer (grey + cursor only). The session bus is now delegated to
+# dbus-run-session, which also keeps the daemon supervisable (greetd execs a
+# single direct child).
+exec dbus-run-session -- cosmic-comp cosmic-greeter >> /var/log/cosmic-greeter-session.log 2>&1
+INNER_EOF
+    chmod 0755 /etc/greetd/cosmic-greeter.start
+    # The wrapper appends to a fixed log path AS the cosmic-greeter user
+    # (greetd drop-privileges before exec'ing default_session, and /var/log is
+    # root-only), so pre-create the file owned by the greeter or the redirect
+    # fails before the compositor ever starts. Perms match the live <host> file
+    # (cosmic-greeter:cosmic-greeter 0644, from the as-built capture).
+    install -o cosmic-greeter -g cosmic-greeter -m 0644 /dev/null /var/log/cosmic-greeter-session.log
     cat > /etc/greetd/cosmic-greeter.toml << 'INNER_EOF'
 [terminal]
 vt = "1"
@@ -7825,7 +8064,7 @@ vt = "1"
 service = "cosmic-greeter"
 
 [default_session]
-command = "cosmic-comp cosmic-greeter"
+command = "/etc/greetd/cosmic-greeter.start"
 user = "cosmic-greeter"
 INNER_EOF
     chmod 0644 /etc/greetd/cosmic-greeter.toml
@@ -7923,7 +8162,15 @@ if [ ! -f /var/log/firstboot.log ]; then
     fi
     [ "__INSTALL_DOCKER__" = "true" ] && ln -sfn /etc/sv/docker /etc/runit/runsvdir/default/docker
     [ "__INSTALL_VIRTUALBOX__" = "true" ] && ln -sfn /etc/sv/vboxdrv /etc/runit/runsvdir/default/vboxdrv
-    ln -sfn /etc/sv/bluetoothd /etc/runit/runsvdir/default/bluetoothd
+    # AI (Big Pickle) ADDITION — Beta-v2.9.17 [DEVICE-PROFILE] + Beta-v2.9.19d
+    # [DEVICE-PROFILE-RCL]: these links are gated on __PROFILE_*__ placeholders
+    # (sed-substituted to the resolved booleans downstream) so the laptop
+    # profile actually links tlp + bluetoothd and preload stays absent — the
+    # first attempt used plain Chroot-var $PROFILE_* (never exported), which
+    # rendered empty and silently skipped the links.
+    [ "__PROFILE_BT__" = "true" ] && ln -sfn /etc/sv/bluetoothd /etc/runit/runsvdir/default/bluetoothd
+    [ "__PROFILE_TLP__" = "true" ] && ln -sfn /etc/sv/tlp /etc/runit/runsvdir/default/tlp
+    [ "__PROFILE_PRELOAD__" = "true" ] && ln -sfn /etc/sv/preload /etc/runit/runsvdir/default/preload
     if [ "__SESSION_STACK__" = "turnstile" ]; then
         ln -sfn /etc/sv/turnstiled /etc/runit/runsvdir/default/turnstiled
         ln -sfn /etc/sv/seatd /etc/runit/runsvdir/default/seatd
@@ -8064,6 +8311,9 @@ sed -i \
     -e "s/__DISPLAY_MANAGER__/${DM_SERVICE_NAME}/g" \
     -e "s/__SESSION_STACK__/${SESSION_STACK}/g" \
     -e "s/__SWAP_BACKEND__/${SWAP_BACKEND}/g" \
+    -e "s/__PROFILE_BT__/${PROFILE_BT}/g" \
+    -e "s/__PROFILE_TLP__/${PROFILE_TLP}/g" \
+    -e "s/__PROFILE_PRELOAD__/${PROFILE_PRELOAD}/g" \
     /etc/rc.local
 chmod +x /etc/rc.local
 
@@ -8073,10 +8323,14 @@ chmod +x /etc/rc.local
 # reconfigures a kernel package. -f forces that even though the package is
 # already "configured", so the hook runs now instead of waiting for the
 # next real kernel update.
-xbps-reconfigure -f linux-mainline
+# AI (Big Pickle) CHANGE — Beta-v2.9.16 [KERNEL-SELECT]: reconfigure EVERY
+# kernel in the resolved $KERNEL_PKGS set (deliberately word-split,
+# shellcheck disable=SC2086) so each installed flavor's hooks + dracut run.
+# shellcheck disable=SC2086  # KERNEL_PKGS is a space-joined word list; per-element args intended
+xbps-reconfigure -f $KERNEL_PKGS
 
 # CRITICAL — DO NOT REMOVE: must run after xbps-reconfigure -f
-# linux-mainline above, not before — its own kernel-package post-install
+# $KERNEL_PKGS above, not before — its own kernel-package post-install
 # hook fires a second dracut run of its own, producing a smaller initramfs
 # that no longer carries our custom dracut.conf.d modules. Running this
 # loop LAST guarantees our explicitly-built, fully-featured initramfs is
