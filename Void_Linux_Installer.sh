@@ -620,6 +620,11 @@ DEFAULT_IMPORT_SSH_KEY="${DEFAULT_IMPORT_SSH_KEY:-false}"         # import exist
 DEFAULT_GENERATE_SSH_KEY="${DEFAULT_GENERATE_SSH_KEY:-false}"     # generate fresh key? [y/N]
 DEFAULT_SSH_KEY_PROTECTED="${DEFAULT_SSH_KEY_PROTECTED:-yes}"     # passphrase-protect key? [Y/n]
 DEFAULT_EXPORT_SSH_KEY="${DEFAULT_EXPORT_SSH_KEY:-false}"         # export/backup key? [y/N]
+# AI (Big Pickle) ADDITION — Beta-v2.9.25 [NVIDIA-GATE]: the ONE probe-gated
+# driver. "auto" follows the live-box probe: [Y/n] when an NVIDIA GPU was
+# detected (proprietary driver recommended), [y/N] otherwise (nouveau covers
+# it). Export DEFAULT_INSTALL_NVIDIA=yes|no to pin it regardless of probe.
+DEFAULT_INSTALL_NVIDIA="${DEFAULT_INSTALL_NVIDIA:-auto}"          # install nvidia driver? [Y/n]/[y/N]
 
 
 # =============================================================================
@@ -1534,6 +1539,15 @@ for _m in /sys/bus/usb/devices/*/modalias /sys/bus/usb/devices/*/*/modalias; do
     [ -r "$_m" ] || continue
     if grep -qi 'icE0isc01ip01' "$_m"; then _bt_hw="yes"; break; fi
 done
+# AI (Big Pickle) ADDITION — Beta-v2.9.24 [DEVICE-PROFILE-BT-DETECT]: tell the
+# user what the hardware probe actually found (current revision of the auto
+# path below already feeds $PROFILE_BT from it — these lines make the probe
+# visible instead of silently deciding the bluetooth stack).
+if [ "$_bt_hw" = "yes" ]; then
+    echo "  Bluetooth hardware probe: controller detected"
+else
+    echo "  Bluetooth hardware probe: no Bluetooth controller found"
+fi
 _cc="$(cat /sys/class/dmi/id/chassis_type 2>/dev/null || true)"
 _auto_device_profile="" # resolved inside the loop below per Auto path
 while true; do
@@ -1607,6 +1621,85 @@ esac
 unset _bt_hw _cc
 export DEVICE_PROFILE PROFILE_TLP PROFILE_BT PROFILE_PRELOAD
 echo "  Resolved profile: ${DEVICE_PROFILE} (tlp=${PROFILE_TLP} bluetooth=${PROFILE_BT} preload=${PROFILE_PRELOAD})"
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.25 [HARDWARE-REVIEW]: probe the live
+# box for GPU families + wireless presence. Pure sysfs (live hardware ==
+# target hardware), no pciutils/lspci on the live CD needed. Results are
+# exported + persisted for reuse (the Steam/gaming TODO consumes GPU_FAMILIES
+# instead of re-probing). [NVIDIA-GATE] below uses them to gate the one driver
+# worth gating: the proprietary NVIDIA driver.
+GPU_FAMILIES=""
+HAS_NVIDIA_GPU="no"
+HAS_AMD_GPU="no"
+HAS_INTEL_GPU="no"
+for _pci in /sys/bus/pci/devices/*/class; do
+    [ -r "$_pci" ] || continue
+    _class="$(cat "$_pci" 2>/dev/null || true)"
+    case "$_class" in
+        0x03*) ;;
+        *) continue ;;  # not a display controller
+    esac
+    _dev="${_pci%/class}"
+    _vid="$(cat "$_dev/vendor" 2>/dev/null || true)"
+    case "$_vid" in
+        0x10de) _fam="NVIDIA" ;;
+        0x1002) _fam="AMD" ;;
+        0x8086) _fam="Intel" ;;
+        0x1a03) _fam="ASPEED (BMC)" ;;
+        0x15ad) _fam="VMware" ;;
+        0x1234) _fam="QEMU" ;;
+        *) _fam="Other" ;;
+    esac
+    case " $GPU_FAMILIES " in
+        *" $_fam "*) : ;;
+        *) GPU_FAMILIES="${GPU_FAMILIES:+${GPU_FAMILIES} }${_fam}" ;;
+    esac
+    case "$_vid" in
+        0x10de) HAS_NVIDIA_GPU="yes" ;;
+        0x1002) HAS_AMD_GPU="yes" ;;
+        0x8086) HAS_INTEL_GPU="yes" ;;
+    esac
+done
+unset _pci _class _dev _vid _fam
+WIFI_HW="no"
+if ls /sys/class/ieee80211/ >/dev/null 2>&1 && [ -n "$(ls -A /sys/class/ieee80211/ 2>/dev/null)" ]; then
+    WIFI_HW="yes"
+fi
+echo "  Hardware probe: GPU='${GPU_FAMILIES:-<none detected>}'  wireless=${WIFI_HW}"
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.25 [NVIDIA-GATE]: the single
+# hardware-gated driver. NVIDIA present → [Y/n] (proprietary driver
+# recommended, nouveau is a poor match); absent → [y/N] (nouveau covers most
+# use). DEFAULT_INSTALL_NVIDIA=auto follows the probe; exporting yes|no pins.
+if [ "$DEFAULT_INSTALL_NVIDIA" = "auto" ]; then
+    if [ "$HAS_NVIDIA_GPU" = "yes" ]; then
+        _nvidia_default="y"
+        _nvidia_prompt="[Y/n]"
+    else
+        _nvidia_default="n"
+        _nvidia_prompt="[y/N]"
+    fi
+else
+    _nvidia_default="$(printf '%s' "$DEFAULT_INSTALL_NVIDIA" | tr '[:upper:]' '[:lower:]')"
+    _nvidia_prompt="[${_nvidia_default}?]"
+fi
+INSTALL_NVIDIA="false"
+while true; do
+    ask "Install the NVIDIA proprietary driver? ${_nvidia_prompt}: "
+    read -r INSTALL_NVIDIA_INPUT
+    case "${INSTALL_NVIDIA_INPUT:-$_nvidia_default}" in
+        y|Y|yes|YES) INSTALL_NVIDIA="true"; break ;;
+        n|N|no|NO) INSTALL_NVIDIA="false"; break ;;
+        *) echo "Please answer y or n." >&2 ;;
+    esac
+done
+unset _nvidia_default _nvidia_prompt INSTALL_NVIDIA_INPUT
+if [ "$INSTALL_NVIDIA" = "true" ] && [ "$HAS_NVIDIA_GPU" != "yes" ]; then
+    echo "  WARNING: no NVIDIA GPU detected on this machine — the proprietary"
+    echo "  driver will be installed anyway (ignored by the Intel/AMD GPU)." >&2
+fi
+echo "  NVIDIA driver: ${INSTALL_NVIDIA} (GPU: ${GPU_FAMILIES:-<none detected>})"
+export INSTALL_NVIDIA GPU_FAMILIES HAS_NVIDIA_GPU HAS_AMD_GPU HAS_INTEL_GPU WIFI_HW
 
 # AI (Big Pickle) ADDITION — Beta-v2.5.1 [LIMINE-WALLPAPER]: optional boot-
 # screen background image for Limine. Void's limine package ships the plain
@@ -3268,6 +3361,10 @@ else
     _rev_acct="$ACCOUNT_MODEL (root locked, user sudo)"
 fi
 echo "${C_BOLD}  Account model    :${C_RST} ${_rev_acct}"
+if [ -n "${GPU_FAMILIES:-}" ]; then
+    echo "${C_BOLD}  Hardware         :${C_RST} GPU=${GPU_FAMILIES}  wireless=${WIFI_HW:-unknown}"
+    echo "${C_BOLD}  NVIDIA driver    :${C_RST} ${INSTALL_NVIDIA}"
+fi
 echo "${C_CYN}==============================================================================${C_RST}"
 echo ""
 echo "  ${C_GRN}Press Enter${C_RST} to proceed with the install, or ${C_YLW}type R${C_RST} to re-run the entire"
@@ -3447,8 +3544,11 @@ fi
                SESSION_STACK ENABLE_SNAPSHOT_AUDIO \
                LOCALE LOCALE_CODESET TIMEZONE SWAP_BACKEND SWAPFILE_MODE ENABLE_HIBERNATION SWAPFILE_SIZE \
                INSTALL_KERNEL_MAINLINE INSTALL_KERNEL_LTS KERNEL_PKGS \
-               DEVICE_PROFILE PROFILE_TLP PROFILE_BT PROFILE_PRELOAD \
-               ENCRYPT \
+DEVICE_PROFILE PROFILE_TLP PROFILE_BT PROFILE_PRELOAD \
+                INSTALL_SSH_SERVER SSH_PORT SSH_PASSWORD_AUTH SSH_ROOT_LOGIN \
+                IMPORT_SSH_KEY GENERATE_SSH_KEY EXPORT_SSH_KEY \
+                INSTALL_NVIDIA GPU_FAMILIES HAS_NVIDIA_GPU HAS_AMD_GPU HAS_INTEL_GPU WIFI_HW \
+                ENCRYPT \
                CRYPT_NAME \
                YK_MODE YK_FALLBACK YK_SLOT YK_CHALLENGE YK_TOUCH \
                REPO_PRIMARY REPO_BACKUP1 REPO_BACKUP2 \
@@ -3506,6 +3606,8 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "  Swap / Hibernation    : ${SWAP_BACKEND:-<unset>} / ${ENABLE_HIBERNATION:-<unset>}"
     echo "  Encryption            : ${ENCRYPT:-no}${ENCRYPT:+$([ "$ENCRYPT" = "yes" ] && { [ "$YK_MODE" = "hmac-sha1" ] && echo " (LUKS2 full-disk + YubiKey hmac-sha1, fallback=$YK_FALLBACK)" || echo " (LUKS2 full-disk, passphrase at boot)"; } || true)}"
     echo "  Accounts model        : ${ACCOUNT_MODEL:-<unset>}"
+    echo "  Hardware              : GPU=${GPU_FAMILIES:-<none detected>} wireless=${WIFI_HW:-unknown}"
+    echo "  NVIDIA driver         : ${INSTALL_NVIDIA:-auto}"
     echo "=============================================================="
     echo "  Nothing was written to disk. Re-run WITHOUT --dry-run to install for real."
     echo ""
@@ -4181,6 +4283,15 @@ echo "export INSTALL_SSH_SERVER=\"$INSTALL_SSH_SERVER\"" >> /mnt/tmp/chroot_env.
 echo "export SSH_PORT=\"$SSH_PORT\"" >> /mnt/tmp/chroot_env.sh
 echo "export SSH_PASSWORD_AUTH=\"$SSH_PASSWORD_AUTH\"" >> /mnt/tmp/chroot_env.sh
 echo "export SSH_ROOT_LOGIN=\"$SSH_ROOT_LOGIN\"" >> /mnt/tmp/chroot_env.sh
+# AI (Big Pickle) ADDITION — Beta-v2.9.25 [NVIDIA-GATE]: hardware facts +
+# the driver decision ride into the chroot (the nvidia install gate + the
+# header mapping above consume them). Public facts only.
+echo "export INSTALL_NVIDIA=\"$INSTALL_NVIDIA\"" >> /mnt/tmp/chroot_env.sh
+echo "export GPU_FAMILIES=\"$GPU_FAMILIES\"" >> /mnt/tmp/chroot_env.sh
+echo "export HAS_NVIDIA_GPU=\"$HAS_NVIDIA_GPU\"" >> /mnt/tmp/chroot_env.sh
+echo "export HAS_AMD_GPU=\"$HAS_AMD_GPU\"" >> /mnt/tmp/chroot_env.sh
+echo "export HAS_INTEL_GPU=\"$HAS_INTEL_GPU\"" >> /mnt/tmp/chroot_env.sh
+echo "export WIFI_HW=\"$WIFI_HW\"" >> /mnt/tmp/chroot_env.sh
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [LOCALIZE]: carry the chosen locale/timezone
 # into the chroot so Stage 2 can generate+activate the locale and set the zone.
 echo "export LOCALE=\"$LOCALE\"" >> /mnt/tmp/chroot_env.sh
@@ -4757,6 +4868,29 @@ install_pkgs ${MICROCODE_PKG} linux-firmware dracut sudo vim nano bash bash-comp
 # boot). C + libusb only, so it fits cleanly in the dracut initramfs — the same
 # tool is used at both enroll and boot to keep hmac-lt64 consistent.
 [ "$YK_MODE" = "hmac-sha1" ] && install_pkgs ykpers
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.25 [NVIDIA-GATE]: the one probe-gated
+# driver. `nvidia` (nonfree) auto-pulls nvidia-dkms → dkms (gcc/make/
+# linux-headers). The headers for every installed kernel flavor are mapped
+# from $KERNEL_PKGS so dkms can build at install time for all of them.
+if [ "$INSTALL_NVIDIA" = "true" ]; then
+    install_pkgs nvidia
+    case "$KERNEL_PKGS" in
+        *linux-mainline*) install_pkgs linux-mainline-headers ;;
+        *linux-lts*) install_pkgs linux-lts-headers ;;
+        *linux*) install_pkgs linux-headers ;;
+    esac
+    # Blacklist nouveau so the open driver cannot bind the device ahead of
+    # the proprietary module (nvidia-dkms installs the udev rules + binary
+    # that prefers the nvidia module once loaded).
+    cat > /etc/modprobe.d/50-nvidia.conf << 'INNER_EOF'
+# Void_Linux_Installer.sh — [NVIDIA-GATE] Beta-v2.9.25
+# Proprietary driver chosen at install time; keep nouveau from binding first.
+blacklist nouveau
+options nouveau modeset=0
+INNER_EOF
+    chmod 0644 /etc/modprobe.d/50-nvidia.conf
+fi
 
 # AI (Claude, Sonnet 5, Medium) ADDITION: sddm/NetworkManager/dbus/elogind
 # are DE-agnostic base bits both options need. wayland/wayland-protocols
@@ -6248,6 +6382,15 @@ SSH_PASSWORD_AUTH="${SSH_PASSWORD_AUTH:-<unset>}"
 SSH_ROOT_LOGIN="${SSH_ROOT_LOGIN:-<unset>}"
 SSH_KEY_COMMENT="${SSH_KEY_COMMENT:-<unset>}"
 SSH_KEY_PROTECTED="${SSH_KEY_PROTECTED:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.25 [HARDWARE-REVIEW]/[NVIDIA-GATE]:
+# hardware facts are public as-built data; the driver decision is recorded
+# too (probe results persist for future use, e.g. the Steam/gaming TODO).
+GPU_FAMILIES="${GPU_FAMILIES:-<unset>}"
+WIFI_HW="${WIFI_HW:-<unset>}"
+HAS_NVIDIA_GPU="${HAS_NVIDIA_GPU:-<unset>}"
+HAS_AMD_GPU="${HAS_AMD_GPU:-<unset>}"
+HAS_INTEL_GPU="${HAS_INTEL_GPU:-<unset>}"
+INSTALL_NVIDIA="${INSTALL_NVIDIA:-<unset>}"
 INNER_EOF
 chmod 644 /etc/void-installer/install-config
 
@@ -6286,6 +6429,10 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
         echo "YUBIKEY_UNLOCK=${YK_MODE:-off}"
         echo "SESSION_STACK=${SESSION_STACK:-<unset>}"
         echo "DESKTOP_ENV=${DESKTOP_ENV:-<unset>}"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.25 [NVIDIA-GATE]: one pointer
+        # line for the hardware-gated driver; the full probe facts (GPU
+        # families, wireless) live in install-config.
+        echo "NVIDIA_DRIVER=${INSTALL_NVIDIA:-no} (GPU: ${GPU_FAMILIES:-<none detected>})"
         echo ""
         # AI (Big Pickle) ADDITION — Beta-v2.7.6 [PKG-LIST]: append the FULL
         # finished-system package inventory (every package on this box — the
