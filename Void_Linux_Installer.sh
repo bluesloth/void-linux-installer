@@ -138,6 +138,32 @@
 #     embedded recompute that runs on every kernel update / snapper-plugin
 #     resync), so a hand-edited cmdline fragment can never silently vanish.
 #     Byte-identical output at defaults; existing installs untouched.
+#   - Headless / server path (Beta-v2.9.48 [NO-DE]/[NO-DM]/[HEADLESS]): the
+#     desktop menu gains option 8 = `none` (console login, no DE); the DM menu
+#     gains a `none` option (DM_SERVICE_NAME="none", rc.local link guarded so
+#     no dangling /etc/sv/none symlink is created). DESKTOP_ENV=none AND
+#     DISPLAY_MANAGER=none together compute HAS_GRAPHICAL=no — this single
+#     flag gates the xorg/wayland base chain and the audio install. On a
+#     headless box two explicit opt-ins appear: INSTALL_XORG (preserves the
+#     Xorg/Wayland base without flipping HAS_GRAPHICAL — useful for a later
+#     startx / remote-X) and INSTALL_AUDIO (PipeWire/ALSA). Graphical installs
+#     get audio unconditionally. The desktop menu is reordered most→least
+#     popular (KDE stays option 1 / bare-Enter default) and the catch-all
+#     KDE else is converted to an explicit elif so a headless DE cleanly skips
+#     the metapackage.
+#   - Pre-write disk budget (Beta-v2.9.48 [DISK-BUDGET]): DISK_BYTES is
+#     captured at disk-pick via lsblk -bdn -o SIZE (fails open when
+#     unreadable) and persisted for resumed runs. A _size_to_bytes() helper
+#     converts any human-size or sgdisk suffix (40G, 500GB, 10GiB, etc.) to
+#     exact bytes, and _disk_budget_check() sums the ESP, every carved
+#     region, and a >=1 GiB system-floor against the real disk size. An
+#     over-provisioned layout is refused BEFORE sgdisk -Z on a fresh run, and
+#     the --dry-run plan also fails to launch when it does not fit. ENCRYPT
+#     uses the same container=remainder identity. This release also fixes the
+#     latent Beta-v2.9.38 REGION_*_SIZE uppercase-fold eval bug —
+#     REGION_PARTITIONED carries lowercase tokens but the size vars are stored
+#     UPPERCASE (REGION_HOME_SIZE), so the outer and inner carve evals must
+#     use ${_rr^^}_SIZE to read them.
 #   - Most subvolumes use noatime+zstd:1 compression. Several are
 #     deliberately nodatacow+compress=none instead: @swap (COW + compression
 #     both break swapfiles), @libvirt (COW hurts qcow2/raw VM disk
@@ -613,6 +639,7 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.45   [INNER-PARTSCAN-DMPROBE] — partprobe-first inner-GPT rescan (partprobe builds libparted dm-linear submaps — the ONLY tool that can BLKPG a dm mapper; partx -a fallback only); _region_inner_partscan + _region_inner_dev named functions replace inline blocks; chroot FATAL initramfs-content gate after dracut --force loop + before ESP re-sync; per-image guard in void-limine-sync-kernels; partx -d unwind in cleanup_on_failure before luksClose; parted added to PKG_PREFLIGHT; live + resume partscan paths rewired to call the new helpers
 #     Beta-v2.9.46   (post-audit from first real ENCRYPT+regions boot on <host>: [SUBVOL-TOOL-RESOLVEDEV] strip [/@] suffix from findmnt SOURCE before subvolid=5 mount + rename shadowed awk -v sub= → svpat; [INSTALL-CONFIG-FLATPAK] install-config gains INSTALL_FLATPAK/INSTALL_BRAVE public rows; KERNEL_PKGS/PKG-PREFLIGHT verification; [VBOX-SV-GUARD] first-boot vboxdrv link guarded on /etc/sv/vboxdrv dir; [FLATPAK-NM-DISPATCH-STAMP] flatpak queue dispatch check)
 #     Beta-v2.9.47   [TEE-BOOT-QUIET]+[TEE-BLACKLIST] — two env-only PUBLIC limine-env knob rows (DEFAULT_QUIET_BOOT, DEFAULT_TEE_BLACKLIST, both default no) thread into a shared TEE_QB_FRAG ("quiet" + "modprobe.blacklist=tee") threaded through every GRUB/Limine BASE_CMD builder + the limine write-conf recompute; byte-identical output at defaults; existing installs untouched
+#     Beta-v2.9.48   [NO-DE]/[DE-ORDER] — desktop menu reordered most-to-least popular (KDE stays option 1/defaults); option 8 = "none" (console-only / headless base). [NO-DM] — display-manager gains "none"; DM_SERVICE_NAME="none" branch + rc.local DM link guarded (no /etc/sv/none symlink). [HEADLESS] — HAS_GRAPHICAL computed from DE!=none OR DM!=none; gates the xorg/wayland base chain + audio install. [HEADLESS-XORG-OPT]/[HEADLESS-AUDIO] — on a headless box, INSTALL_XORG and INSTALL_AUDIO are explicit opt-in prompts; graphically unconditional. [DISK-BUDGET] — pre-write fit check: DISK_BYTES captured at disk-pick (lsblk, persisted for resume, fails open when unreadable); human/sgdisk size → byte conversion; sum ESP + carved regions + >=1 GiB system headroom = required; over-provisioned layout refuses before sgdisk -Z; --dry-run also fails to launch on an over-provision; ENCRYPT container=remainder identity (same math); also fixes the latent 2.9.38 REGION_*_SIZE uppercase-fold eval bug (region tokens in REGION_PARTITIONED are lowercase; without the ^^ fold the outer/inner carve read the nonexistent REGION_home_SIZE and FATAL); the KDE else branch is converted to an explicit elif so headless DE skips the metapackage.
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -633,7 +660,23 @@ SCRIPT_VERSION="Beta-v2.9.13"
 # which is today's built-in polarity; the actual default is this value).
 # =============================================================================
 DEFAULT_LOGIN_SHELL="${DEFAULT_LOGIN_SHELL:-1}"       # 1=bash 2=zsh 3=fish 4=mksh
-DEFAULT_DESKTOP="${DEFAULT_DESKTOP:-1}"               # 1=kde 2=cinnamon 3=gnome 4=xfce 5=mate 6=lxqt 7=cosmic
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [NO-DE]/[DE-ORDER]: the desktop menu
+# is reordered most->least popular (KDE stays option 1 / the bare-Enter
+# default) and gains option 8 = `none` (console-only / headless base). A
+# headless choice is a *graphics* decision, not a seat one — the DM and the
+# xorg/audio opt-ins below still let a server box keep its X/Wayland base.
+# The menu index 8 is only offered when the DM `none` option is also there,
+# so DEFAULT_DESKTOP stays a plain 1-based menu index.
+DEFAULT_DESKTOP="${DEFAULT_DESKTOP:-1}"               # 1=kde 2=gnome 3=cinnamon 4=xfce 5=mate 6=lxqt 7=cosmic 8=none
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [HEADLESS]: two opt-in toggles shown
+# ONLY when the fully-headless combination was chosen (DESKTOP_ENV=none AND
+# DISPLAY_MANAGER=none → HAS_GRAPHICAL=no). They let a server keep the
+# Xorg/Wayland base for a later startx / remote-X (INSTALL_XORG) or install
+# the PipeWire audio stack (INSTALL_AUDIO) without flipping HAS_GRAPHICAL —
+# the xorg/wayland base chain stays gated on the flag so a `none` answer
+# still yields a lean, dependency-light server.
+DEFAULT_XORG="${DEFAULT_XORG:-false}"                 # keep Xorg/Wayland base on a headless box? [y/N]
+DEFAULT_AUDIO="${DEFAULT_AUDIO:-false}"               # audio stack on a headless box? [y/N]
 DEFAULT_SESSION_STACK="${DEFAULT_SESSION_STACK:-1}"   # 1=elogind 2=turnstile
 DEFAULT_BOOTLOADER="${DEFAULT_BOOTLOADER:-1}"         # 1=limine 2=grub
 # AI (Big Pickle) ADDITION — Beta-v2.9.35 [ESP-SIZE]: the EFI ESP size is a
@@ -2839,8 +2882,8 @@ echo ""
 echo "${C_BOLD}${C_BLU}Choose desktop environment${C_RST}"
 echo "  ${C_BOLD}1)${C_RST} ${C_GRN}KDE Plasma (default)${C_RST} — Wayland session, this script's"
 echo "     primary tested path."
-echo "  ${C_BOLD}2)${C_RST} Cinnamon (X11) — Wayland session not yet packaged by Void."
-echo "  ${C_BOLD}3)${C_RST} GNOME — Wayland session, confirmed available on Void."
+echo "  ${C_BOLD}2)${C_RST} GNOME — Wayland session, confirmed available on Void."
+echo "  ${C_BOLD}3)${C_RST} Cinnamon (X11) — Wayland session not yet packaged by Void."
 echo "  ${C_BOLD}4)${C_RST} Xfce (X11) — lightweight GTK desktop, ships as Void's default"
 echo "     graphical live-medium flavor."
 echo "  ${C_BOLD}5)${C_RST} MATE (X11) — classic GNOME 2-style GTK desktop."
@@ -2852,19 +2895,28 @@ echo "     https://github.com/REDACTED/void-packages. It is a third-party"
 echo "     signing-trust choice made at your own risk — audit the repo before"
 echo "     installing. The repo URL is verified reachable at runtime; if it is"
 echo "     unavailable the install aborts cleanly rather than failing mid-way."
+echo "  ${C_BOLD}8)${C_RST} ${C_GRN}none (console login only)${C_RST} — no desktop environment; a headless/"
+echo "     server base that boots to a console. Pairs naturally with the"
+echo "     display-manager '${C_BOLD}none${C_RST}' option below; the Xorg/Wayland base and"
+echo "     the audio stack then become explicit opt-ins."
+# AI (Big Pickle) CHANGE — Beta-v2.9.48 [DE-ORDER]: the menu is ordered
+# most->least popular (KDE, GNOME, Cinnamon, Xfce, MATE, LXQt, COSMIC) with
+# KDE still option 1 / the bare-Enter default, so the default regression is
+# byte-identical. Option 8 (none) is the [NO-DE] headless entry.
 while true; do
-    ask "Enter choice [1/2/3/4/5/6/7, default ${DEFAULT_DESKTOP}]: "
+    ask "Enter choice [1/2/3/4/5/6/7/8, default ${DEFAULT_DESKTOP}]: "
     read -r DESKTOP_ENV_INPUT
     DESKTOP_ENV_INPUT="${DESKTOP_ENV_INPUT:-$DEFAULT_DESKTOP}"
     case "$DESKTOP_ENV_INPUT" in
         ""|1) DESKTOP_ENV="kde"; break ;;
-        2) DESKTOP_ENV="cinnamon"; break ;;
-        3) DESKTOP_ENV="gnome"; break ;;
+        2) DESKTOP_ENV="gnome"; break ;;
+        3) DESKTOP_ENV="cinnamon"; break ;;
         4) DESKTOP_ENV="xfce"; break ;;
         5) DESKTOP_ENV="mate"; break ;;
         6) DESKTOP_ENV="lxqt"; break ;;
         7) DESKTOP_ENV="cosmic"; break ;;
-        *) echo "Please enter 1, 2, 3, 4, 5, 6, or 7." >&2 ;;
+        8) DESKTOP_ENV="none"; break ;;
+        *) echo "Please enter 1, 2, 3, 4, 5, 6, 7, or 8." >&2 ;;
     esac
 done
 export DESKTOP_ENV
@@ -2878,6 +2930,7 @@ case "$DESKTOP_ENV" in
     cinnamon|mate) RECOMMENDED_DM="lightdm" ;;
     xfce)     RECOMMENDED_DM="lightdm" ;;
     cosmic)   RECOMMENDED_DM="sddm" ;;  # COSMIC's maintainer recommends SDDM; cosmic-greeter is offered as a DM option below when COSMIC is chosen, but the author reports it does not work reliably (see the greeter/DM prompts).
+    none)     RECOMMENDED_DM="none" ;;  # AI (Big Pickle) ADDITION — Beta-v2.9.48 [NO-DE]: a console-only box recommends the 'none' DM below; the user may still pick a DM to add a graphical login without a DE (e.g. to hand off to startx).
     *)        RECOMMENDED_DM="sddm" ;;
 esac
 
@@ -2910,9 +2963,17 @@ if [ "$DESKTOP_ENV" = "cosmic" ]; then
     echo "     currently work reliably (elogind doesn't recognize its session) and recommends"
     echo "     SDDM instead. Selecting it is at your own risk and may need manual fixing."
 fi
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [NO-DM]: the 'none' option installs
+# NO display manager at all — a console-login box. It is listed last (its own
+# menu index, 5 on the COSMIC branch / 4 otherwise) so the renumbering never
+# shifts the existing 1/2/3 defaults, and it is the recommended entry for
+# DESKTOP_ENV=none. Internally DISPLAY_MANAGER="none" maps to
+# DM_SERVICE_NAME="none", and the first-boot rc.local link is sed-guarded so
+# no dangling /etc/sv/none symlink is ever created.
+echo "  ${C_BOLD}$([ "$DESKTOP_ENV" = "cosmic" ] && echo 5 || echo 4)${C_RST} ${C_GRN}none${C_RST} — no display manager; boot straight to a console login."
 while true; do
     if [ "$DESKTOP_ENV" = "cosmic" ]; then
-        ask "Enter choice [1/2/3/4] (default: ${RECOMMENDED_DM}): "
+        ask "Enter choice [1/2/3/4/5] (default: ${RECOMMENDED_DM}): "
         read -r DISPLAY_MANAGER_INPUT
         case "$DISPLAY_MANAGER_INPUT" in
             "")  note "Using recommended display manager: ${C_BOLD}${RECOMMENDED_DM}${C_RST}"; DISPLAY_MANAGER="$RECOMMENDED_DM"; break ;;
@@ -2920,21 +2981,74 @@ while true; do
             2) DISPLAY_MANAGER="lightdm"; break ;;
             3) DISPLAY_MANAGER="gdm"; break ;;
             4) DISPLAY_MANAGER="cosmic-greeter"; break ;;
-            *) echo "Please enter 1, 2, 3, or 4." >&2 ;;
+            5) DISPLAY_MANAGER="none"; break ;;
+            *) echo "Please enter 1, 2, 3, 4, or 5." >&2 ;;
         esac
     else
-        ask "Enter choice [1/2/3] (default: ${RECOMMENDED_DM}): "
+        ask "Enter choice [1/2/3/4] (default: ${RECOMMENDED_DM}): "
         read -r DISPLAY_MANAGER_INPUT
         case "$DISPLAY_MANAGER_INPUT" in
             "")  note "Using recommended display manager: ${C_BOLD}${RECOMMENDED_DM}${C_RST}"; DISPLAY_MANAGER="$RECOMMENDED_DM"; break ;;
             1) DISPLAY_MANAGER="sddm"; break ;;
             2) DISPLAY_MANAGER="lightdm"; break ;;
             3) DISPLAY_MANAGER="gdm"; break ;;
-            *) echo "Please enter 1, 2, or 3." >&2 ;;
+            4) DISPLAY_MANAGER="none"; break ;;
+            *) echo "Please enter 1, 2, 3, or 4." >&2 ;;
         esac
     fi
 done
 export DISPLAY_MANAGER
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [HEADLESS]: the single flag that
+# tells every downstream gate whether this install has ANY graphical path.
+# HAS_GRAPHICAL=no means a fully-headless server/console box — DESKTOP_ENV=none
+# AND DISPLAY_MANAGER=none — so the Xorg/Wayland base chain is gated off and
+# the xorg/audio stacks become explicit opt-ins that do NOT flip the flag.
+# Every other combination (a chosen DE, or a DM without a DE) is graphical.
+if [ "$DESKTOP_ENV" = "none" ] && [ "$DISPLAY_MANAGER" = "none" ]; then
+    HAS_GRAPHICAL="no"
+else
+    HAS_GRAPHICAL="yes"
+fi
+export HAS_GRAPHICAL
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [HEADLESS-XORG-OPT]/[HEADLESS-AUDIO]:
+# on a fully-headless (console-only) box the Xorg/Wayland base and the audio
+# stack are NOT installed by default. These two explicit toggles let a server
+# keep them anyway — INSTALL_XORG=yes preserves the base for a later startx /
+# remote-X session (it does NOT flip HAS_GRAPHICAL: the DM/DE links stay
+# absent, and a later startx is a manual console action), and INSTALL_AUDIO=yes
+# ships the PipeWire/ALSA stack for a media/voip server. Graphical installs
+# (HAS_GRAPHICAL=yes) get AUCH unconditionally and never see these prompts.
+if [ "$HAS_GRAPHICAL" = "no" ]; then
+    echo ""
+    echo "${C_BOLD}${C_BLU}Headless options${C_RST} (DESKTOP_ENV=none + DISPLAY_MANAGER=none)"
+    while true; do
+        ask "Keep the Xorg/Wayland base for a later startx / remote-X? [y/N]: "
+        read -r _xg
+        case "${_xg:-$DEFAULT_XORG}" in
+            y|yes) INSTALL_XORG="true"; break ;;
+            n|no) INSTALL_XORG="false"; break ;;
+            *) echo "Please enter y or n." >&2 ;;
+        esac
+    done
+    unset _xg
+    echo ""
+    while true; do
+        ask "Install the audio stack (PipeWire + ALSA) on this server? [y/N]: "
+        read -r _au
+        case "${_au:-$DEFAULT_AUDIO}" in
+            y|yes) INSTALL_AUDIO="true"; break ;;
+            n|no) INSTALL_AUDIO="false"; break ;;
+            *) echo "Please enter y or n." >&2 ;;
+        esac
+    done
+    unset _au
+else
+    INSTALL_XORG="false"
+    INSTALL_AUDIO="true"
+fi
+export INSTALL_XORG INSTALL_AUDIO
 
 # AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.4.0: LightDM needs an explicit
 # greeter. Previously the script hard-attempted the Slick greeter and fell
@@ -3286,6 +3400,11 @@ if [ "$SETUP_WEB_BROWSERS" = "true" ]; then
         if [ "$DESKTOP_ENV" = "lxqt" ]; then
             echo "NOTICE: Falkon shares LXQt's Qt5 but still pulls in the Qt"
             echo "WebEngine stack on top (it does not install KDE)."
+        elif [ "$DESKTOP_ENV" = "none" ]; then
+            # AI (Big Pickle) ADDITION — Beta-v2.9.48 [NO-DE]: a console-only box
+            # has no desktop whose base Falkon could reuse; keep the notice true.
+            echo "NOTICE: Falkon runs standalone but pulls in the Qt + QtWebEngine"
+            echo "stack onto your console-only base (it does not install a desktop)."
         else
             echo "NOTICE: Falkon runs standalone but pulls in the Qt + QtWebEngine"
             echo "stack on top of your ${DESKTOP_ENV} desktop (it does not install KDE)."
@@ -4109,6 +4228,14 @@ while true; do
 done
 export DISK="${DISK_BY_INDEX[$DISK_CHOICE]}"
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [DISK-BUDGET]: capture the raw
+# byte-size of the selected disk while the picker is live. This feeds the
+# pre-write fit check that refuses an over-provisioned layout before any
+# partition touch; the value is also persisted in the state file so a
+# resumed run can still do the check without re-picking. Fails open when
+# unreadable (lsblk rare edge case) — the check is skipped, never fatal.
+DISK_BYTES="$(lsblk -bdn -o SIZE "$DISK" 2>/dev/null | tr -d '[:space:]' || true)"
+
 # =============================================================================
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 7]: RE-RUN / ALREADY-INSTALLED GUARD
 # =============================================================================
@@ -4395,6 +4522,118 @@ _region_inner_dev() {
     BTRFS_DEV="${CRYPT_DEV}p$((NREG + 1))"
 }
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [DISK-BUDGET]: minimum HEADROOM that
+# must remain for the LINUX / LUKS-container system partition once the ESP and
+# every carved region are accounted for. 1 GiB guarantees a bootable root
+# (>= grub-core + kernel + initramfs on GRUB+ENCRYPT where /boot IS the ESP's
+# sibling is not the case — this is the plain system volume floor, generous by
+# design so a small carve mistake surfaces as a refusal instead of a later
+# out-of-space panic).
+DISK_BUDGET_MIN_SYS=$((1024 * 1024 * 1024))
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [DISK-BUDGET]: translate a partition
+# size as stored in EFI_PART_SIZE / REGION_*_SIZE (either gdisk's single-letter
+# suffix — "40G" means binary 40*1024^3 — or an explicit "500GB"/"1TiB" a user
+# typed at a prompt) into exact integer bytes on stdout. Empty on parse failure
+# so callers can fail open (skip the check) rather than blow up on an exotic
+# suffix.
+_size_to_bytes() {
+    local _sz="${1:-}" _num _unit _mult
+    _sz="${_sz//[[:space:]]/}"
+    [ -z "$_sz" ] && return 1
+    _sz="${_sz#+}"
+    if [[ "$_sz" =~ ^([0-9]+)([KMGTP]i?B)$ ]]; then
+        _num="${BASH_REMATCH[1]}"
+        _unit="${BASH_REMATCH[2]}"
+        case "$_unit" in
+            KB)  _mult=$((1000)) ;;
+            KiB) _mult=$((1024)) ;;
+            MB)  _mult=$((1000 ** 2)) ;;
+            MiB) _mult=$((1024 ** 2)) ;;
+            GB)  _mult=$((1000 ** 3)) ;;
+            GiB) _mult=$((1024 ** 3)) ;;
+            TB)  _mult=$((1000 ** 4)) ;;
+            TiB) _mult=$((1024 ** 4)) ;;
+            PB)  _mult=$((1000 ** 5)) ;;
+            PiB) _mult=$((1024 ** 5)) ;;
+            *)   _mult=1 ;;
+        esac
+    elif [[ "$_sz" =~ ^([0-9]+)([KMGTPB])$ ]]; then
+        # gdisk single-letter suffix — binary multiples (G=2^30), which is how
+        # sgdisk interprets "40G" / "+4G" in the carve commands.
+        _num="${BASH_REMATCH[1]}"
+        _unit="${BASH_REMATCH[2]}"
+        case "$_unit" in
+            K) _mult=$((1024)) ;;
+            M) _mult=$((1024 ** 2)) ;;
+            G) _mult=$((1024 ** 3)) ;;
+            T) _mult=$((1024 ** 4)) ;;
+            P) _mult=$((1024 ** 5)) ;;
+            B) _mult=$((1)) ;;
+        esac
+    elif [[ "$_sz" =~ ^[0-9]+$ ]]; then
+        _num="$_sz"
+        _mult=1
+    else
+        return 1
+    fi
+    printf '%s' "$(( _num * _mult ))"
+}
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [DISK-BUDGET]: total bytes consumed by
+# every carved region (REGION_*_SIZE). Mirrors the carve loop's eval-based
+# access so the budget math uses exactly the same values sgdisk will slice.
+_region_sizes_sum() {
+    local _sum=0 _rv _rvs _rb
+    for _rv in $REGION_PARTITIONED; do
+        # AI (Big Pickle) FIX — Beta-v2.9.48 [DISK-BUDGET]: REGION_*_SIZE vars
+        # are stored UPPERCASE (REGION_HOME_SIZE) while REGION_PARTITIONED
+        # carries lowercase tokens; the eval MUST uppercase-fold the token or
+        # it reads the nonexistent REGION_home_SIZE and sums nothing. Same
+        # accessor convention as the carve loops (they carry the same fix).
+        eval "_rvs=\${REGION_${_rv^^}_SIZE:-}"
+        [ -z "$_rvs" ] && continue
+        _rb="$(_size_to_bytes "$_rvs")" || continue
+        _sum=$(( _sum + _rb ))
+    done
+    unset _rv _rvs _rb
+    printf '%s' "$_sum"
+}
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [DISK-BUDGET]: the pre-write fit check.
+# Sums the ESP size + every carved region, subtracts from the disk's raw bytes
+# (captured at pick-time via lsblk -bdn -o SIZE and persisted for resumed
+# runs), and requires the LINUX/LUKS-container remainder to be >= 1 GiB. Saves
+# a user from an over-provisioned layout that sgdisk would happily write and
+# then refuse to fit — the failure point is BEFORE sgdisk -Z (and, on a
+# --dry-run, before the plan even prints). Fails OPEN (returns 0, logs a
+# skip) only when the disk size is unreadable; any parse failure of a size we
+# DO understand is a hard 1 so an obviously-wrong value can't silently pass.
+_disk_budget_check() {
+    local _disk_b="${DISK_BYTES:-}" _esp_b _reg_b _need _lin_b
+    if [ -z "$_disk_b" ] || ! [[ "$_disk_b" =~ ^[0-9]+$ ]]; then
+        echo "WARN [DISK-BUDGET]: disk size for ${DISK:-<unset>} unreadable — skipping pre-write fit check."
+        return 0
+    fi
+    _esp_b="$(_size_to_bytes "${EFI_PART_SIZE:-}")"
+    if [ -z "$_esp_b" ]; then
+        echo "FATAL [DISK-BUDGET]: could not parse ESP size '${EFI_PART_SIZE:-<unset>}' for the fit check." >&2
+        return 1
+    fi
+    _reg_b="$(_region_sizes_sum)"
+    _need=$(( _esp_b + _reg_b + DISK_BUDGET_MIN_SYS ))
+    _lin_b=$(( _disk_b - _need ))
+    if [ "$_lin_b" -lt 0 ]; then
+        echo "${C_RED}!! FATAL [DISK-BUDGET]: layout does NOT fit on ${DISK} (${_disk_b} bytes)." >&2
+        echo "     ESP(+${EFI_PART_SIZE}) + carved regions (${_reg_b} bytes) + >=1 GiB system" >&2
+        echo "     remainder would need ${_need} bytes total — ${_lin_b} bytes short. Nothing" >&2
+        echo "     was written. Reduce the ESP and/or carved-region sizes and re-run.${C_RST}" >&2
+        return 1
+    fi
+    echo "OK [DISK-BUDGET]: ESP(+${EFI_PART_SIZE}) + regions (${_reg_b} B) + LINUX remainder (${_lin_b} B >= 1 GiB) fit inside ${_disk_b} B."
+    return 0
+}
+
 # AI (Big Pickle) ADDITION — Beta-v2.4.1 [MIRROR]: these defaults are only applied
 # when no mirror was chosen in the earlier prompt step (e.g. on a resumed run
 # that skipped it); otherwise the user's regional selection is preserved.
@@ -4566,7 +4805,7 @@ INSTALL_FLATPAK INSTALL_BREW INSTALL_FIREFOX INSTALL_CHROMIUM \
                  PROVISION_FLATPAK_SUBVOL PROVISION_DOCKER_SUBVOL \
                  PROVISION_PODMAN_SUBVOL PROVISION_PODMAN_ROOTLESS_SUBVOL \
                  PROVISION_VIRT_SUBVOL \
-                DISK PART_EFI PART_SYS; do
+                DISK PART_EFI PART_SYS DISK_BYTES; do
         printf 'export %s=%q\n' "$_sv" "${!_sv}"
     done
 } > "$STATE_FILE"
@@ -4583,18 +4822,28 @@ unset _sv
 # desktop/DM, session stack, kernel mode, wallpaper resolution — then stop at
 # the destructive partition boundary with exit 0. Nothing on disk is modified.
 if [ "$DRY_RUN" = "1" ]; then
+    # AI (Big Pickle) ADDITION — Beta-v2.9.48 [DISK-BUDGET]: a dry-run is the
+    # cheapest place to refuse. The pre-write fit check runs HERE (before the
+    # plan prints) and, with no disk touched, exits 1 so an over-provisioned
+    # layout can never even look launchable. On success we print the remaining
+    # LINUX system-partition size in the plan.
+    if ! _disk_budget_check; then
+        echo "  Dry-run aborted by the pre-write fit check (above)." >&2
+        exit 1
+    fi
     echo ""
     echo "${C_MAG}========================= DRY-RUN PLAN =========================${C_RST}"
     echo "  Mode                  : --dry-run — no disk changes performed."
-    echo "  Target disk           : ${DISK:-<not selected>}"
+    echo "  Target disk           : ${DISK:-<not selected>} (${DISK_BYTES:-<size unreadable>} bytes)"
     echo "  Destructive steps     : sgdisk -Z + -og, ESP(+${EFI_PART_SIZE}) + LINUX parts,"
     echo "                          mkfs.fat -F32 EFI, mkfs.btrfs -f, subvolume layout."
+    echo "  Headroom              : >= 1 GiB LINUX system remainder required (DISK-BUDGET pass)"
     echo "  Bootloader            : ${BOOTLOADER:-<unset>}"
     if [ "$BOOTLOADER" = "limine" ]; then
         echo "  Kernel access         : ${KERNEL_MODE:-<unset>} (Limine)"
         echo "  Wallpaper             : ${LIMINE_WALLPAPER:-none}${LIMINE_WALLPAPER_STYLE:+ (style=${LIMINE_WALLPAPER_STYLE})}"
     fi
-    echo "  Desktop / DM          : ${DESKTOP_ENV:-<unset>} / ${DISPLAY_MANAGER:-<unset>}"
+    echo "  Desktop / DM          : ${DESKTOP_ENV:-<unset>} / ${DISPLAY_MANAGER:-<unset>}${HAS_GRAPHICAL:+ (headless=${HAS_GRAPHICAL})}"
     echo "  Session stack         : ${SESSION_STACK:-<unset>}"
     echo "  Login shell           : ${USER_SHELL:-<unset>}"
     echo "  User / full name      : ${TARGET_USER:-<unset>}${TARGET_FULL_NAME:+ (${TARGET_FULL_NAME})}"
@@ -4861,6 +5110,11 @@ CRYPT_NAME="${CRYPT_NAME:-void-root}"
 CRYPT_DEV="/dev/mapper/${CRYPT_NAME}"
 
 if [ "$RESUME" != "1" ]; then
+    # AI (Big Pickle) ADDITION — Beta-v2.9.48 [DISK-BUDGET]: the last gate
+    # before anything touches the disk. The ESP/region budget is checked
+    # against the disk's real byte size (fails open only if unreadable); an
+    # over-provisioned layout aborts cleanly here — nothing was written.
+    _disk_budget_check || exit 1
     # Clear disk maps and slice target partitions
     sgdisk -Z "$DISK" && sgdisk -og "$DISK"
     sgdisk -n "1::+${EFI_PART_SIZE}" -t 1:ef00 -c 1:'ESP' "$DISK"
@@ -4870,9 +5124,15 @@ if [ "$RESUME" != "1" ]; then
         # opt,games, each sized from its REGION_<NAME>_SIZE; LINUX goes LAST.
         _rr_pn=2
         for _rr in $REGION_PARTITIONED; do
-            eval "_rr_n=\${REGION_${_rr}_SIZE:-}"
+            # AI (Big Pickle) FIX — Beta-v2.9.48 [DISK-BUDGET]: REGION_*_SIZE
+            # vars are stored UPPERCASE but REGION_PARTITIONED tokens are
+            # lowercase; without the ^^ fold this eval reads the nonexistent
+            # REGION_home_SIZE and a carved layout FATALs "size is unset" on
+            # every real MULTI-FS install. The budget check in 2.9.48 sums the
+            # SAME folded accessor, so the fit math and the carve now agree.
+            eval "_rr_n=\${REGION_${_rr^^}_SIZE:-}"
             if [ -z "$_rr_n" ]; then
-                echo "FATAL: region '$_rr' carved but REGION_${_rr}_SIZE is unset." >&2
+                echo "FATAL: region '$_rr' carved but REGION_${_rr^^}_SIZE is unset." >&2
                 exit 1
             fi
             # Sizes like "40G" need the '+' prefix stripped to be literal:
@@ -4962,8 +5222,8 @@ if [ "$RESUME" != "1" ]; then
             sgdisk -Z "$BTRFS_DEV" && sgdisk -og "$BTRFS_DEV"
             _rr_pn=1
             for _rr in $REGION_PARTITIONED; do
-                eval "_rr_n=\${REGION_${_rr}_SIZE:-}"
-                [ -n "$_rr_n" ] || { echo "FATAL: region '$_rr' carved but REGION_${_rr}_SIZE unset." >&2; exit 1; }
+                eval "_rr_n=\${REGION_${_rr^^}_SIZE:-}"
+                [ -n "$_rr_n" ] || { echo "FATAL: region '$_rr' carved but REGION_${_rr^^}_SIZE unset." >&2; exit 1; }
                 _rr_posn="${_rr_n#+}"
                 sgdisk -n "${_rr_pn}::+${_rr_posn}" -t "${_rr_pn}":8300 -c "${_rr_pn}":"LINUX-${_rr}" "$BTRFS_DEV"
                 _rr_pn=$((_rr_pn + 1))
@@ -5773,6 +6033,12 @@ echo "export DOCKER_GROUP_ADD=\"$DOCKER_GROUP_ADD\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_VIRT=\"$INSTALL_VIRT\"" >> /mnt/tmp/chroot_env.sh
 echo "export DESKTOP_ENV=\"$DESKTOP_ENV\"" >> /mnt/tmp/chroot_env.sh
 echo "export DISPLAY_MANAGER=\"$DISPLAY_MANAGER\"" >> /mnt/tmp/chroot_env.sh
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [HEADLESS]: the xorg/wayland base
+# chain, the audio gate, and the rc.local DM link all resolve IN-CHROOT, so
+# the resolved flags must thread over with DESKTOP_ENV/DISPLAY_MANAGER.
+echo "export HAS_GRAPHICAL=\"$HAS_GRAPHICAL\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_XORG=\"$INSTALL_XORG\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_AUDIO=\"$INSTALL_AUDIO\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIGHTDM_GREETER_PKG=\"$LIGHTDM_GREETER_PKG\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIGHTDM_GREETER_SESSION=\"$LIGHTDM_GREETER_SESSION\"" >> /mnt/tmp/chroot_env.sh
 # AI (Big Pickle) ADDITION — Beta-v2.9.21 [GREETER-BG-EXPORT]: the greeter-bg
@@ -5933,11 +6199,15 @@ if [ -z "${BOOTLOADER:-}" ] || { [ "$BOOTLOADER" != "grub" ] && [ "$BOOTLOADER" 
     echo "CRITICAL: BOOTLOADER is missing or invalid ('${BOOTLOADER:-<unset>}') inside target environment. Aborting." >&2
     exit 1
 fi
-if [ -z "${DESKTOP_ENV:-}" ] || { [ "$DESKTOP_ENV" != "kde" ] && [ "$DESKTOP_ENV" != "cinnamon" ] && [ "$DESKTOP_ENV" != "gnome" ] && [ "$DESKTOP_ENV" != "xfce" ] && [ "$DESKTOP_ENV" != "mate" ] && [ "$DESKTOP_ENV" != "lxqt" ] && [ "$DESKTOP_ENV" != "cosmic" ]; }; then
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [NO-DE]/[NO-DM]: both DESKTOP_ENV and
+# DISPLAY_MANAGER now accept "none" (console-only / headless); the xorg/wayland
+# base chain and the DM rc.local link are gated downstream so "none" is a
+# valid in-chroot value with no dangling dependencies.
+if [ -z "${DESKTOP_ENV:-}" ] || { [ "$DESKTOP_ENV" != "kde" ] && [ "$DESKTOP_ENV" != "cinnamon" ] && [ "$DESKTOP_ENV" != "gnome" ] && [ "$DESKTOP_ENV" != "xfce" ] && [ "$DESKTOP_ENV" != "mate" ] && [ "$DESKTOP_ENV" != "lxqt" ] && [ "$DESKTOP_ENV" != "cosmic" ] && [ "$DESKTOP_ENV" != "none" ]; }; then
     echo "CRITICAL: DESKTOP_ENV is missing or invalid ('${DESKTOP_ENV:-<unset>}') inside target environment. Aborting." >&2
     exit 1
 fi
-if [ -z "${DISPLAY_MANAGER:-}" ] || { [ "$DISPLAY_MANAGER" != "sddm" ] && [ "$DISPLAY_MANAGER" != "lightdm" ] && [ "$DISPLAY_MANAGER" != "gdm" ] && [ "$DISPLAY_MANAGER" != "cosmic-greeter" ]; }; then
+if [ -z "${DISPLAY_MANAGER:-}" ] || { [ "$DISPLAY_MANAGER" != "sddm" ] && [ "$DISPLAY_MANAGER" != "lightdm" ] && [ "$DISPLAY_MANAGER" != "gdm" ] && [ "$DISPLAY_MANAGER" != "cosmic-greeter" ] && [ "$DISPLAY_MANAGER" != "none" ]; }; then
     echo "CRITICAL: DISPLAY_MANAGER is missing or invalid ('${DISPLAY_MANAGER:-<unset>}') inside target environment. Aborting." >&2
     exit 1
 fi
@@ -6502,10 +6772,25 @@ fi
 # supervisor), seatd (graphical seat/input), and acpid (ACPI/power events)
 # and omits elogind entirely. The two stacks are mutually exclusive — never
 # both, they'd double-manage sessions and the seat.
-if [ "$SESSION_STACK" = "elogind" ]; then
-    install_pkgs wayland wayland-protocols NetworkManager dbus elogind xorg
+# AI (Big Pickle) CHANGE — Beta-v2.9.48 [HEADLESS]/[HEADLESS-XORG-OPT]: the
+# Xorg/Wayland base chain is gated on HAS_GRAPHICAL=yes OR the INSTALL_XORG
+# opt-in flag on a headless box. A fully-headless box (DESKTOP_ENV=none AND
+# DISPLAY_MANAGER=none) with both flags OFF skips wayland/xorg entirely and
+# installs only the session stack (elogind or turnstile+seatd+acpid) plus the
+# network layer — a lean, dependency-light server.
+if [ "$HAS_GRAPHICAL" = "yes" ] || [ "${INSTALL_XORG:-false}" = "true" ]; then
+    if [ "$SESSION_STACK" = "elogind" ]; then
+        install_pkgs wayland wayland-protocols NetworkManager dbus elogind xorg
+    else
+        install_pkgs wayland wayland-protocols NetworkManager dbus turnstile seatd acpid xorg
+    fi
 else
-    install_pkgs wayland wayland-protocols NetworkManager dbus turnstile seatd acpid xorg
+    # Headless, no Xorg opt-in: install only the session stack and network layer.
+    if [ "$SESSION_STACK" = "elogind" ]; then
+        install_pkgs NetworkManager dbus elogind
+    else
+        install_pkgs NetworkManager dbus turnstile seatd acpid
+    fi
 fi
 
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [items 1 & 6]: the display manager is a
@@ -6729,6 +7014,11 @@ ACCD_EOF
 PDBUS_EOF
     chmod 0644 /etc/dbus-1/system.d/com.system76.CosmicGreeter.conf
     DM_SERVICE_NAME="cosmic-greeter"
+elif [ "$DISPLAY_MANAGER" = "none" ]; then
+    # AI (Big Pickle) ADDITION — Beta-v2.9.48 [NO-DM]: a console-only / headless
+    # install installs NO display manager; the first-boot rc.local link is
+    # guarded so no dangling /etc/sv/none symlink is ever created.
+    DM_SERVICE_NAME="none"
 else
     install_pkgs sddm
     DM_SERVICE_NAME="sddm"
@@ -7024,7 +7314,7 @@ elif [ "$DESKTOP_ENV" = "cosmic" ]; then
     # the independent browser toggles — both may be selected separately, so
     # only the metapackage is installed here.
     install_cosmic cosmic-desktop-full
-else
+elif [ "$DESKTOP_ENV" = "kde" ]; then
     install_pkgs kde-plasma kde-baseapps ark kio-admin
 fi
 
@@ -7550,31 +7840,44 @@ INNER_EOF
 # AUDIO AND HYPERVISOR SERVICE ORCHESTRATION LAYER
 # =============================================================================
 
-install_pkgs alsa-utils alsa-ucm-conf alsa-pipewire pipewire wireplumber sof-firmware libjack-pipewire
-[ "$PROFILE_BT" = "true" ] && install_pkgs libspa-bluetooth
-# plasma-pa (the Plasma systray volume applet) only means anything under
-# KDE — Cinnamon's own cinnamon-settings-daemon already provides a volume
-# applet, no separate package needed.
-[ "$DESKTOP_ENV" = "kde" ] && install_pkgs plasma-pa
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [HEADLESS-AUDIO]: on a fully-headless
+# (console-only) box the audio stack is gated on INSTALL_AUDIO, which is set
+# by the [HEADLESS-AUDIO] prompt in Stage 1 (explicit [y/N] when
+# HAS_GRAPHICAL=no, unconditional true when HAS_GRAPHICAL=yes).
+if [ "${INSTALL_AUDIO:-true}" = "true" ]; then
+    install_pkgs alsa-utils alsa-ucm-conf alsa-pipewire pipewire wireplumber sof-firmware libjack-pipewire
+    [ "$PROFILE_BT" = "true" ] && install_pkgs libspa-bluetooth
+    # plasma-pa (the Plasma systray volume applet) only means anything under
+    # KDE — Cinnamon's own cinnamon-settings-daemon already provides a volume
+    # applet, no separate package needed.
+    [ "$DESKTOP_ENV" = "kde" ] && install_pkgs plasma-pa
+fi
 
-mkdir -p /etc/alsa/conf.d
-ln -sf /usr/share/alsa/alsa.conf.d/50-pipewire.conf /etc/alsa/conf.d/
-ln -sf /usr/share/alsa/alsa.conf.d/99-pipewire-default.conf /etc/alsa/conf.d/
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [HEADLESS-AUDIO]: the ALSA/JACK
+# config wiring (pipewire conf.d symlinks, the realtime limits, the alsa
+# bridge) is part of the audio stack, so it rides the same INSTALL_AUDIO
+# gate — a headless box that declined audio must not collect dangling
+# symlinks or an rtprio limits file for a stack it doesn't ship.
+if [ "${INSTALL_AUDIO:-true}" = "true" ]; then
+    mkdir -p /etc/alsa/conf.d
+    ln -sf /usr/share/alsa/alsa.conf.d/50-pipewire.conf /etc/alsa/conf.d/
+    ln -sf /usr/share/alsa/alsa.conf.d/99-pipewire-default.conf /etc/alsa/conf.d/
 
-echo "/usr/lib/pipewire-0.3/jack" > /etc/ld.so.conf.d/pipewire-jack.conf
-ldconfig
+    echo "/usr/lib/pipewire-0.3/jack" > /etc/ld.so.conf.d/pipewire-jack.conf
+    ldconfig
 
-mkdir -p /etc/security/limits.d
-cat > /etc/security/limits.d/95-pipewire-realtime.conf << 'INNER_EOF'
+    mkdir -p /etc/security/limits.d
+    cat > /etc/security/limits.d/95-pipewire-realtime.conf << 'INNER_EOF'
 @audio   -   rtprio   95
 @audio   -   memlock  unlimited
 INNER_EOF
 
-mkdir -p /etc/pipewire/pipewire.conf.d
-[ -f /usr/share/examples/wireplumber/10-wireplumber.conf ] && \
-    ln -sf /usr/share/examples/wireplumber/10-wireplumber.conf /etc/pipewire/pipewire.conf.d/
-[ -f /usr/share/examples/wireplumber/20-pipewire-pulse.conf ] && \
-    ln -sf /usr/share/examples/wireplumber/20-pipewire-pulse.conf /etc/pipewire/pipewire.conf.d/
+    mkdir -p /etc/pipewire/pipewire.conf.d
+    [ -f /usr/share/examples/wireplumber/10-wireplumber.conf ] && \
+        ln -sf /usr/share/examples/wireplumber/10-wireplumber.conf /etc/pipewire/pipewire.conf.d/
+    [ -f /usr/share/examples/wireplumber/20-pipewire-pulse.conf ] && \
+        ln -sf /usr/share/examples/wireplumber/20-pipewire-pulse.conf /etc/pipewire/pipewire.conf.d/
+fi
 
 # AI (Claude, Sonnet 5, Medium) — the wrapper script and its rationale carry forward
 # unchanged from 3.0.x: checks /proc/cmdline directly for the overlay flag
@@ -8094,6 +8397,12 @@ USER_FULL_NAME="${TARGET_FULL_NAME:-<unset>}"
 USER_SHELL="${USER_SHELL:-<unset>}"
 DESKTOP_ENV="${DESKTOP_ENV:-<unset>}"
 DISPLAY_MANAGER="${DISPLAY_MANAGER:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [HEADLESS]: in-chroot defaults for the
+# resolved graphics flags so the gating (xorg/wayland chain, audio install,
+# rc.local DM link) is `set -u`-safe even if chroot_env.sh predates them.
+HAS_GRAPHICAL="${HAS_GRAPHICAL:-yes}"
+INSTALL_XORG="${INSTALL_XORG:-false}"
+INSTALL_AUDIO="${INSTALL_AUDIO:-true}"
 BOOTLOADER="${BOOTLOADER:-<unset>}"
 KERNEL_MODE="${KERNEL_MODE:-<unset>}"
 # AI (Big Pickle) ADDITION — Beta-v2.9.16 [KERNEL-SELECT]: as-built record of
@@ -10874,7 +11183,7 @@ if [ ! -f /var/log/firstboot.log ]; then
     # (before the DM link) so a headless/SSH-first install gets remote access
     # as soon as the service set links.
     [ "__INSTALL_SSH_SERVER__" = "true" ] && ln -sfn /etc/sv/sshd /etc/runit/runsvdir/default/sshd
-    ln -sfn /etc/sv/__DISPLAY_MANAGER__ /etc/runit/runsvdir/default/__DISPLAY_MANAGER__
+    [ "__DISPLAY_MANAGER__" != "none" ] && ln -sfn /etc/sv/__DISPLAY_MANAGER__ /etc/runit/runsvdir/default/__DISPLAY_MANAGER__
     # AI (Big Pickle) FIX — Beta-v2.9.10 [COSMIC-GREETER-DM]: the cosmic-greeter
     # DM is a greetd-hosted stack, so its daemon service is linked alongside
     # the main service (see the baked /etc/sv/cosmic-greeter{,-daemon} above),
