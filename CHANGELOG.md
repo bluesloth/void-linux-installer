@@ -76,6 +76,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.18** | `[MATE-METAPACKAGE-REGRESSION]` — restore the `mate` metapackage to the MATE desktop install: Beta-v2.9.9's `[MATE-TERMINAL]` change accidentally replaced `install_pkgs mate network-manager-applet` (dropping `mate`), so a MATE fresh install had no mate-session/panel and no `/usr/share/xsessions/mate.desktop` — with `user-session=mate` set, every login bounced straight back to the greeter (the "cannot login at the greeter" showstopper). Plus `[LIMINE-WALLPAPER-STAGE2]` — re-stage the Limine wallpaper into the target's `/tmp` after the `@` root mount, so the chroot ESP copy finds the image (a prompt-phase stage to `/mnt/tmp` was covered by the mount and never reached the ESP) | Beta-v2.9.18 below |
 | **Beta-v2.9.19** | `[NFT-VIRT-GATE]` — the `/etc/nftables.conf` forward chain no longer hardcodes the `br0`/`virbr*` accepts unconditionally; those rules are a fragment emitted only when `$INSTALL_VIRT=true` (mirroring the existing gates on the virt package install, the user `kvm`/`libvirt` groups, the `br0` NM bridge, and the first-boot libvirtd teardown). On a non-virt build the forward rules no longer reference non-existent interfaces. Plus `[GREETER-BG-DEPTH]` — the lightdm greeter background's generic fallback `find` deepened to `-maxdepth 5` so it sees mate-backgrounds' depth-3 images, fixing the MATE + Slick black greeter. Plus `[DEVICE-PROFILE-CONFIRM]` — the Automatic device-profile option now shows the SMBIOS-detected profile and lets the user confirm or override it before continuing. Plus `[DEVICE-PROFILE-RCL]` — live-confirmed bug fix: the first-boot rc.local's tlp/bluetoothd/preload links used chroot-phase `$PROFILE_*` vars (never exported/persisted → always empty at boot), so those services never linked; converted to `__PROFILE_*__` placeholders added to the sed substitution pass. Plus `[LIMINE-WP-REGUARD]` — live-confirmed bug fix: the `[LIMINE-WALLPAPER-STAGE2]` re-stage guarded on the covered `/mnt/tmp` staged path so it never fired and the wallpaper never reached the ESP; re-guarded on the still-reachable live `WP_SRC` instead | Beta-v2.9.19 below |
 | **Beta-v2.9.20** | `[LIMINE-WP-DRIVES]` — the Limine wallpaper picker can no longer strand the user inside a single USB drive's tree: `/run/media` is keyed by per-user subdirs (`/run/media/<user>/<label>`), so entering a drive left `..` only climbing to the per-user parent (whose siblings are just that one user's mounts) with no shortcut back to the "all mounted drives" view. The keywords `m`/`drives` now jump straight back to `/run/media`, and the browse hint names them and notes that `..` from the per-user dir reaches the drive list | Beta-v2.9.20 below |
+| **Beta-v2.9.21** | `[GREETER-BG-EXPORT]` — the MATE/Slick black greeter's REAL root cause: the lightdm greeter-background block runs inside the single-quoted chroot heredoc, so its `case "$LIGHTDM_GREETER"` (gtk/slick) resolved an **empty** variable in-chroot and NEITHER greeter conf file was ever written. Only `_PKG`/`_SESSION` were exported to chroot_env.sh, never the bare choice. The earlier `-maxdepth 5` find fix (`[GREETER-BG-DEPTH]`) was necessary but not sufficient — it only supplied the image path; the missing export is what silently skips the `cat >` write. Live-confirmed on `<host>` (slick-greeter.conf stayed the pristine package default while lightdm.conf was written, and the block's gnome-backgrounds retry had fired). Fix: `export LIGHTDM_GREETER` added to chroot_env.sh | Beta-v2.9.21 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1112,6 +1113,71 @@ drive. The user resorted to Ctrl-C + restart.
 - `Debug/check-heredocs.sh` — this block is top-level script (not a heredoc
   body), so it is covered by the script's own `bash -n`; no new heredoc added.
 - `Debug/check-defaults.sh` — no new prompt/default added.
+
+---
+
+---
+
+## Beta-v2.9.21 — `[GREETER-BG-EXPORT]` (lightdm greeter background's real root cause: missing chroot export)
+
+`SCRIPT_VERSION = Beta-v2.9.21`.
+
+### Why (live-confirmed on `<host>`)
+
+The `[GREETER-BG-DEPTH]` fix (2.9.19) deepened the greeter-background find to
+`-maxdepth 5` so it can see mate-backgrounds' depth-3 files. Testing on `<host>`
+proved that was **necessary but not sufficient**:
+
+- `gnome-backgrounds` was installed at `06:32` — that is the greeter-bg block's
+  retry firing, so the block **did** execute on the fresh install.
+- After that retry, `adwaita-l.jpg` existed at depth 2
+  (`/usr/share/backgrounds/gnome/adwaita-l.jpg`) — so even the **old** depth-2
+  search would have found an image at write time.
+- Yet `slick-greeter.conf` came out **pristine** (mtime = pkg build date, never
+  touched) while `lightdm.conf` was correctly written by the installer.
+
+The only thing that can skip the `cat >` write is the gate:
+
+```sh
+case "$LIGHTDM_GREETER" in
+    gtk)   ... ;;
+    slick) ... ;;
+esac
+```
+
+The greeter-bg block runs inside the **single-quoted** chroot heredoc
+(`chroot /mnt /bin/bash << 'CHROOT_EOF'`), so `$LIGHTDM_GREETER` is NOT
+expanded at stage-1 write time — it must resolve **in-chroot** at runtime.
+But only `LIGHTDM_GREETER_PKG` and `LIGHTDM_GREETER_SESSION` were written to
+`chroot_env.sh` (used by the lightdm.conf block); the bare `gtk`/`slick`
+choice was never threaded in. In the chroot `case "$LIGHTDM_GREETER"` matched
+**neither** branch → **no greeter conf was ever written**, so the login screen
+stayed black (or the package default) for any desktop.
+
+### Fix
+
+Thread the bare choice into the chroot alongside the two derived values:
+
+```sh
+# chroot_env.sh dump block
+echo "export LIGHTDM_GREETER=\"$LIGHTDM_GREETER\"" >> /mnt/tmp/chroot_env.sh
+```
+
+This is the same bug family as `[DEVICE-PROFILE-RCL]` (2.9.19): a chroot-phase
+variable used inside the single-quoted heredoc likely needs to reach the chroot
+explicitly. The depth fix is retained (it makes a mate-only install's search
+resolve), but the export is what actually lets the `case` write the conf.
+
+### Validation
+
+- `bash -n Void_Linux_Installer.sh` — clean.
+- Simulated the in-chroot gate on `<host>`: with `LIGHTDM_GREETER` unset the
+  `case` prints `[NONE!]` (nothing written); with `slick` it resolves the
+  intended `/usr/share/backgrounds/mate/nature/YellowFlower.jpg`.
+- `Debug/check-heredocs.sh` / `Debug/check-defaults.sh` — clean.
+
+**Pending:** one fresh MATE + LightDM install to confirm `slick-greeter.conf`
+now carries a real `background=` line and the greeter no longer boots black.
 
 ---
 
