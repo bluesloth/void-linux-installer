@@ -94,7 +94,32 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.36** | `[CHANNEL-GROUP]`+`[INSTALL-BREW]` — Flatpak and Homebrew are shown as one "THIRD-PARTY APP CHANNELS" umbrella but stay INDEPENDENT yes/no toggles (both default OFF — brew must not read as a sub-choice of Flatpak's sandbox). Homebrew/Linuxbrew is the unsandboxed, user-owned `~/.linuxbrew` CLI/dev channel: installs only the xbps runtime deps (git, curl, file, procps-ng), deliberately never pipes the vendor's `curl|bash` — the operator creates the prefix on first login. Isolation is a separate opt-in `@linuxbrew` per-user subvol (SUBVOL_ROWS row → `PROVISION_LINUXBREW_SUBVOL`, default OFF) + subvol-tool `dev` class | Beta-v2.9.36 below |
 | **Beta-v2.9.37** | `[GAME-LAUNCHERS]`+`[GAME-SUBVOL]` — a "GAME LAUNCHERS & RUNTIMES" umbrella (after app channels, before Steam) with independent default-OFF toggles: Lutris (Void main, xbps), Heroic + Bottles (NO official Void package → Flatpak-only, offered only when `INSTALL_FLATPAK=true`), Wine (multilib runtime, never auto-pulled by a launcher), gamemode (Feral governor daemon). ONE shared `@game` per-user subvol (replaces `@steam`) mounted at the derived per-launcher set (`~/.local/share/Steam` + `~/.local/share/lutris`) via the subvol-tool multi-mount loop + `@steam`/gaming alias resolution + `@game` fstab-guard relaxation + detach/destroy BRE-paren sed fix | Beta-v2.9.37 below |
 | **Beta-v2.9.38** | `[MULTI-FS]` — per-region data filesystems: each of `/home`, `/var`, `/var/cache`, `/srv`, `/opt` (+ optional `Games`) can be carved onto its OWN dedicated partition with an ext4/btrfs filesystem choice instead of a root-Btrfs subvolume. Fixed-order outer carve right after the ESP and BEFORE the single LINUX root partition (LINUX last, sized to the remainder), or as an INNER GPT inside the LUKS2 container when `[ENCRYPT]`; region subvols (`@home`/`@var`/…) are FOLDED out of the flat topology so no subvolume collides with a partition mountpoint; owned fstab rows skipped; subvol-tool `[MULTI-FS-GUARD]` prevents re-creating a carved region's subvolume; region mounts before chroot; games chown; DOCS-LOG `DATA_REGIONS`. Plus `[MULTI-FS-RUNLOG]` (journal audit lines + journal archived to `/etc/void-installer/installer-run.log` on success) and `[CRASH-USB-LOG]` (crash post-mortem — journal + `.info` sidecar — to the first mounted stick; `--save-log` parsed BEFORE the journal truncation / network gate / STAGE-1 banner so it works from a crashed, networkless live env). Default (bare Enter) = all-Btrfs flat layout, byte-identical to 2.9.37 | Beta-v2.9.38 below |
+| **Beta-v2.9.39** | `[CRASH-USB-LOG-FATAL-EXIT]`+`[SUBVOL-ROWS-FIX]` — the crash post-mortem dump also fires on planned `exit 1` FATALs (EXIT-trap `_save_log_on_exit` + `_usb_dumped` double-write guard); SUBVOL_ROWS loop skips `#`-comment rows before the resolve eval + spurious duplicate INSTALL_BREW row removed | Beta-v2.9.39 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
+
+---
+
+## Beta-v2.9.39 — `[CRASH-USB-LOG-FATAL-EXIT]` + `[SUBVOL-ROWS-FIX]` (crash post-mortem also fires on planned FATALs; SUBVOL_ROWS parse fixes)
+
+`SCRIPT_VERSION = Beta-v2.9.39`. The crash-dump plumbing tightened up and the
+`SUBVOL_ROWS` table parser was hardened.
+
+**1. `[CRASH-USB-LOG-FATAL-EXIT]` — the post-mortem USB dump now also fires on
+planned `exit 1` aborts.** The ERR trap handles failures inside `set -eEo`
+traps, but an explicit `exit 1` FATAL never trips ERR — so planned aborts
+(disk validation, package preflight) silently skipped the USB snapshot. A
+`_save_log_on_exit` EXIT trap (guarded by a `_usb_dumped` flag so an ERR-unwind
+and the EXIT trap never double-write) now dumps the journal even on a fatal
+exit. This also fixed the spurious crash-#005 reporting BMP (a FATAL that had
+been classed as the signal exit path when it was actually a planned abort).
+
+**2. `[SUBVOL-ROWS-FIX]` — comment rows and a duplicate row in the
+`SUBVOL_ROWS` table.** The read loop now skips `#`-comment rows before the
+resolve `eval` (a comment row previously hit bad-substitution and crashed under
+the ERR trap). A spurious duplicate `INSTALL_BREW` SUBVOL_ROWS row was also
+removed.
+
+**Validation:** `bash -n` and `Debug/check-heredocs.sh` ALL CLEAN.
 
 ---
 
