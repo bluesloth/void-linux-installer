@@ -102,6 +102,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.44** | `[DRACUT-CONF-NAME]` — the `add_dracutmodules` conf value MUST be the SHORT module name without the numeric prefix (`void-inner-partscan`, NOT `98void-...`); dracut-ng resolves conf names as `[0-9][0-9]<name>` so a prefixed name matches nothing and the regen dies | Beta-v2.9.44 below |
 | **Beta-v2.9.45** | `[INNER-PARTSCAN-DMPROBE]` — partprobe-first inner-GPT rescan (libparted dm-linear submaps are the ONLY tool that can BLKPG a dm mapper; `partx -a` fallback only); named `_region_inner_partscan`/`_region_inner_dev` helpers; chroot FATAL initramfs gate + per-image guard in void-limine-sync-kernels; cleanup `partx -d` before luksClose | Beta-v2.9.45 below |
 | **Beta-v2.9.46** | Five ENCRYPT+regions post-audit fixes from the first real boot on `<host>`: `[SUBVOL-TOOL-RESOLVEDEV]` (strip `[/@]` from findmnt SOURCE before subvolid=5 mount + `awk -v sub=`→`svpat` rename), `[INSTALL-CONFIG-FLATPAK]` (INSTALL_FLATPAK/INSTALL_BRAVE public rows), KERNEL_PKGS/PKG-PREFLIGHT verification, `[VBOX-SV-GUARD]` (vboxdrv link guarded on `/etc/sv/vboxdrv`), `[FLATPAK-NM-DISPATCH-STAMP]` (flatpak queue dispatch check) | Beta-v2.9.46 below |
+| **Beta-v2.9.47** | `[TEE-BOOT-QUIET]`+`[TEE-BLACKLIST]` — two env-only PUBLIC limine-env knob rows (`DEFAULT_QUIET_BOOT`, `DEFAULT_TEE_BLACKLIST`, default no) thread a shared `TEE_QB_FRAG` (`quiet` + `modprobe.blacklist=tee`) through every GRUB/Limine BASE_CMD builder + the write-conf recompute; byte-identical at defaults | Beta-v2.9.47 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -263,6 +264,22 @@ ENCRYPT+regions boot-to-desktop path is real-hardware proven.
   dangling link).
 - **`[FLATPAK-NM-DISPATCH-STAMP]`** — the first-boot Flatpak queue dispatch is
   verified after the NetworkManager/D-Bus handoff instead of blindly firing.
+
+**Validation:** `bash -n` + all committed Debug gates CLEAN.
+
+---
+
+## Beta-v2.9.47 — `[TEE-BOOT-QUIET]` + `[TEE-BLACKLIST]` (env-driven cmdline knobs, persisted)
+
+`SCRIPT_VERSION = Beta-v2.9.47` (`47e7ad6`). Two env-only PUBLIC limine-env
+knob rows (`DEFAULT_QUIET_BOOT`, `DEFAULT_TEE_BLACKLIST`, both default no)
+thread into a shared `TEE_QB_FRAG` ("quiet" +
+"modprobe.blacklist=tee") that is threaded through **every** GRUB/Limine
+`BASE_CMD` builder AND the limine write-conf recompute (which runs on every
+kernel update / snapper-plugin resync), so a hand-edited fragment can never
+silently vanish on the next resync — the exact drift-class
+`[LIMINE-WALLPAPER]` forbids. Output is byte-identical at defaults; existing
+installs are untouched until the knobs are flipped.
 
 **Validation:** `bash -n` + all committed Debug gates CLEAN.
 
