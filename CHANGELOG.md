@@ -70,6 +70,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.12** | `[COSMIC-GREETER-USER]` — the greeter account is now EXACTLY `cosmic-greeter` (never `_cosmicgreeter`): the binary dispatches greeter-DM vs silent-locker from the current username, and the template's `_cosmicgreeter` account shipped the bug that produced the dead grey screen (live-verified with WAYLAND_DEBUG; fix upside down: `usermod -l`) | Beta-v2.9.12 below |
 | **Beta-v2.9.13** | `[ACCTSVCS-ICON]` — the fresh user gets a real default avatar at `/var/lib/AccountsService/icons/<user>` (themed Adwaita `avatar-default`, Pop fallback, copied right after useradd), silencing greeter per-boot `failed to open icon ... NotFound`; `[COSMIC-POLKIT-GUARD]` — the COSMIC polkit agent's baked autostart now launches a session-ready guard (`/usr/local/sbin/cosmic-polkit-guard`) that waits for the compositor wl socket + reachable session bus then runs/respawns the agent, fixing the live `<host>` `<defunct>` zombie where the agent died before cosmic-comp/session-bus were up and no polkit dialog ever appeared | Beta-v2.9.13 below |
 | **Beta-v2.9.14** | `[COSMIC-GREETER-SESSION-BUS]` — the cosmic-greeter greetd toml now execs the shipped `/etc/greetd/cosmic-greeter.start` wrapper (`dbus-run-session` around `cosmic-comp cosmic-greeter`, v5 as-built on `<host>`) instead of the bare binary string, and pre-creates a greeter-owned `/var/log/cosmic-greeter-session.log`: with the account fixed, a bare greetd spawn still rendered grey + cursor (no session bus → iced login panel never maps as a layer) | Beta-v2.9.14 below |
+| **Beta-v2.9.15** | `[COSMIC-GREETER-DBUS-POLICY]` — re-emit `/etc/dbus-1/system.d/com.system76.CosmicGreeter.conf` granting the renamed `cosmic-greeter` group system-bus send/receive on `com.system76.CosmicGreeter`: the packaged file still grants the pre-rename `_cosmicgreeter` group, so after `[COSMIC-GREETER-USER]` the greeter's `GetUserData` to the (root) daemon was `AccessDenied` every start on a fresh install (live: `<host>` fresh Beta-v2.9.14 boot logged "failed to load user data from daemon: AccessDenied … GetUserData" + "Failed to apply user display config") — login unaffected, per-user display config/avatar lookups silently fail | Beta-v2.9.15 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -535,6 +536,73 @@ The parent installer is now aligned with the proven-good machine.
 clean; `Debug/check-defaults.sh` unchanged (no prompt surface touched); a
 `grep -rn "Beta-v2.9.13"` walk confirmed the only surviving references are
 historical feature markers.
+
+---
+
+---
+
+## Beta-v2.9.15 — `[COSMIC-GREETER-DBUS-POLICY]` (system-bus policy re-emit for the renamed greeter group)
+
+`SCRIPT_VERSION = Beta-v2.9.15`. Found on the **first fresh Beta-v2.9.14
+install** (`<host>`, 2026-09-07, `VOID_INSTALL.txt`: `DESKTOP_ENV=cosmic`,
+`DISPLAY_MANAGER=cosmic-greeter`): the greeter branch ran (`greeter` target, not
+`locker`), the login panel mapped, and a full COSMIC session started — so the
+Beta-v2.9.12 + Beta-v2.9.14 fix chain is confirmed **end-to-end on a from-scratch
+install**. But the session log showed a real, reproducible gap every start:
+
+```
+cosmic_greeter::greeter: failed to load user data from daemon:
+org.freedesktop.DBus.Error.AccessDenied: Rejected send message, 1 matched rules
+... interface="com.system76.CosmicGreeter" member="GetUserData"
+destination="com.system76.CosmicGreeter" (uid=0 ... cosmic-greeter-daemon)
+cosmic_greeter::greeter: Failed to apply user display config
+```
+
+**Root cause.** The packaged `/usr/share/dbus-1/system.d/com.system76.CosmicGreeter.conf`
+ships bus grants for `group="_cosmicgreeter"` (the package's historical account
+name) and `user="root"`. The Beta-v2.9.12 `[COSMIC-GREETER-USER]` fix creates the
+account as exactly `cosmic-greeter` (group `cosmic-greeter`, gid 992 on `<host>`),
+so the greeter's `GetUserData` method call to the root daemon matched no allow
+rule and dbus-daemon rejected it. Login is unaffected — the user list comes from
+`org.freedesktop.Accounts` (the supervised accounts-daemon), not from the greeter
+daemon — but per-user display config (background/avatar/scale lookups via the
+daemon) silently fails, leaving `Failed to apply user display config` on every
+boot. The `_cosmicgreeter` group (gid 993) lingered on `<host>` but the greeter
+belongs to `cosmic-greeter` (gid 992), so the stale grant matched nothing.
+
+**Fix.** The installer's cosmic-greeter branch now re-emits the policy to
+`/etc/dbus-1/system.d/com.system76.CosmicGreeter.conf` (a real dbus-daemon
+`includedir`, read *after* the packaged `/usr/share/dbus-1/system.d`; both are
+merged, so re-emitting the whole file with the renamed group supersedes the stale
+grant, and a leftover `_cosmicgreeter` group harmless matches nothing — D-Bus
+policy is additive per-allow):
+
+```xml
+<policy group="cosmic-greeter">
+    <allow send_destination="com.system76.CosmicGreeter"/>
+    <allow receive_sender="com.system76.CosmicGreeter"/>
+</policy>
+<policy user="root">
+    <allow own="com.system76.CosmicGreeter"/>
+    <allow send_destination="com.system76.CosmicGreeter"/>
+    <allow receive_sender="com.system76.CosmicGreeter"/>
+</policy>
+```
+
+Written idempotently in the same Stage-2 chroot pass that provisions the account,
+adjacent to the accounts-daemon block, chmod `0644`.
+
+**Validation:** `bash -n` passes; the new body is a bounded-quoted-heredoc
+(`PDBUS_EOF`) — `Debug/check-heredocs.sh` extracts it into the chroot tree and
+classifies it correctly; `Debug/check-defaults.sh` unchanged (no prompt surface
+touched). **Verified live on `<host>` post-reboot (2026-09-07):** the policy file
+written by hand before reboot, then after the 15:23-local boot the greeter's
+`GetUserData` AccessDenied and `Failed to apply user display config` lines both
+disappear from `/var/log/cosmic-greeter-session.log`, the greeter still runs the
+`greeter` target (not `locker`), and a full COSMIC session starts from the
+greeter (loginctl session 2 = <user>, wayland, seat0/tty1, Active) — the live
+confirmation plus the installer change close the chain without a further fresh
+install (see TODO.md).
 
 ---
 
