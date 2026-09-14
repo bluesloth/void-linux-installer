@@ -86,6 +86,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.28** | `[SUBVOL-FLATPAK-TEXT]` — the subvolume-isolation preamble (Beta-v2.9.3) falsely documented Flatpak as "excluded" from per-app subvolume isolation; it was in the `[SUBVOL-GATES]` loop all along (Beta-v2.9.0), so `@flatpak` was already created/mounted/fstab'd on a yes. Text corrected to list Flatpak and document the `@flatpak` rationale (the GB-scale `/var/lib/flatpak` store stays out of `@` snapshots and survives a `@` rollback); OctoXBPS remains the sole documented exclusion. Plus `[APPIMAGE-FUSE]` — INSTALL_FLATPAK now also pulls `fuse` + `fuse3` (FUSE 2 for the AppImage runtime's historical `libfuse.so.2` dlopen, FUSE 3 for modern runtimes; they coexist on Void, and base-system pulls neither), so AppImages self-mount instead of falling back to extract-and-run. Gear Lever stays a manual Flathub add (no official Void package) and AppImages stay in `~/Applications` under `@home` — no AppImage subvolume. Plus `[BRAVE-FLATPAK-GATE]` — the Brave choice is only *offered* when Flatpak was selected (its sole installer route; the Flatpak prompt precedes the browser section), otherwise hidden with a one-line NOTICE and `INSTALL_BRAVE=false`; the Stage-2 WARNING is kept as a resume/export safety net. No gate or `DEFAULT_*` change | Beta-v2.9.28 below |
 | **Beta-v2.9.29** | `[NFT-VIRT-PRINT]` — on a virtualization build (`INSTALL_VIRT=true`) the installer now echoes the just-written `/etc/nftables.conf` to the terminal so the operator can visually confirm the `br0`/`virbr*` forward accepts landed (those rules only reference interfaces that exist on a virt install — the whole point of `[NFT-VIRT-GATE]`); the printout doubles as an on-target live-validation artifact for that gate. Non-virt builds print nothing. No prompt, gate, or `DEFAULT_*` change | Beta-v2.9.29 below |
 | **Beta-v2.9.30** | `[NFT-ICMPV6-RATELIMIT]` + `[NFT-RA-RATELIMIT]` + `[NFT-OPEN-PORT]` — three nftables refinements. IPv6 echo-request now gets the same `1/second burst 5` rate limit its IPv4 twin already had (the prior broad `meta l4proto ipv6-icmp accept` was unrate-limited, so IPv6 ping was both harder to log and abusable); `nd-router-advert` is capped at `6/minute` to blunt an RA-flood / SLAAC-hijack attack; and a new root helper `/usr/local/sbin/void-firewall-open-port` maintains an explicit-accept block inside the policy-drop input chain (marker-comment managed, `nft -c` parse-checked, runit reload on success, add/rm/list) so a future WAN-facing service is reachable without hand-editing the generated file. A "how to open a port" comment heads the config. No prompt or `DEFAULT_*` change | Beta-v2.9.30 below |
+| **Beta-v2.9.31** | `[NFT-COUNTERS]` + `[NFT-RATELIMIT-KNOB]` — firewall observability and a control knob. The anti-spoof drops (`127.0.0.0/8`, `::1`), the `ct state invalid` drop, and the broad `ipv6-icmp` accept now carry `counter`; an explicit trailing `counter drop` rule at the end of both the input and forward chains makes the implicit policy-drop a countable rule, so `nft list ruleset` shows exactly why packets die. The two 2.9.30 hardening rules (IPv6 echo-request cap + `nd-router-advert` flood cap) are now gated by the env knob `DEFAULT_NFT_RATELIMIT` (no prompt, `DEFAULT_MICROCODE` style; default `yes` = tightened posture, `no` = plain broad-icmp config). Knob scope is the rate-limit rules only — the counters and the IPv4 echo cap stay unconditional, and the knob references no interfaces (no `[NFT-VIRT-GATE]` coupling). Also fixed: the generated config's header comment used `nft -c` in literal backticks inside an *unquoted* heredoc, which nft would have tried to execute at install; reworded to plain text | Beta-v2.9.31 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1796,6 +1797,87 @@ A short comment at the top of `/etc/nftables.conf` documents the default-drop
 rule and points at the helper, so the generated file is self-explaining.
 
 ---
+
+---
+
+## Beta-v2.9.31 — `[NFT-COUNTERS]` + `[NFT-RATELIMIT-KNOB]` (firewall drop observability; hardening-rate-limit control knob)
+
+`SCRIPT_VERSION = Beta-v2.9.31`. Two of the three improvement ideas the user
+selected for the generated nftables.conf: **a counters / observability pass**
+and **a control knob** for the hardening rate-limit rules. No new prompt and
+no new interface coupling. Also fixes a real install-time bug inherited from
+v2.9.30.
+
+### `[NFT-COUNTERS]` — every silent drop becomes a countable rule
+
+`/etc/nftables.conf` was policy-DROP with three bare explicit drops, none of
+which carried a `counter`, so `nft list ruleset` could not answer "why did my
+packet die?". Now:
+
+- `iif != "lo" ip daddr 127.0.0.0/8 drop` → adds `counter`
+- `iif != "lo" ip6 daddr ::1 drop` → adds `counter`
+- `ct state invalid drop` → adds `counter`
+- `meta l4proto ipv6-icmp accept` (broad accept) → adds `counter`
+- a trailing **`counter drop`** rule at the end of `chain input` AND `chain
+  forward` makes the implicit policy-drop explicit: every filtered packet now
+  lands on a countable rule, and `nft list ruleset` shows the exact counter
+  of each drop reason. Same rule count semantics as the accept rules — pure
+  observability, zero packet-path cost beyond the counter itself.
+
+Counters are **unconditional** — they are not part of the knob below.
+
+### `[NFT-RATELIMIT-KNOB]` — `DEFAULT_NFT_RATELIMIT` (env-only, no prompt)
+
+The two hardening rules added in v2.9.30 (IPv6 echo-request cap and the
+`nd-router-advert` 6/minute flood cap) are now gated by a boolean env knob,
+`DEFAULT_NFT_RATELIMIT`:
+
+- Default **`yes`** = the 2.9.30 tightened posture (both caps active).
+- `export DEFAULT_NFT_RATELIMIT=no` before running = the plain pre-2.9.30
+  posture: broad `ipv6-icmp accept` alone, no rate-limit rules.
+
+Design, per the earlier session discussion:
+
+- **No prompt.** Like `DEFAULT_MICROCODE`, the knob is an environment-level
+  config lever, not an install-prompt question. Declared in the `DEFAULT_*`
+  block, resolved to `NFT_RATELIMIT` in stage 1, exported into the chroot via
+  chroot_env.sh, and consumed by the in-chroot nftables heredoc (empty
+  fragment ⇒ blank line that nft ignores — the `SSH_PORT_RULE` /
+  `NFT_FWD_RULES` pattern).
+- **Narrow scope.** The knob switches only the two rate-limit rules. The
+  counters and the IPv4 echo-request cap stay unconditional, because turning
+  off ping rate-limiting while keeping drop-by-default is a defensible
+  firewall posture (an honest sysadmin might want no limiter logging), but
+  anti-spoof/invalid drops and IPv4 echo caps were never in dispute.
+- **No interface coupling.** The knob references no interface names — the
+  `[NFT-VIRT-GATE]` lesson (rules must not reference interfaces that might
+  not exist) extends to knob tiers: the failed "STRICT/moderate/hardened"
+  idea would have coupled rules to `eth0`/`wlan0` existence; this knob only
+  emits/omits the two ICMPv6 rules and is host-agnostic.
+- As-built value is recorded in **install-config** (`NFT_RATELIMIT`, line
+  tells the operator whether the tightened posture was generated).
+
+### Unconditional backtick fix (inherited v2.9.30 bug)
+
+The header comment of the generated config is written by an **unquoted**
+heredoc (`<< INNER_EOF`), whose contract is *pure nft syntax, no `${}` /
+backticks* — but the 2.9.30 "how to open a port" comment contained `` `nft -c` `` in
+literal backticks. Unquoted heredocs run backticks, so nft would have
+executed `nft -c` (→ "nft: command not found") *on the live install*. Reworded
+to plain text, matching the unquoted-heredoc contract documented next to the
+`cat`.
+
+### Files / wiring touched
+
+- `Void_Linux_Installer.sh`: `DEFAULT_NFT_RATELIMIT` declaration (DEFAULT
+  block), stage-1 `NFT_RATELIMIT` resolution + chroot_env.sh export, the
+  `NFT_ICMP_RULES` fragment between `SSH_PORT_RULE` and the heredoc insert,
+  the hardened heredoc body (counters + placeholder + terminal `counter drop`
+  rules), the `unset` list, and the install-config as-built line. All three
+  gates pass (`bash -n`, `check-defaults`, `check-heredocs`; 61 heredocs
+  extracted, all clean), and the exact rendered `/etc/nftables.conf` was
+  verified for virt/knob-on, non-virt/knob-off, and sshd-on combinations via
+  the `/tmp` render harness.
 
 ---
 
