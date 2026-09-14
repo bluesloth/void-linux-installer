@@ -84,6 +84,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.26** | `[WIFI-FW]`+`[WIFI-FW-VERIFY]` — the hardware review's wifi line becomes real chipset identification (live `phy*` device links, PCI or USB, plus a PCI class-`0x0280*` fallback) and a firmware-coverage note. Void's default chain covers every mainstream vendor wholesale — the reason a fresh Void needs no Debian-style mediatek-firmware download — and the probe finds the ONE vendor it skips (**Broadcom**, brcmfmac/b43 only in the non-default `linux-firmware-broadcom` split) and offers it with a `[Y/n]` prompt (`DEFAULT_WIFI_FW=auto`). Post-install, a verify proves the **target** (not the live CD) has both the driver module and the firmware for every detected radio, printing per-chip pass/warn. Broadcom gap factually confirmed against the repo (nothing pulls the split); probe + verify validated on the dev box's MT7922 → `verified: 0x14c3:0x0616` | Beta-v2.9.26 below |
 | **Beta-v2.9.27** | `[CPU-DETECT]`+`[NIC-DETECT]` — the hardware review gains two probes, each on the fact-vs-decision side it belongs to. CPU microcode becomes a REPORTED, silently AUTO-INSTALLED fact (no prompt over the vendor-locked always-beneficial `intel-ucode`/`linux-firmware-amd` — microcode joins `linux-firmware`, unlike wifi's Broadcom-split prompt and NVIDIA's DKMS/nouveau tradeoff prompt; `DEFAULT_MICROCODE=no` is the only lever). `MICROCODE_DECIDED` marks "live review ran" so the chroot honors a decided empty (opt-out/unknown vendor) and re-derives only on a cross-version resume. The br0 wired-NIC pick moves INTO the review as `Keep this interface? [Y/n] or type another name:` (carrier-then-USB probe, `DEFAULT_NIC=<name>` pins a name and skips every prompt); a decline/nothing-found defers to the existing `INSTALL_VIRT`-gated re-probe whose "same USB port" notice still shows | Beta-v2.9.27 below |
 | **Beta-v2.9.28** | `[SUBVOL-FLATPAK-TEXT]` — the subvolume-isolation preamble (Beta-v2.9.3) falsely documented Flatpak as "excluded" from per-app subvolume isolation; it was in the `[SUBVOL-GATES]` loop all along (Beta-v2.9.0), so `@flatpak` was already created/mounted/fstab'd on a yes. Text corrected to list Flatpak and document the `@flatpak` rationale (the GB-scale `/var/lib/flatpak` store stays out of `@` snapshots and survives a `@` rollback); OctoXBPS remains the sole documented exclusion. Plus `[APPIMAGE-FUSE]` — INSTALL_FLATPAK now also pulls `fuse` + `fuse3` (FUSE 2 for the AppImage runtime's historical `libfuse.so.2` dlopen, FUSE 3 for modern runtimes; they coexist on Void, and base-system pulls neither), so AppImages self-mount instead of falling back to extract-and-run. Gear Lever stays a manual Flathub add (no official Void package) and AppImages stay in `~/Applications` under `@home` — no AppImage subvolume. Plus `[BRAVE-FLATPAK-GATE]` — the Brave choice is only *offered* when Flatpak was selected (its sole installer route; the Flatpak prompt precedes the browser section), otherwise hidden with a one-line NOTICE and `INSTALL_BRAVE=false`; the Stage-2 WARNING is kept as a resume/export safety net. No gate or `DEFAULT_*` change | Beta-v2.9.28 below |
+| **Beta-v2.9.29** | `[NFT-VIRT-PRINT]` — on a virtualization build (`INSTALL_VIRT=true`) the installer now echoes the just-written `/etc/nftables.conf` to the terminal so the operator can visually confirm the `br0`/`virbr*` forward accepts landed (those rules only reference interfaces that exist on a virt install — the whole point of `[NFT-VIRT-GATE]`); the printout doubles as an on-target live-validation artifact for that gate. Non-virt builds print nothing. No prompt, gate, or `DEFAULT_*` change | Beta-v2.9.29 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1701,6 +1702,41 @@ survives as defense-in-depth for the manual-export/resume path (a state file
 from an older version can carry `INSTALL_BRAVE=true` alongside
 `INSTALL_FLATPAK=false`) — that path still gets a loud warning instead of
 silence.
+
+---
+
+---
+
+## Beta-v2.9.29 — `[NFT-VIRT-PRINT]` (virt builds echo the generated nftables.conf)
+
+`SCRIPT_VERSION = Beta-v2.9.29`. One change, chroot-phase only — a visibility
+improvement that also serves as an on-target test artifact. No prompt, no new
+gate, no `DEFAULT_*` surface.
+
+### `[NFT-VIRT-PRINT]` — the written firewall is shown on a virt build
+
+`[NFT-VIRT-GATE]` (Beta-v2.9.19) made the `/etc/nftables.conf` forward chain
+conditional: the `br0`/`virbr*` accepts are a fragment emitted only when
+`INSTALL_VIRT=true`, because those interfaces exist only when virtualization
+was selected (both the custom KVM bridge and libvirt's default NAT bridge).
+That left the operator with no easy way to confirm the right rules went into
+the file at install time — the gate could be "working" while unnoticed.
+
+Now, right after the config is generated in the chroot, a virt build prints it
+to the terminal:
+
+```text
+--- /etc/nftables.conf (virtualization build: br0/virbr* forwards present) ---
+…full file…
+--- end nftables.conf ---
+```
+
+Non-virt builds stay silent (they have nothing runtime-specific to review —
+the forward chain is just the drop rule). The printout doubles as a
+live-validation artifact: on a real virt install, seeing the `br0`/`virbr*`
+accepts in the output confirms both `[NFT-VIRT-GATE]` and the
+`INSTALL_VIRT`-export path (`chroot_env.sh`) worked end-to-end, closing the
+last un-validated corner of that feature.
 
 ---
 
