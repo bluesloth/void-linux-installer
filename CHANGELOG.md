@@ -98,6 +98,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.40** | `[PKG-PREFLIGHT]`+`[GAME-FLATPAK-GATE]` — Stage-1 package-name gate resolves every chroot-installable package against the live union pool BEFORE `sgdisk -Z` (closed crash #005; 134-pkg superset candidate list + committed drift-guard; repo hiccups WARN+skip, never false FATAL); Heroic/Bottles are Flatpak-queue-only delivery (`@game` mounts only `~/.local/share/Steam`+`~/.local/share/lutris`) | Beta-v2.9.40 below |
 | **Beta-v2.9.41** | (intermediate build) `98void-inner-partscan` dracut-module draft — module-setup.sh + udev rules + helper skeleton (crash #008: dracut crypttab `partscan` is unreliable on non-loopback LUKS2 at boot) | Beta-v2.9.41 below |
 | **Beta-v2.9.42** | (intermediate build) FATAL initramfs-content gate + `parted` shipping into the target (crash #009: `partx -a` cannot BLKPG a dm mapper, so the module initially booted to the emergency shell) | Beta-v2.9.42 below |
+| **Beta-v2.9.43** | `[INNER-PARTSCAN-BOOT]` — boot-time partscan dracut module (98void-inner-partscan): udev RUN fires on the opened mapper's DM_NAME, partprobe-primary / partx-fallback force-registers the inner GPT BEFORE dracut's settle resolves `root=UUID=<inner btrfs>`; gated on `ENCRYPT=yes` + carved `REGION_PARTITIONED` | Beta-v2.9.43 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -185,6 +186,28 @@ Beta-v2.9.41/42 booted to the emergency shell despite the module. Folded into
 the released `[INNER-PARTSCAN-DMPROBE]` work (Beta-v2.9.45).
 
 **Validation:** `bash -n` CLEAN.
+
+---
+
+## Beta-v2.9.43 — `[INNER-PARTSCAN-BOOT]` (boot-time partscan dracut module for the carved inner GPT)
+
+`SCRIPT_VERSION = Beta-v2.9.43`. The boot-time mirror of the MULTI-FS + ENCRYPT
+inner-GPT story: a LUKS2 container wraps an inner GPT, but dracut's crypttab
+`partscan` is unreliable (crash #008), so the installer ships its own module.
+
+**`98void-inner-partscan`** is written into the chroot ONLY when
+`ENCRYPT=yes` AND a `REGION_PARTITIONED` carve exists. On boot, a udev RUN
+fires the instant the opened LUKS2 mapper's `DM_NAME` appears, calling a
+partprobe + `partx -a` helper to force-register the inner GPT **BEFORE
+dracut's udev settle resolves `root=UUID=<inner btrfs>`**. `parted` is now
+shipped into the target whenever the module installs, the `__CRYPT_NAME__`
+token is baked in via sed, `add_dracutmodules` uses the short module name in
+`90-system.conf`, and the module is placed BEFORE the final
+`xbps-reconfigure` so the first boot already carries it. A plain (no-regions)
+ENCRYPT layout does not enable the module.
+
+**Validation:** fresh-install initramfs content verified in the chroot gate;
+`bash -n`/`check-heredocs.sh` CLEAN.
 
 ---
 
