@@ -531,6 +531,7 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.34   [SLICK-BG-QUOTES];[SSH-DEPOSIT-LOG];[FLATPAK-NM-DISPATCH] — slick greeter quotes; ssh-key deposit via find -quit; flatpak first-boot queue moved to an NM dispatcher script; sshd + vboxdrv rc.local links realigned (sshd early)
 #     Beta-v2.9.35   [ESP-SIZE] — shared ESP-size menu (4G default/6G/8G/Custom, 1GiB floor); GRUB+ENCRYPT mounts ESP AT /boot so shares it; fixed [GRUB-ESP-SIZE-ORDER] (old in-loop read ENCRYPT before its prompt)
 #     Beta-v2.9.36   [CHANNEL-GROUP];[INSTALL-BREW] — third-party app channels umbrella; Homebrew (Linuxbrew) opt-in CLI/dev channel (runtime xbps deps only, never curl|bash); @linuxbrew per-user subvol row + subvol-tool `dev` class
+#     Beta-v2.9.37   [GAME-LAUNCHERS];[GAME-SUBVOL] — game launchers & runtimes umbrella (Lutris/Heroic/Bottles/Wine/gamemode; Steam was earlier); Heroic+Bottles are Flatpak-only (xbps install pkg list actually NEVER contained them — they ship via the first-boot flatpak queue, gated on INSTALL_FLATPAK); the OLD `install_pkgs heroic` name never existed as a shipped line (crash #005 was a mis-labeled earlier build); ONE shared @game per-user subvol (replaces @steam) mounted at the derived per-launcher set (.local/share/Steam + .local/share/lutris) via subvol-tool multi-mount loop + @steam/gaming alias resolution + @game fstab-guard relaxation + detach/destroy BRE-paren sed fix
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -585,6 +586,17 @@ DEFAULT_FIREFOX="${DEFAULT_FIREFOX:-true}"            # [Y/n]
 DEFAULT_CHROMIUM="${DEFAULT_CHROMIUM:-true}"          # [Y/n]
 DEFAULT_THUNDERBIRD="${DEFAULT_THUNDERBIRD:-false}"   # Thunderbird email client? [y/N]
 DEFAULT_STEAM="${DEFAULT_STEAM:-false}"               # Steam gaming client? [y/N]
+# AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-LAUNCHERS]: independent
+# default-OFF toggles in a "GAME LAUNCHERS & RUNTIMES" umbrella. Lutris is in
+# Void main (xbps); Heroic + Bottles have NO official Void package so they are
+# Flatpak-only, offered only when INSTALL_FLATPAK=true. Wine (system,
+# multilib) and gamemode (Feral governor daemon + 32-bit libs) are separate
+# runtime toggles that a launcher NEVER auto-pulls.
+DEFAULT_LUTRIS="${DEFAULT_LUTRIS:-false}"             # Lutris game library/installer? [y/N]
+DEFAULT_HEROIC="${DEFAULT_HEROIC:-false}"             # Heroic Epic/GOG launcher (Flatpak-only)? [y/N]
+DEFAULT_BOTTLES="${DEFAULT_BOTTLES:-false}"           # Bottles per-game Wine prefixes (Flatpak-only)? [y/N]
+DEFAULT_GAME_WINE="${DEFAULT_GAME_WINE:-false}"       # system Wine (multilib)? [y/N]
+DEFAULT_GAMEMODE="${DEFAULT_GAMEMODE:-false}"         # gamemode + libgamemode-32bit? [y/N]
 DEFAULT_VIRTUALBOX="${DEFAULT_VIRTUALBOX:-false}"     # VirtualBox full virtualizer? [y/N]
 # AI (Big Pickle) ADDITION — Beta-v2.9.0 [SUBVOL-GATES]: the two master
 # subvolume gates. DEFAULT_SUBVOL_ISOLATE (Gate 1) defaults YES — installed
@@ -2726,6 +2738,84 @@ case "$INSTALL_THUNDERBIRD_INPUT" in
 esac
 export INSTALL_THUNDERBIRD
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-LAUNCHERS]: a gaming umbrella
+# right after the app channels / Thunderbird, before Steam. Each item is an
+# independent yes/no toggle, default OFF (mirrors [CHANNEL-GROUP]). The banner
+# keys an advisory line off the [HARDWARE-REVIEW] probe (GPU_FAMILIES), which
+# ran back in the device-profile phase — advisory only, never a gate.
+# Delivery model: Lutris is in Void main (xbps); Heroic + Bottles have NO
+# official Void package ([GAME-FLATPAK-GATE], Beta-v2.9.40) so they are
+# Flatpak-only and only offered when INSTALL_FLATPAK=true. Wine (system,
+# multilib) is a separate runtime toggle — a launcher toggle NEVER auto-pulls
+# it (Lutris/Heroic/Bottles each self-manage their own Wine). Not in scope:
+# Wine-GE / Proton-FS (not in Void repos), ProtonUp-Qt (a Steam utility).
+echo ""
+echo "${C_BOLD}${C_BLU}GAME LAUNCHERS & RUNTIMES${C_RST}"
+if [ -n "${GPU_FAMILIES}" ]; then
+    echo "  Detected graphics: ${GPU_FAMILIES} (advisory only)"
+else
+    echo "  Detected graphics: none (headless / no discrete GPU seen)"
+fi
+echo "  Each item below is independent and off by default; a launcher never"
+echo "  auto-pulls Wine — configure each launcher's own Wine as needed."
+
+ask "Install Lutris (game library/installer for Wine + native games)? [y/N]: "
+read -r INSTALL_LUTRIS_INPUT
+case "$INSTALL_LUTRIS_INPUT" in
+    "") INSTALL_LUTRIS="$DEFAULT_LUTRIS" ;;
+    [yY]*) INSTALL_LUTRIS="true" ;;
+    *) INSTALL_LUTRIS="false" ;;
+esac
+export INSTALL_LUTRIS
+
+if [ "$INSTALL_FLATPAK" = "true" ]; then
+    ask "Install Heroic (Epic/GOG launcher; Flatpak)? [y/N]: "
+    read -r INSTALL_HEROIC_INPUT
+    case "$INSTALL_HEROIC_INPUT" in
+        "") INSTALL_HEROIC="$DEFAULT_HEROIC" ;;
+        [yY]*) INSTALL_HEROIC="true" ;;
+        *) INSTALL_HEROIC="false" ;;
+    esac
+    export INSTALL_HEROIC
+    ask "Install Bottles (per-game Wine prefix manager; Flatpak)? [y/N]: "
+    read -r INSTALL_BOTTLES_INPUT
+    case "$INSTALL_BOTTLES_INPUT" in
+        "") INSTALL_BOTTLES="$DEFAULT_BOTTLES" ;;
+        [yY]*) INSTALL_BOTTLES="true" ;;
+        *) INSTALL_BOTTLES="false" ;;
+    esac
+    export INSTALL_BOTTLES
+else
+    # [GAME-FLATPAK-GATE] Beta-v2.9.40: no official Void package for Heroic or
+    # Bottles; a Flatpak-only delivery means these prompts are only offered when
+    # Flatpak is on. When Flatpak is off, skip them with a one-line NOTICE and
+    # force the toggles off (never silently carry an INSTALL=false state).
+    INSTALL_HEROIC="false"
+    INSTALL_BOTTLES="false"
+    export INSTALL_HEROIC INSTALL_BOTTLES
+    echo "NOTICE: Heroic and Bottles are only offered when Flatpak is selected"
+    echo "(no official Void package — Flatpak-only delivery). Flatpak was not"
+    echo "selected — Heroic and Bottles skipped."
+fi
+
+ask "Install Wine (system, multilib)? [y/N]: "
+read -r INSTALL_GAME_WINE_INPUT
+case "$INSTALL_GAME_WINE_INPUT" in
+    "") INSTALL_GAME_WINE="$DEFAULT_GAME_WINE" ;;
+    [yY]*) INSTALL_GAME_WINE="true" ;;
+    *) INSTALL_GAME_WINE="false" ;;
+esac
+export INSTALL_GAME_WINE
+
+ask "Install gamemode (+ libgamemode-32bit)? [y/N]: "
+read -r INSTALL_GAMEMODE_INPUT
+case "$INSTALL_GAMEMODE_INPUT" in
+    "") INSTALL_GAMEMODE="$DEFAULT_GAMEMODE" ;;
+    [yY]*) INSTALL_GAMEMODE="true" ;;
+    *) INSTALL_GAMEMODE="false" ;;
+esac
+export INSTALL_GAMEMODE
+
 ask "Install Steam (gaming client)? [y/N]: "
 read -r INSTALL_STEAM_INPUT
 case "$INSTALL_STEAM_INPUT" in
@@ -2734,6 +2824,20 @@ case "$INSTALL_STEAM_INPUT" in
     *) INSTALL_STEAM="false" ;;
 esac
 export INSTALL_STEAM
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL]: INSTALL_ANY_GAME is
+# the shared Gate flag for the ONE per-user @game subvol — Steam ∨ Lutris ∨
+# Heroic ∨ Bottles (computed after ALL launcher prompts, including Steam).
+# Wine/gamemode are deliberately EXCLUDED (they have no isolated data datadir
+# to own). Used by the SUBVOL_ROWS gate display and the derived @game
+# multi-mount block in Stage 2.
+if [ "$INSTALL_STEAM" = "true" ] || [ "$INSTALL_LUTRIS" = "true" ] || \
+   [ "$INSTALL_HEROIC" = "true" ] || [ "$INSTALL_BOTTLES" = "true" ]; then
+    INSTALL_ANY_GAME="true"
+else
+    INSTALL_ANY_GAME="false"
+fi
+export INSTALL_ANY_GAME
 
 ask "Install VirtualBox (full virtualizer, QEMU/KVM alternative)? [y/N]: "
 read -r INSTALL_VIRTUALBOX_INPUT
@@ -3385,7 +3489,12 @@ INSTALL_VIVALDI|PROVISION_VIVALDI_SUBVOL|Vivaldi
 INSTALL_FALKON|PROVISION_FALKON_SUBVOL|Falkon
 INSTALL_BRAVE|PROVISION_BRAVE_SUBVOL|Brave
 INSTALL_THUNDERBIRD|PROVISION_THUNDERBIRD_SUBVOL|Thunderbird
-INSTALL_STEAM|PROVISION_STEAM_SUBVOL|Steam
+INSTALL_BREW|PROVISION_LINUXBREW_SUBVOL|Homebrew (Linuxbrew)
+# AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL]: ONE row for the shared
+# @game subvol, gated on INSTALL_ANY_GAME (Steam ∨ Lutris ∨ Heroic ∨ Bottles)
+# instead of one row per launcher. Wine/gamemode stay out of the gate — they
+# have no isolated data datadir.
+INSTALL_ANY_GAME|PROVISION_GAME_SUBVOL|Game data
 INSTALL_VIRTUALBOX|PROVISION_VIRTUALBOX_SUBVOL|VirtualBox
 INSTALL_FLATPAK|PROVISION_FLATPAK_SUBVOL|Flatpak
 INSTALL_BREW|PROVISION_LINUXBREW_SUBVOL|Homebrew (Linuxbrew)
@@ -3936,6 +4045,7 @@ DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
 INSTALL_FLATPAK INSTALL_BREW INSTALL_FIREFOX INSTALL_CHROMIUM \
                  INSTALL_VIVALDI INSTALL_FALKON INSTALL_BRAVE \
                  INSTALL_THUNDERBIRD INSTALL_STEAM INSTALL_VIRTUALBOX \
+                 INSTALL_LUTRIS INSTALL_HEROIC INSTALL_BOTTLES INSTALL_GAME_WINE INSTALL_GAMEMODE INSTALL_ANY_GAME \
                 SETUP_WEB_BROWSERS SETUP_CONTAINERS \
                  SUBVOL_ISOLATE_INSTALLED SUBVOL_PRECREATE \
                 INSTALL_PODMAN INSTALL_PODMAN_ROOTLESS INSTALL_PODMAN_ROOTFUL \
@@ -3944,7 +4054,7 @@ INSTALL_FLATPAK INSTALL_BREW INSTALL_FIREFOX INSTALL_CHROMIUM \
                PROVISION_FIREFOX_SUBVOL PROVISION_CHROMIUM_SUBVOL \
                PROVISION_VIVALDI_SUBVOL PROVISION_FALKON_SUBVOL \
                PROVISION_BRAVE_SUBVOL \
-                PROVISION_THUNDERBIRD_SUBVOL PROVISION_STEAM_SUBVOL \
+                PROVISION_THUNDERBIRD_SUBVOL PROVISION_GAME_SUBVOL \
                 PROVISION_VIRTUALBOX_SUBVOL PROVISION_LINUXBREW_SUBVOL \
                  PROVISION_FLATPAK_SUBVOL PROVISION_DOCKER_SUBVOL \
                  PROVISION_PODMAN_SUBVOL PROVISION_PODMAN_ROOTLESS_SUBVOL \
@@ -3987,6 +4097,7 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "  Encryption            : ${ENCRYPT:-no}${ENCRYPT:+$([ "$ENCRYPT" = "yes" ] && { [ "$YK_MODE" = "hmac-sha1" ] && echo " (LUKS2 full-disk + YubiKey hmac-sha1, fallback=$YK_FALLBACK)" || echo " (LUKS2 full-disk, passphrase at boot)"; } || true)}"
     echo "  Accounts model        : ${ACCOUNT_MODEL:-<unset>}"
     echo "  App channels          : Flatpak=${INSTALL_FLATPAK:-no} Homebrew=${INSTALL_BREW:-no}"
+    echo "  Game launchers        : steam=${INSTALL_STEAM:-no} lutris=${INSTALL_LUTRIS:-no} heroic=${INSTALL_HEROIC:-no} bottles=${INSTALL_BOTTLES:-no} wine=${INSTALL_GAME_WINE:-no} gamemode=${INSTALL_GAMEMODE:-no}"
     echo "  Hardware              : GPU=${GPU_FAMILIES:-<none detected>} wireless=${WIFI_HW:-unknown}"
     echo "  NVIDIA driver         : ${INSTALL_NVIDIA:-auto}"
     echo "=============================================================="
@@ -4299,7 +4410,12 @@ fi
 # INSTALL_* directly — and must agree with the Stage-2 provision_browser_subvol
 # call sites + fstab.
 [ "$PROVISION_THUNDERBIRD_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @thunderbird"
-[ "$PROVISION_STEAM_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @steam"
+# AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL]: ONE shared @game
+# subvol (replaces the former @steam-only subvol) gated on the resolved
+# PROVISION_GAME_SUBVOL (Gate 1/Gate 2) rather than the bare INSTALL_STEAM.
+# Wine/gamemode are deliberately excluded — they have no isolated data
+# datadir. Stage-2 derives the per-launcher mount set from @game.
+[ "$PROVISION_GAME_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @game"
 [ "$PROVISION_VIRTUALBOX_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @virtualbox"
 # AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: @linuxbrew is the
 # Homebrew (~/.linuxbrew) per-user datadir, gated on the resolved
@@ -4632,6 +4748,12 @@ echo "export INSTALL_FALKON=\"$INSTALL_FALKON\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_BRAVE=\"$INSTALL_BRAVE\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_THUNDERBIRD=\"$INSTALL_THUNDERBIRD\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_STEAM=\"$INSTALL_STEAM\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_LUTRIS=\"$INSTALL_LUTRIS\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_HEROIC=\"$INSTALL_HEROIC\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_BOTTLES=\"$INSTALL_BOTTLES\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_GAME_WINE=\"$INSTALL_GAME_WINE\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_GAMEMODE=\"$INSTALL_GAMEMODE\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_ANY_GAME=\"$INSTALL_ANY_GAME\"" >> /mnt/tmp/chroot_env.sh
  echo "export INSTALL_VIRTUALBOX=\"$INSTALL_VIRTUALBOX\"" >> /mnt/tmp/chroot_env.sh
  echo "export SUBVOL_ISOLATE_INSTALLED=\"$SUBVOL_ISOLATE_INSTALLED\"" >> /mnt/tmp/chroot_env.sh
  echo "export SUBVOL_PRECREATE=\"$SUBVOL_PRECREATE\"" >> /mnt/tmp/chroot_env.sh
@@ -4641,7 +4763,7 @@ echo "export PROVISION_VIVALDI_SUBVOL=\"$PROVISION_VIVALDI_SUBVOL\"" >> /mnt/tmp
 echo "export PROVISION_FALKON_SUBVOL=\"$PROVISION_FALKON_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_BRAVE_SUBVOL=\"$PROVISION_BRAVE_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_THUNDERBIRD_SUBVOL=\"$PROVISION_THUNDERBIRD_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
-echo "export PROVISION_STEAM_SUBVOL=\"$PROVISION_STEAM_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
+echo "export PROVISION_GAME_SUBVOL=\"$PROVISION_GAME_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_VIRTUALBOX_SUBVOL=\"$PROVISION_VIRTUALBOX_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_LINUXBREW_SUBVOL=\"$PROVISION_LINUXBREW_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_PODMAN_ROOTLESS=\"$INSTALL_PODMAN_ROOTLESS\"" >> /mnt/tmp/chroot_env.sh
@@ -6117,6 +6239,16 @@ fi
 # plain GUI client. Both are lean-default OFF.
 [ "$INSTALL_THUNDERBIRD" = "true" ] && install_pkgs thunderbird
 [ "$INSTALL_STEAM" = "true" ] && install_pkgs steam
+# AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-LAUNCHERS]: game-launcher
+# installs mirroring the umbrella prompts. Lutris is in Void main (xbps);
+# Wine (system, multilib) is the raw-CLI/shared-runtime toggle a launcher
+# never auto-pulls; gamemode is Feral's CPU/GPU governor daemon + its 32-bit
+# libs. Heroic and Bottles have NO official Void package — they are delivered
+# via the first-boot Flatpak queue below ([GAME-FLATPAK-GATE], Beta-v2.9.40),
+# only when Flatpak is also selected.
+[ "$INSTALL_LUTRIS" = "true" ] && install_pkgs lutris
+[ "$INSTALL_GAME_WINE" = "true" ] && install_pkgs wine
+[ "$INSTALL_GAMEMODE" = "true" ] && install_pkgs gamemode libgamemode-32bit
 # AI (Big Pickle) ADDITION — Beta-v2.8.4 [INSTALL-VBOX]: VirtualBox is now a
 # real installable option (previously pre-create-only). The -ose package is
 # in the nonfree repo (already added above); -ose-dkms builds the kernel
@@ -6136,6 +6268,23 @@ if [ "$INSTALL_BRAVE" = "true" ]; then
     else
         echo "WARNING: Brave was selected but Flatpak was not — Brave has no official Void package, so it will NOT be installed. Install Flatpak later and run 'flatpak install flathub com.brave.Browser', or use another method of your choosing." >&2
     fi
+fi
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-LAUNCHERS] / Beta-v2.9.40
+# [GAME-FLATPAK-GATE]: Heroic and Bottles have NO official Void package, so
+# they are Flatpak-delivered. The prompts already gated them on
+# INSTALL_FLATPAK=true; here they are appended to the same first-boot queue the
+# dispatcher drains, only when Flatpak is on (never a bare xbps install — the
+# pre-2.9.40 `install_pkgs heroic` crashed #005 on missing package).
+if [ "$INSTALL_HEROIC" = "true" ] && [ "$INSTALL_FLATPAK" = "true" ]; then
+    mkdir -p "/home/${TARGET_USER}/.config/void-installer"
+    echo "com.heroicgameslauncher.hgl" >> "/home/${TARGET_USER}/.config/void-installer/flatpak-install-on-first-boot.txt"
+    chown -R "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.config/void-installer"
+fi
+if [ "$INSTALL_BOTTLES" = "true" ] && [ "$INSTALL_FLATPAK" = "true" ]; then
+    mkdir -p "/home/${TARGET_USER}/.config/void-installer"
+    echo "com.usebottles.bottles" >> "/home/${TARGET_USER}/.config/void-installer/flatpak-install-on-first-boot.txt"
+    chown -R "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.config/void-installer"
 fi
 
 # AI (Big Pickle) ADDITION — Beta-v2.9.34 [FLATPAK-NM-DISPATCH]: the NetworkManager
@@ -6553,7 +6702,20 @@ provision_firefox_subvols() {
 # PROVISION_*_SUBVOL flag (Beta-v2.9.0 [SUBVOL-GATES]: folded from the app's
 # install choice + the two master gates) — the single source of truth.
 [ "$PROVISION_THUNDERBIRD_SUBVOL" = "true" ] && provision_browser_subvol "@thunderbird" ".thunderbird"
-[ "$PROVISION_STEAM_SUBVOL" = "true" ] && provision_browser_subvol "@steam" ".local/share/Steam"
+# AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL]: ONE per-user @game
+# subvol mounted at EACH adopted launcher's standard data dir (a btrfs
+# subvolume may mount at several paths). The mount set is DERIVED from the
+# launchers actually selected — Steam-only installs yield only the Steam
+# mount; lutris selected → its ~/.local/share/lutris path too. Heroic/Bottles
+# are deliberately NOT in the set: they install via Flatpak ([GAME-FLATPAK-GATE]
+# Beta-v2.9.40), so their data lives under @home at ~/.var/app/... Deliberately
+# NOT mounted: ~/Games (default install dir, @home is already rollback-exempt)
+# and ~/.wine (Bottles/Lutris manage their own prefixes). Fired on the RESOLVED
+# PROVISION_GAME_SUBVOL flag — the single source of truth (Gate 1/Gate 2).
+if [ "$PROVISION_GAME_SUBVOL" = "true" ]; then
+    [ "$INSTALL_STEAM"  = "true" ] && provision_browser_subvol "@game" ".local/share/Steam"
+    [ "$INSTALL_LUTRIS" = "true" ] && provision_browser_subvol "@game" ".local/share/lutris"
+fi
 # AI (Big Pickle) ADDITION — [VIRTUALBOX]: VirtualBox keeps its VM library
 # under ~/VirtualBox VMs by default. Same per-user isolation model as the
 # browser/Steam/Thunderbird subvols: Stage-1 creates the @virtualbox top-level
@@ -6932,6 +7094,17 @@ MICROCODE_DECIDED="${MICROCODE_DECIDED:-<unset>}"
 # flags only — no brew credentials/prefix keys, matches secret-free rule.
 INSTALL_BREW="${INSTALL_BREW:-false}"
 PROVISION_LINUXBREW_SUBVOL="${PROVISION_LINUXBREW_SUBVOL:-false}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-LAUNCHERS]/[GAME-SUBVOL]:
+# as-built record of the game-launcher umbrella (Lutris/Heroic/Bottles/Wine/
+# gamemode + the shared INSTALL_ANY_GAME gate + the ONE @game subvolume flag).
+# Wine/gamemode have no isolated datadir so only launchers feed INSTALL_ANY_GAME.
+INSTALL_LUTRIS="${INSTALL_LUTRIS:-false}"
+INSTALL_HEROIC="${INSTALL_HEROIC:-false}"
+INSTALL_BOTTLES="${INSTALL_BOTTLES:-false}"
+INSTALL_GAME_WINE="${INSTALL_GAME_WINE:-false}"
+INSTALL_GAMEMODE="${INSTALL_GAMEMODE:-false}"
+INSTALL_ANY_GAME="${INSTALL_ANY_GAME:-false}"
+PROVISION_GAME_SUBVOL="${PROVISION_GAME_SUBVOL:-false}"
 INNER_EOF
 chmod 644 /etc/void-installer/install-config
 
@@ -6977,6 +7150,10 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
         # login to create ~/.linuxbrew. Declining the subvolume only leaves a
         # correctly-owned plain ~/.linuxbrew inside @home.
         echo "HOMEBREW=${INSTALL_BREW:-no} (prefix created on first login via Homebrew's official installer; isolated subvol: ${PROVISION_LINUXBREW_SUBVOL:-false})"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-LAUNCHERS]: one pointer
+        # line for the game-launcher umbrella; full per-launcher flags live in
+        # install-config. Heroic/Bottles are Flatpak-delivered (Flathub).
+        echo "GAMING=${INSTALL_ANY_GAME:-no} (steam=${INSTALL_STEAM:-no} lutris=${INSTALL_LUTRIS:-no} heroic=${INSTALL_HEROIC:-no} bottles=${INSTALL_BOTTLES:-no} wine=${INSTALL_GAME_WINE:-no} gamemode=${INSTALL_GAMEMODE:-no}); isolated subvol: ${PROVISION_GAME_SUBVOL:-false}"
         # AI (Big Pickle) ADDITION — Beta-v2.9.25 [NVIDIA-GATE]: one pointer
         # line for the hardware-gated driver; the full probe facts (GPU
         # families, wireless) live in install-config.
@@ -7949,7 +8126,7 @@ cat > /root/tools/void-subvol-tool.sh << 'INNER_EOF'
 #   add <subvol> [--nodatacow] [--install] (per-user profile only) prompts for the username, then derives the
 #                                                      mountpoint from /home/<name>/<known relative path>
 #   add --class <name> [--user <name>] [--install]   create EVERY subvol in an optional-software family:
-#                                                     containers databases web mail gaming virtualization flatpak
+#                                                     containers databases web mail game virtualization flatpak
 #                                                     (per-user members need a username; pass --user or it prompts once)
 #   --install            additionally run xbps-install for the owning package(s) of
 #                        the subvol(s) being added (see PKG_MAP below). Subvols with
@@ -8000,9 +8177,19 @@ norm_subvol() {
     local name="$1"
     name="${name#/}"
     case "$name" in
-        @*) echo "$name" ;;
-        *)  echo "@$name" ;;
+        @*) ;;
+        *)  name="@$name" ;;
     esac
+    # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL] alias resolution:
+    # the old @steam subvol is gone (replaced by the shared @game multi-mount).
+    # A pre-2.9.37 command (`add @steam --user alice`) resolves to @game so the
+    # one canonical sibling is addressed; PKG_MAP keeps `[@steam]` for any
+    # --install issued through the alias.
+    if [ "$name" = "@steam" ]; then
+        echo "@game"
+    else
+        echo "$name"
+    fi
 }
 
 # Per-user profile subvolumes: their mountpoint lives under /home/<user>, so the
@@ -8021,6 +8208,14 @@ declare -A USER_PROFILE_PATH=(
     [@brave]="/.config/BraveSoftware/Brave-Browser"
     [@thunderbird]="/.thunderbird"
     [@steam]="/.local/share/Steam"
+    # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL]: ONE @game subvol
+    # mounted at several per-user paths (space-separated = multi-mount; a btrfs
+    # subvolume may mount at many paths, one fstab line each). The set is
+    # derived from the launchers the installer selected (Steam + lutris).
+    # `add --user` loops the set; `@steam` above stays as a back-compat alias.
+    # Heroic/Bottles are NOT here — Flatpak-delivered, their data lives under
+    # @home at ~/.var/app/...
+    [@game]="/.local/share/Steam /.local/share/lutris"
     [@containers-user]="/.local/share/containers"
     [@usercache]="/.cache"
     [@virtualbox]="/VirtualBox VMs"
@@ -8055,12 +8250,16 @@ declare -A CLASS_SUBVOLS=(
     [databases]="@postgresql @mariadb"
     [web]="@mozilla @mozilla-cache @chromium @vivaldi @falkon @brave"
     [mail]="@thunderbird"
-    [gaming]="@steam"
+    [game]="@game"
+    # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL]: `gaming` is kept
+    # as a back-compat alias of `game` (pre-2.9.37 docs/CLI used it with
+    # `@steam`); it resolves to the same @game multi-mount set.
+    [gaming]="@game"
     [dev]="@linuxbrew"
     [virtualization]="@libvirt @virtualbox"
     [flatpak]="@flatpak"
 )
-CLASS_LIST="containers databases web mail gaming dev virtualization flatpak"
+CLASS_LIST="containers databases web mail game dev virtualization flatpak"
 
 # xbps package(s) that own each subvol's data directory, for `--install` /
 # `install --class`. Subvols absent here are structural-only (no Void package to
@@ -8082,6 +8281,7 @@ declare -A PKG_MAP=(
     [@falkon]="falkon"
     [@thunderbird]="thunderbird"
     [@steam]="steam"
+    [@game]="steam lutris"
     [@flatpak]="flatpak"
 )
 
@@ -8145,7 +8345,7 @@ cmd_check() {
     fi
     fst="$(fstab_line "$sv")"
     if [ -n "$fst" ]; then
-        echo "fstab: mounted at $(awk '{print $2}' <<<"$fst")"
+        echo "fstab: mounted at $(awk '$1 ~ /^UUID=/ && $0 ~ "subvol='"$sv"'([[:space:],])" {print $2}' /etc/fstab | tr '\n' ' ')"
     else
         echo "fstab: no mount entry."
     fi
@@ -8170,7 +8370,21 @@ add_subvol() {
     mount_top
     sp="$(sibling_path "$sv")"
     [ -e "$sp" ] && { unmount_top; die "sibling '$sv' already exists (delete it first if you mean to recreate)."; }
-    [ -z "$(fstab_line "$sv")" ] || { unmount_top; die "subvolume '$sv' already has an fstab entry."; }
+    # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL]: the fstab guard is
+    # RELAXED for @game — a btrfs subvolume may mount at several paths (each
+    # adopted launcher's datadir has its own fstab line). The first mount
+    # already wrote `subvol=@game`; later mounts of the same sibling are added
+    # via --add-mount and must NOT hit the "already has an fstab entry" die.
+    if [ "${ADD_MOUNT:-0}" = "1" ]; then
+        if [ -e "$sp" ]; then
+            info "sibling '$sv' exists — adding another mountpoint (multi-mount)."
+        else
+            unmount_top; die "sibling '$sv' does not exist yet — create it with a plain 'add' first."
+        fi
+    else
+        [ -e "$sp" ] && { unmount_top; die "sibling '$sv' already exists (delete it first if you mean to recreate)."; }
+        [ -z "$(fstab_line "$sv")" ] || { unmount_top; die "subvolume '$sv' already has an fstab entry."; }
+    fi
     is_mounted "$mnt" && { unmount_top; die "'$mnt' is already a mountpoint in use."; }
 
     # Beta-v2.9.3 [SUBVOL-DATA-GUARD]: mounting a fresh (empty) sibling OVER a
@@ -8186,24 +8400,31 @@ add_subvol() {
     fi
 
     mnt="$(readlink -f "$mnt")"
-    info "creating flat sibling $sv (top-level tree) for $mnt..."
-    btrfs subvolume create "$sp" || { unmount_top; die "btrfs subvolume create failed."; }
 
-    # optional migration: copy existing contents of $src into the fresh sibling
-    # BEFORE mounting it over $mnt, preserving ownership/permissions. $src is
-    # live under the running @ mount; copying into the subvolid=5-tree path is
-    # a cross-visible copy (both views show the same filesystem).
-    if [ -n "$src" ]; then
-        [ -d "$src" ] || {
-            echo "ERROR: source '$src' not a dir (removing partially-created sibling)." >&2
-            btrfs subvolume delete "$sp"
-            unmount_top
-            exit 1
-        }
-        info "migrating contents of $src into new sibling..."
-        cp -a -- "$src"/. "$sp"/ 2>/dev/null || true
+    # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL]: under ADD_MOUNT the
+    # sibling + fstab line already exist from the first mount — only the new
+    # mountpoint line + mount are added. The create/migrate/install steps are
+    # first-mount-only.
+    if [ "${ADD_MOUNT:-0}" != "1" ]; then
+        info "creating flat sibling $sv (top-level tree) for $mnt..."
+        btrfs subvolume create "$sp" || { unmount_top; die "btrfs subvolume create failed."; }
+
+        # optional migration: copy existing contents of $src into the fresh sibling
+        # BEFORE mounting it over $mnt, preserving ownership/permissions. $src is
+        # live under the running @ mount; copying into the subvolid=5-tree path is
+        # a cross-visible copy (both views show the same filesystem).
+        if [ -n "$src" ]; then
+            [ -d "$src" ] || {
+                echo "ERROR: source '$src' not a dir (removing partially-created sibling)." >&2
+                btrfs subvolume delete "$sp"
+                unmount_top
+                exit 1
+            }
+            info "migrating contents of $src into new sibling..."
+            cp -a -- "$src"/. "$sp"/ 2>/dev/null || true
+        fi
+        unmount_top
     fi
-    unmount_top
 
     # fstab mount options: nodatacow MUST be via mount options, never chattr.
     if [ "$nodatacow" = "1" ]; then
@@ -8224,7 +8445,7 @@ add_subvol() {
 
     # --install: now that the subvol is live at its runtime path, install the
     # owning package(s) so their data lands on the isolated subvolume directly.
-    if [ "$install" = "1" ]; then
+    if [ "$install" = "1" ] && [ "${ADD_MOUNT:-0}" != "1" ]; then
         if [ -n "$pkgs" ]; then
             # shellcheck disable=SC2086 # deliberate: $pkgs is a space-separated list of package names
             install_packages $pkgs
@@ -8269,13 +8490,18 @@ cmd_add() {
     [ "${#positional[@]}" -le 3 ] || die "too many positional args (subvol mountpoint [source-dir], plus --user/--nodatacow/--install flags)."
 
     # Derive a per-user mountpoint from --user when no explicit one was given.
+    # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL]: a MULTI-MOUNT set
+    # (space-separated, e.g. @game) is NOT derived into one bogus path here —
+    # it falls through to the multi-mount loop below.
     if [ -z "$mnt" ] && [ -n "$user" ]; then
         local rel="${USER_PROFILE_PATH[$sv]:-}"
         [ -n "$rel" ] || die "no known per-user path for '$sv' — supply an explicit <mountpoint>."
-        mnt="/home/$user$rel"
-        echo "Derived per-user mountpoint: $mnt"
-        read -r -p "Use this mountpoint? [Y/n]: " ans
-        case "$ans" in [nN]*) die "aborted." ;; esac
+        if [[ "$rel" != *" "* ]]; then
+            mnt="/home/$user$rel"
+            echo "Derived per-user mountpoint: $mnt"
+            read -r -p "Use this mountpoint? [Y/n]: " ans
+            case "$ans" in [nN]*) die "aborted." ;; esac
+        fi
     fi
 
     # No mountpoint and no --user: if this is a known per-user profile, offer to
@@ -8285,10 +8511,12 @@ cmd_add() {
         if [ -n "$rel" ]; then
             read -r -p "Per-user profile $sv — enter the username to target (e.g. alice): " user
             [ -n "$user" ] || die "no username given."
-            mnt="/home/$user$rel"
-            echo "Derived per-user mountpoint: $mnt"
-            read -r -p "Use this mountpoint? [Y/n]: " ans
-            case "$ans" in [nN]*) die "aborted." ;; esac
+            if [[ "$rel" != *" "* ]]; then
+                mnt="/home/$user$rel"
+                echo "Derived per-user mountpoint: $mnt"
+                read -r -p "Use this mountpoint? [Y/n]: " ans
+                case "$ans" in [nN]*) die "aborted." ;; esac
+            fi
         fi
     fi
 
@@ -8306,12 +8534,34 @@ cmd_add() {
         echo "Note: --user $user given with explicit mountpoint — using '$mnt' as typed."
     fi
 
+    # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL]: MULTI-MOUNT loop.
+    # A per-user subvol whose USER_PROFILE_PATH value contains a space (@game)
+    # mounts at EVERY path in the set, each with its own fstab line. The first
+    # path creates + mounts the fresh sibling; each later path is an ADD_MOUNT
+    # (relaxed fstab-guard; same subvolume, additional mountpoint). An explicit
+    # <mountpoint> positional wins and behaves like a plain single mount.
+    local _sv_relset="${USER_PROFILE_PATH[$sv]:-}"
+    if [ -z "${positional[1]:-}" ] && [ -n "$user" ] && [[ "$_sv_relset" == *" "* ]]; then
+        local _sv_mnt_rel _sv_first=1
+        for _sv_mnt_rel in $_sv_relset; do
+            _sv_mnt="/home/$user$_sv_mnt_rel"
+            [ -d "$_sv_mnt" ] || die "mountpoint '$_sv_mnt' does not exist — create and chown it to $user first."
+            if [ "$_sv_first" = "1" ]; then
+                ADD_MOUNT=0 add_subvol "$sv" "$_sv_mnt" "$nodatacow" "$src" "$install"
+                _sv_first=0
+            else
+                ADD_MOUNT=1 add_subvol "$sv" "$_sv_mnt" "$nodatacow" "" "$install"
+            fi
+        done
+        return 0
+    fi
+
     add_subvol "$sv" "$mnt" "$nodatacow" "$src" "$install"
 }
 
 # ---------------------------------------------------------------------------
 # add --class <name> — create every subvol in an optional-software family.
-#   classes: containers databases web mail gaming virtualization flatpak
+#   classes: containers databases web mail game virtualization flatpak
 #   --user <name> seeds the username for all per-user members (or prompts once).
 # ---------------------------------------------------------------------------
 cmd_add_class() {
@@ -8358,15 +8608,27 @@ cmd_add_class() {
         local mnt ndc
         if [ -n "${USER_PROFILE_PATH[$sv]:-}" ]; then
             [ -n "$user" ] || die "internal: class member '$sv' is per-user but no username resolved."
-            mnt="/home/$user${USER_PROFILE_PATH[$sv]}"
-            ndc=0
+            # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL]: a multi-mount
+            # member (@game) has a SPACE-separated USER_PROFILE_PATH value: the
+            # sibling is created + mounted at its FIRST path, and each later path
+            # becomes an ADD_MOUNT (a second fstab line for the same subvol).
+            for _pbs_rel in ${USER_PROFILE_PATH[$sv]}; do
+                mnt="/home/$user$_pbs_rel"
+                [ -d "$mnt" ] || die "mountpoint '$mnt' does not exist — create (and for per-user paths chown to $user) first."
+                if [ "$_pbs_rel" = "${USER_PROFILE_PATH[$sv]%% *}" ]; then
+                    ADD_MOUNT=0 add_subvol "$sv" "$mnt" 0 "" "$install"
+                else
+                    ADD_MOUNT=1 add_subvol "$sv" "$mnt" 0 "" "$install"
+                fi
+            done
+            unset _pbs_rel
         else
             mnt="${SYS_MOUNT[$sv]:-}"
             [ -n "$mnt" ] || die "internal: no mountpoint mapping for class member '$sv'."
             ndc="${SYS_NODATACOW[$sv]:-0}"
+            [ -d "$mnt" ] || die "mountpoint '$mnt' does not exist — create (and for per-user paths chown to $user) first."
+            ADD_MOUNT=0 add_subvol "$sv" "$mnt" "$ndc" "" "$install"
         fi
-        [ -d "$mnt" ] || die "mountpoint '$mnt' does not exist — create (and for per-user paths chown to $user) first."
-        add_subvol "$sv" "$mnt" "$ndc" "" "$install"
     done
     info "class '$cls' complete."
 }
@@ -8380,10 +8642,17 @@ cmd_detach() {
     sv="$(norm_subvol "$1")"
     fst="$(fstab_line "$sv")"
     [ -n "$fst" ] || die "no fstab entry for '$sv' (nothing to detach)."
-    mnt="$(awk '{print $2}' <<<"$fst")"
-    info "unmounting $mnt..."
-    umount "$mnt" 2>/dev/null || true
-    sed -i "\~subvol=$sv([[:space:],])~d" /etc/fstab
+    # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL]: @game multi-mount
+    # means several fstab lines / mountpoints may reference the same subvol;
+    # unmount EVERY one, then drop EVERY matching fstab line.
+    for mnt in $(awk '$1 ~ /^UUID=/ && $0 ~ "subvol='"$sv"'([[:space:],])" {print $2}' /etc/fstab); do
+        info "unmounting $mnt..."
+        umount "$mnt" 2>/dev/null || true
+    done
+    # CRITICAL: BRE parens MUST be escaped (\( \)) — unescaped parens in POSIX
+    # BRE are literal characters, so `subvol=$sv([[:space:],])` would match
+    # nothing and leave every fstab line dangling after the umount above.
+    sed -i "\~subvol=$sv\([[:space:],]\)~d" /etc/fstab
     info "detached $sv. Subvolume and data remain on disk. Re-attach with:"
     echo "  sudo /root/tools/void-subvol-tool.sh add $sv $mnt"
 }
@@ -8396,11 +8665,15 @@ cmd_destroy() {
     local sv fst mnt sp
     sv="$(norm_subvol "$1")"
     fst="$(fstab_line "$sv")"
-    mnt="$(awk '{print $2}' <<<"$fst")"
-    if [ -n "$mnt" ] && is_mounted "$mnt"; then
-        info "unmounting $mnt..."
-        umount "$mnt" 2>/dev/null || true
-        sed -i "\~subvol=$sv([[:space:],])~d" /etc/fstab
+    # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL]: @game multi-mount —
+    # unmount every path + drop every matching fstab line (escaped BRE parens,
+    # same rule as cmd_detach) before deleting the sibling.
+    if [ -n "$fst" ]; then
+        for mnt in $(awk '$1 ~ /^UUID=/ && $0 ~ "subvol='"$sv"'([[:space:],])" {print $2}' /etc/fstab); do
+            info "unmounting $mnt..."
+            umount "$mnt" 2>/dev/null || true
+        done
+        sed -i "\~subvol=$sv\([[:space:],]\)~d" /etc/fstab
     fi
     echo "WARNING: this DELETES subvolume $sv and ALL data it holds. Cannot be undone."
     read -r -p "Type YES to confirm: " ans
@@ -8570,7 +8843,7 @@ sudo /root/tools/void-subvol-tool.sh check @app
 sudo /root/tools/void-subvol-tool.sh detach @app        # umount + drop fstab (data preserved)
 sudo /root/tools/void-subvol-tool.sh destroy @app       # full delete, asks for confirmation
 ```
-Per-user profile subvolumes (browser profiles, `@steam`, `@thunderbird`,
+Per-user profile subvolumes (browser profiles, `@game`, `@thunderbird`,
 `@containers-user`, `@usercache`, ...) live under `/home/<user>`, so the tool
 can derive the exact mountpoint from the username instead of you typing the
 whole path. Use `--user <name>`, or just the subvol name and it will **prompt**
@@ -8579,6 +8852,9 @@ for the username:
 sudo /root/tools/void-subvol-tool.sh add @chromium --user alice      # -> /home/alice/.config/chromium
 sudo /root/tools/void-subvol-tool.sh add @containers-user --user alice   # -> /home/alice/.local/share/containers
 sudo /root/tools/void-subvol-tool.sh add @steam                     # prompts "enter the username..."
+# @game is a MULTI-MOUNT subvol (Beta-v2.9.37 [GAME-SUBVOL]): it mounts at
+# each adopted launcher's datadir with its own fstab line:
+sudo /root/tools/void-subvol-tool.sh add @game --user alice         # mounts at the FULL derived set (.local/share/Steam, .local/share/lutris)
 ```
 Important: as at install (`[PERSONAL-DATA]`/`provision_browser_subvol`), the
 per-user parents must already exist and be owned by the target user. Create and
@@ -8587,10 +8863,14 @@ per-user parents must already exist and be owned by the target user. Create and
 with ownership preserved. The tool creates the sibling and fstab line only — it
 never chowns/remakes your home.
 
-It refuses to double-create or double-mount, and `destroy` requires typing
-`YES`. `nodatacow` is applied via the fstab mount option (never `chattr +C`),
-matching the installer's `[NODATACOW]` rule that `chattr` on a subvolume root is
-shadowed by the mount.
+It refuses to double-create or double-mount. The one exception is `@game`,
+whose `--add-mount` path intentionally relaxes the fstab-guard so a second
+launcher's datadir can be added to the same sibling (`--add-mount` skips the
+"already has an fstab entry" die; without it the tool refuses, so a plain
+`add @game` on an already-mounted @game still refuses). `destroy` requires
+typing `YES`. `nodatacow` is applied via the fstab mount option (never
+`chattr +C`), matching the installer's `[NODATACOW]` rule that `chattr` on a
+subvolume root is shadowed by the mount.
 
 **Data-safety guard (`[SUBVOL-DATA-GUARD]`):** if the target mountpoint is
 already non-empty (e.g. the software was installed *before* you built its
@@ -8612,7 +8892,7 @@ sudo /root/tools/void-subvol-tool.sh add --class containers --user alice
 sudo /root/tools/void-subvol-tool.sh add --class databases          # @postgresql + @mariadb (nodatacow)
 sudo /root/tools/void-subvol-tool.sh add --class web --user alice   # all browser profiles
 sudo /root/tools/void-subvol-tool.sh add --class mail --user alice  # @thunderbird
-sudo /root/tools/void-subvol-tool.sh add --class gaming --user alice# @steam
+sudo /root/tools/void-subvol-tool.sh add --class gaming --user alice# @game (multi-mount: Steam + lutris datadirs)
 sudo /root/tools/void-subvol-tool.sh add --class dev --user alice    # @linuxbrew (Homebrew CLI/dev prefix)
 sudo /root/tools/void-subvol-tool.sh add --class virtualization --user alice  # @libvirt + @virtualbox
 sudo /root/tools/void-subvol-tool.sh add --class flatpak            # @flatpak
@@ -8625,7 +8905,7 @@ the software's data lands on the isolated subvolume from the very first run —
 mirroring the installer's own provisioning:
 ```bash
 sudo /root/tools/void-subvol-tool.sh add @steam --user alice --install   # create + install steam
-sudo /root/tools/void-subvol-tool.sh add --class gaming --user alice --install
+sudo /root/tools/void-subvol-tool.sh add --class game --user alice --install
 sudo /root/tools/void-subvol-tool.sh add --class virtualization --install # @libvirt + @virtualbox + their packages
 ```
 Only subvols with an xbps package mapping install something. Subvols with no
@@ -8649,12 +8929,12 @@ Classes and their subvolumes:
 | `databases` | `@postgresql`, `@mariadb` (both nodatacow) |
 | `web` | `@mozilla`, `@mozilla-cache`, `@chromium`, `@vivaldi`, `@falkon`, `@brave` |
 | `mail` | `@thunderbird` |
-| `gaming` | `@steam` |
+| `game` | `@game` (multi-mount: `.local/share/Steam`, `.local/share/lutris`; `gaming` is a back-compat alias) |
 | `virtualization` | `@libvirt` (nodatacow), `@virtualbox` |
 | `flatpak` | `@flatpak` |
 
 Class members are per-user profiles (every subvol whose name is `@`-prefixed
-under a `/home` root — browser profiles, `@steam`, `@thunderbird`,
+under a `/home` root — browser profiles, `@game`, `@thunderbird`,
 `@containers-user`, `@virtualbox`) only when they use a per-user mountpoint.
 Pass `--user <name>` to target all per-user members at once; if the class has
 per-user members and you omit `--user`, the tool prompts once for the shared
