@@ -72,6 +72,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.14** | `[COSMIC-GREETER-SESSION-BUS]` — the cosmic-greeter greetd toml now execs the shipped `/etc/greetd/cosmic-greeter.start` wrapper (`dbus-run-session` around `cosmic-comp cosmic-greeter`, v5 as-built on `<host>`) instead of the bare binary string, and pre-creates a greeter-owned `/var/log/cosmic-greeter-session.log`: with the account fixed, a bare greetd spawn still rendered grey + cursor (no session bus → iced login panel never maps as a layer) | Beta-v2.9.14 below |
 | **Beta-v2.9.15** | `[COSMIC-GREETER-DBUS-POLICY]` — re-emit `/etc/dbus-1/system.d/com.system76.CosmicGreeter.conf` granting the renamed `cosmic-greeter` group system-bus send/receive on `com.system76.CosmicGreeter`: the packaged file still grants the pre-rename `_cosmicgreeter` group, so after `[COSMIC-GREETER-USER]` the greeter's `GetUserData` to the (root) daemon was `AccessDenied` every start on a fresh install (live: `<host>` fresh Beta-v2.9.14 boot logged "failed to load user data from daemon: AccessDenied … GetUserData" + "Failed to apply user display config") — login unaffected, per-user display config/avatar lookups silently fail | Beta-v2.9.15 below |
 | **Beta-v2.9.16** | `[KERNEL-SELECT]` — which kernels get installed is a real choice: Void base-system always pulls the main `linux` kernel, and a per-flavor toggle pair adds `linux-mainline` (newest, "experts only", opt-in) and/or `linux-lts` (default ON — bare Enter ships `linux` + `linux-lts`) on top. The resolved space-joined `$KERNEL_PKGS` threads through the base bootstrap, the post-install `xbps-reconfigure`, resume state, chroot_env, and install-config; orthogonal to `$KERNEL_MODE` (which only describes how Limine *reads* kernels from the ESP) | Beta-v2.9.16 below |
+| **Beta-v2.9.17** | `[DEVICE-PROFILE]` — laptop vs desktop/server is now a real 5-way choice (Automatic/SMBIOS detection + four explicit profiles), resolved at pick time into a concrete `DEVICE_PROFILE` (`laptop-bt`/`laptop`/`desktop-bt`/`desktop`) plus derived `PROFILE_TLP`/`PROFILE_BT`/`PROFILE_PRELOAD` booleans. These gate the formerly unconditional `tlp`/`tlp-rdw`, `bluez`/`libspa-bluetooth`, and `preload` installs plus the `bluetoothd`/`tlp`/`preload` service links. preload (adaptive readahead) is desktop/server-only: its periodic pre-cache scans cost battery wakeups, so laptop profiles never get it. Bare-Enter = Automatic; an unresolvable chassis (VMs/unknown) falls back to the laptop+bluetooth baseline (historical package set, but tlp service now actually linked — an oversight fix) | Beta-v2.9.17 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -676,6 +677,83 @@ install** — a fresh install answering `y` to both toggles (or per-flavor) is
 the remaining live confirmation (see TODO.md); note the defaults flipped to
 lts-conservative on 2026-09-07, so a bare-Enter run (`linux linux-lts`) is
 NOT the historical mainline baseline and must be boot-tested.
+
+---
+
+---
+
+## Beta-v2.9.17 — `[DEVICE-PROFILE]` (laptop vs desktop/server: tlp + bluetooth gates)
+
+`SCRIPT_VERSION = Beta-v2.9.17`. Whether the box is a laptop or a
+desktop/server is now a real Stage-1 choice, asked immediately after the
+kernel packages and before the Limine wallpaper / encryption prompts.
+
+## Profile menu
+
+A 5-way numbered menu (same idiom as bootloader/desktop):
+
+1. **Automatic** (default) — probes `/sys/class/dmi/id/chassis_type` on the
+   live CD. Portable classes (8/9/10/11/14/30/31/32) → laptop-with-bluetooth;
+   desktop classes (3/4/5/6/7/13/15) → desktop-with-bluetooth (bluetooth is
+   kept because presence is not detectable; tlp, which is meaningless on a
+   desktop, is dropped). An unresolvable chassis (VMs, some boards) silently
+   falls back to **laptop + Bluetooth** — the exact baseline every prior
+   release shipped — so bare-Enter installs the same package set every
+   historical install shipped (with the one deliberate difference that the tlp
+   service is now *running*, an oversight fix — it was installed-but-inert
+   before). An explicit profile (2–5) overrides detection entirely.
+2. **Laptop with Bluetooth** — tlp (battery/power) + full bluetooth.
+3. **Laptop, no Bluetooth** — tlp only.
+4. **Desktop/server with Bluetooth** — bluetooth only, no tlp.
+5. **Desktop/server, no Bluetooth** — minimal; neither runs.
+
+## Resolution and threading
+
+The moment a profile is picked it is resolved into a **concrete**
+`DEVICE_PROFILE` (`laptop-bt` / `laptop` / `desktop-bt` / `desktop` — never
+"auto") plus the two derived booleans that actually drive the install:
+
+- `PROFILE_TLP` / `PROFILE_BT` gate the sites that were previously
+  unconditional in the Stage-2 chroot body:
+  - `tlp tlp-rdw` (battery power management, meaningless on a desktop/server)
+    — removed from the big everyday-utilities `install_pkgs` line, now gated,
+    AND on a laptop profile the `/etc/sv/tlp` runit service is linked into
+    runsvdir so tlp actually runs from first boot (historically it was
+    installed-but-never-linked, i.e. inert dead weight — linking was the
+    maintainer's intent, treat as an oversight fix),
+  - `bluez` (same line) and `libspa-bluetooth` (the always-pulled PipeWire
+    audio line) — gated together: a "no bluetooth" profile ships NO bluetooth
+    packages (a later USB dongle just installs `bluez` by hand),
+  - the `/etc/sv/bluetoothd` → runsvdir link — gated (no bluetooth, no
+    daemon). Note: nothing here changes elogind-based ACPI/lid handling;
+    `acpid` was already gated to the turnstile session stack.
+  - `preload` (adaptive readahead cache) — removed from the unconditional
+    everyday-utilities line and gated **desktop/server-only**: its periodic
+    pre-cache scans cause extra CPU/IO wakeups that work against battery, so
+    laptop profiles never install it, and on the desktop/server profiles it is
+    installed AND linked (`/etc/sv/preload` → runsvdir) so it actually runs.
+- The concrete profile + both booleans are wired to
+  `DEFAULT_DEVICE_PROFILE` (1) in `[PROMPT-DEFAULTS]` (bare-Enter = Automatic),
+  persisted in the resume-state file (`_sv` list), exported into chroot_env.sh,
+  hard-validated inside the chroot (profile ∈ the four concrete values, each
+  boolean ∈ {true,false}; anything else aborts rather than silently pushing a
+  desktop through tlp or dropping bluetooth on a laptop), and recorded in
+  `/etc/void-installer/install-config` as `DEVICE_PROFILE` / `PROFILE_TLP` /
+  `PROFILE_BT` / `PROFILE_PRELOAD` (secret-free).
+
+**Design decision flagged for the maintainer:** bare-Enter = Automatic — on a
+genuinely detected desktop this *drops* tlp, which is the intended fix but is
+a real behavior change vs every prior release; un-resolvable hardware keeps
+the full historical baseline. (The tlp-inertness question is resolved in the
+opposite direction: linking `/etc/sv/tlp` was an oversight, now fixed — laptop
+profiles get a *running* tlp.)
+
+**Validation:** `bash -n` passes; `Debug/check-defaults.sh` all 36 `DEFAULT_*`
+vars declared and wired (including `DEFAULT_DEVICE_PROFILE`);
+`Debug/check-heredocs.sh` fully clean (the new gating lines + booleans live in
+the CHROOT heredoc and are bash-n'd by the extractor). `[DEVICE-PROFILE]` is
+**NOT yet verified on a real install** — and it stacks on the still-unverified
+`[KERNEL-SELECT]`, so the next fresh install must exercise BOTH (see TODO.md).
 
 ---
 
