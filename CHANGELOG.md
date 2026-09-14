@@ -95,6 +95,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.37** | `[GAME-LAUNCHERS]`+`[GAME-SUBVOL]` — a "GAME LAUNCHERS & RUNTIMES" umbrella (after app channels, before Steam) with independent default-OFF toggles: Lutris (Void main, xbps), Heroic + Bottles (NO official Void package → Flatpak-only, offered only when `INSTALL_FLATPAK=true`), Wine (multilib runtime, never auto-pulled by a launcher), gamemode (Feral governor daemon). ONE shared `@game` per-user subvol (replaces `@steam`) mounted at the derived per-launcher set (`~/.local/share/Steam` + `~/.local/share/lutris`) via the subvol-tool multi-mount loop + `@steam`/gaming alias resolution + `@game` fstab-guard relaxation + detach/destroy BRE-paren sed fix | Beta-v2.9.37 below |
 | **Beta-v2.9.38** | `[MULTI-FS]` — per-region data filesystems: each of `/home`, `/var`, `/var/cache`, `/srv`, `/opt` (+ optional `Games`) can be carved onto its OWN dedicated partition with an ext4/btrfs filesystem choice instead of a root-Btrfs subvolume. Fixed-order outer carve right after the ESP and BEFORE the single LINUX root partition (LINUX last, sized to the remainder), or as an INNER GPT inside the LUKS2 container when `[ENCRYPT]`; region subvols (`@home`/`@var`/…) are FOLDED out of the flat topology so no subvolume collides with a partition mountpoint; owned fstab rows skipped; subvol-tool `[MULTI-FS-GUARD]` prevents re-creating a carved region's subvolume; region mounts before chroot; games chown; DOCS-LOG `DATA_REGIONS`. Plus `[MULTI-FS-RUNLOG]` (journal audit lines + journal archived to `/etc/void-installer/installer-run.log` on success) and `[CRASH-USB-LOG]` (crash post-mortem — journal + `.info` sidecar — to the first mounted stick; `--save-log` parsed BEFORE the journal truncation / network gate / STAGE-1 banner so it works from a crashed, networkless live env). Default (bare Enter) = all-Btrfs flat layout, byte-identical to 2.9.37 | Beta-v2.9.38 below |
 | **Beta-v2.9.39** | `[CRASH-USB-LOG-FATAL-EXIT]`+`[SUBVOL-ROWS-FIX]` — the crash post-mortem dump also fires on planned `exit 1` FATALs (EXIT-trap `_save_log_on_exit` + `_usb_dumped` double-write guard); SUBVOL_ROWS loop skips `#`-comment rows before the resolve eval + spurious duplicate INSTALL_BREW row removed | Beta-v2.9.39 below |
+| **Beta-v2.9.40** | `[PKG-PREFLIGHT]`+`[GAME-FLATPAK-GATE]` — Stage-1 package-name gate resolves every chroot-installable package against the live union pool BEFORE `sgdisk -Z` (closed crash #005; 134-pkg superset candidate list + committed drift-guard; repo hiccups WARN+skip, never false FATAL); Heroic/Bottles are Flatpak-queue-only delivery (`@game` mounts only `~/.local/share/Steam`+`~/.local/share/lutris`) | Beta-v2.9.40 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -120,6 +121,37 @@ the ERR trap). A spurious duplicate `INSTALL_BREW` SUBVOL_ROWS row was also
 removed.
 
 **Validation:** `bash -n` and `Debug/check-heredocs.sh` ALL CLEAN.
+
+---
+
+## Beta-v2.9.40 — `[PKG-PREFLIGHT]` + `[GAME-FLATPAK-GATE]` (Stage-1 package-name gate; Heroic/Bottles now Flatpak-queue-only)
+
+`SCRIPT_VERSION = Beta-v2.9.40`. Closes crash #005 permanently and ends the
+heroic/bottles xbps dependency class.
+
+**1. `[PKG-PREFLIGHT]` — Stage-1 package-name gate.** Every package name the
+Stage-2 chroot can install is resolved against the live union pool **BEFORE
+`sgdisk -Z`**, so a doomed install (a package that doesn't exist in the repos
+or whose deps can't resolve) aborts pre-write with the disk untouched. The
+`PKG_PREFLIGHT` candidate list is kept a superset of every `install_pkgs`
+literal plus the base-bootstrap literals; the `void-repo-*` package
+install + `xbps-install -Sy` repos refresh + `base-system` sanity probe are
+best-effort and **degrade to WARN+skip (never a false FATAL)** so a repo or
+network hiccup can't kill a good install. The COSMIC third-party repo is
+excluded from the probe. The drift-guard `Debug/check-pkg-preflight.sh` is
+committed so future package additions can't silently outgrow the probe list.
+
+**2. `[GAME-FLATPAK-GATE]` — Heroic/Bottles ship only via the Flatpak queue.**
+`install_pkgs heroic` / `install_pkgs bottles` are FORBIDDEN (no official Void
+package, crash #005 class). Both game launchers are delivered through the
+first-boot Flatpak queue (`com.heroicgameslauncher.hgl` /
+`com.usebottles.bottles`) gated on `INSTALL_FLATPAK`, with a Stage-2 WARNING
+when Flatpak was declined. The `@game` subvolume mounts ONLY
+`.local/share/Steam` + `.local/share/lutris`.
+
+**Validation:** `bash -n`, `Debug/check-pkg-preflight.sh` (134-pkg collection,
+ALL COVERED), `Debug/check-defaults.sh`, and `Debug/check-heredocs.sh` all
+green on the committed tree.
 
 ---
 
