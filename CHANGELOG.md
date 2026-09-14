@@ -88,6 +88,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.30** | `[NFT-ICMPV6-RATELIMIT]` + `[NFT-RA-RATELIMIT]` + `[NFT-OPEN-PORT]` — three nftables refinements. IPv6 echo-request now gets the same `1/second burst 5` rate limit its IPv4 twin already had (the prior broad `meta l4proto ipv6-icmp accept` was unrate-limited, so IPv6 ping was both harder to log and abusable); `nd-router-advert` is capped at `6/minute` to blunt an RA-flood / SLAAC-hijack attack; and a new root helper `/usr/local/sbin/void-firewall-open-port` maintains an explicit-accept block inside the policy-drop input chain (marker-comment managed, `nft -c` parse-checked, runit reload on success, add/rm/list) so a future WAN-facing service is reachable without hand-editing the generated file. A "how to open a port" comment heads the config. No prompt or `DEFAULT_*` change | Beta-v2.9.30 below |
 | **Beta-v2.9.31** | `[NFT-COUNTERS]` + `[NFT-RATELIMIT-KNOB]` — firewall observability and a control knob. The anti-spoof drops (`127.0.0.0/8`, `::1`), the `ct state invalid` drop, and the broad `ipv6-icmp` accept now carry `counter`; an explicit trailing `counter drop` rule at the end of both the input and forward chains makes the implicit policy-drop a countable rule, so `nft list ruleset` shows exactly why packets die. The two 2.9.30 hardening rules (IPv6 echo-request cap + `nd-router-advert` flood cap) are now gated by the env knob `DEFAULT_NFT_RATELIMIT` (no prompt, `DEFAULT_MICROCODE` style; default `yes` = tightened posture, `no` = plain broad-icmp config). Knob scope is the rate-limit rules only — the counters and the IPv4 echo cap stay unconditional, and the knob references no interfaces (no `[NFT-VIRT-GATE]` coupling). Also fixed: the generated config's header comment used `nft -c` in literal backticks inside an *unquoted* heredoc, which nft would have tried to execute at install; reworded to plain text | Beta-v2.9.31 below |
 | **Beta-v2.9.32** | `[FW-AUDIT]` — closes the "per-vendor firmware pruning" discussion item. Verified against the void-packages templates: `linux-base` hard-depends on `alsa-firmware` `linux-firmware-network` `sof-firmware` and (x86_64) `linux-firmware-amd` `-intel` `-nvidia`; the network split itself hard-depends on `linux-firmware-broadcom`; XBPS has no recommends tier, so an installer-side prune is impossible (xbps-remove refuses: "dependency of installed 'linux-base'"). The ONE firmware Void leaves per-host is CPU microcode, already pruned to a single package by `[CPU-DETECT]`. So a report-only post-install audit now prints what *landed* vs what this box's probe *needs*, names the splits kept solely by the dependency wall (the irreducible wholesale tax), and confirms the Broadcom gap state. Nothing gated | Beta-v2.9.32 below |
+| **Beta-v2.9.33** | `[FW-AUDIT-LOG]` — the `[FW-AUDIT]` accounting (Beta-v2.9.32, console-only) is now **persisted** into the installed machine's as-built record `~/Documents/Void_Install.txt`. The audit builds its text once, prints it to the console, and appends it as a `# -------- FIRMWARE ACCOUNTING ([FW-AUDIT], as-built) --------` section after the package inventory. The record file is written earlier in the chroot by the `[DOCS-LOG-CHOWN]` block; the root→user-owned append preserves ownership, and nothing is gated on it (missing file / empty `TARGET_USER` → silently skipped). The end-of-install NEXT-STEPS line now advertises the record "incl. firmware accounting". Report-only | Beta-v2.9.33 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1937,6 +1938,44 @@ Nothing is gated and no prompt appears — same report-don't-decide ethos as
 change), check-heredocs all green; the block's output was exercised against
 stubbed target pkgdb across five hardware scenarios (AMD/Intel/NVIDIA,
 Broadcom-on/off, microcode-opt-out).
+
+---
+
+## Beta-v2.9.33 — `[FW-AUDIT-LOG]` (firmware accounting persisted into the as-built record)
+
+`SCRIPT_VERSION = Beta-v2.9.33`. The Beta-v2.9.32 audit existed only on the
+console; it now lives in the installed machine's own record file,
+`~/Documents/Void_Install.txt`.
+
+### Why Appendix Two, not a separate file
+
+The as-built record (`[DOCS-LOG-CHOWN]` block, written mid-chroot) already
+carries the pointer-style hardware facts (`WIFI_HARDWARE`, `CPU`/microcode,
+`NVIDIA_DRIVER`) plus the full `xbps-query -l` inventory. The firmware
+accounting is the same kind of fact, so it belongs in that single record as a
+dedicated section — one greppable place for everything an operator or support
+person needs to know about what a particular machine was built with. Persisting
+it to a separate file would fragment the as-built story.
+
+### What changed
+
+- The `[FW-AUDIT]` block now builds its output into one `FW_AUDIT_TEXT`
+  buffer instead of echoing directly: it prints exactly what it always did to
+  the console, then appends the identical lines under a
+  `# -------- FIRMWARE ACCOUNTING ([FW-AUDIT], as-built) --------` header to
+  `~/Documents/Void_Install.txt` (after the package inventory).
+- The record write precedes the audit in the chroot, so the append lands
+  after the existing content; the root→user-owned append preserves the file's
+  ownership (no `chown` needed again).
+- Guarded: empty `TARGET_USER` or a missing/unwritable record file → the
+  append is silently skipped; nothing about the install is gated on it.
+- The end-of-install quick-reference line now reads "…(installed user, incl.
+  firmware accounting)".
+
+Validation: gates green (`bash -n`, check-defaults, check-heredocs 61 clean);
+the console-print + append behavior was exercised against a sandboxed record
+file (path rewritten to `/tmp`) across the firmware scenarios — appended
+section matches the console verbatim.
 
 ---
 
