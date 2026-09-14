@@ -528,6 +528,9 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #                     the binary picks greeter-DM vs silent locker from the current username
 #     Beta-v2.9.13   [ACCTSVCS-ICON];[COSMIC-POLKIT-GUARD] — default AccountsService avatar provisioned for the
 #                     fresh user; the COSMIC polkit agent is launched through a session-ready guard  (current)
+#     Beta-v2.9.34   [SLICK-BG-QUOTES];[SSH-DEPOSIT-LOG];[FLATPAK-NM-DISPATCH] — slick greeter quotes; ssh-key deposit via find -quit; flatpak first-boot queue moved to an NM dispatcher script; sshd + vboxdrv rc.local links realigned (sshd early)
+#     Beta-v2.9.35   [ESP-SIZE] — shared ESP-size menu (4G default/6G/8G/Custom, 1GiB floor); GRUB+ENCRYPT mounts ESP AT /boot so shares it; fixed [GRUB-ESP-SIZE-ORDER] (old in-loop read ENCRYPT before its prompt)
+#     Beta-v2.9.36   [CHANNEL-GROUP];[INSTALL-BREW] — third-party app channels umbrella; Homebrew (Linuxbrew) opt-in CLI/dev channel (runtime xbps deps only, never curl|bash); @linuxbrew per-user subvol row + subvol-tool `dev` class
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -569,6 +572,15 @@ DEFAULT_HIBERNATION="${DEFAULT_HIBERNATION:-false}"   # enable suspend-to-disk? 
 DEFAULT_SNAPSHOT_AUDIO="${DEFAULT_SNAPSHOT_AUDIO:-false}"  # audio on snapshot boots? [y/N]
 DEFAULT_OCTOXBPS="${DEFAULT_OCTOXBPS:-false}"         # OctoXBPS GUI pkg mgr? [y/N]
 DEFAULT_FLATPAK="${DEFAULT_FLATPAK:-false}"           # Flatpak + Flathub? [y/N]
+# AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: opt-in complement to
+# Flatpak — Homebrew (classic Linuxbrew) is the unsandboxed, user-owned
+# ~/.linuxbrew CLI/dev channel. Installs only the xbps runtime deps (git curl
+# file procps-ng); the installer deliberately does NOT pipe the vendor's
+# curl|bash — the operator creates the prefix on first login (NEWS step).
+# Isolation is a separate opt-in @linuxbrew per-user subvol (SUBVOL_ROWS row →
+# PROVISION_LINUXBREW_SUBVOL, default OFF — a correctly-owned plain ~/.linuxbrew
+# in @home already survives a @ rollback and isn't snapshotted).
+DEFAULT_BREW="${DEFAULT_BREW:-false}"                 # Homebrew (Linuxbrew) CLI/dev channel? [y/N]
 DEFAULT_FIREFOX="${DEFAULT_FIREFOX:-true}"            # [Y/n]
 DEFAULT_CHROMIUM="${DEFAULT_CHROMIUM:-true}"          # [Y/n]
 DEFAULT_THUNDERBIRD="${DEFAULT_THUNDERBIRD:-false}"   # Thunderbird email client? [y/N]
@@ -2680,6 +2692,25 @@ case "$INSTALL_FLATPAK_INPUT" in
 esac
 export INSTALL_FLATPAK
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.36 [CHANNEL-GROUP]: Flatpak and Homebrew
+# are shown as one third-party-app-channels umbrella, but each is an INDEPENDENT
+# yes/no toggle (both default NO) — brew must not read as a sub-choice of
+# Flatpak's sandbox; brew-only and flatpak-only are both expressible. Flatpak
+# = sandboxed GUI apps; Homebrew = unsandboxed CLI/dev tools. Complement, not
+# replacement.
+echo ""
+echo "${C_BOLD}${C_BLU}THIRD-PARTY APP CHANNELS${C_RST} — Flatpak (sandboxed GUI apps) and"
+echo "  Homebrew / Linuxbrew (unsandboxed CLI & dev tools) are independent"
+echo "  choices — enable either, both, or neither."
+ask "Install Homebrew (Linuxbrew CLI/dev channel, opt-in; ~/.linuxbrew)? [y/N]: "
+read -r INSTALL_BREW_INPUT
+case "$INSTALL_BREW_INPUT" in
+    "") INSTALL_BREW="$DEFAULT_BREW" ;;
+    [yY]*) INSTALL_BREW="true" ;;
+    *) INSTALL_BREW="false" ;;
+esac
+export INSTALL_BREW
+
 # AI (Big Pickle) ADDITION — Beta-v2.8.3 [INSTALL-APPS]: Thunderbird and Steam
 # become real install-time choices. Previously these only existed as
 # pre-create-only subvolume toggles (the installer never installed them). Both
@@ -3294,7 +3325,7 @@ export IMPORT_SSH_KEY GENERATE_SSH_KEY EXPORT_SSH_KEY SSH_KEY_COMMENT SSH_KEY_PR
 echo ""
 echo "Subvolume isolation: all of the optional software you selected above"
 echo "with the exception of OctoXBPS and Flatpak (browsers, mail, Steam,"
-echo "VirtualBox, Docker, Podman rootful/rootless, virtualization) can be"
+echo "VirtualBox, Homebrew, Docker, Podman rootful/rootless, virtualization) can be"
 echo "given its own isolated Btrfs subvolume, so a Snapper rollback of @"
 echo "or @home does not rewind that software's data. OctoXBPS and Flatpak"
 echo "are excluded — OctoXBPS is a lightweight GUI package-manager frontend"
@@ -3357,6 +3388,7 @@ INSTALL_THUNDERBIRD|PROVISION_THUNDERBIRD_SUBVOL|Thunderbird
 INSTALL_STEAM|PROVISION_STEAM_SUBVOL|Steam
 INSTALL_VIRTUALBOX|PROVISION_VIRTUALBOX_SUBVOL|VirtualBox
 INSTALL_FLATPAK|PROVISION_FLATPAK_SUBVOL|Flatpak
+INSTALL_BREW|PROVISION_LINUXBREW_SUBVOL|Homebrew (Linuxbrew)
 INSTALL_DOCKER|PROVISION_DOCKER_SUBVOL|Docker
 INSTALL_PODMAN_ROOTFUL|PROVISION_PODMAN_SUBVOL|Podman (rootful)
 INSTALL_PODMAN_ROOTLESS|PROVISION_PODMAN_ROOTLESS_SUBVOL|Podman (rootless)
@@ -3901,9 +3933,9 @@ DEVICE_PROFILE PROFILE_TLP PROFILE_BT PROFILE_PRELOAD \
                YK_MODE YK_FALLBACK YK_SLOT YK_CHALLENGE YK_TOUCH \
                REPO_PRIMARY REPO_BACKUP1 REPO_BACKUP2 \
 DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
-                INSTALL_FLATPAK INSTALL_FIREFOX INSTALL_CHROMIUM \
-                INSTALL_VIVALDI INSTALL_FALKON INSTALL_BRAVE \
-                INSTALL_THUNDERBIRD INSTALL_STEAM INSTALL_VIRTUALBOX \
+INSTALL_FLATPAK INSTALL_BREW INSTALL_FIREFOX INSTALL_CHROMIUM \
+                 INSTALL_VIVALDI INSTALL_FALKON INSTALL_BRAVE \
+                 INSTALL_THUNDERBIRD INSTALL_STEAM INSTALL_VIRTUALBOX \
                 SETUP_WEB_BROWSERS SETUP_CONTAINERS \
                  SUBVOL_ISOLATE_INSTALLED SUBVOL_PRECREATE \
                 INSTALL_PODMAN INSTALL_PODMAN_ROOTLESS INSTALL_PODMAN_ROOTFUL \
@@ -3913,7 +3945,7 @@ DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
                PROVISION_VIVALDI_SUBVOL PROVISION_FALKON_SUBVOL \
                PROVISION_BRAVE_SUBVOL \
                 PROVISION_THUNDERBIRD_SUBVOL PROVISION_STEAM_SUBVOL \
-                PROVISION_VIRTUALBOX_SUBVOL \
+                PROVISION_VIRTUALBOX_SUBVOL PROVISION_LINUXBREW_SUBVOL \
                  PROVISION_FLATPAK_SUBVOL PROVISION_DOCKER_SUBVOL \
                  PROVISION_PODMAN_SUBVOL PROVISION_PODMAN_ROOTLESS_SUBVOL \
                  PROVISION_VIRT_SUBVOL \
@@ -3954,6 +3986,7 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "  Swap / Hibernation    : ${SWAP_BACKEND:-<unset>} / ${ENABLE_HIBERNATION:-<unset>}"
     echo "  Encryption            : ${ENCRYPT:-no}${ENCRYPT:+$([ "$ENCRYPT" = "yes" ] && { [ "$YK_MODE" = "hmac-sha1" ] && echo " (LUKS2 full-disk + YubiKey hmac-sha1, fallback=$YK_FALLBACK)" || echo " (LUKS2 full-disk, passphrase at boot)"; } || true)}"
     echo "  Accounts model        : ${ACCOUNT_MODEL:-<unset>}"
+    echo "  App channels          : Flatpak=${INSTALL_FLATPAK:-no} Homebrew=${INSTALL_BREW:-no}"
     echo "  Hardware              : GPU=${GPU_FAMILIES:-<none detected>} wireless=${WIFI_HW:-unknown}"
     echo "  NVIDIA driver         : ${INSTALL_NVIDIA:-auto}"
     echo "=============================================================="
@@ -4268,6 +4301,13 @@ fi
 [ "$PROVISION_THUNDERBIRD_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @thunderbird"
 [ "$PROVISION_STEAM_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @steam"
 [ "$PROVISION_VIRTUALBOX_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @virtualbox"
+# AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: @linuxbrew is the
+# Homebrew (~/.linuxbrew) per-user datadir, gated on the resolved
+# PROVISION_LINUXBREW_SUBVOL (Gate 1/Gate 2 — default OFF). Declined isolation
+# leaves a correctly-owned plain ~/.linuxbrew inside @home, which already
+# survives a @ rollback and isn't snapshotted, so rootless-brew operation can
+# never break from declining the subvolume.
+[ "$PROVISION_LINUXBREW_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @linuxbrew"
 
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [RESUME]: SUBVOLUME RESET.
 # Stage 2 (chroot provisioning) is deliberately NOT idempotent, so a resumed
@@ -4584,6 +4624,7 @@ echo "export REPO_BACKUP2=\"$REPO_BACKUP2\"" >> /mnt/tmp/chroot_env.sh
 echo "export ENABLE_SNAPSHOT_AUDIO=\"$ENABLE_SNAPSHOT_AUDIO\"" >> /mnt/tmp/chroot_env.sh
 echo "export ACCOUNT_MODEL=\"$ACCOUNT_MODEL\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_FLATPAK=\"$INSTALL_FLATPAK\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_BREW=\"$INSTALL_BREW\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_FIREFOX=\"$INSTALL_FIREFOX\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_CHROMIUM=\"$INSTALL_CHROMIUM\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_VIVALDI=\"$INSTALL_VIVALDI\"" >> /mnt/tmp/chroot_env.sh
@@ -4602,6 +4643,7 @@ echo "export PROVISION_BRAVE_SUBVOL=\"$PROVISION_BRAVE_SUBVOL\"" >> /mnt/tmp/chr
 echo "export PROVISION_THUNDERBIRD_SUBVOL=\"$PROVISION_THUNDERBIRD_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_STEAM_SUBVOL=\"$PROVISION_STEAM_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_VIRTUALBOX_SUBVOL=\"$PROVISION_VIRTUALBOX_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
+echo "export PROVISION_LINUXBREW_SUBVOL=\"$PROVISION_LINUXBREW_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_PODMAN_ROOTLESS=\"$INSTALL_PODMAN_ROOTLESS\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_PODMAN_ROOTLESS_SUBVOL=\"$PROVISION_PODMAN_ROOTLESS_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_DISTROBOX=\"$INSTALL_DISTROBOX\"" >> /mnt/tmp/chroot_env.sh
@@ -6040,6 +6082,19 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
         echo "WARNING: could not add flathub remote at install time. It will be re-attempted, non-blocking, at first boot (see [FLATHUB-RCL])." >&2
 fi
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: Homebrew (classic
+# Linuxbrew) as an opt-in complement to Flatpak — the unsandboxed, user-owned
+# ~/.linuxbrew CLI/dev prefix. This installs ONLY brew's xbps runtime deps
+# (git curl file procps-ng); the installer deliberately does NOT pipe the
+# vendor's curl|bash (supply-chain; unsupported-upstream on Void; the whole
+# prefix is user-owned). The operator creates the prefix on first login via
+# Homebrew's official installer — NEWS step + HOMEBREW=yes pointer in
+# ~/Documents/Void_Install.txt.
+if [ "$INSTALL_BREW" = "true" ]; then
+    install_pkgs git curl file procps-ng
+    echo "==> Homebrew runtime deps installed (git curl file procps-ng) — the ~/.linuxbrew prefix is created on first login via Homebrew's official installer (see NEWS step / HOMEBREW=yes in ~/Documents/Void_Install.txt)."
+fi
+
 # AI (Claude, Sonnet 5, Medium) ADDITION: browsers are real per-install
 # toggles now (see WEB BROWSER SELECTION, Stage 1) — Firefox/Chromium
 # moved out of the always-installed base package line above into their
@@ -6505,6 +6560,12 @@ provision_firefox_subvols() {
 # sibling, this call creates/chowns/mounts the per-user VM folder. Singular
 # relative path (no nested chain), so the helper's mkdir+chown runs directly.
 [ "$PROVISION_VIRTUALBOX_SUBVOL" = "true" ] && provision_browser_subvol "@virtualbox" "VirtualBox VMs"
+# AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: Homebrew's
+# ~/.linuxbrew user-owned prefix. Same per-user isolation model; fired on the
+# RESOLVED PROVISION_LINUXBREW_SUBVOL (Gate 1/Gate 2, default OFF). Declining
+# leaves a correctly-owned plain ~/.linuxbrew in @home (survives @ rollback,
+# not snapshotted) so declining the subvolume can never break rootless brew.
+[ "$PROVISION_LINUXBREW_SUBVOL" = "true" ] && provision_browser_subvol "@linuxbrew" ".linuxbrew"
 
 if [ "$INSTALL_PODMAN_ROOTLESS" = "true" ]; then
     # Profile-data ownership for podman-rootless, confirmed via real
@@ -6866,6 +6927,11 @@ INSTALL_NVIDIA="${INSTALL_NVIDIA:-<unset>}"
 BR0_NIC="${BR0_NIC:-<unset>}"
 MICROCODE_PKG="${MICROCODE_PKG:-<unset>}"
 MICROCODE_DECIDED="${MICROCODE_DECIDED:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: record the Homebrew
+# channel decision + its (separate, opt-in) subvolume isolation flag. Public
+# flags only — no brew credentials/prefix keys, matches secret-free rule.
+INSTALL_BREW="${INSTALL_BREW:-false}"
+PROVISION_LINUXBREW_SUBVOL="${PROVISION_LINUXBREW_SUBVOL:-false}"
 INNER_EOF
 chmod 644 /etc/void-installer/install-config
 
@@ -6904,6 +6970,13 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
         echo "YUBIKEY_UNLOCK=${YK_MODE:-off}"
         echo "SESSION_STACK=${SESSION_STACK:-<unset>}"
         echo "DESKTOP_ENV=${DESKTOP_ENV:-<unset>}"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: one pointer
+        # line for the Homebrew (Linuxbrew) channel. The prefix itself is
+        # deliberately NOT created by the installer — this is the NEWS step
+        # reminder: the operator runs Homebrew's official installer on first
+        # login to create ~/.linuxbrew. Declining the subvolume only leaves a
+        # correctly-owned plain ~/.linuxbrew inside @home.
+        echo "HOMEBREW=${INSTALL_BREW:-no} (prefix created on first login via Homebrew's official installer; isolated subvol: ${PROVISION_LINUXBREW_SUBVOL:-false})"
         # AI (Big Pickle) ADDITION — Beta-v2.9.25 [NVIDIA-GATE]: one pointer
         # line for the hardware-gated driver; the full probe facts (GPU
         # families, wireless) live in install-config.
@@ -7951,6 +8024,11 @@ declare -A USER_PROFILE_PATH=(
     [@containers-user]="/.local/share/containers"
     [@usercache]="/.cache"
     [@virtualbox]="/VirtualBox VMs"
+    # AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: Homebrew's
+    # user-owned ~/.linuxbrew prefix. Structural-only (no xbps package —
+    # brew's CLI/dev runtime deps git/curl/file/procps-ng are installed by the
+    # installer separately from the xbps stage, not by this tool).
+    [@linuxbrew]="/.linuxbrew"
 )
 
 # Software-class grouping for `--class <name>`: a class is a set of subvolumes
@@ -7978,10 +8056,11 @@ declare -A CLASS_SUBVOLS=(
     [web]="@mozilla @mozilla-cache @chromium @vivaldi @falkon @brave"
     [mail]="@thunderbird"
     [gaming]="@steam"
+    [dev]="@linuxbrew"
     [virtualization]="@libvirt @virtualbox"
     [flatpak]="@flatpak"
 )
-CLASS_LIST="containers databases web mail gaming virtualization flatpak"
+CLASS_LIST="containers databases web mail gaming dev virtualization flatpak"
 
 # xbps package(s) that own each subvol's data directory, for `--install` /
 # `install --class`. Subvols absent here are structural-only (no Void package to
@@ -8534,6 +8613,7 @@ sudo /root/tools/void-subvol-tool.sh add --class databases          # @postgresq
 sudo /root/tools/void-subvol-tool.sh add --class web --user alice   # all browser profiles
 sudo /root/tools/void-subvol-tool.sh add --class mail --user alice  # @thunderbird
 sudo /root/tools/void-subvol-tool.sh add --class gaming --user alice# @steam
+sudo /root/tools/void-subvol-tool.sh add --class dev --user alice    # @linuxbrew (Homebrew CLI/dev prefix)
 sudo /root/tools/void-subvol-tool.sh add --class virtualization --user alice  # @libvirt + @virtualbox
 sudo /root/tools/void-subvol-tool.sh add --class flatpak            # @flatpak
 ```
@@ -8551,7 +8631,10 @@ sudo /root/tools/void-subvol-tool.sh add --class virtualization --install # @lib
 Only subvols with an xbps package mapping install something. Subvols with no
 Void package are still created/isolated but nothing is installed: `@postgresql`
 and `@mariadb` (manual/pre-create targets, never auto-installed),
-`@mozilla-cache` (installs with `@mozilla`), `@usercache` (cache dir only), and
+`@mozilla-cache` (installs with `@mozilla`), `@usercache` (cache dir only),
+`@linuxbrew` (Homebrew's ~/.linuxbrew prefix, created on first login by the
+vendor's own installer — structural-only, its runtime deps git/curl/file/procps-ng
+are installed at install time), and
 `@brave` (no official Void package — it is Flatpak-only, and this tool is
 xbps-based by design). `@docker`/`@containers`/`@containers-user`/`@libvirt`/
 `@virtualbox`/`@mozilla`/`@chromium`/`@vivaldi`/`@falkon`/`@thunderbird`/
