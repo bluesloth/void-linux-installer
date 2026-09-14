@@ -71,6 +71,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.13** | `[ACCTSVCS-ICON]` — the fresh user gets a real default avatar at `/var/lib/AccountsService/icons/<user>` (themed Adwaita `avatar-default`, Pop fallback, copied right after useradd), silencing greeter per-boot `failed to open icon ... NotFound`; `[COSMIC-POLKIT-GUARD]` — the COSMIC polkit agent's baked autostart now launches a session-ready guard (`/usr/local/sbin/cosmic-polkit-guard`) that waits for the compositor wl socket + reachable session bus then runs/respawns the agent, fixing the live `<host>` `<defunct>` zombie where the agent died before cosmic-comp/session-bus were up and no polkit dialog ever appeared | Beta-v2.9.13 below |
 | **Beta-v2.9.14** | `[COSMIC-GREETER-SESSION-BUS]` — the cosmic-greeter greetd toml now execs the shipped `/etc/greetd/cosmic-greeter.start` wrapper (`dbus-run-session` around `cosmic-comp cosmic-greeter`, v5 as-built on `<host>`) instead of the bare binary string, and pre-creates a greeter-owned `/var/log/cosmic-greeter-session.log`: with the account fixed, a bare greetd spawn still rendered grey + cursor (no session bus → iced login panel never maps as a layer) | Beta-v2.9.14 below |
 | **Beta-v2.9.15** | `[COSMIC-GREETER-DBUS-POLICY]` — re-emit `/etc/dbus-1/system.d/com.system76.CosmicGreeter.conf` granting the renamed `cosmic-greeter` group system-bus send/receive on `com.system76.CosmicGreeter`: the packaged file still grants the pre-rename `_cosmicgreeter` group, so after `[COSMIC-GREETER-USER]` the greeter's `GetUserData` to the (root) daemon was `AccessDenied` every start on a fresh install (live: `<host>` fresh Beta-v2.9.14 boot logged "failed to load user data from daemon: AccessDenied … GetUserData" + "Failed to apply user display config") — login unaffected, per-user display config/avatar lookups silently fail | Beta-v2.9.15 below |
+| **Beta-v2.9.16** | `[KERNEL-SELECT]` — which kernels get installed is a real choice: Void base-system always pulls the main `linux` kernel, and a per-flavor toggle pair adds `linux-mainline` (newest, "experts only", opt-in) and/or `linux-lts` (default ON — bare Enter ships `linux` + `linux-lts`) on top. The resolved space-joined `$KERNEL_PKGS` threads through the base bootstrap, the post-install `xbps-reconfigure`, resume state, chroot_env, and install-config; orthogonal to `$KERNEL_MODE` (which only describes how Limine *reads* kernels from the ESP) | Beta-v2.9.16 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -603,6 +604,78 @@ disappear from `/var/log/cosmic-greeter-session.log`, the greeter still runs the
 greeter (loginctl session 2 = <user>, wayland, seat0/tty1, Active) — the live
 confirmation plus the installer change close the chain without a further fresh
 install (see TODO.md).
+
+---
+
+---
+
+## Beta-v2.9.16 — `[KERNEL-SELECT]` (kernel package choice: linux + mainline/LTS toggles)
+
+`SCRIPT_VERSION = Beta-v2.9.16`. The kernel the installer deploys was
+previously hardcoded to `linux-mainline` in exactly two spots: the base-system
+bootstrap (`xbps-install ... base-system btrfs-progs linux-mainline
+glibc-locales`, Stage 1) and the post-install `xbps-reconfigure -f
+linux-mainline` (Stage 2, the call that fires the `/etc/kernel.d` hooks +
+dracut). It is now a real Stage-1 choice, asked immediately after the
+bootloader selection and before the Limine wallpaper / encryption prompts.
+
+## Kernel toggles
+
+Void's current x86_64 repo ships exactly three kernel flavors, and the base
+`linux` (the main rolling kernel) is **always** installed — Void's
+`base-system` meta-package depends on it (verified on `<host>`:
+`base-system` run_depends includes `linux>=0`). So the prompt is a
+per-flavor toggle pair for the two extras on top of the guaranteed `linux`:
+
+1. **linux-mainline** — newest features, shortest support window; Void marks it
+   "for experts only". **Default OFF** (opt-in): it was the hardcoded/tested
+   kernel of earlier releases, but is now the adventurous choice.
+2. **linux-lts** — Long Term Support; most conservative, longest support
+   window; best for servers or stable/older hardware. **Default ON** — bare
+   Enter ships `linux` + `linux-lts`. (Flipped 2026-09-07 per maintainer
+   request: mainline was the original default back when the whole path was
+   hardcoded to it; with the toggles the conservative LTS is now the safe
+   default, mainline is opt-in.)
+
+To get all three flavors (base `linux` + mainline + LTS), answer `y` to both
+toggles — the resolved set becomes `linux linux-mainline linux-lts`. Bare
+Enter defaults to `linux linux-lts`; answering `y` only to mainline gives
+`linux linux-mainline`.
+
+## Threading
+
+The resolved set (`$KERNEL_PKGS`, space-joined, always starting with `linux`)
+is orthogonal to `$KERNEL_MODE` — KERNEL_PKGS only changes *which* kernels are
+installed, KERNEL_MODE only describes how Limine *reads* the kernel files from
+the ESP (always `esp-copy`). The variable is:
+
+- wired to `DEFAULT_KERNEL_MAINLINE` (false) / `DEFAULT_KERNEL_LTS` (true) in
+  the `[PROMPT-DEFAULTS]` block — two extra boolean defaults, replacing this
+  feature's earlier single menu-index default,
+- persisted in the resume-state file (`_sv` list), so a resumed run
+  reconstitutes the exact kernel set the interrupted run chose,
+- exported into chroot_env.sh and hard-validated inside the chroot (the set is
+  checked non-empty and every element must be `linux`, `linux-lts`, or
+  `linux-mainline`; anything else aborts rather than silently reconfiguring
+  whatever the last xbps run touched),
+- used (deliberately word-split, per-SC `SC2086` disables at both sites) in the
+  Stage-1 bootstrap (`xbps-install ... base-system btrfs-progs $KERNEL_PKGS
+  glibc-locales`) and the Stage-2 `xbps-reconfigure -f $KERNEL_PKGS` — the
+  existing `/lib/modules` dracut-regen loop and the Limine/grub-btrfs kernel
+  scans already cover *every* installed kernel, so menus and initramfs stay
+  correct for any combination,
+- recorded in `/etc/void-installer/install-config` as `KERNEL_PKGS`
+  (secret-free, human-readable as-built summary, matching the file's purpose).
+
+**Validation:** `bash -n` passes; `Debug/check-defaults.sh` reports all 35
+`DEFAULT_*` vars (including the two new `DEFAULT_KERNEL_MAINLINE` /
+`DEFAULT_KERNEL_LTS`) declared and wired; `Debug/check-heredocs.sh` fully clean
+(the new in-chroot `KERNEL_PKGS` element validation lives inside the CHROOT
+heredoc and is bash-n'd by the extractor). **NOT yet verified on a real
+install** — a fresh install answering `y` to both toggles (or per-flavor) is
+the remaining live confirmation (see TODO.md); note the defaults flipped to
+lts-conservative on 2026-09-07, so a bare-Enter run (`linux linux-lts`) is
+NOT the historical mainline baseline and must be boot-tested.
 
 ---
 
