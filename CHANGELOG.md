@@ -105,6 +105,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.47** | `[TEE-BOOT-QUIET]`+`[TEE-BLACKLIST]` — two env-only PUBLIC limine-env knob rows (`DEFAULT_QUIET_BOOT`, `DEFAULT_TEE_BLACKLIST`, default no) thread a shared `TEE_QB_FRAG` (`quiet` + `modprobe.blacklist=tee`) through every GRUB/Limine BASE_CMD builder + the write-conf recompute; byte-identical at defaults | Beta-v2.9.47 below |
 | **Beta-v2.9.48** | `[NO-DE]`/`[NO-DM]`/`[HEADLESS]`/`[HEADLESS-XORG-OPT]`/`[HEADLESS-AUDIO]`/`[DE-ORDER]`/`[DISK-BUDGET]` — headless/server install path (DESKTOP_ENV option 8 = none, DM `none` → `DM_SERVICE_NAME=none` + sed-guarded rc.local link, `HAS_GRAPHICAL` gates the xorg/wayland base chain + audio, INSTALL_XORG/INSTALL_AUDIO opt-ins only when headless) + pre-write partition fit check (`DISK_BYTES` captured at disk-pick and persisted; `_size_to_bytes` + `_disk_budget_check` refuse an over-provisioned layout before `sgdisk -Z` and fail dry-run; ENCRYPT via container=remainder identity) + the latent 2.9.38 `REGION_*_SIZE` uppercase-fold eval fix | Beta-v2.9.48 below |
 | **Beta-v2.9.49** | `[VERIFY-FIXES]` — post-verification corrections proven against the live as-built machine (2026-09-14): `[WINE-RENAME]` (prompt var `INSTALL_GAME_WINE` → `INSTALL_WINE`, matching the as-built record + recovered prompt docs), `[FLATHUB-URL-FIX]` (both remote-add sites now use `https://flathub.org/repo/flathub.flatpakrepo` — the bare website URL 307s to `/en` and imports no GPG key, so queued flatpak installs failed with "public key not found", proven on hardware), `[DOCS-LOG-ASBUILT]` (`~/Documents/Void_Install.txt` header rewritten to the recovered as-built row set byte-format: SSH_SERVER/NVIDIA_DRIVER(wifi)/WIFI_HARDWARE/CPU/HOMEBREW/GAMING/DATA_REGIONS all-six ordered), `[FW-AUDIT-LOG-DROP]` (accounting stays console-only — the as-built record has no firmware section) | Beta-v2.9.49 below |
+| **Beta-v2.9.50** | `[BROWSE-DIR-ACCEPT]` — `browse_pick` `dir` mode gains an explicit accept (`!`/`ok` confirms the CURRENT directory): a directory destination could previously never be confirmed (selecting a dir descended into it, bare Enter was a decline, only a FILE could exit the loop), so the `[SSH-KEYS]` keypair backup export (`export to removable media` → `_export_dst="$(browse_pick dir …)"`) ALWAYS ended "skipping export." and the keys never reached the USB stick — matching the real v2.9.43 build | Beta-v2.9.50 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -413,6 +414,35 @@ legacy variable header it never populates on the 2.9.48-era path
 `Debug/check-pkg-preflight.sh` 135 ALL COVERED;
 `Debug/check-heredocs.sh` 65 ALL CLEAN. The flathub `.flatpakrepo` fix is
 real-hardware proven (all three queued apps installed, stamp-on-success).
+
+---
+
+## Beta-v2.9.50 — `[BROWSE-DIR-ACCEPT]` (browse_pick dir-mode could never confirm a destination; the SSH keypair backup never reached the USB stick)
+
+`SCRIPT_VERSION = Beta-v2.9.50`. Human review of the reconstruction against the
+as-built machine (2026-09-14): the `[SSH-KEYS]` (Beta-v2.9.23) "Export a backup
+copy of the SSH keypair to removable media" flow physically could not write to
+the stick.
+
+**Root cause — `browse_pick` `dir` mode had no accept action.** Selecting a
+directory (number or typed path) descended INTO it (`_bp_start=…; continue`),
+bare Enter was a DECLINE by design (empty input → "Declined." → return empty),
+and the only exit that set `_bp_ok=1` required a FILE (`[ -f ]`). A directory
+destination could therefore never be returned: `_export_dst="$(browse_pick
+dir …)"` always came back empty → `"No destination chosen; skipping export."` →
+`id_ed25519-backup{,.pub}` never reached the mounted stick. This matches the
+real v2.9.43 build: the live machine's `~/.ssh/id_ed25519` exists (the chroot
+deposit is a different, working code path), but no `id_ed25519-backup` exists
+anywhere on disk or at the `/run/media/<user>` stick mount.
+
+**Fix `[BROWSE-DIR-ACCEPT]`:** in `dir` mode, `!`/`ok` now confirms the CURRENT
+directory and returns it (the help text advertises it). Bare Enter still
+declines; number/path navigation is unchanged. The wallpaper (`img`) and
+SSH-import (`file`) modes return a FILE and were never affected.
+
+**Validation:** `bash -n` OK; `Debug/check-defaults.sh` ALL CONSISTENT;
+`Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
+CLEAN (no heredoc changed).
 
 ---
 
