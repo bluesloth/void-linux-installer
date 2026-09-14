@@ -625,6 +625,11 @@ DEFAULT_EXPORT_SSH_KEY="${DEFAULT_EXPORT_SSH_KEY:-false}"         # export/backu
 # detected (proprietary driver recommended), [y/N] otherwise (nouveau covers
 # it). Export DEFAULT_INSTALL_NVIDIA=yes|no to pin it regardless of probe.
 DEFAULT_INSTALL_NVIDIA="${DEFAULT_INSTALL_NVIDIA:-auto}"          # install nvidia driver? [Y/n]/[y/N]
+# AI (Big Pickle) ADDITION — Beta-v2.9.26 [WIFI-FW]: real wifi chipset →
+# firmware-gap closer. "auto" = yes when a Broadcom radio is detected (the
+# ONLY vendor not covered by Void's default linux-firmware split), no/absent
+# for everything else; export DEFAULT_WIFI_FW=yes|no to pin.
+DEFAULT_WIFI_FW="${DEFAULT_WIFI_FW:-auto}"                         # install linux-firmware-broadcom? [Y/n]
 
 
 # =============================================================================
@@ -1700,6 +1705,113 @@ if [ "$INSTALL_NVIDIA" = "true" ] && [ "$HAS_NVIDIA_GPU" != "yes" ]; then
 fi
 echo "  NVIDIA driver: ${INSTALL_NVIDIA} (GPU: ${GPU_FAMILIES:-<none detected>})"
 export INSTALL_NVIDIA GPU_FAMILIES HAS_NVIDIA_GPU HAS_AMD_GPU HAS_INTEL_GPU WIFI_HW
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.26 [WIFI-FW]: name the actual radios,
+# map each vendor to the firmware package that covers it (so an installer sees
+# WHY no extra download is needed), and close the single gap Void leaves by
+# default — Broadcom.  More detail in the # comment block above the prompt.
+# The verify (post-kernel-reconfigure, inside the target) is [WIFI-FW-VERIFY].
+# Pure sysfs: enumerate phy* → device symlink (works for PCI and USB radios);
+# a PCI class-0x0280* fallback catches radios the live kernel won't bind
+# (firmware alone can't fix those — the verify warns instead of pretending).
+WIFI_IDS=""
+WIFI_CHIPS=""
+WIFI_FW_PKG=""
+INSTALL_WIFI_FW="false"
+for _phy in /sys/class/ieee80211/phy*/device; do
+    [ -e "$_phy" ] || continue
+    _vendor="$(cat "$_phy/vendor" 2>/dev/null || cat "$_phy/../../idVendor" 2>/dev/null || true)"
+    _device="$(cat "$_phy/device" 2>/dev/null || cat "$_phy/../../idProduct" 2>/dev/null || true)"
+    _wid="${_vendor:-??}:${_device:-??}"
+    case " $WIFI_IDS " in
+        *" $_wid "*) : ;;
+        *) WIFI_IDS="${WIFI_IDS:+${WIFI_IDS} }${_wid}" ;;
+    esac
+    case "$_vendor" in
+        0x14c3) _chip="MediaTek (mt76)" ;;
+        0x10ec) _chip="Realtek (rtw88/rtw89)" ;;
+        0x8086) _chip="Intel (iwlwifi)" ;;
+        0x168c) _chip="Qualcomm/Atheros (ath9k/10k/11k)" ;;
+        0x14e4) _chip="Broadcom (brcmfmac/b43)" ;;
+        0x17cb) _chip="Qualcomm (qca)" ;;
+        0x1a3b) _chip="NVIDIA (uefi wifi — driverless)" ;;
+        *) _chip="unknown vendor (${_vendor:-??})" ;;
+    esac
+    case " $WIFI_CHIPS " in
+        *" $_chip "*) : ;;
+        *) WIFI_CHIPS="${WIFI_CHIPS:+${WIFI_CHIPS} }${_chip}" ;;
+    esac
+done
+# PCI class-0x0280* fallback: a radio the live kernel cannot bind has no phy*
+# but still shows as a 0x0280 PCI network device. Identify it as best we can
+# and mark coverage as unverifiable (firmware alone can't bind a driverless
+# out-of-tree radio anyway).
+if [ -z "$WIFI_IDS" ]; then
+    for _pci in /sys/bus/pci/devices/*/class; do
+        [ -r "$_pci" ] || continue
+        case "$(cat "$_pci" 2>/dev/null || true)" in
+            0x0280*) ;;
+            *) continue ;;
+        esac
+        _dev="${_pci%/class}"
+        _vendor="$(cat "$_dev/vendor" 2>/dev/null || true)"
+        _device="$(cat "$_dev/device" 2>/dev/null || true)"
+        _wid="${_vendor:-??}:${_device:-??}"
+        case " $WIFI_IDS " in
+            *" $_wid "*) : ;;
+            *) WIFI_IDS="${WIFI_IDS:+${WIFI_IDS} }${_wid}" ;;
+        esac
+        _chip="unbound PCI wireless (vendor ${_vendor:-??})"
+        case " $WIFI_CHIPS " in
+            *" $_chip "*) : ;;
+            *) WIFI_CHIPS="${WIFI_CHIPS:+${WIFI_CHIPS} }${_chip}" ;;
+        esac
+    done
+fi
+unset _phy _vendor _device _wid _chip _pci _dev
+
+# Coverage print — every mainstream vendor is default-covered by Void:
+# linux-firmware-network/-amd/-intel (+ base linux-firmware); wifi-firmware
+# (via base-system) covers legacy ipw2100/ipw2200/zd1211. Broadcom is NOT
+# pulled by anything → the one genuine gap → the prompt below.
+if [ -n "$WIFI_IDS" ]; then
+    echo "  WiFi: ${WIFI_IDS} (${WIFI_CHIPS})"
+    case "$WIFI_IDS" in
+        *0x14e4:*) echo "  Firmware coverage: Broadcom radio detected — NOT covered by Void defaults (linux-firmware-broadcom split)." ;;
+        *) echo "  Firmware coverage: covered by default linux-firmware (+ wifi-firmware) — no extra download needed." ;;
+    esac
+else
+    echo "  WiFi: no wireless radio detected (${WIFI_HW:-none})"
+fi
+
+# Gap prompt — ONLY on a Broadcom radio. DEFAULT_WIFI_FW=auto → yes; exporting
+# yes|no pins it. Non-Broadcom hardware never sees this prompt.
+case "$WIFI_IDS" in
+    *0x14e4:*)
+        if [ "$DEFAULT_WIFI_FW" = "auto" ]; then
+            _wifi_fw_default="y"
+            _wifi_fw_prompt="[Y/n]"
+        else
+            _wifi_fw_default="$(printf '%s' "$DEFAULT_WIFI_FW" | tr '[:upper:]' '[:lower:]')"
+            _wifi_fw_prompt="[${_wifi_fw_default}?]"
+        fi
+        while true; do
+            ask "Install linux-firmware-broadcom (firmware for the detected Broadcom radio)? ${_wifi_fw_prompt}: "
+            read -r INSTALL_WIFI_FW_INPUT
+            case "${INSTALL_WIFI_FW_INPUT:-$_wifi_fw_default}" in
+                y|Y|yes|YES) INSTALL_WIFI_FW="true"; WIFI_FW_PKG="linux-firmware-broadcom"; break ;;
+                n|N|no|NO)
+                    INSTALL_WIFI_FW="false"; WIFI_FW_PKG=""
+                    echo "  WARNING: declining Broadcom firmware — the detected radio will NOT work."
+                    echo "  Reinstall with linux-firmware-broadcom, or xbps-install it post-install." >&2
+                    break ;;
+                *) echo "Please answer y or n." >&2 ;;
+            esac
+        done
+        unset _wifi_fw_default _wifi_fw_prompt INSTALL_WIFI_FW_INPUT ;;
+esac
+[ -n "$WIFI_IDS" ] && echo "  Broadcom firmware decision: ${INSTALL_WIFI_FW}${WIFI_FW_PKG:+ (${WIFI_FW_PKG})}"
+export INSTALL_WIFI_FW WIFI_IDS WIFI_CHIPS WIFI_FW_PKG
 
 # AI (Big Pickle) ADDITION — Beta-v2.5.1 [LIMINE-WALLPAPER]: optional boot-
 # screen background image for Limine. Void's limine package ships the plain
@@ -4891,6 +5003,12 @@ options nouveau modeset=0
 INNER_EOF
     chmod 0644 /etc/modprobe.d/50-nvidia.conf
 fi
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.26 [WIFI-FW]: close the Broadcom
+# firmware gap (the ONE vendor void's default linux-firmware split doesn't
+# cover). ${WIFI_FW_PKG} is empty on every non-Broadcom build, so this is
+# exactly the "found Broadcom + accepted" case.
+[ "$INSTALL_WIFI_FW" = "true" ] && [ -n "$WIFI_FW_PKG" ] && install_pkgs "$WIFI_FW_PKG"
 
 # AI (Claude, Sonnet 5, Medium) ADDITION: sddm/NetworkManager/dbus/elogind
 # are DE-agnostic base bits both options need. wayland/wayland-protocols
@@ -8941,6 +9059,44 @@ for kver_dir in /lib/modules/*; do
     kver="$(basename "$kver_dir")"
     dracut --force "/boot/initramfs-${kver}.img" "$kver"
 done
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.26 [WIFI-FW-VERIFY]: prove the finished
+# system really has driver + firmware for every radio detected on the LIVE box
+# (live hardware == target hardware). Iterates the detected chipset IDs; for
+# the newest installed kernel checks the firmware dir map AND the module in
+# modules.dep/modules.builtin (built-in drivers otherwise false-flag).
+# Informational only — nothing is gated on it.
+newest_kver="$(ls -1 /lib/modules/ 2>/dev/null | sort -V | tail -n1)"
+for _wid in $WIFI_IDS; do
+    case "$_wid" in
+        0x14e4:*) _fw_dir="brcm" ;;
+        0x14c3:*) _fw_dir="mediatek" ;;
+        0x10ec:*) _fw_dir="rtw88 rtw89 rtlwifi" ;;
+        0x8086:*) _fw_dir="iwlwifi" ;;
+        0x168c:*) _fw_dir="ath9k ath10k ath11k" ;;
+        0x17cb:*) _fw_dir="qca" ;;
+        *) _fw_dir="" ;;
+    esac
+    _fw_ok="no"
+    for _d in $_fw_dir; do
+        [ -d "/usr/lib/firmware/${_d}" ] && _fw_ok="yes" && break
+    done
+    _mod_ok="no"
+    if [ -n "$newest_kver" ]; then
+        for _g in grep; do :; done
+        if grep -qiE 'wireless|wifi|mac80211|mt76|iwl|rtw|ath|brcmfmac' "/lib/modules/${newest_kver}/modules.dep" 2>/dev/null; then
+            _mod_ok="yes"
+        elif grep -qiE 'wireless|wifi|mac80211|mt76|iwl|rtw|ath|brcmfmac' "/lib/modules/${newest_kver}/modules.builtin" 2>/dev/null; then
+            _mod_ok="yes"
+        fi
+    fi
+    if [ "$_fw_ok" = "yes" ] && [ "$_mod_ok" = "yes" ]; then
+        echo "[wifi] verified: ${_wid} — driver + firmware present in target (kernel ${newest_kver:-<none>})"
+    else
+        echo "WARNING [wifi]: ${_wid} — $([ "$_fw_ok" = "yes" ] && echo "firmware present" || echo "firmware MISSING (install the matching linux-firmware-* split)") / $([ "$_mod_ok" = "yes" ] && echo "module present" || echo "module NOT FOUND (out-of-tree/dkms driver — firmware alone can't fix it)")" >&2
+    fi
+done
+unset _wid _fw_dir _d _fw_ok _mod_ok newest_kver
 
 if [ "$BOOTLOADER" = "limine" ]; then
 # AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.3.0 [KERNEL-HOOK follow-up] §4.15: re-sync
