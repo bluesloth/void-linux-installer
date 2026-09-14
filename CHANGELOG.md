@@ -96,6 +96,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.38** | `[MULTI-FS]` — per-region data filesystems: each of `/home`, `/var`, `/var/cache`, `/srv`, `/opt` (+ optional `Games`) can be carved onto its OWN dedicated partition with an ext4/btrfs filesystem choice instead of a root-Btrfs subvolume. Fixed-order outer carve right after the ESP and BEFORE the single LINUX root partition (LINUX last, sized to the remainder), or as an INNER GPT inside the LUKS2 container when `[ENCRYPT]`; region subvols (`@home`/`@var`/…) are FOLDED out of the flat topology so no subvolume collides with a partition mountpoint; owned fstab rows skipped; subvol-tool `[MULTI-FS-GUARD]` prevents re-creating a carved region's subvolume; region mounts before chroot; games chown; DOCS-LOG `DATA_REGIONS`. Plus `[MULTI-FS-RUNLOG]` (journal audit lines + journal archived to `/etc/void-installer/installer-run.log` on success) and `[CRASH-USB-LOG]` (crash post-mortem — journal + `.info` sidecar — to the first mounted stick; `--save-log` parsed BEFORE the journal truncation / network gate / STAGE-1 banner so it works from a crashed, networkless live env). Default (bare Enter) = all-Btrfs flat layout, byte-identical to 2.9.37 | Beta-v2.9.38 below |
 | **Beta-v2.9.39** | `[CRASH-USB-LOG-FATAL-EXIT]`+`[SUBVOL-ROWS-FIX]` — the crash post-mortem dump also fires on planned `exit 1` FATALs (EXIT-trap `_save_log_on_exit` + `_usb_dumped` double-write guard); SUBVOL_ROWS loop skips `#`-comment rows before the resolve eval + spurious duplicate INSTALL_BREW row removed | Beta-v2.9.39 below |
 | **Beta-v2.9.40** | `[PKG-PREFLIGHT]`+`[GAME-FLATPAK-GATE]` — Stage-1 package-name gate resolves every chroot-installable package against the live union pool BEFORE `sgdisk -Z` (closed crash #005; 134-pkg superset candidate list + committed drift-guard; repo hiccups WARN+skip, never false FATAL); Heroic/Bottles are Flatpak-queue-only delivery (`@game` mounts only `~/.local/share/Steam`+`~/.local/share/lutris`) | Beta-v2.9.40 below |
+| **Beta-v2.9.41** | (intermediate build) `98void-inner-partscan` dracut-module draft — module-setup.sh + udev rules + helper skeleton (crash #008: dracut crypttab `partscan` is unreliable on non-loopback LUKS2 at boot) | Beta-v2.9.41 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -152,6 +153,22 @@ when Flatpak was declined. The `@game` subvolume mounts ONLY
 **Validation:** `bash -n`, `Debug/check-pkg-preflight.sh` (134-pkg collection,
 ALL COVERED), `Debug/check-defaults.sh`, and `Debug/check-heredocs.sh` all
 green on the committed tree.
+
+---
+
+## Beta-v2.9.41 — (intermediate build) `98void-inner-partscan` module draft
+
+`SCRIPT_VERSION = Beta-v2.9.41` (intermediate build). Drafted the boot-time
+inner-GPT partscan dracut module (`98void-inner-partscan`): module-setup.sh +
+udev rules + helper script skeleton. Crash #008 had proven dracut's crypttab
+`partscan` option is NOT reliable on non-loopback LUKS2 at boot — the instance
+unlocked (PTTYPE="gpt" on the mapper) but the inner partition
+nodes/by-uuid symlinks never registered, so `root=UUID=<inner btrfs>` "does
+not exist" stranded boot. This intermediate build carried no prompt/header
+changes; it was folded into the released `[INNER-PARTSCAN-BOOT]`
+(Beta-v2.9.43).
+
+**Validation:** `bash -n` CLEAN.
 
 ---
 
