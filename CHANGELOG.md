@@ -81,6 +81,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.23** | `[SSH-SERVER]`+`[SSH-KEYS]` — closes the OpenSSH discussion item: default-OFF OpenSSH server install+enable toggle with a selectable port (default 22) threaded into BOTH sshd_config and the nftables input chain (policy-drop baseline) + prompted password/root access policies (defaults: ON / prohibit-password). Reuses the wallpaper picker (refactored to a shared `browse_pick` browser) to import an existing keypair from removable media into the target's `~/.ssh` (0700/0600/0644, owner TARGET_USER) and/or generate a fresh ed25519 pair with opt-in comment (default user@host) + opt-in passphrase (read -s type-or-paste, twice + match, in-memory; protects both the `~/.ssh` copy and any picked-dir backup). All staging under `/mnt/tmp/ssh-import/` shredded post-deposit and on failure; no key material ever reaches install-config/limine-env/resume state (only the public comment + protected flags do) | Beta-v2.9.23 below |
 | **Beta-v2.9.24** | `[DEVICE-PROFILE-BT-DETECT]` — the Automatic device-profile option now scans the live CD for a Bluetooth controller (USB interface class `0xE0:0x01:0x01` = the Bluetooth Programming Interface, read from `/sys/bus/usb/devices/*/{,*/}modalias` as `icE0isc01ip01` — catches USB dongles AND M.2/PCIe WiFi+BT combo cards, and needs no lsusb/bluez) and ties `PROFILE_BT` to real hardware instead of assuming every box has bluetooth. Within each chassis class the probe picks laptop-bt↔laptop and desktop-bt↔desktop; an unresolvable chassis (VM/unknown) keeps the laptop baseline (tlp on) with bluetooth from the probe. The `[DEVICE-PROFILE-CONFIRM]` keep/override step still lets the user correct a misdetection. Maintainer-signed design decision: bare-Enter stays Automatic (a detected desktop drops tlp — pointless on a battery-less box now the service actually runs) | Beta-v2.9.24 below |
 | **Beta-v2.9.25** | `[HARDWARE-REVIEW]`+`[NVIDIA-GATE]` — a live-box hardware probe (GPU families + wireless presence, pure sysfs like the BT probe) right after the device profile feeds a small drivers review, gating the ONE driver that can break a desktop installed blind: the NVIDIA proprietary driver, defaulting to `yes` only when an NVIDIA GPU is actually present. `nvidia` auto-pulls `nvidia-dkms`→`dkms` (gcc/make/linux-headers); the headers for every chosen kernel flavor are mapped from `KERNEL_PKGS` so dkms builds for all of them; nouveau is blacklisted. Probe results (`GPU_FAMILIES`/`WIFI_HW`/`HAS_*_GPU`) are exported + persisted + recorded in install-config for reuse by future work (Steam/Proton gaming deps, per-vendor firmware pruning) | Beta-v2.9.25 below |
+| **Beta-v2.9.26** | `[WIFI-FW]`+`[WIFI-FW-VERIFY]` — the hardware review's wifi line becomes real chipset identification (live `phy*` device links, PCI or USB, plus a PCI class-`0x0280*` fallback) and a firmware-coverage note. Void's default chain covers every mainstream vendor wholesale — the reason a fresh Void needs no Debian-style mediatek-firmware download — and the probe finds the ONE vendor it skips (**Broadcom**, brcmfmac/b43 only in the non-default `linux-firmware-broadcom` split) and offers it with a `[Y/n]` prompt (`DEFAULT_WIFI_FW=auto`). Post-install, a verify proves the **target** (not the live CD) has both the driver module and the firmware for every detected radio, printing per-chip pass/warn. Broadcom gap factually confirmed against the repo (nothing pulls the split); probe + verify validated on the dev box's MT7922 → `verified: 0x14c3:0x0616` | Beta-v2.9.26 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1485,6 +1486,92 @@ the probe results for future reuse (the Steam/gaming TODO can consume
   default, driver + headers land, dkms build succeeds for every installed
   kernel, nouveau blacklisted, glxinfo/nvidia-smi work; non-NVIDIA box →
   `[y/N]` default stays off.
+
+---
+
+---
+
+## Beta-v2.9.26 — `[WIFI-FW]` + `[WIFI-FW-VERIFY]` (real wifi chipset detection + firmware-gap closer + post-install proof)
+
+`SCRIPT_VERSION = Beta-v2.9.26`. The hardware review's wifi line stops being a
+yes/no and becomes: *name the actual radios*, state which firmware covers
+them, close the single gap Void leaves by default, and prove the finished
+system actually has driver + firmware.
+
+### Why (the user's Debian pain, made generic)
+
+On Debian the user had to download `firmware-mediatek` (or similar) by hand for
+their MediaTek WLAN — but **not on Void**. The reason, verified against the
+live repo:
+
+- Void's kernel chain (`linux` → `linux-base`) pulls `linux-firmware-network`
+  (+ `-intel`/`-amd`/`-nvidia` splits), and `linux-firmware` itself depends on
+  `-network` + `-amd`. Between them they ship **every mainstream vendor**:
+  MediaTek mt76 (e.g. `WIFI_MT7922`/`MT7961` blobs), Realtek rtw88/rtw89/rtl*,
+  Qualcomm/Atheros ath9k/10k/11k + qca, Intel iwlwifi (in the base blob).
+  `base-system` additionally pulls `wifi-firmware` → legacy ipw2100/ipw2200/
+  zd1211. So a fresh Void install has NO wireless-firmware gap for any of these.
+- The **one genuine gap**: Broadcom. `brcmfmac`/`b43` blobs live ONLY in the
+  `linux-firmware-broadcom` split, and **nothing pulls it** (confirmed:
+  `linux-firmware` run_depends = `-amd` + `-network`; `linux-base` run_depends
+  lacks it; `wifi-firmware` = ipw/zd1211 only). A Broadcom box on a fresh Void
+  would hit exactly the user's Debian-class surprise.
+
+### 1. `[WIFI-FW]` — chipset identification + gap closure
+
+- **Probe**: enumerate the live `phy*` wireless devices (`/sys/class/ieee80211/
+  phy*/device` symlink — works for PCI and USB radios), reading PCI
+  `vendor`/`device` or USB `idVendor`/`idProduct`; a PCI class-`0x0280*`
+  fallback catches radios the live kernel won't bind (driver not in-kernel —
+  firmware alone can't fix those; the verify warns instead of pretending).
+  Dedupes into `WIFI_IDS` (e.g. `0x14c3:0x0616`) + human `WIFI_CHIPS`.
+- **Coverage print**: every detected vendor maps to the package that covers it
+  (`MediTek (mt76) → linux-firmware(-network)`, `Broadcom → linux-firmware-
+  broadcom [NOT in Void defaults]`, etc.), so an installer sees *why* no extra
+  download is needed — the exact question the user asked.
+- **Gap prompt**: only when a Broadcom chip was detected —
+  `Install linux-firmware-broadcom (firmware for the detected Broadcom radio)? [Y/n]`
+  — default `auto` (yes) via `DEFAULT_WIFI_FW`, export a fixed `yes`/`no` to
+  pin it. Declining prints a warning naming the consequence. Non-Broadcom
+  hardware gets no prompt at all.
+- Chroot installs `${WIFI_FW_PKG}` when `INSTALL_WIFI_FW=true`.
+- Threading: `INSTALL_WIFI_FW WIFI_IDS WIFI_CHIPS WIFI_FW_PKG` persisted on
+  resume, exported to chroot_env, and recorded in install-config + a
+  `WIFI_HARDWARE` pointer line in `Void_Install.txt`; REVIEW + `--dry-run`
+  plan print them.
+
+### 2. `[WIFI-FW-VERIFY]` — proof on the target
+
+After the kernels are reconfigured/dracut rebuilt, the verify iterates every
+detected radio and checks, **inside the chrooted target**:
+- firmware present (`/usr/lib/firmware/mediatek`, `iwlwifi`, `rtw88|rtw89|
+  rtl*`, `ath*|qca`, `brcm`, marvell dirs), and
+- driver module present via `modules.dep` **and** `modules.builtin` (so
+  built-in drivers don't false-flag) for the newest installed kernel.
+
+Per chip it prints `[wifi] verified: 0x14c3:0x0616 — driver + firmware present
+in target (kernel …)` or a WARNING with the actionable hint (missing
+`linux-firmware-*` split → install it; module absent → dkms/out-of-tree driver,
+firmware can't fix it). Purely informational; nothing is gated on it.
+
+### 3. Validation / gates
+
+- `bash -n`, `Debug/check-defaults.sh` (now **46** vars) ALL CONSISTENT,
+  `Debug/check-heredocs.sh` 60 bodies ALL CLEAN, shellcheck 0.
+- Probe exercised against the dev box's own hardware: the MediaTek combo is
+  identified exactly — `WIFI_IDS=0x14c3:0x0616`, `WIFI_CHIPS=MediaTek (mt76)`,
+  `WIFI_FW_PKG=<none>` (correctly *no* gap → no prompt, firmware is default).
+- Verify exercised against the dev box's installed modules+firmware:
+  `[wifi] verified: 0x14c3:0x0616 — driver + firmware present in target
+  (kernel 7.2.3_1)`. The Broadcom branch (`0x14e4:*` → `WIFI_FW_PKG=linux-
+  firmware-broadcom` → `[Y/n]` prompt path) was logic-tested.
+
+### 4. Pending live validation
+
+- A fresh install on **Broadcom** hardware → prompt appears, `[Y/n]` default,
+  split installs, verify passes (`brcm`, `brcmfmac`).
+- A fresh install on the **dev box (MediaTek)** → no extra-firmware prompt,
+  `[wifi] verified: 0x14c3:0x0616` line in the install log.
 
 ---
 
