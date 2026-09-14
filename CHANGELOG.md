@@ -82,6 +82,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.24** | `[DEVICE-PROFILE-BT-DETECT]` — the Automatic device-profile option now scans the live CD for a Bluetooth controller (USB interface class `0xE0:0x01:0x01` = the Bluetooth Programming Interface, read from `/sys/bus/usb/devices/*/{,*/}modalias` as `icE0isc01ip01` — catches USB dongles AND M.2/PCIe WiFi+BT combo cards, and needs no lsusb/bluez) and ties `PROFILE_BT` to real hardware instead of assuming every box has bluetooth. Within each chassis class the probe picks laptop-bt↔laptop and desktop-bt↔desktop; an unresolvable chassis (VM/unknown) keeps the laptop baseline (tlp on) with bluetooth from the probe. The `[DEVICE-PROFILE-CONFIRM]` keep/override step still lets the user correct a misdetection. Maintainer-signed design decision: bare-Enter stays Automatic (a detected desktop drops tlp — pointless on a battery-less box now the service actually runs) | Beta-v2.9.24 below |
 | **Beta-v2.9.25** | `[HARDWARE-REVIEW]`+`[NVIDIA-GATE]` — a live-box hardware probe (GPU families + wireless presence, pure sysfs like the BT probe) right after the device profile feeds a small drivers review, gating the ONE driver that can break a desktop installed blind: the NVIDIA proprietary driver, defaulting to `yes` only when an NVIDIA GPU is actually present. `nvidia` auto-pulls `nvidia-dkms`→`dkms` (gcc/make/linux-headers); the headers for every chosen kernel flavor are mapped from `KERNEL_PKGS` so dkms builds for all of them; nouveau is blacklisted. Probe results (`GPU_FAMILIES`/`WIFI_HW`/`HAS_*_GPU`) are exported + persisted + recorded in install-config for reuse by future work (Steam/Proton gaming deps, per-vendor firmware pruning) | Beta-v2.9.25 below |
 | **Beta-v2.9.26** | `[WIFI-FW]`+`[WIFI-FW-VERIFY]` — the hardware review's wifi line becomes real chipset identification (live `phy*` device links, PCI or USB, plus a PCI class-`0x0280*` fallback) and a firmware-coverage note. Void's default chain covers every mainstream vendor wholesale — the reason a fresh Void needs no Debian-style mediatek-firmware download — and the probe finds the ONE vendor it skips (**Broadcom**, brcmfmac/b43 only in the non-default `linux-firmware-broadcom` split) and offers it with a `[Y/n]` prompt (`DEFAULT_WIFI_FW=auto`). Post-install, a verify proves the **target** (not the live CD) has both the driver module and the firmware for every detected radio, printing per-chip pass/warn. Broadcom gap factually confirmed against the repo (nothing pulls the split); probe + verify validated on the dev box's MT7922 → `verified: 0x14c3:0x0616` | Beta-v2.9.26 below |
+| **Beta-v2.9.27** | `[CPU-DETECT]`+`[NIC-DETECT]` — the hardware review gains two probes, each on the fact-vs-decision side it belongs to. CPU microcode becomes a REPORTED, silently AUTO-INSTALLED fact (no prompt over the vendor-locked always-beneficial `intel-ucode`/`linux-firmware-amd` — microcode joins `linux-firmware`, unlike wifi's Broadcom-split prompt and NVIDIA's DKMS/nouveau tradeoff prompt; `DEFAULT_MICROCODE=no` is the only lever). `MICROCODE_DECIDED` marks "live review ran" so the chroot honors a decided empty (opt-out/unknown vendor) and re-derives only on a cross-version resume. The br0 wired-NIC pick moves INTO the review as `Keep this interface? [Y/n] or type another name:` (carrier-then-USB probe, `DEFAULT_NIC=<name>` pins a name and skips every prompt); a decline/nothing-found defers to the existing `INSTALL_VIRT`-gated re-probe whose "same USB port" notice still shows | Beta-v2.9.27 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1574,6 +1575,70 @@ firmware can't fix it). Purely informational; nothing is gated on it.
   `[wifi] verified: 0x14c3:0x0616` line in the install log.
 
 ---
+
+---
+
+## Beta-v2.9.27 — `[CPU-DETECT]` + `[NIC-DETECT]` (microcode becomes a report-only auto-install; the br0 NIC moves into the hardware review)
+
+`SCRIPT_VERSION = Beta-v2.9.27`. Two more hardware facts move into the
+`[HARDWARE-REVIEW]` block, each placed on the fact-vs-decision side it belongs
+to — matching the principle established by `[HARDWARE-REVIEW]`/`[NVIDIA-GATE]`
+(Beta-v2.9.25) and `[WIFI-FW]` (Beta-v2.9.26): drivers/firmware PROMPT only when
+there is a genuine install decision; otherwise they are reported (GPU line, now
+the CPU line) or silently auto-installed (linux-firmware, now microcode).
+
+### Why no prompt for microcode
+
+- The CPU vendor is a read-only hardware fact (read from `/proc/cpuinfo` in the
+  live review). A microcode prompt has one correct answer — you cannot
+  usefully install the wrong vendor's blob — so prompting is friction without a
+  decision. This is the same reasoning that keeps the GPU line report-only
+  (Linux drives every GPU in-kernel, so there is nothing to install).
+- Microcode carries no tradeoff-class consequence (the NVIDIA driver does: DKMS
+  builds per kernel flavor + nouveau blacklist = why it still prompts; the
+  Broadcom firmware does: non-default package split = why wifi still prompts).
+  It is a tiny, always-beneficial blob — the same category as `linux-firmware`
+  itself, which the installer already installs silently.
+- On AMD the mapping is `linux-firmware-amd`, which is ALREADY pulled by Void's
+  default chain (`linux-firmware` depends on `-network` + `-amd`); `intel-ucode`
+  is the only real addition, so the "choice" is genuinely only meaningful for
+  Intel and even there it is non-optional-in-practice.
+
+### What `[CPU-DETECT]` does now
+
+- Review line, report-only:
+  `Detected CPU : GenuineIntel — microcode: intel-ucode (auto-installed)` —
+  or `SKIPPED (DEFAULT_MICROCODE=no)` on the opt-out, or
+  `no vendor microcode package (in-kernel defaults)` for unknown vendors.
+- `MICROCODE_PKG` (`intel-ucode` | `linux-firmware-amd` | empty) is decided
+  live, exported through chroot_env into the chroot, and installed word-split
+  with the base toolchain set (`install_pkgs ${MICROCODE_PKG} linux-firmware
+  dracut ...` — empty drops the arg, intentional).
+- `MICROCODE_DECIDED=yes` records that the live review ran. The chroot honors a
+  decided EMPTY package verbatim (opt-out, unknown vendor) and only re-derives
+  from its own `/proc/cpuinfo` when the flag is absent — a resumed run whose
+  state file predates this detection, so interrupt-upgrade never silently loses
+  microcode that an older version would have installed.
+- Opt-out: `DEFAULT_MICROCODE=no` (`[y/N]` in the top block). `auto` (default)
+  installs the detected package.
+
+### What `[NIC-DETECT]` does
+
+- The wired-NIC pick for the bridged br0 VM network used to live silently in the
+  virt phase, gated on `INSTALL_VIRT`. It now appears in the review as a
+  detect-and-confirm hardware fact:
+  `Detected wired NIC : eth0 (feeds the bridged VM network if you choose
+  virtualization)` then `Keep this interface? [Y/n] or type another name:`.
+- Probe order: a carrier-active wired port first, then USB-ethernet adapters
+  (bridging can work cable-less with a USB-tethered phone); wireless and
+  non-physical devices excluded. Nothing found → the value stays empty so the
+  existing `INSTALL_VIRT`-gated late re-probe (whose "plug in a USB ethernet
+  adapter in the SAME USB port" notice) still runs untouched.
+- Prompt semantics: `y`/Enter accepts the detected interface; `n` defers
+  (empty → late re-probe re-decides); typing anything else pins that literal
+  interface name. `DEFAULT_NIC=<name>` pins a name and skips both the review
+  prompt and the late probe.
+- Recorded in install-config and the docs-log alongside the other review facts.
 
 ---
 
