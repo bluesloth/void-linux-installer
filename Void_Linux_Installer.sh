@@ -4920,7 +4920,14 @@ fi
 # the transplanted copies; the LIVE /tmp original stage is shredded by the
 # parent script after the chroot exits, and by cleanup_on_failure on abort).
 # Guarded on the account existing (created earlier).
-if [ -d /tmp/ssh-keygen ] || [ -d /tmp/ssh-import ]; then
+# AI (Big Pickle) FIX — Beta-v2.9.34 [SSH-DEPOSIT-LOG]: the old presence guard
+# (`[ -d /tmp/ssh-import ] && [ -n "$(ls -A /tmp/ssh-import 2>/dev/null)" ]`)
+# used a `ls -A` subshell that was fragile under `set -eEo pipefail` and gave
+# ZERO diagnostic output when the deposit was silently skipped. Detection now
+# uses `find -quit` (no subshell, no pipefail hazard) and a missing account
+# logs an explicit WARNING.
+if [ -n "$(find /tmp/ssh-keygen -maxdepth 1 -type f 2>/dev/null -print -quit)" ] || \
+   [ -n "$(find /tmp/ssh-import -maxdepth 1 -type f 2>/dev/null -print -quit)" ]; then
     if [ -n "$TARGET_USER" ] && id -u "$TARGET_USER" >/dev/null 2>&1; then
         _ssh_dir="/home/${TARGET_USER}/.ssh"
         mkdir -p "$_ssh_dir"
@@ -4940,7 +4947,7 @@ if [ -d /tmp/ssh-keygen ] || [ -d /tmp/ssh-import ]; then
         fi
         chown -R "${TARGET_USER}:${TARGET_USER}" "$_ssh_dir"
     else
-        echo "NOTE: SSH keys staged but target account '${TARGET_USER:-<unset>}' missing — keys NOT deposited." >&2
+        echo "WARNING: SSH keys staged but target account '${TARGET_USER:-<unset>}' missing — keys NOT deposited." >&2
     fi
     # Shred the target staging copies (/tmp inside the chroot).
     shred -u /tmp/ssh-keygen/id_ed25519* /tmp/ssh-import/imported* 2>/dev/null || true
@@ -5798,9 +5805,15 @@ background="${_greeter_bg}"
 INNER_EOF
                 ;;
             slick)
+                # AI (Big Pickle) FIX — Beta-v2.9.34 [SLICK-BG-QUOTES]: slick-greeter
+                # does NOT strip quotes from config values — a quoted
+                # background="path" is opened as "/path" (literal quotes in the
+                # filename), fails, and falls back to #000000. Write the path
+                # UNQUOTED. (lightdm-gtk-greeter strips quotes, so it keeps the
+                # quoted form above.)
                 cat > /etc/lightdm/slick-greeter.conf << INNER_EOF
 [Greeter]
-background="${_greeter_bg}"
+background=${_greeter_bg}
 INNER_EOF
                 ;;
         esac
@@ -5958,6 +5971,56 @@ if [ "$INSTALL_BRAVE" = "true" ]; then
     else
         echo "WARNING: Brave was selected but Flatpak was not — Brave has no official Void package, so it will NOT be installed. Install Flatpak later and run 'flatpak install flathub com.brave.Browser', or use another method of your choosing." >&2
     fi
+fi
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.34 [FLATPAK-NM-DISPATCH]: the NetworkManager
+# dispatcher script that replaces the old rc.local background subshell for
+# first-boot Flatpak app installs. Fires on up/vpn-up when the interface gets a
+# default route (guaranteed DNS), stamps completion only when EVERY queued app
+# installs successfully ([FLATPAK-NM-DISPATCH-STAMP], Beta-v2.9.46). __TARGET_USER__
+# is sed-substituted at generation time (same pattern as /etc/rc.local).
+if [ "$INSTALL_FLATPAK" = "true" ]; then
+    mkdir -p /etc/NetworkManager/dispatcher.d
+    cat > /etc/NetworkManager/dispatcher.d/99-flatpak-firstboot << 'DIS_EOF'
+#!/bin/sh
+# AI (Big Pickle) ADDITION — Beta-v2.9.34 [FLATPAK-NM-DISPATCH] +
+# [FLATPAK-NM-DISPATCH-STAMP] (Beta-v2.9.46)
+# NetworkManager dispatcher: on first up/vpn-up with a default route, install
+# every Flatpak app queued at install time (one app ID per line in the queue
+# file). Stamp file prevents re-runs; stamp is written ONLY when ALL queued
+# installs succeed, so a transient network failure leaves the queue live.
+case "$2" in
+    up|vpn-up) ;;
+    *) exit 0 ;;
+esac
+command -v flatpak >/dev/null 2>&1 || exit 0
+[ -f /var/log/flatpak-firstboot.done ] && exit 0
+# Need a default route (internet reachable) for flathub to resolve
+ip route show default >/dev/null 2>&1 || exit 0
+_fp_queue="/home/__TARGET_USER__/.config/void-installer/flatpak-install-on-first-boot.txt"
+[ -f "$_fp_queue" ] || exit 0
+echo "=== flatpak-firstboot: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+: > /var/log/flatpak-firstboot.log
+_fp_fail=0
+while IFS= read -r _fp_app_id; do
+    [ -n "$_fp_app_id" ] || continue
+    echo "==> Installing queued Flatpak app: ${_fp_app_id}"
+    if ! flatpak install -y --noninteractive flathub "$_fp_app_id" >> /var/log/flatpak-firstboot.log 2>&1; then
+        echo "WARNING: failed to install queued Flatpak app '${_fp_app_id}' — will retry on next up event." >&2
+        _fp_fail=1
+    fi
+done < "$_fp_queue"
+# [FLATPAK-NM-DISPATCH-STAMP] (Beta-v2.9.46): stamp only when every install
+# succeeded, so a partial failure leaves the queue live for the next event.
+if [ "$_fp_fail" -eq 0 ]; then
+    touch /var/log/flatpak-firstboot.done
+else
+    echo "WARNING: one or more queued Flatpak installs failed — queue is still live." >&2
+fi
+DIS_EOF
+    chmod 0755 /etc/NetworkManager/dispatcher.d/99-flatpak-firstboot
+    sed -i "s/__TARGET_USER__/${TARGET_USER}/g" /etc/NetworkManager/dispatcher.d/99-flatpak-firstboot
+    echo "==> NetworkManager flatpak-firstboot dispatcher installed → /etc/NetworkManager/dispatcher.d/99-flatpak-firstboot"
 fi
 
 [ "$INSTALL_PODMAN" = "true" ] && install_pkgs podman
@@ -9040,6 +9103,14 @@ if [ ! -f /var/log/firstboot.log ]; then
     mkdir -p /etc/runit/runsvdir/default
     ln -sfn /etc/sv/dbus /etc/runit/runsvdir/default/dbus
     ln -sfn /etc/sv/nftables /etc/runit/runsvdir/default/nftables
+    # AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]: link the OpenSSH
+    # server on first boot when enabled (baked placeholder, same class as
+    # __PROFILE_*__/__DISPLAY_MANAGER__ — never a live $VAR in this single-
+    # quoted rc.local heredoc). The openssh package was already installed in
+    # the chroot; this is the runsvdir link invariant #3 requires. Kept EARLY
+    # (before the DM link) so a headless/SSH-first install gets remote access
+    # as soon as the service set links.
+    [ "__INSTALL_SSH_SERVER__" = "true" ] && ln -sfn /etc/sv/sshd /etc/runit/runsvdir/default/sshd
     ln -sfn /etc/sv/__DISPLAY_MANAGER__ /etc/runit/runsvdir/default/__DISPLAY_MANAGER__
     # AI (Big Pickle) FIX — Beta-v2.9.10 [COSMIC-GREETER-DM]: the cosmic-greeter
     # DM is a greetd-hosted stack, so its daemon service is linked alongside
@@ -9062,11 +9133,12 @@ if [ ! -f /var/log/firstboot.log ]; then
         ln -sfn /etc/sv/virtlogd /etc/runit/runsvdir/default/virtlogd
     fi
     [ "__INSTALL_DOCKER__" = "true" ] && ln -sfn /etc/sv/docker /etc/runit/runsvdir/default/docker
-    [ "__INSTALL_VIRTUALBOX__" = "true" ] && ln -sfn /etc/sv/vboxdrv /etc/runit/runsvdir/default/vboxdrv
-    # AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]: link sshd on
-    # first boot via the same baked-placeholder pattern (invariant #3 — the
-    # /etc/sv tree is not available at first-boot via /var/service).
-    [ "__INSTALL_SSH_SERVER__" = "true" ] && ln -sfn /etc/sv/sshd /etc/runit/runsvdir/default/sshd
+    # AI (Big Pickle) FIX — Beta-v2.9.46 [VBOX-SV-GUARD]: virtualbox-ose
+    # 7.2.16 dropped /etc/sv/vboxdrv (only vboxwebsrv + virtvboxd remain), so
+    # an unconditional link left a permanent runsvdir FAIL entry. Guard on the
+    # service directory actually shipping.
+    [ "__INSTALL_VIRTUALBOX__" = "true" ] && [ -d /etc/sv/vboxdrv ] && \
+        ln -sfn /etc/sv/vboxdrv /etc/runit/runsvdir/default/vboxdrv
     # AI (Big Pickle) ADDITION — Beta-v2.9.17 [DEVICE-PROFILE] + Beta-v2.9.19d
     # [DEVICE-PROFILE-RCL]: these links are gated on __PROFILE_*__ placeholders
     # (sed-substituted to the resolved booleans downstream) so the laptop
@@ -9143,43 +9215,18 @@ if [ ! -f /var/log/firstboot.log ]; then
         # Flatpak was selected the boot hung on a "Flathub idx / Failed to
         # fetch summary" error. The remote is now added inside the chroot at
         # install time (see [FLATHUB-CHROOT]) where the network is already up;
-        # here we only (a) re-guard the add as an idempotent no-op fallback,
-        # (b) wait for the network to come up, and (c) launch any queued app
-        # install in the BACKGROUND so rc.local never blocks boot on the
-        # network or on flatpak.
+        # here we only (a) re-guard the add as an idempotent no-op fallback.
         flatpak remote-add --if-not-exists flathub https://flathub.org 2>/dev/null || true
         flatpak remote-modify --enable flathub 2>/dev/null || true
-        # AI (Claude, Sonnet 5, Medium) ADDITION: installs any Flatpak apps
-        # queued at install time (currently just Brave, when selected
-        # without an official Void package available — see Stage 2's
-        # WEB BROWSER SELECTION handling). Queue file is one app ID per
-        # line; only present at all if something was actually queued.
-        _fp_queue="/home/__TARGET_USER__/.config/void-installer/flatpak-install-on-first-boot.txt"
-        if [ -f "$_fp_queue" ]; then
-            (
-                # Wait (bounded) for a route to reach flathub before trying;
-                # without this the background install would fail instantly.
-                i=0
-                while [ "$i" -lt 90 ]; do
-                    if getent hosts flathub.org >/dev/null 2>&1; then
-                        break
-                    fi
-                    sleep 2
-                    i=$((i + 1))
-                done
-                while IFS= read -r _fp_app_id; do
-                    [ -n "$_fp_app_id" ] || continue
-                    if flatpak remote-list --columns=name 2>/dev/null | grep -qx 'flathub'; then
-                        echo "==> Installing queued Flatpak app: ${_fp_app_id}"
-                        flatpak install -y --noninteractive flathub "$_fp_app_id" || \
-                            echo "WARNING: failed to install queued Flatpak app '${_fp_app_id}' — install it manually later with 'flatpak install flathub ${_fp_app_id}'." >&2
-                    else
-                        echo "WARNING: flathub remote unavailable at first boot; queued Flatpak app '${_fp_app_id}' NOT installed. Install it manually later." >&2
-                        break
-                    fi
-                done < "$_fp_queue"
-            ) > /var/log/flatpak-firstboot.log 2>&1 &
-        fi
+        # AI (Big Pickle) CHANGE — Beta-v2.9.34 [FLATPAK-NM-DISPATCH]: the
+        # queued Flatpak app install (Brave etc.) was moved from the old
+        # background subshell to a NetworkManager dispatcher script
+        # (/etc/NetworkManager/dispatcher.d/99-flatpak-firstboot) written at
+        # install time. The dispatcher fires on the first up/vpn-up event when
+        # the interface has a default route — guaranteed DNS — and stamps
+        # /var/log/flatpak-firstboot.done only when EVERY queued app succeeds
+        # ([FLATPAK-NM-DISPATCH-STAMP], Beta-v2.9.46), so a partial failure
+        # leaves the queue live for the next up/vpn-up. Nothing to do here.
     fi
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database -q
