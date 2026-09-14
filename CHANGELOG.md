@@ -74,6 +74,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.16** | `[KERNEL-SELECT]` — which kernels get installed is a real choice: Void base-system always pulls the main `linux` kernel, and a per-flavor toggle pair adds `linux-mainline` (newest, "experts only", opt-in) and/or `linux-lts` (default ON — bare Enter ships `linux` + `linux-lts`) on top. The resolved space-joined `$KERNEL_PKGS` threads through the base bootstrap, the post-install `xbps-reconfigure`, resume state, chroot_env, and install-config; orthogonal to `$KERNEL_MODE` (which only describes how Limine *reads* kernels from the ESP) | Beta-v2.9.16 below |
 | **Beta-v2.9.17** | `[DEVICE-PROFILE]` — laptop vs desktop/server is now a real 5-way choice (Automatic/SMBIOS detection + four explicit profiles), resolved at pick time into a concrete `DEVICE_PROFILE` (`laptop-bt`/`laptop`/`desktop-bt`/`desktop`) plus derived `PROFILE_TLP`/`PROFILE_BT`/`PROFILE_PRELOAD` booleans. These gate the formerly unconditional `tlp`/`tlp-rdw`, `bluez`/`libspa-bluetooth`, and `preload` installs plus the `bluetoothd`/`tlp`/`preload` service links. preload (adaptive readahead) is desktop/server-only: its periodic pre-cache scans cost battery wakeups, so laptop profiles never get it. Bare-Enter = Automatic; an unresolvable chassis (VMs/unknown) falls back to the laptop+bluetooth baseline (historical package set, but tlp service now actually linked — an oversight fix) | Beta-v2.9.17 below |
 | **Beta-v2.9.18** | `[MATE-METAPACKAGE-REGRESSION]` — restore the `mate` metapackage to the MATE desktop install: Beta-v2.9.9's `[MATE-TERMINAL]` change accidentally replaced `install_pkgs mate network-manager-applet` (dropping `mate`), so a MATE fresh install had no mate-session/panel and no `/usr/share/xsessions/mate.desktop` — with `user-session=mate` set, every login bounced straight back to the greeter (the "cannot login at the greeter" showstopper). Plus `[LIMINE-WALLPAPER-STAGE2]` — re-stage the Limine wallpaper into the target's `/tmp` after the `@` root mount, so the chroot ESP copy finds the image (a prompt-phase stage to `/mnt/tmp` was covered by the mount and never reached the ESP) | Beta-v2.9.18 below |
+| **Beta-v2.9.19** | `[NFT-VIRT-GATE]` — the `/etc/nftables.conf` forward chain no longer hardcodes the `br0`/`virbr*` accepts unconditionally; those rules are a fragment emitted only when `$INSTALL_VIRT=true` (mirroring the existing gates on the virt package install, the user `kvm`/`libvirt` groups, the `br0` NM bridge, and the first-boot libvirtd teardown). On a non-virt build the forward rules no longer reference non-existent interfaces. Plus `[GREETER-BG-DEPTH]` — the lightdm greeter background's generic fallback `find` deepened to `-maxdepth 5` so it sees mate-backgrounds' depth-3 images, fixing the MATE + Slick black greeter. Plus `[DEVICE-PROFILE-CONFIRM]` — the Automatic device-profile option now shows the SMBIOS-detected profile and lets the user confirm or override it before continuing. Plus `[DEVICE-PROFILE-RCL]` — live-confirmed bug fix: the first-boot rc.local's tlp/bluetoothd/preload links used chroot-phase `$PROFILE_*` vars (never exported/persisted → always empty at boot), so those services never linked; converted to `__PROFILE_*__` placeholders added to the sed substitution pass. Plus `[LIMINE-WP-REGUARD]` — live-confirmed bug fix: the `[LIMINE-WALLPAPER-STAGE2]` re-stage guarded on the covered `/mnt/tmp` staged path so it never fired and the wallpaper never reached the ESP; re-guarded on the still-reachable live `WP_SRC` instead | Beta-v2.9.19 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -819,6 +820,258 @@ restores the historical (pre-Beta-v2.9.9) behavior and still needs one live
 fresh MATE install to confirm the greeter now reaches the desktop;
 `[LIMINE-WALLPAPER-STAGE2]` needs one opt-in wallpaper install to confirm the
 image lands on the ESP/limine.conf.
+
+---
+
+---
+
+## Beta-v2.9.19 — `[NFT-VIRT-GATE]` (nftables forward rules gate on `$INSTALL_VIRT`) + `[GREETER-BG-DEPTH]` (lightdm greeter sees depth-3 wallpapers)
+
+`SCRIPT_VERSION = Beta-v2.9.19`. Two fixes:
+1. The `/etc/nftables.conf` forward chain no longer hardcodes the `br0` /
+   `virbr*` accepts unconditionally.
+2. The lightdm greeter background search is no longer blind to depth-3
+   wallpapers (fixes the MATE + Slick black greeter).
+
+### Why
+
+The firewall heredoc used to ship a `forward` chain that always accepted
+`iifname/oifname "br0"` and `"virbr*"`, regardless of whether virtualization
+was chosen. Both interfaces exist only when QEMU/libvirt is installed:
+- `br0` is the installer's custom KVM bridge — its NetworkManager profiles
+  (`br0.nmconnection` / `br0-slave.nmconnection`, `[NM-BR0]`) are only written
+  when `$INSTALL_VIRT=true`;
+- `virbr*` is libvirt's default NAT bridge, present only with libvirt.
+
+On a non-virt build those forward rules referenced interfaces that never
+exist. Harmless (the rules simply match nothing), but dead cruft relative to
+the actual software selection, and inconsistent with how the rest of the
+script already gates virt-specific behavior on `$INSTALL_VIRT`.
+
+### Fix
+
+The `br0`/`virbr*` forward accepts are now a fragment (`NFT_FWD_RULES`, built
+from a nested heredoc) emitted into the `forward` chain **only when
+`$INSTALL_VIRT=true`**. `$INSTALL_VIRT` is already exported into the chroot via
+`chroot_env.sh` (line ~3933) and referenced throughout the chroot, so it is
+live where the firewall is written. The nftables heredoc changed from quoted
+(`<< 'INNER_EOF'`) to unquoted (`<< INNER_EOF`) so `${NFT_FWD_RULES}` expands;
+the rest of the body is pure nft syntax with no `$`/backticks, so the
+interpolation is safe. `Debug/check-heredocs.sh` still classifies it as a
+non-shell config (`#!/usr/sbin/nft` shebang), so it is skipped by its
+bash -n/shellcheck pass.
+
+### Validation
+
+- `bash -n Void_Linux_Installer.sh` — clean.
+- Rendered config for **both** `$INSTALL_VIRT=true` (four forward accepts
+  present) and `false` (forward chain = policy drop, zero rules) passes
+  `nft -c -f` as root.
+- `Debug/check-heredocs.sh` — ALL CLEAN (60 heredocs: 30 shell-classified,
+  30 non-shell config, `/etc/nftables.conf` skipped as non-shell).
+- `Debug/check-defaults.sh` — ALL CONSISTENT (no `DEFAULT_*` surface touched).
+
+No live-install confirmation required: this is a config-generation refinement,
+and both branches are syntactically validated with `nft -c`.
+
+---
+
+---
+
+## Beta-v2.9.19b — `[GREETER-BG-DEPTH]` (lightdm greeter background search deepened to see mate-backgrounds)
+
+### Why
+
+Fresh MATE + Slick installs reproduced a black greeter. On-disk evidence from
+`<host>`:
+- `/etc/lightdm/slick-greeter.conf` was the pristine package default (mtime =
+  package build date), never written by the installer.
+- `mate` (incl. `mate-backgrounds`) is installed before the greeter-bg block,
+  so a wallpaper should have been found — but the `find` used `-maxdepth 2`,
+  and `mate-backgrounds` places images at **depth 3**:
+  `/usr/share/backgrounds/mate/<category>/<file>.jpg`.
+- On this box only 48 of 78 wallpaper files are at depth ≤ 2; the remaining 30
+  (all the depth-3 mate images) were invisible to every `-maxdepth 2` search.
+
+So a MATE install that had no `adwaita-l.*` and no depth-2 genesis file found
+nothing in the generic fallback, `_greeter_bg` stayed empty, and the
+`background=<path>` line was never written → the greeter stayed on its black
+default.
+
+### Fix
+
+The two generic wildcard fallback `find`s in the lightdm greeter-bg block went
+from `-maxdepth 2` to `-maxdepth 5`, so they can descend into
+`mate/<category>/` (and beyond). The `adwaita-l.*` specific-name passes stay at
+`-maxdepth 2` (adwaita files are top-level; harmless either way). No other
+behavior changes.
+
+### Validation
+
+- `bash -n Void_Linux_Installer.sh` — clean.
+- On `<host>` the deepened generic fallback now resolves a depth-3 mate image
+  (`/usr/share/backgrounds/mate/nature/*.jpg`), confirming the previously-missed
+  path is found.
+- `Debug/check-heredocs.sh` — ALL CLEAN.
+- `Debug/check-defaults.sh` — ALL CONSISTENT (no `DEFAULT_*` surface touched).
+
+ **Live confirmation still required:** one fresh MATE + LightDM (Slick or GTK)
+install must reach a non-black desktop. This is scheduled as part of the next
+batch reinstall on `<host>`.
+
+---
+
+---
+
+## Beta-v2.9.19c — `[DEVICE-PROFILE-CONFIRM]` (Automatic shows the detected profile and lets you confirm or override)
+
+### Why
+
+When the user picked **Automatic** (`1`) on the device-profile menu, the
+installer silently accepted whatever SMBIOS resolved (or the unresolvable
+fallback) and continued. There was no feedback about which profile had been
+detected and no way to correct a wrong guess before the tlp/bluez/preload
+package gates committed. The user requested a confirm/override step.
+
+### Fix
+
+After `1) Automatic` resolves `DEVICE_PROFILE` + the `PROFILE_TLP`/`PROFILE_BT`/
+`PROFILE_PRELOAD` booleans from the SMBIOS chassis, the installer now prints the
+detected profile with its human description and asks:
+`Keep this? [Y/n] or pick 2-5 to override`.
+- Bare Enter / `y` / `yes` confirms the detected profile (no change).
+- `2`/`3`/`4`/`5` re-resolves to the corresponding explicit profile and prints
+  the new value.
+- An unresolvable chassis still falls back to `laptop-bt` but the user is told
+  so and gets the same confirm/override chance.
+- The menu help text for option `1` now notes the confirm/override step.
+
+Because `--dry-run` also walks every prompt interactively, the dry-run plan
+already prints the concrete `DEVICE_PROFILE` + booleans (line ~3320), so this
+also directly satisfies the TODO's "confirm REVIEW/dry-run shows the concrete
+profile + booleans" check on its own.
+
+### Validation
+
+- `bash -n Void_Linux_Installer.sh` — clean.
+- `Debug/check-defaults.sh` — ALL CONSISTENT (no `DEFAULT_*` surface touched).
+- `Debug/check-heredocs.sh` — ALL CLEAN.
+- Logic harness tested for chassis 31 (laptop: detects laptop-bt; override to
+  5 → desktop-no-bt), chassis 3 (classic desktop: desktop-bt, tlp dropped;
+  bare Enter confirms), and unresolvable chassis (falls back laptop-bt with an
+  override chance). All branches re-resolve the profile + booleans correctly.
+
+ **Live confirmation (this install):** picking Automatic on the HP Envy x360
+(chassis 31) should detect `laptop-bt` and prompt, and the plan/install-config
+should show `laptop-bt` tlp=true bt=true preload=false.
+
+---
+
+---
+
+## Beta-v2.9.19d — `[DEVICE-PROFILE-RCL]` (first-boot rc.local tlp/bluetoothd/preload service links never fired)
+
+### Why (live-confirmed bug)
+
+On the Beta-v2.9.18 install of `<host>`, `install-config` recorded
+`DEVICE_PROFILE="laptop-bt"`, `PROFILE_TLP="true"`, `PROFILE_BT="true"` — but
+neither `/etc/sv/tlp` nor `/etc/sv/bluetoothd` was linked into
+`/etc/runit/runsvdir/default/`, and neither daemon ran (`sv status tlp` →
+"file does not exist"). The laptop profile's promised battery/bluetooth
+services were installed-but-inert.
+
+Root cause: the first-boot `/etc/rc.local` heredoc is **single-quoted**
+(`<< 'INNER_EOF'`), so nothing inside is expanded by the installer — the
+`__BOOTLOADER__`/`__INSTALL_VIRT__`/... tokens are sed-substituted to real
+values afterwards (lines 8519+). But the `[DEVICE-PROFILE]` service links that
+this release added used **plain `$PROFILE_BT`/`$PROFILE_TLP`/
+`$PROFILE_PRELOAD`** — chroot-phase variables that are never exported or
+persisted anywhere, so at first-boot runtime they were **always empty**. The
+`[ "$PROFILE_TLP" = "true" ]` test failed on every fresh boot and the link was
+never created. This is the same bug class the existing comment at lines
+8501-8518 already documented for `$BOOTLOADER`/`$INSTALL_VIRT`/`$INSTALL_DOCKER`
+and fixed — the DEVICE-PROFILE additions introduced it again.
+
+### Fix
+
+Converted the three links in the rc.local heredoc to `__PROFILE_BT__`,
+`__PROFILE_TLP__`, `__PROFILE_PRELOAD__` placeholders and added the matching
+`sed -e "s/__PROFILE_*__/${PROFILE_*}/g"` lines to the substitution pass, so
+the chosen profile's services actually link on first boot.
+
+### Validation
+
+- `bash -n Void_Linux_Installer.sh` — clean.
+- End-to-end sed simulation with this laptop's `laptop-bt` values: the links
+  render as `[ "true" = "true" ]` for bluetoothd + tlp (linked), and
+  `[ "false" = "true" ]` for preload (not linked) — correct for a laptop.
+  The substituted rc.local passes `bash -n`.
+- `Debug/check-heredocs.sh` — rc.local is `bash -n clean` + shellcheck clean;
+  the only `FAILURES PRESENT` is the pre-existing accounts-daemon SC2093 note,
+  present identically at HEAD before this change.
+- `Debug/check-defaults.sh` — ALL CONSISTENT (no `DEFAULT_*` surface touched).
+
+**Live confirmation (this install):** on the fresh MATE install, `/etc/sv/tlp`
+and `/etc/sv/bluetoothd` must now be linked into runsvdir/default and both
+daemons must appear running on first boot (preload remains absent for a laptop).
+
+---
+
+---
+
+## Beta-v2.9.19e — `[LIMINE-WP-REGUARD]` (the wallpaper re-stage guard checked a covered path, so the image never reached the ESP)
+
+### Why (live-confirmed bug)
+
+On the Beta-v2.9.18 install of `<host>`, `LIMINE_WALLPAPER=yes` was chosen, but
+after install there was **no `/boot/efi/limine-splash.*`** on the ESP and **no
+`wallpaper:` line in limine.conf** — the wallpaper never landed, and the boot
+menu stayed plain.
+
+The `[LIMINE-WALLPAPER-STAGE2]` fix (2.9.18) added a re-stage step after the
+target root mounts over `/mnt`. But its guard was:
+
+```sh
+if [ "$LIMINE_WALLPAPER" = "yes" ] && [ -f "${WP_STAGED:-}" ]; then
+```
+
+`WP_STAGED` points at live `/mnt/tmp/limine-splash.<ext>` — the path that the
+*previous* (prompt-phase) stage wrote. Mounting the target `@` subvolume over
+`/mnt` then **covers** that path: `/mnt/tmp/...` now resolves into the
+**target's** `/tmp`, where the file does not (yet) exist. So `[ -f "$WP_STAGED" ]`
+was **false exactly when this block was needed**, the re-stage was skipped, the
+chroot's `/tmp/limine-splash.*` loop found nothing, and the generator's
+existence-guarded wallpaper section stayed quiet.
+
+### Fix
+
+Drop the check on the covered `/mnt/tmp` staged path and guard on the
+**live** source instead:
+
+```sh
+if [ "$LIMINE_WALLPAPER" = "yes" ] && [ -f "${WP_SRC:-}" ]; then
+```
+
+`$WP_SRC` is the image the user picked — it lives on the live medium
+(`/run/media/...`, `/home`, etc.), **not** under `/mnt`, so it is still
+reachable at re-stage time. Guarding on it correctly re-stages the image into
+the target's `/tmp`, which the chroot ESP-copy loop then moves onto the ESP.
+
+### Validation
+
+- `bash -n Void_Linux_Installer.sh` — clean.
+- Guard logic simulated: with the covered `WP_STAGED` the old guard returns
+  "skipped" (the bug); with a reachable `WP_SRC` the new guard fires and
+  copies; with a missing source it is safely skipped.
+- `Debug/check-defaults.sh` — ALL CONSISTENT.
+- `Debug/check-heredocs.sh` — only the pre-existing accounts-daemon note.
+- `set -e` (not `set -u`) governs the re-stage block, so `${WP_SRC:-}` is
+  belt-and-suspenders; the `LIMINE_WALLPAPER != yes` path short-circuits before
+  touching `$WP_SRC` anyway.
+
+**Live confirmation (this install):** chooing the wallpaper opt-in must now
+produce `/boot/efi/limine-splash.<ext>` + a `wallpaper:` line in limine.conf,
+and the image must show at the Limine boot menu.
 
 ---
 
