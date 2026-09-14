@@ -83,6 +83,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.25** | `[HARDWARE-REVIEW]`+`[NVIDIA-GATE]` — a live-box hardware probe (GPU families + wireless presence, pure sysfs like the BT probe) right after the device profile feeds a small drivers review, gating the ONE driver that can break a desktop installed blind: the NVIDIA proprietary driver, defaulting to `yes` only when an NVIDIA GPU is actually present. `nvidia` auto-pulls `nvidia-dkms`→`dkms` (gcc/make/linux-headers); the headers for every chosen kernel flavor are mapped from `KERNEL_PKGS` so dkms builds for all of them; nouveau is blacklisted. Probe results (`GPU_FAMILIES`/`WIFI_HW`/`HAS_*_GPU`) are exported + persisted + recorded in install-config for reuse by future work (Steam/Proton gaming deps, per-vendor firmware pruning) | Beta-v2.9.25 below |
 | **Beta-v2.9.26** | `[WIFI-FW]`+`[WIFI-FW-VERIFY]` — the hardware review's wifi line becomes real chipset identification (live `phy*` device links, PCI or USB, plus a PCI class-`0x0280*` fallback) and a firmware-coverage note. Void's default chain covers every mainstream vendor wholesale — the reason a fresh Void needs no Debian-style mediatek-firmware download — and the probe finds the ONE vendor it skips (**Broadcom**, brcmfmac/b43 only in the non-default `linux-firmware-broadcom` split) and offers it with a `[Y/n]` prompt (`DEFAULT_WIFI_FW=auto`). Post-install, a verify proves the **target** (not the live CD) has both the driver module and the firmware for every detected radio, printing per-chip pass/warn. Broadcom gap factually confirmed against the repo (nothing pulls the split); probe + verify validated on the dev box's MT7922 → `verified: 0x14c3:0x0616` | Beta-v2.9.26 below |
 | **Beta-v2.9.27** | `[CPU-DETECT]`+`[NIC-DETECT]` — the hardware review gains two probes, each on the fact-vs-decision side it belongs to. CPU microcode becomes a REPORTED, silently AUTO-INSTALLED fact (no prompt over the vendor-locked always-beneficial `intel-ucode`/`linux-firmware-amd` — microcode joins `linux-firmware`, unlike wifi's Broadcom-split prompt and NVIDIA's DKMS/nouveau tradeoff prompt; `DEFAULT_MICROCODE=no` is the only lever). `MICROCODE_DECIDED` marks "live review ran" so the chroot honors a decided empty (opt-out/unknown vendor) and re-derives only on a cross-version resume. The br0 wired-NIC pick moves INTO the review as `Keep this interface? [Y/n] or type another name:` (carrier-then-USB probe, `DEFAULT_NIC=<name>` pins a name and skips every prompt); a decline/nothing-found defers to the existing `INSTALL_VIRT`-gated re-probe whose "same USB port" notice still shows | Beta-v2.9.27 below |
+| **Beta-v2.9.28** | `[SUBVOL-FLATPAK-TEXT]` — the subvolume-isolation preamble (Beta-v2.9.3) falsely documented Flatpak as "excluded" from per-app subvolume isolation; it was in the `[SUBVOL-GATES]` loop all along (Beta-v2.9.0), so `@flatpak` was already created/mounted/fstab'd on a yes. Text corrected to list Flatpak and document the `@flatpak` rationale (the GB-scale `/var/lib/flatpak` store stays out of `@` snapshots and survives a `@` rollback); OctoXBPS remains the sole documented exclusion. Plus `[APPIMAGE-FUSE]` — INSTALL_FLATPAK now also pulls `fuse` + `fuse3` (FUSE 2 for the AppImage runtime's historical `libfuse.so.2` dlopen, FUSE 3 for modern runtimes; they coexist on Void, and base-system pulls neither), so AppImages self-mount instead of falling back to extract-and-run. Gear Lever stays a manual Flathub add (no official Void package) and AppImages stay in `~/Applications` under `@home` — no AppImage subvolume. Plus `[BRAVE-FLATPAK-GATE]` — the Brave choice is only *offered* when Flatpak was selected (its sole installer route; the Flatpak prompt precedes the browser section), otherwise hidden with a one-line NOTICE and `INSTALL_BRAVE=false`; the Stage-2 WARNING is kept as a resume/export safety net. No gate or `DEFAULT_*` change | Beta-v2.9.28 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1639,6 +1640,69 @@ the CPU line) or silently auto-installed (linux-firmware, now microcode).
   interface name. `DEFAULT_NIC=<name>` pins a name and skips both the review
   prompt and the late probe.
 - Recorded in install-config and the docs-log alongside the other review facts.
+
+---
+
+## Beta-v2.9.28 — `[SUBVOL-FLATPAK-TEXT]` + `[APPIMAGE-FUSE]` + `[BRAVE-FLATPAK-GATE]` (subvolume preamble text corrected; INSTALL_FLATPAK now gates FUSE for AppImages; Brave only offered when Flatpak is on)
+
+`SCRIPT_VERSION = Beta-v2.9.28`. Three changes: a prompt-text correction, a
+gated package addition, and a browser-availability gate — no `DEFAULT_*`
+surface changed.
+
+- The per-app subvolume preamble (Beta-v2.9.3, `2645639`) claimed "OctoXBPS
+  and Flatpak are excluded" from subvolume isolation. That was false on
+  arrival: `[SUBVOL-GATES]` (Beta-v2.9.0, `604f682`) already carried a
+  Flatpak row (`INSTALL_FLATPAK|PROVISION_FLATPAK_SUBVOL`), so the loop has
+  always resolved a `PROVISION_FLATPAK_SUBVOL` decision and `@flatpak` was
+  created, mounted at `/var/lib/flatpak`, and written to fstab whenever a
+  master gate (or the bare-Enter default `SUBVOL_ISOLATE_INSTALLED=yes`)
+  decided yes. The prose contradicted its own code for five versions.
+- The preamble now lists Flatpak among the isolable apps and documents the
+  real `@flatpak` rationale: the GB-scale `/var/lib/flatpak` store stays out
+  of `@` snapshots, and a `@` rollback preserves installed Flatpak apps —
+  the same survive-rollback logic as `@srv`/`@network`.
+- OctoXBPS remains the sole documented exclusion (a lightweight GUI
+  package-manager frontend with no dedicated data directory to isolate) —
+  the only app whose exclusion was ever accurate.
+
+### `[APPIMAGE-FUSE]` — Flatpak also brings FUSE for AppImages
+
+Installing Flatpak now also installs `fuse` (FUSE 2, `libfuse.so.2`) and
+`fuse3` (FUSE 3). The AppImage runtime self-mounts its squashfs payload via
+a libfuse dlopen that the AppImage ecosystem has historically tied to FUSE 2
+(AppImageKit's own wiki: "AppImages require FUSE version 2 to run"; most
+wild AppImages ship that runtime), while recent static-behaviour runtimes
+speak FUSE 3. On Void the two coexist cleanly (no Debian-style
+`fuse`↔`fuse3` conflict), and base-system pulls neither — so this gate is
+the only AppImage readiness the installer grants, closing the gap a fresh
+`flatpak`-only install would otherwise leave (a later Gear Lever / AppImage
+user would land on the slow `--appimage-extract-and-run` fallback).
+
+Gear Lever itself is deliberately NOT installed or prompted: it has no
+official Void package (verified against `void-packages` srcpkgs), so it
+cannot be an xbps opt-in; Flathub's `it.mijorus.gearlever` stays a
+one-command add for the user. AppImage storage needs no subvolume — the
+binaries live in `~/Applications` under `@home` (a subvol mount there would
+silently lapse whenever the configurable folder changes), and per-app
+AppImage config is ordinary XDG `~/.config`/`~/.local/share` data, exactly
+like a natively installed app, so it belongs in the `@home` snapshot scope.
+
+### `[BRAVE-FLATPAK-GATE]` — Brave is only offered when Flatpak is on
+
+Brave has no official Void package, so its only installer route is the
+Flatpak first-boot queue. Because the Flatpak prompt already precedes the
+web-browser section, `INSTALL_FLATPAK` is resolved before Brave would be
+offered. Previously Brave was always offered (with an inline notice) and was
+therefore pickable-then-skipped: selecting Brave without Flatpak produced a
+Stage-2 WARNING and nothing installed. Now the prompt is hidden unless
+`INSTALL_FLATPAK=true`; when hidden, `INSTALL_BRAVE` is forced to `false`
+and a one-line NOTICE explains why the option is absent. The Stage-2 WARNING
+survives as defense-in-depth for the manual-export/resume path (a state file
+from an older version can carry `INSTALL_BRAVE=true` alongside
+`INSTALL_FLATPAK=false`) — that path still gets a loud warning instead of
+silence.
+
+---
 
 ---
 
