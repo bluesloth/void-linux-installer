@@ -69,6 +69,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.11** | `[COSMIC-GREETER-LOG]` — svlogd `log/run` under both cosmic-greeter services (the log dirs existed but had no run script, so runsv spammed and no greeter output survived a reboot, hiding the live grey-screen evidence) | Beta-v2.9.11 below |
 | **Beta-v2.9.12** | `[COSMIC-GREETER-USER]` — the greeter account is now EXACTLY `cosmic-greeter` (never `_cosmicgreeter`): the binary dispatches greeter-DM vs silent-locker from the current username, and the template's `_cosmicgreeter` account shipped the bug that produced the dead grey screen (live-verified with WAYLAND_DEBUG; fix upside down: `usermod -l`) | Beta-v2.9.12 below |
 | **Beta-v2.9.13** | `[ACCTSVCS-ICON]` — the fresh user gets a real default avatar at `/var/lib/AccountsService/icons/<user>` (themed Adwaita `avatar-default`, Pop fallback, copied right after useradd), silencing greeter per-boot `failed to open icon ... NotFound`; `[COSMIC-POLKIT-GUARD]` — the COSMIC polkit agent's baked autostart now launches a session-ready guard (`/usr/local/sbin/cosmic-polkit-guard`) that waits for the compositor wl socket + reachable session bus then runs/respawns the agent, fixing the live `<host>` `<defunct>` zombie where the agent died before cosmic-comp/session-bus were up and no polkit dialog ever appeared | Beta-v2.9.13 below |
+| **Beta-v2.9.14** | `[COSMIC-GREETER-SESSION-BUS]` — the cosmic-greeter greetd toml now execs the shipped `/etc/greetd/cosmic-greeter.start` wrapper (`dbus-run-session` around `cosmic-comp cosmic-greeter`, v5 as-built on `<host>`) instead of the bare binary string, and pre-creates a greeter-owned `/var/log/cosmic-greeter-session.log`: with the account fixed, a bare greetd spawn still rendered grey + cursor (no session bus → iced login panel never maps as a layer) | Beta-v2.9.14 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -484,6 +485,61 @@ TODO.md).
 **Validation:** `bash -n` passes; `Debug/check-heredocs.sh` extracts the new
 `/usr/local/sbin/cosmic-polkit-guard` body and `bash -n`s it clean;
 `Debug/check-defaults.sh` unchanged (no prompt surface touched).
+
+---
+
+
+
+## Beta-v2.9.14 — `[COSMIC-GREETER-SESSION-BUS]` (session D-Bus wrapper for the cosmic-greeter DM)
+
+`SCRIPT_VERSION = Beta-v2.9.14`. Discovered while archiving the `<host>` as-built
+state into the Cosmic-Void project (`docs/installer-gap-session-bus.md`): the
+proven-good greeter on `<host>` was NOT running the config the installer wrote.
+
+**`[COSMIC-GREETER-SESSION-BUS]` (bare spawn maps no login panel).** After the
+Beta-v2.9.12 account fix, the as-built `/etc/greetd/cosmic-greeter.toml` on the
+working box still differed from the installer's heredoc: it exec'd
+`/etc/greetd/cosmic-greeter.start`, a wrapper that runs
+`dbus-run-session -- cosmic-comp cosmic-greeter` and appends to
+`/var/log/cosmic-greeter-session.log`. The wrapper's own comment documents
+why it exists: cosmic-greeter is built to run *inside* a COSMIC session that
+provides `DBUS_SESSION_BUS_ADDRESS`; a bare greetd spawn has no session bus,
+cosmic-comp cannot init its session D-Bus or update the activation environment,
+and the iced login panel never maps as a layer — grey + cursor only (the same
+symptom the Beta-v2.9.12 account bug produced, hence the `<host>` debugging
+initially attributing the working state to the account rename alone). The live
+wrapper (`v5`, dated well after the installer's heredoc) plus the captured
+`cosmic-greeter.toml` are in the Cosmic-Void as-built evidence.
+
+The installer's cosmic-greeter branch now ships the wrapper explicitly:
+
+- `/etc/greetd/cosmic-greeter.start` is written (the byte-identical `v5`
+  `dbus-run-session` wrapper from the proven-good `<host>` box) and chmodded
+  `0755`.
+- `/var/log/cosmic-greeter-session.log` is **pre-created** as
+  `cosmic-greeter:cosmic-greeter 0644`: the wrapper's `>>` redirect runs as
+  the greeter user (greetd drop-privileges before exec'ing `default_session`)
+  and `/var/log` is root-only, so on a fresh install the redirect would
+  otherwise fail before the compositor starts.
+- The toml's `[default_session] command` is now
+  `command = "/etc/greetd/cosmic-greeter.start"` (not the bare
+  `cosmic-comp cosmic-greeter` the installer previously wrote).
+
+The account fix (Beta-v2.9.12) and this session-bus fix (Beta-v2.9.14) are
+**both** required for a working greeter: exact `cosmic-greeter` username for
+the greeter-vs-locker dispatch, session D-Bus for the panel to map as a layer.
+The parent installer is now aligned with the proven-good machine.
+
+**Validation:** `bash -n` passes; `Debug/check-heredocs.sh` extracts the new
+`/etc/greetd/cosmic-greeter.start` body (bounded `INNER_EOF`) and `bash -n`s it
+clean; `Debug/check-defaults.sh` unchanged (no prompt surface touched); a
+`grep -rn "Beta-v2.9.13"` walk confirmed the only surviving references are
+historical feature markers.
+
+---
+
+---
+
 
 ---
 
