@@ -74,6 +74,25 @@
 #     credential — the response only exists on the YubiKey, so nothing
 #     that unlocks is ever persisted; the passphrase and the HMAC key are
 #     memory-only.
+#     AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: each of /home,
+#     /var, /var/cache, /srv, /opt (and the optional /home/<user>/Games)
+#     can be carved onto its OWN dedicated partition with a per-region
+#     filesystem choice (ext4 or btrfs) instead of living in a Btrfs
+#     subvolume. Region partitions are sliced in FIXED order (home, var,
+#     cache, srv, opt, games) right after the ESP and BEFORE the single
+#     LINUX root partition (or, with [ENCRYPT], as an INNER GPT inside the
+#     LUKS2 container with the Btrfs root LAST on the mapper). Region
+#     subvolumes (@home/@var/@cache/@srv/@opt and their owners) are FOLDED
+#     out of the flat topology so no subvolume collides with a partition
+#     mountpoint, the owned fstab rows are skipped, the owned
+#     /root/tools/void-subvol-tool.sh entries are guarded against re-creating
+#     a carved region's subvolume, and the region and its mounters are
+#     audit-logged to the journal ([MULTI-FS-RUNLOG]). Region partitions
+#     are rollback-exempt (not Snapper-managed) and never inside @root.
+#     A carved region's roundtrip is UNPROVEN beyond the bureau-targeting
+#     fallback behavior; ENCRYPT+region inner-GPT is UNPROVEN on real
+#     hardware. Default (bare Enter everywhere) = all-Btrfs flat layout,
+#     byte-identical to 2.9.37.
 #   - Most subvolumes use noatime+zstd:1 compression. Several are
 #     deliberately nodatacow+compress=none instead: @swap (COW + compression
 #     both break swapfiles), @libvirt (COW hurts qcow2/raw VM disk
@@ -421,6 +440,13 @@
 #      generator resync (kernel hook / snapper plugin) rewrites the file, so
 #      the only durable enable path
 #      is LIMINE_WALLPAPER=yes in limine-env + an image on the ESP.
+#   7. [CRASH-USB-LOG] The CLI-flag loop (--save-log/-r/-d/-h) and the
+#      RESUME state vars MUST stay at the very top, BEFORE the
+#      `: > "$JOURNAL"` truncation, the `ping xmirror` network gate, and the
+#      STAGE-1 banner. A --save-log that parses later (after the network
+#      gate, as it did before Beta-v2.9.38) is useless from a crashed,
+#      networkless live env — the very situation it exists for. Do not "move
+#      it back down" next to the other setup; the placement is the feature.
 # =============================================================================
 set -eE
 # errtrace (-E) makes the ERR trap below fire inside functions/subshells too,
@@ -532,6 +558,7 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.35   [ESP-SIZE] — shared ESP-size menu (4G default/6G/8G/Custom, 1GiB floor); GRUB+ENCRYPT mounts ESP AT /boot so shares it; fixed [GRUB-ESP-SIZE-ORDER] (old in-loop read ENCRYPT before its prompt)
 #     Beta-v2.9.36   [CHANNEL-GROUP];[INSTALL-BREW] — third-party app channels umbrella; Homebrew (Linuxbrew) opt-in CLI/dev channel (runtime xbps deps only, never curl|bash); @linuxbrew per-user subvol row + subvol-tool `dev` class
 #     Beta-v2.9.37   [GAME-LAUNCHERS];[GAME-SUBVOL] — game launchers & runtimes umbrella (Lutris/Heroic/Bottles/Wine/gamemode; Steam was earlier); Heroic+Bottles are Flatpak-only (xbps install pkg list actually NEVER contained them — they ship via the first-boot flatpak queue, gated on INSTALL_FLATPAK); the OLD `install_pkgs heroic` name never existed as a shipped line (crash #005 was a mis-labeled earlier build); ONE shared @game per-user subvol (replaces @steam) mounted at the derived per-launcher set (.local/share/Steam + .local/share/lutris) via subvol-tool multi-mount loop + @steam/gaming alias resolution + @game fstab-guard relaxation + detach/destroy BRE-paren sed fix
+#     Beta-v2.9.38   [MULTI-FS] — per-region data filesystems (/home /var /var/cache /srv /opt + optional Games) carved onto their own partition with an ext4/btrfs filesystem choice; fixed-order outer carve 2..1+NREG (LINUX last), INNER GPT for ENCRYPT; region subvols folded out of the flat topology; owned fstab rows skipped; subvol-tool MULTI-FS-GUARD; region mounts before chroot; games chown; DOCS-LOG DATA_REGIONS. Plus [MULTI-FS-RUNLOG] (journal audit lines + journal archived to /etc/void-installer/installer-run.log on success) and [CRASH-USB-LOG] (crash post-mortem — journal + .info sidecar — to the first mounted stick; --save-log CLI flag parsed BEFORE the journal truncation / network gate / STAGE-1 banner so it works from a crashed, networkless live env)
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -672,6 +699,25 @@ DEFAULT_MICROCODE="${DEFAULT_MICROCODE:-auto}"                      # auto-insta
 # DEFAULT_NIC=<name> pins it and skips both the review prompt and the late
 # INSTALL_VIRT-gated re-probe. Empty = not detected / not pinned.
 DEFAULT_NIC="${DEFAULT_NIC:-}"                                     # pin the bridged-VM wired NIC name
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: data-region filesystem
+# choices. Each region stays a root-Btrfs subvolume (btrfs, default) or is
+# carved onto its own dedicated partition (ext4); the games region is none
+# (default, plain ~/Games directory) / ext4 / btrfs. Size prompts only appear
+# for carved partitions, sized by these defaults when the region is carved.
+# Pressing Enter on every line yields the all-Btrfs layout (no extra
+# partitions, no size prompts) — matching pre-2.9.38 behavior exactly.
+DEFAULT_REGION_HOME_FS="${DEFAULT_REGION_HOME_FS:-btrfs}"  # /home: btrfs (subvol) or ext4 (partition)?
+DEFAULT_REGION_VAR_FS="${DEFAULT_REGION_VAR_FS:-btrfs}"    # /var: btrfs (subvols) or ext4 (partition)?
+DEFAULT_REGION_CACHE_FS="${DEFAULT_REGION_CACHE_FS:-btrfs}" # /var/cache: btrfs (@cache) or ext4 (partition)?
+DEFAULT_REGION_SRV_FS="${DEFAULT_REGION_SRV_FS:-btrfs}"    # /srv: btrfs (@srv) or ext4 (partition)?
+DEFAULT_REGION_OPT_FS="${DEFAULT_REGION_OPT_FS:-btrfs}"    # /opt: btrfs (@opt) or ext4 (partition)?
+DEFAULT_REGION_GAMES="${DEFAULT_REGION_GAMES:-none}"       # ~/<user>/Games: none, ext4, or btrfs partition
+DEFAULT_REGION_HOME_SIZE="${DEFAULT_REGION_HOME_SIZE:-40G}"    # /home partition size
+DEFAULT_REGION_VAR_SIZE="${DEFAULT_REGION_VAR_SIZE:-20G}"    # /var partition size
+DEFAULT_REGION_CACHE_SIZE="${DEFAULT_REGION_CACHE_SIZE:-4G}"  # /var/cache partition size
+DEFAULT_REGION_SRV_SIZE="${DEFAULT_REGION_SRV_SIZE:-4G}"    # /srv partition size
+DEFAULT_REGION_OPT_SIZE="${DEFAULT_REGION_OPT_SIZE:-4G}"    # /opt partition size
+DEFAULT_REGION_GAMES_SIZE="${DEFAULT_REGION_GAMES_SIZE:-60G}"  # Games partition size
 
 
 # =============================================================================
@@ -685,6 +731,115 @@ DEFAULT_NIC="${DEFAULT_NIC:-}"                                     # pin the bri
 # =============================================================================
 JOURNAL="/tmp/void-installer-journal.log"
 jl() { echo "[$(date +%H:%M:%S)] $*" >> "$JOURNAL" 2>/dev/null; }
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [CRASH-USB-LOG]: crash post-mortem to
+# USB. save_log_to_usb() copies the journal + a public-facts .info sidecar to
+# the FIRST mounted+writable stick under /run/media, so a crashed live session
+# that loses its /tmp journal on reboot still leaves a debuggable artifact.
+# SECRET-FREE (matches the journal invariant): it is the journal (never any
+# passphrase/keys by construction) plus public env facts; the .info header
+# records resume-record PRESENCE only — never hashes, install-config,
+# limine-env, or YubiKey/SSH secrets. NEVER writes to a mount backed by $DISK
+# (the disk under install). Fully guarded (|| true) so a missing/locked stick
+# can never abort a crash unwind. Also invocable standalone via --save-log,
+# which MUST be handled BEFORE the `: > "$JOURNAL"` truncation, the `ping
+# xmirror` gate, and the STAGE-1 banner — that placement is what makes it
+# usable from a crashed, networkless live env (invariant #16).
+# =============================================================================
+save_log_to_usb() {
+    {
+        _usb_stamp="$(date +%Y%m%d-%H%M%S 2>/dev/null)"
+        _usb_target=""
+        for _usb_m in /run/media/* /media/*; do
+            [ -d "$_usb_m" ] || continue
+            [ -w "$_usb_m" ]  || continue
+            _usb_dev="$(findmnt -no SOURCE --target "$_usb_m" 2>/dev/null)"
+            # Never write to the disk under install (or its partitions).
+            if [ -n "${DISK:-}" ]; then
+                case "${_usb_dev:-}" in
+                    "$DISK"*) continue ;;
+                esac
+            fi
+            # Never the live medium's loop backing itself.
+            case "${_usb_dev:-}" in
+                /dev/loop*) continue ;;
+            esac
+            _usb_target="$_usb_m"
+            break
+        done
+        [ -n "$_usb_target" ] || { unset _usb_stamp _usb_target _usb_m _usb_dev; return 0; }
+        _usb_base="${_usb_target}/void-installer-crash-${_usb_stamp}"
+        {
+            echo "SCRIPT_VERSION=${SCRIPT_VERSION:-<unset>}"
+            echo "STAGE_CONTEXT=${STAGE_CONTEXT:-<pre-stage>}"
+            echo "TARGET_DISK=${DISK:-<not yet selected>}"
+            echo "BOOTLOADER=${BOOTLOADER:-<n/a>}"
+            echo "DESKTOP_ENV=${DESKTOP_ENV:-<n/a>}"
+            echo "DISPLAY_MANAGER=${DISPLAY_MANAGER:-<n/a>}"
+            echo "ENCRYPT=${ENCRYPT:-no} (public flag only; no passphrase ever)"
+            echo "RESUME_RECORD=$([ -f "$STATE_FILE" ] && echo PRESENT || echo absent)"
+            echo "JOURNAL_LINES=$(wc -l < "$JOURNAL" 2>/dev/null || echo 0)"
+        } > "${_usb_base}.info" 2>/dev/null
+        cp -f "$JOURNAL" "${_usb_base}.log" 2>/dev/null || { unset _usb_stamp _usb_target _usb_m _usb_dev _usb_base; return 0; }
+        jl "CRASH-USB-LOG: post-mortem saved to ${_usb_base}.log (+.info)"
+        echo "!! Crash post-mortem saved to ${_usb_base}.log (+.info) — evidence for triage." >&2
+    } || true
+    unset _usb_stamp _usb_target _usb_m _usb_dev _usb_base
+}
+
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.4.0 [RESUME]: COARSE PHASE RESUME / SUBVOL RESET
+# =============================================================================
+# The live USB session is ephemeral but a crash leaves the script's config in
+# /tmp/void-installer-state.sh, which persists for the rest of this same booted
+# live session. If the user re-runs the script after a crash (without rebooting)
+# this block offers to resume: it restores every previously-entered answer (so
+# nothing has to be re-typed), skips re-partitioning, resets the target's Btrfs
+# contents to a clean slate, and re-runs the (non-idempotent) Stage 2 chroot
+# from scratch — always ending in a clean, consistent install.
+#   - Only plaintext password *hashes* are persisted; live passwords are never
+#     written, and they are cleared from memory right after hashing regardless.
+#   - Triggered by a present state file + `-r/--resume` flag, or an explicit
+#     interactive prompt (defaults to NO = fresh install).
+#   - The state file is removed only on a fully successful install, so a
+#     another crash is still resumable.
+# =============================================================================
+RESUME=0
+AUTO_RESUME=0
+STATE_FILE="/tmp/void-installer-state.sh"
+DRY_RUN=0
+# CLI flags are parsed HERE — before the journal truncation, the `ping xmirror`
+# network gate, and the STAGE-1 banner — so --save-log is usable from a
+# crashed, networkless live env (Beta-v2.9.38 [CRASH-USB-LOG] invariants).
+for _arg in "$@"; do
+    case "$_arg" in
+        -r|--resume) AUTO_RESUME=1 ;;
+        -d|--dry-run|--dryrun|-n)
+            # AI (Big Pickle) ADDITION — Beta-v2.5.1 [DRY-RUN]: see header —
+            # walk the full interactive config, print the complete plan of what
+            # would be done, and stop at the destructive partition boundary
+            # WITHOUT touching any disk, running the chroot, or installing
+            # anything into the live environment.
+            DRY_RUN=1 ;;
+        --save-log)
+            # Beta-v2.9.38 [CRASH-USB-LOG]: dump the current journal (+.info)
+            # to the first mounted stick and continue. Runs before the
+            # truncation below, so after a crash the evidence already on the
+            # USB persists even though the fresh-run journal starts empty.
+            save_log_to_usb ;;
+        -h|--help)
+            echo "Usage: $0 [-r|--resume]          (resume a previous interrupted install)" >&2
+            echo "       $0 [-d|--dry-run] [args]   (walk config, print the plan, touch nothing)" >&2
+            echo "       $0 [--save-log]            (dump crash journal to a mounted USB stick, then continue)" >&2
+            echo "       $0                         (fresh interactive install)" >&2
+            exit 0 ;;
+        *)
+            echo "Unknown option: $_arg" >&2
+            exit 2 ;;
+    esac
+done
+unset _arg
+
 : > "$JOURNAL"
 # =============================================================================
 # AI (Big Pickle) CHANGE — Beta-v2.5.0 [REBOOT-COUNTDOWN]: how long the
@@ -1004,6 +1159,12 @@ cleanup_on_failure() {
     cryptsetup luksClose "${CRYPT_NAME:-void-root}" 2>/dev/null || true
     [ "$ENCRYPT" = "yes" ] && echo "!! Note: the LUKS mapper has been closed — the disk is now LOCKED." >&2
     echo "!! Unwind attempted. Re-check 'mount | grep /mnt' before re-running." >&2
+    # AI (Big Pickle) ADDITION — Beta-v2.9.38 [CRASH-USB-LOG]: after the unwind,
+    # drop the post-mortem (journal + .info) onto the first mounted stick. Runs
+    # here because the /tmp journal dies with the live reboot; the USB copy is
+    # the durable evidence. Fully guarded inside save_log_to_usb() so a
+    # missing/locked stick can never abort this failure path.
+    save_log_to_usb
 }
 trap cleanup_on_failure ERR
 
@@ -1030,44 +1191,10 @@ fi
 # =============================================================================
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [RESUME]: COARSE PHASE RESUME / SUBVOL RESET
 # =============================================================================
-# The live USB session is ephemeral but a crash leaves the script's config in
-# /tmp/void-installer-state.sh, which persists for the rest of this same booted
-# live session. If the user re-runs the script after a crash (without rebooting)
-# this block offers to resume: it restores every previously-entered answer (so
-# nothing has to be re-typed), skips re-partitioning, resets the target's Btrfs
-# contents to a clean slate, and re-runs the (non-idempotent) Stage 2 chroot
-# from scratch — always ending in a clean, consistent install.
-#   - Only plaintext password *hashes* are persisted; live passwords are never
-#     written, and they are cleared from memory right after hashing regardless.
-#   - Triggered by a present state file + `-r/--resume` flag, or an explicit
-#     interactive prompt (defaults to NO = fresh install).
-#   - The state file is removed only on a fully successful install, so a
-#     another crash is still resumable.
-RESUME=0
-AUTO_RESUME=0
-STATE_FILE="/tmp/void-installer-state.sh"
-DRY_RUN=0
-for _arg in "$@"; do
-    case "$_arg" in
-        -r|--resume) AUTO_RESUME=1 ;;
-        -d|--dry-run|--dryrun|-n)
-            # AI (Big Pickle) ADDITION — Beta-v2.5.1 [DRY-RUN]: see header —
-            # walk the full interactive config, print the complete plan of what
-            # would be done, and stop at the destructive partition boundary
-            # WITHOUT touching any disk, running the chroot, or installing
-            # anything into the live environment.
-            DRY_RUN=1 ;;
-        -h|--help)
-            echo "Usage: $0 [-r|--resume]          (resume a previous interrupted install)" >&2
-            echo "       $0 [-d|--dry-run] [args]   (walk config, print the plan, touch nothing)" >&2
-            echo "       $0                         (fresh interactive install)" >&2
-            exit 0 ;;
-        *)
-            echo "Unknown option: $_arg" >&2
-            exit 2 ;;
-    esac
-done
-unset _arg
+# (The RESUME state vars and CLI-flag loop were MOVED UP to the journal block
+# at the top of the script in Beta-v2.9.38 so `--save-log` runs before the
+# journal truncation, the network gate, and the STAGE-1 banner. The state-file
+# detection and resume prompting itself live below, unchanged.)
 
 # AI (Big Pickle) ADDITION — Beta-v2.4.1 [PREREQ]: this installer mounts, partitions
 # and formats real disks, so it must run as root. Placed AFTER option parsing so
@@ -2376,6 +2503,133 @@ case "$ENABLE_SNAPSHOT_AUDIO_INPUT" in
 esac
 export ENABLE_SNAPSHOT_AUDIO
 
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: DATA REGION FILESYSTEMS.
+# The root filesystem (/, /.snapshots, /boot, @swap) is ALWAYS Btrfs — this
+# grouped screen (right after the encryption section, before the Desktop/DM
+# menu) lets each DATA region either stay a root-Btrfs subvolume (default) or
+# be carved onto its own dedicated partition. Pressing Enter on EVERY line
+# yields the all-Btrfs layout: no extra partitions, no size prompts — exactly
+# the pre-2.9.38 behavior. Partition order is fixed: home, var, cache, srv,
+# opt, games, then the Btrfs root LAST (sized to the remainder). With
+# encryption the carved regions become an inner GPT inside the single LUKS2
+# container. Region partitions are rollback-exempt (a root-@ snapshot
+# rollback leaves them alone) but are NOT Snapper-snapshotted, matching their
+# non-rollback-exempt-but-unsnapshotted subvol counterparts.
+# =============================================================================
+if [ "$RESUME" != "1" ]; then
+    echo ""
+    echo "${C_BOLD}${C_BLU}Data region filesystems${C_RST}"
+    echo "  ${C_GRN}btrfs${C_RST}=stays a root-Btrfs subvolume   ${C_GRN}ext4${C_RST}=own dedicated partition"
+    echo "  The root filesystem is ALWAYS Btrfs; these choices only slice DATA regions."
+    echo "  (Enter on every line = all-Btrfs default: no extra partitions, no size prompts.)"
+    ask "/home region — btrfs (subvol) or ext4 (own partition)? [b/e]: "
+    read -r _rh
+    if [ -z "$_rh" ]; then REGION_HOME_FS="$DEFAULT_REGION_HOME_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_HOME_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_HOME_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_HOME_FS="$DEFAULT_REGION_HOME_FS"; fi
+    ask "/var region — btrfs (subvols) or ext4 (own partition)? [b/e]: "
+    read -r _rh
+    if [ -z "$_rh" ]; then REGION_VAR_FS="$DEFAULT_REGION_VAR_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_VAR_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_VAR_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_VAR_FS="$DEFAULT_REGION_VAR_FS"; fi
+    ask "/var/cache region — btrfs (subvol @cache) or ext4 (own partition)? [b/e]: "
+    read -r _rh
+    if [ -z "$_rh" ]; then REGION_CACHE_FS="$DEFAULT_REGION_CACHE_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_CACHE_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_CACHE_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_CACHE_FS="$DEFAULT_REGION_CACHE_FS"; fi
+    ask "/srv region — btrfs (subvol @srv) or ext4 (own partition)? [b/e]: "
+    read -r _rh
+    if [ -z "$_rh" ]; then REGION_SRV_FS="$DEFAULT_REGION_SRV_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_SRV_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_SRV_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_SRV_FS="$DEFAULT_REGION_SRV_FS"; fi
+    ask "/opt region — btrfs (subvol @opt) or ext4 (own partition)? [b/e]: "
+    read -r _rh
+    if [ -z "$_rh" ]; then REGION_OPT_FS="$DEFAULT_REGION_OPT_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_OPT_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_OPT_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_OPT_FS="$DEFAULT_REGION_OPT_FS"; fi
+    ask "~/<user>/Games — none, ext4 partition, or btrfs partition? [n/e/b]: "
+    read -r _rh
+    if [ -z "$_rh" ]; then REGION_GAMES="$DEFAULT_REGION_GAMES"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_GAMES="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_GAMES="btrfs"
+    else echo "  (default) none"; REGION_GAMES="$DEFAULT_REGION_GAMES"; fi
+    unset _rh
+    # Carved regions ask a size prompt (in the fixed carve order); the Btrfs
+    # root always gets the remainder, so it never asks.
+    echo "  Carved region size prompts:"
+    if [ "$REGION_HOME_FS" = "ext4" ]; then
+        ask "  /home partition size [$DEFAULT_REGION_HOME_SIZE]: "
+        read -r _rs
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_HOME_SIZE"
+        REGION_HOME_SIZE="$_rs"
+    fi
+    if [ "$REGION_VAR_FS" = "ext4" ]; then
+        ask "  /var partition size [$DEFAULT_REGION_VAR_SIZE]: "
+        read -r _rs
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_VAR_SIZE"
+        REGION_VAR_SIZE="$_rs"
+    fi
+    if [ "$REGION_CACHE_FS" = "ext4" ]; then
+        ask "  /var/cache partition size [$DEFAULT_REGION_CACHE_SIZE]: "
+        read -r _rs
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_CACHE_SIZE"
+        REGION_CACHE_SIZE="$_rs"
+    fi
+    if [ "$REGION_SRV_FS" = "ext4" ]; then
+        ask "  /srv partition size [$DEFAULT_REGION_SRV_SIZE]: "
+        read -r _rs
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_SRV_SIZE"
+        REGION_SRV_SIZE="$_rs"
+    fi
+    if [ "$REGION_OPT_FS" = "ext4" ]; then
+        ask "  /opt partition size [$DEFAULT_REGION_OPT_SIZE]: "
+        read -r _rs
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_OPT_SIZE"
+        REGION_OPT_SIZE="$_rs"
+    fi
+    if [ "$REGION_GAMES" != "none" ]; then
+        ask "  Games partition size [$DEFAULT_REGION_GAMES_SIZE]: "
+        read -r _rs
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_GAMES_SIZE"
+        REGION_GAMES_SIZE="$_rs"
+    fi
+    unset _rs
+    # Derive the carves in the FIXED partition order (home, var, cache, srv,
+    # opt, games). The leading space is deliberate — every carved region
+    # appends "<space>name" so the value is a plain word list on which a
+    # `for r in $REGION_PARTITIONED` loop iterates; empty = no carve.
+    REGION_PARTITIONED=""
+    [ "$REGION_HOME_FS"  = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED home"
+    [ "$REGION_VAR_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED var"
+    [ "$REGION_CACHE_FS" = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED cache"
+    [ "$REGION_SRV_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED srv"
+    [ "$REGION_OPT_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED opt"
+    [ "$REGION_GAMES"    != "none" ] && REGION_PARTITIONED="$REGION_PARTITIONED games"
+    # Unset the size vars of regions that are NOT carved so downstream logic
+    # (install-config, DBG plan) only sees meaningful values.
+    [ "$REGION_HOME_FS"  != "ext4" ]  && unset REGION_HOME_SIZE
+    [ "$REGION_VAR_FS"   != "ext4" ]  && unset REGION_VAR_SIZE
+    [ "$REGION_CACHE_FS" != "ext4" ]  && unset REGION_CACHE_SIZE
+    [ "$REGION_SRV_FS"   != "ext4" ]  && unset REGION_SRV_SIZE
+    [ "$REGION_OPT_FS"   != "ext4" ]  && unset REGION_OPT_SIZE
+    [ "$REGION_GAMES"    = "none" ]  && unset REGION_GAMES_SIZE
+    [ -n "$REGION_PARTITIONED" ] && echo "  → Carved partitions:${REGION_PARTITIONED}"
+    jl "MULTI-FS: carved=${REGION_PARTITIONED:-<none>} home=${REGION_HOME_FS} var=${REGION_VAR_FS} cache=${REGION_CACHE_FS} srv=${REGION_SRV_FS} opt=${REGION_OPT_FS} games=${REGION_GAMES}"
+else
+    # Resume: REGION_* are restored from the state file (persisted below), so
+    # the carve geometry is identical — nothing to re-ask.
+    :
+fi
+export REGION_HOME_FS REGION_VAR_FS REGION_CACHE_FS REGION_SRV_FS REGION_OPT_FS REGION_GAMES
+export REGION_HOME_SIZE REGION_VAR_SIZE REGION_CACHE_SIZE REGION_SRV_SIZE REGION_OPT_SIZE REGION_GAMES_SIZE
+export REGION_PARTITIONED
+
 # AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.3.0 [KERNEL-MODE]: Where Limine reads the
 # kernel/initramfs from is a real install-time choice, asked only when
 # Limine itself was chosen above — this has no meaning for GRUB, which
@@ -3534,6 +3788,58 @@ done <<EOF
 $SUBVOL_ROWS
 EOF
 
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS] / [MULTI-FS-FOLD].
+# When a region was carved onto its own partition, every subvolume that region
+# owns becomes impossible: a top-level Btrfs subvol cannot span a separate
+# partition. Each carved region FORCES the owned PROVISION_*_SUBVOL flags off
+# here (single site, right after the [SUBVOL-GATES] resolver), so SUBVOL_LIST,
+# the mount loop, fstab, and Stage 2 all agree through the folded flag alone.
+# Ownership map (region -> owned subvol names, per the spec):
+#   home  -> @home @usercache @mozilla @mozilla-cache @chromium @vivaldi
+#            @falkon @brave @thunderbird @game @containers-user @linuxbrew
+#            @virtualbox
+#   var   -> @log @spool @network @libvirt @flatpak @docker @containers
+#            (+ @sddm / @lightdm only when that DM was chosen)
+#   cache -> @cache ;  srv -> @srv ;  opt -> @opt
+# @snapshots, @root, and @ (the Snapper / dracut-overlay / Limine invariants)
+# are NEVER folded — root is always a single Btrfs even when /var is ext4.
+# The games region owns NO subvol here: ~/Games is a plain dir on @home (or on
+# the carved home region); the @game per-launcher subvol lives under @home and
+# folds with the home region itself.
+# =============================================================================
+_region_carved() { # $1=region name; returns 0 when carved onto its own partition
+    case " ${REGION_PARTITIONED:-} " in
+        *" $1 "*) return 0 ;;
+        *)        return 1 ;;
+    esac
+}
+if [ -n "${REGION_PARTITIONED:-}" ]; then
+    for _rg in $REGION_PARTITIONED; do
+        case "$_rg" in
+            home )
+                PROVISION_FIREFOX_SUBVOL=false;       PROVISION_CHROMIUM_SUBVOL=false
+                PROVISION_VIVALDI_SUBVOL=false;       PROVISION_FALKON_SUBVOL=false
+                PROVISION_BRAVE_SUBVOL=false;         PROVISION_THUNDERBIRD_SUBVOL=false
+                PROVISION_GAME_SUBVOL=false;          PROVISION_PODMAN_ROOTLESS_SUBVOL=false
+                PROVISION_LINUXBREW_SUBVOL=false;     PROVISION_VIRTUALBOX_SUBVOL=false
+                jl "MULTI-FS-FOLD: home region carved — home-owned subvol flags forced off (browsers/thunderbird/game/containers-user/linuxbrew/virtualbox)"
+                ;;
+            var )
+                PROVISION_VIRT_SUBVOL=false;          PROVISION_FLATPAK_SUBVOL=false
+                PROVISION_DOCKER_SUBVOL=false;        PROVISION_PODMAN_SUBVOL=false
+                jl "MULTI-FS-FOLD: var region carved — var-owned subvol flags forced off (libvirt/flatpak/docker/containers)"
+                ;;
+            cache ) jl "MULTI-FS-FOLD: cache region carved (@cache stays on the region partition)" ;;
+            srv )   jl "MULTI-FS-FOLD: srv region carved (@srv stays on the region partition)" ;;
+            opt )   jl "MULTI-FS-FOLD: opt region carved (@opt stays on the region partition)" ;;
+            games ) jl "MULTI-FS-FOLD: games region carved (~/Games on its own partition; @home/@game unaffected)" ;;
+            * ) echo "FATAL: unknown region '$_rg'." >&2; exit 1 ;;
+        esac
+    done
+    unset _rg
+fi
+
 # AI (Claude, Sonnet 5, Medium) CHANGE: This whole detection block only matters for the br0
 # bridge (VM networking), so it's skipped entirely when virtualization
 # isn't being installed — no reason to probe hardware or set
@@ -3891,6 +4197,59 @@ else
     export PART_SYS="${DISK}2"
 fi
 
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: PARTITION GEOMETRY.
+# When data regions were carved (REGION_PARTITIONED non-empty) WITHOUT
+# encryption, the fixed order home,var,cache,srv,opt,games is sliced FIRST on
+# the disk and the Btrfs LINUX root goes LAST, sized to the remainder — so the
+# system partition is no longer p2: PART_SYS = p(2+nreg). WITH encryption the
+# disk keeps ESP p1 + one LUKS container taking the whole remainder, and the
+# carved regions become an inner GPT inside the opened mapper (region N is
+# mapper-pN, the Btrfs root is mapper-p(NREG+1), partscan forced by
+# close/reopen — UNPROVEN, [MULTI-FS-PARTSCAN-FORCE] / [INNER-PARTSCAN-BOOT]
+# harden it later). Computed here (single site) so the resume-state file, the
+# dry-run plan, $BTRFS_DEV, fstab, and the sgdisk carve below all agree.
+# Partition 1 stays the ESP in every layout.
+# =============================================================================
+for _rr in $REGION_PARTITIONED; do
+    case "$_rr" in
+        home|var|cache|srv|opt|games) ;;
+        *) echo "FATAL: unknown carved region '$_rr' in REGION_PARTITIONED." >&2; exit 1 ;;
+    esac
+done
+NREG=0
+for _rr in $REGION_PARTITIONED; do NREG=$((NREG + 1)); done
+unset _rr
+if [ -n "${REGION_PARTITIONED:-}" ] && [ "$ENCRYPT" != "yes" ]; then
+    # Outer-disk carve: regions 2..1+nreg, LINUX last (remainder).
+    if [[ "$DISK" =~ (nvme|mmcblk) ]]; then
+        export PART_SYS="${DISK}p$((NREG + 2))"
+    else
+        export PART_SYS="${DISK}$((NREG + 2))"
+    fi
+    # Per-region partition device, in carve order.
+    _rr_i=1
+    for _rr in $REGION_PARTITIONED; do
+        _rr_pn=$((_rr_i + 1))
+        if [[ "$DISK" =~ (nvme|mmcblk) ]]; then
+            eval "REGION_PART_${_rr}=\"\${DISK}p\${_rr_pn}\""
+        else
+            eval "REGION_PART_${_rr}=\"\${DISK}\${_rr_pn}\""
+        fi
+        _rr_i=$((_rr_i + 1))
+    done
+    unset _rr_i _rr_pn _rr
+    jl "MULTI-FS geometry: nreg=${NREG} carved='${REGION_PARTITIONED}' PART_SYS=${PART_SYS} (outer carve)"
+elif [ "${REGION_PARTITIONED:-}" = "" ]; then
+    jl "MULTI-FS: no carved regions (all-Btrfs layout; PART_SYS=${PART_SYS})"
+else
+    # ENCRYPT+regions: outer disk is ESP + single LUKS container (PART_SYS
+    # stays p2); the inner GPT on the mapper is carved after luksOpen with
+    # region i at mapper-pi and the Btrfs root at mapper-p(NREG+1).
+    jl "MULTI-FS geometry: ENCRYPT+regions nreg=${NREG} carved='${REGION_PARTITIONED}' LUKS container=${PART_SYS} (inner GPT on mapper)"
+fi
+export NREG
+
 # AI (Big Pickle) ADDITION — Beta-v2.4.1 [MIRROR]: these defaults are only applied
 # when no mirror was chosen in the earlier prompt step (e.g. on a resumed run
 # that skipped it); otherwise the user's regional selection is preserved.
@@ -4040,6 +4399,9 @@ DEVICE_PROFILE PROFILE_TLP PROFILE_BT PROFILE_PRELOAD \
                 ENCRYPT \
                CRYPT_NAME \
                YK_MODE YK_FALLBACK YK_SLOT YK_CHALLENGE YK_TOUCH \
+               REGION_HOME_FS REGION_VAR_FS REGION_CACHE_FS REGION_SRV_FS REGION_OPT_FS REGION_GAMES \
+               REGION_HOME_SIZE REGION_VAR_SIZE REGION_CACHE_SIZE REGION_SRV_SIZE REGION_OPT_SIZE REGION_GAMES_SIZE \
+               REGION_PARTITIONED \
                REPO_PRIMARY REPO_BACKUP1 REPO_BACKUP2 \
 DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
 INSTALL_FLATPAK INSTALL_BREW INSTALL_FIREFOX INSTALL_CHROMIUM \
@@ -4095,6 +4457,7 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "  Repo (primary)        : ${REPO_PRIMARY:-<unset>}"
     echo "  Swap / Hibernation    : ${SWAP_BACKEND:-<unset>} / ${ENABLE_HIBERNATION:-<unset>}"
     echo "  Encryption            : ${ENCRYPT:-no}${ENCRYPT:+$([ "$ENCRYPT" = "yes" ] && { [ "$YK_MODE" = "hmac-sha1" ] && echo " (LUKS2 full-disk + YubiKey hmac-sha1, fallback=$YK_FALLBACK)" || echo " (LUKS2 full-disk, passphrase at boot)"; } || true)}"
+    echo "  Data regions (MULTI-FS): carved=['${REGION_PARTITIONED:-}'] home=${REGION_HOME_FS:-btrfs} var=${REGION_VAR_FS:-btrfs} cache=${REGION_CACHE_FS:-btrfs} srv=${REGION_SRV_FS:-btrfs} opt=${REGION_OPT_FS:-btrfs} games=${REGION_GAMES:-none}"
     echo "  Accounts model        : ${ACCOUNT_MODEL:-<unset>}"
     echo "  App channels          : Flatpak=${INSTALL_FLATPAK:-no} Homebrew=${INSTALL_BREW:-no}"
     echo "  Game launchers        : steam=${INSTALL_STEAM:-no} lutris=${INSTALL_LUTRIS:-no} heroic=${INSTALL_HEROIC:-no} bottles=${INSTALL_BOTTLES:-no} wine=${INSTALL_GAME_WINE:-no} gamemode=${INSTALL_GAMEMODE:-no}"
@@ -4136,8 +4499,36 @@ if [ "$RESUME" != "1" ]; then
     # Clear disk maps and slice target partitions
     sgdisk -Z "$DISK" && sgdisk -og "$DISK"
     sgdisk -n "1::+${EFI_PART_SIZE}" -t 1:ef00 -c 1:'ESP' "$DISK"
-    sgdisk -n 2:: -t 2:8300 -c 2:'LINUX' "$DISK"
-
+    if [ -n "${REGION_PARTITIONED:-}" ] && [ "$ENCRYPT" != "yes" ]; then
+        # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: outer carve.
+        # Regions are sliced 2..1+NREG in the fixed order home,var,cache,srv,
+        # opt,games, each sized from its REGION_<NAME>_SIZE; LINUX goes LAST.
+        _rr_pn=2
+        for _rr in $REGION_PARTITIONED; do
+            eval "_rr_n=\${REGION_${_rr}_SIZE:-}"
+            if [ -z "$_rr_n" ]; then
+                echo "FATAL: region '$_rr' carved but REGION_${_rr}_SIZE is unset." >&2
+                exit 1
+            fi
+            # Sizes like "40G" need the '+' prefix stripped to be literal:
+            # sgdisk's "+40G" is relative-to-start, but a bare "40G" (no '+')
+            # from a fixed endpoint also means up-to that size. Force the
+            # explicit absolute interpretation exactly like the ESP carve.
+            _rr_posn="${_rr_n#+}"
+            sgdisk -n "${_rr_pn}::+${_rr_posn}" -t "${_rr_pn}":8300 -c "${_rr_pn}":"LINUX-${_rr}" "$DISK"
+            _rr_pn=$((_rr_pn + 1))
+        done
+        sgdisk -n "${_rr_pn}::" -t "${_rr_pn}":8300 -c "${_rr_pn}":'LINUX' "$DISK"
+        unset _rr_pn _rr_posn _rr _rr_n
+    else
+        sgdisk -n 2:: -t 2:8300 -c 2:'LINUX' "$DISK"
+    fi
+    # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS-RUNLOG]: line the journal
+    # with the carve summary so a crash (or the installer-run.log archive below)
+    # shows exactly what partition geometry was written. REGION_PARTITIONED is
+    # space-separated by construction, so the fs summary below is word-split
+    # deliberately (SC2086 ignored — same pattern as the KERNEL_ENTRIES walk).
+    jl "MULTI-FS-RUNLOG: outer carve on ${DISK} complete (regions: ${REGION_PARTITIONED:-none})"
     partprobe "$DISK"
     sleep 2
 
@@ -4193,6 +4584,45 @@ if [ "$RESUME" != "1" ]; then
         fi
         echo "   OK: passphrase verified (luksFormat key == unlock key)."
         BTRFS_DEV="$CRYPT_DEV"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS] + ENCRYPT: the
+        # carved regions become an INNER GPT inside the single LUKS2 container.
+        # The ESC p1 stays on the outer disk; this mapper, once opened, is the
+        # inner "disk": region partitions 1..NREG in fixed order, then the
+        # Btrfs LINUX root LAST (mapper-p(NREG+1), sized to the remainder).
+        # Partscan is forced by closing + re-opening the mapper so the kernel
+        # re-reads the freshly-written inner GPT (the [MULTI-FS-PARTSCAN-FORCE]
+        # fix — Beta-v2.9.39 — was the follow-up that made this reliable).
+        if [ -n "${REGION_PARTITIONED:-}" ]; then
+            echo "==> Carving inner GPT inside ${BTRFS_DEV} (MULTI-FS + ENCRYPT)..."
+            sgdisk -Z "$BTRFS_DEV" && sgdisk -og "$BTRFS_DEV"
+            _rr_pn=1
+            for _rr in $REGION_PARTITIONED; do
+                eval "_rr_n=\${REGION_${_rr}_SIZE:-}"
+                [ -n "$_rr_n" ] || { echo "FATAL: region '$_rr' carved but REGION_${_rr}_SIZE unset." >&2; exit 1; }
+                _rr_posn="${_rr_n#+}"
+                sgdisk -n "${_rr_pn}::+${_rr_posn}" -t "${_rr_pn}":8300 -c "${_rr_pn}":"LINUX-${_rr}" "$BTRFS_DEV"
+                _rr_pn=$((_rr_pn + 1))
+            done
+            sgdisk -n "${_rr_pn}::" -t "${_rr_pn}":8300 -c "${_rr_pn}":'LINUX' "$BTRFS_DEV"
+            unset _rr_pn _rr_posn _rr
+            # Force partscan: close + re-open the mapper (fresh passphrase is
+            # still in memory at this point), which makes the kernel register
+            # the inner GPT. UNPROVEN on real hardware at Beta-v2.9.38 — later
+            # [MULTI-FS-PARTSCAN-FORCE]/[INNER-PARTSCAN-BOOT] harden this.
+            cryptsetup luksClose "$CRYPT_NAME"
+            printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksOpen --key-file=- "$PART_SYS" "$CRYPT_NAME"
+            partprobe "$BTRFS_DEV" 2>/dev/null || true
+            sleep 2
+            # Inner devices use the mapper's pN naming (like an nvme disk).
+            _rr_i=1
+            for _rr in $REGION_PARTITIONED; do
+                eval "REGION_PART_${_rr}=\"\${BTRFS_DEV}p\${_rr_i}\""
+                _rr_i=$((_rr_i + 1))
+            done
+            unset _rr_i _rr
+            BTRFS_DEV="${CRYPT_DEV}p$((NREG + 1))"
+            jl "MULTI-FS inner GPT carved inside LUKS2; BTRFS_DEV=${BTRFS_DEV} PART_SYS=${PART_SYS}"
+        fi
         # AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: bind the YubiKey
         # HMAC response as an ADDITIONAL LUKS key slot while the passphrase
         # (which authenticated luksFormat) is still in memory. YK_KEY was
@@ -4223,6 +4653,30 @@ if [ "$RESUME" != "1" ]; then
 
     # Apply filesystems
     mkfs.fat -F32 -n EFI "$PART_EFI"
+    # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: format each carved
+    # region partition (ext4 or btrfs) BEFORE the LINUX Btrfs root so a region
+    # mkfs failure aborts the install before the root is ever formatted.
+    # Region devices were resolved either from the outer GPT carve (plain) or
+    # the inner LUKS GPT above (ENCRYPT); REGION_<NAME>_FS says the filesystem.
+    if [ -n "${REGION_PARTITIONED:-}" ]; then
+        for _rr in $REGION_PARTITIONED; do
+            eval "_rr_dev=\${REGION_PART_${_rr}:-}"
+            eval "_rr_fs=\${REGION_${_rr}_FS:-btrfs}"
+            [ -n "$_rr_dev" ] || { echo "FATAL: REGION_PART_${_rr} unset — region device was never resolved." >&2; exit 1; }
+            [ -e "$_rr_dev" ] || { echo "FATAL: region device ${_rr_dev} for '${_rr}' does not exist (partscan?)." >&2; exit 1; }
+            echo "==> Formatting region '${_rr}' (${_rr_fs}) on ${_rr_dev}"
+            # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS-RUNLOG]: journal
+            # each region's mkfs so a late failure shows which filesystem landed
+            # on which device — this is the audit trail for the installer-run.log.
+            jl "MULTI-FS-RUNLOG: mkfs '${_rr}' (${_rr_fs}) on ${_rr_dev}"
+            case "$_rr_fs" in
+                ext4) mkfs.ext4 -F -L "VOID-${_rr}" "$_rr_dev" ;;
+                btrfs) mkfs.btrfs -f -L "VOID-${_rr}" "$_rr_dev" ;;
+                *) echo "FATAL: unsupported region filesystem '$_rr_fs' for '$_rr'." >&2; exit 1 ;;
+            esac
+        done
+        unset _rr _rr_dev _rr_fs
+    fi
     mkfs.btrfs -f -L VOID "$BTRFS_DEV"
     mount -v "$BTRFS_DEV" /mnt
 else
@@ -4314,6 +4768,25 @@ else
         fi
     fi
 
+    # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS] + ENCRYPT (resume):
+    # the inner GPT already lives inside the LUKS container from the previous
+    # run; resolve the region devices from the (just opened) mapper the same
+    # way the fresh path does, and point BTRFS_DEV at the LAST inner partition
+    # (the LINUX Btrfs root). Partscan is forced here too (partprobe after
+    # open), mirroring the fresh-install close/re-open force above.
+    if [ "$ENCRYPT" = "yes" ] && [ -n "${REGION_PARTITIONED:-}" ]; then
+        partprobe "$CRYPT_DEV" 2>/dev/null || true
+        sleep 2
+        _rr_i=1
+        for _rr in $REGION_PARTITIONED; do
+            eval "REGION_PART_${_rr}=\"\${CRYPT_DEV}p\${_rr_i}\""
+            _rr_i=$((_rr_i + 1))
+        done
+        unset _rr_i _rr
+        BTRFS_DEV="${CRYPT_DEV}p$((NREG + 1))"
+        jl "MULTI-FS resume: inner region devices resolved; BTRFS_DEV=${BTRFS_DEV}"
+    fi
+
     mount -v -o subvolid=5 "$BTRFS_DEV" /mnt
 fi
 # AI (Big Pickle) NOTE — Open Item #7 DECIDED (Beta-v2.4.1): @grub is KEPT as a
@@ -4328,6 +4801,28 @@ fi
 # derivation below). This closes former CHANGELOG Open Item #7 — no removal is
 # planned.
 BASE_LAYOUT="@ @home @opt @srv @snapshots @cache @log @spool @usercache @root"
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS-FOLD]: a carved region
+# REPLACES the owned subvols it would otherwise provide (a top-level Btrfs
+# subvol cannot span a separate partition). Entries owned by any carved region
+# are pruned from BASE_LAYOUT here (the single pruning site) so SUBVOL_LIST,
+# the create-loop, mounts, and fstab below all agree. @snapshots/@root/@ are
+# never candidates. The @network addition below and the DM/provisioned
+# additions are folded upstream by [MULTI-FS-FOLD] forcing their flags off.
+for _fld in @home @opt @srv @cache @log @spool @usercache; do
+    case "$_fld" in
+        @home)      _fldr="home" ;;
+        @opt)       _fldr="opt" ;;
+        @srv)       _fldr="srv" ;;
+        @cache)     _fldr="cache" ;;
+        @log|@spool)    _fldr="var" ;;
+        @usercache) _fldr="home" ;;
+    esac
+    if _region_carved "$_fldr"; then
+        BASE_LAYOUT="${BASE_LAYOUT/ $_fld / }"
+        jl "MULTI-FS-FOLD: pruned ${_fld} from BASE_LAYOUT (${_fldr} region carved)"
+    fi
+done
+unset _fld _fldr
 # AI (Big Pickle) ADDITION — Beta-v2.6.2 [GRUB-ESP-BOOT]: with
 # BOOTLOADER=grub AND full-disk encryption, the ESP is mounted AT /boot (not
 # /boot/efi) so the ENTIRE boot tree — grub.cfg, grub modules, every kernel
@@ -4348,7 +4843,12 @@ SUBVOL_LIST="$BASE_LAYOUT"
 # /var/lib/NetworkManager runtime state (leases, NetworkManager.state) so a
 # Snapper rollback of @ does not rewind it. Unconditional because
 # NetworkManager is installed on every build (both $SESSION_STACK branches).
-SUBVOL_LIST="$SUBVOL_LIST @network"
+# Beta-v2.9.38 [MULTI-FS]: when the var region is carved, /var lives on its
+# own partition and @network (a root-Btrfs subvol) would never be mounted —
+# skip it so the create-loop does not leave a dead subvolume behind.
+if ! _region_carved var; then
+    SUBVOL_LIST="$SUBVOL_LIST @network"
+fi
 [ "$PROVISION_VIRT_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @libvirt"
 [ "$PROVISION_FLATPAK_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @flatpak"
 [ "$PROVISION_DOCKER_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @docker"
@@ -4367,8 +4867,8 @@ SUBVOL_LIST="$SUBVOL_LIST @network"
 # across logins; gated the same way). The fstab then mounts the matching
 # one; the unselected DM's subvolume is never created at all, so no dead
 # subvolume is left behind on the partition.
-[ "$DISPLAY_MANAGER" = "sddm" ] && SUBVOL_LIST="$SUBVOL_LIST @sddm"
-[ "$DISPLAY_MANAGER" = "lightdm" ] && SUBVOL_LIST="$SUBVOL_LIST @lightdm"
+[ "$DISPLAY_MANAGER" = "sddm" ] && ! _region_carved var && SUBVOL_LIST="$SUBVOL_LIST @sddm"
+[ "$DISPLAY_MANAGER" = "lightdm" ] && ! _region_carved var && SUBVOL_LIST="$SUBVOL_LIST @lightdm"
 # AI (Big Pickle) CHANGE — Beta-v2.4.0 [item 5]: @grub exists only
 # for BOOTLOADER=grub. The old script created and mounted a dedicated @grub
 # subvolume at /boot/grub regardless of bootloader; under BOOTLOADER=limine
@@ -4511,21 +5011,37 @@ mkdir -vp /mnt/var/lib/NetworkManager
 # effect on a Btrfs subvolume root. The mount/fstab `nodatacow,compress=none`
 # options for @srv/@cache/@log/@spool/@libvirt are the real mechanism.
 
-mount -vo $BTRFS_OPTS,subvol=@home "$BTRFS_DEV" /mnt/home
-mount -vo $BTRFS_OPTS,subvol=@opt "$BTRFS_DEV" /mnt/opt
-mount -vo noatime,nodatacow,compress=none,subvol=@srv "$BTRFS_DEV" /mnt/srv
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: every mount here that
+# would provide what a carved region owns is gated on that region NOT being
+# carved (the subvol was pruned from BASE_LAYOUT/SUBVOL_LIST above, so the
+# mount would otherwise fail with "no such subvolume"); the carved regions
+# themselves are mounted from their own partitions right after.
+
+if ! _region_carved home; then
+    mount -vo $BTRFS_OPTS,subvol=@home "$BTRFS_DEV" /mnt/home
+fi
+if ! _region_carved opt; then
+    mount -vo $BTRFS_OPTS,subvol=@opt "$BTRFS_DEV" /mnt/opt
+fi
+if ! _region_carved srv; then
+    mount -vo noatime,nodatacow,compress=none,subvol=@srv "$BTRFS_DEV" /mnt/srv
+fi
 mount -vo $BTRFS_OPTS,subvol=@snapshots "$BTRFS_DEV" /mnt/.snapshots
-mount -vo noatime,nodatacow,compress=none,subvol=@cache "$BTRFS_DEV" /mnt/var/cache
-if [ "$DISPLAY_MANAGER" = "sddm" ]; then
+if ! _region_carved cache; then
+    mount -vo noatime,nodatacow,compress=none,subvol=@cache "$BTRFS_DEV" /mnt/var/cache
+fi
+if [ "$DISPLAY_MANAGER" = "sddm" ] && ! _region_carved var; then
     mount -vo $BTRFS_OPTS,subvol=@sddm "$BTRFS_DEV" /mnt/var/lib/sddm
-elif [ "$DISPLAY_MANAGER" = "lightdm" ]; then
+elif [ "$DISPLAY_MANAGER" = "lightdm" ] && ! _region_carved var; then
     mount -vo $BTRFS_OPTS,subvol=@lightdm "$BTRFS_DEV" /mnt/var/lib/lightdm
 fi
 if [ "$PROVISION_VIRT_SUBVOL" = "true" ]; then
     mount -vo noatime,nodatacow,compress=none,subvol=@libvirt "$BTRFS_DEV" /mnt/var/lib/libvirt
 fi
-mount -vo noatime,nodatacow,compress=none,subvol=@log "$BTRFS_DEV" /mnt/var/log
-mount -vo noatime,nodatacow,compress=none,subvol=@spool "$BTRFS_DEV" /mnt/var/spool
+if ! _region_carved var; then
+    mount -vo noatime,nodatacow,compress=none,subvol=@log "$BTRFS_DEV" /mnt/var/log
+    mount -vo noatime,nodatacow,compress=none,subvol=@spool "$BTRFS_DEV" /mnt/var/spool
+fi
 # AI (Big Pickle) REMOVED — Beta-v2.5.9 [DROP-@TMP]: the @tmp subvolume is
 # gone. It was provisioned, mounted here, then permanently shadowed at boot by
 # the tmpfs /var/tmp fstab line — a top-level subvolume that never mounted at
@@ -4540,8 +5056,12 @@ mount -vo noatime,nodatacow,compress=none,subvol=@spool "$BTRFS_DEV" /mnt/var/sp
 [ "$PROVISION_DOCKER_SUBVOL" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@docker "$BTRFS_DEV" /mnt/var/lib/docker
 [ "$PROVISION_PODMAN_SUBVOL" = "true" ] && mount -vo $BTRFS_OPTS,subvol=@containers "$BTRFS_DEV" /mnt/var/lib/containers
 # AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: @network holds NM's
-# runtime state (leases, NetworkManager.state).
-mount -vo $BTRFS_OPTS,subvol=@network "$BTRFS_DEV" /mnt/var/lib/NetworkManager
+# runtime state (leases, NetworkManager.state). Beta-v2.9.38 [MULTI-FS]:
+# skipped when the var region is carved (NM state lives on the region
+# partition's /mnt/var/lib/NetworkManager instead).
+if ! _region_carved var; then
+    mount -vo $BTRFS_OPTS,subvol=@network "$BTRFS_DEV" /mnt/var/lib/NetworkManager
+fi
 mount -vo $BTRFS_OPTS,subvol=@root "$BTRFS_DEV" /mnt/root
 
 # AI (Big Pickle) CHANGE — Beta-v2.4.0 [SWAP]: @swap mounted + made nodatacow only
@@ -4556,6 +5076,52 @@ if [ "$GRUB_ESP_BOOT" = "true" ]; then
     mount -v "$PART_EFI" /mnt/boot
 else
     mount -v "$PART_EFI" /mnt/boot/efi
+fi
+
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: MOUNT THE CARVED REGIONS.
+# Each carved region's own partition is mounted over its mountpoint AFTER the
+# Btrfs subvol layout (so mountpoints exist) and BEFORE the chroot. Owned
+# subvolumes were folded out above, so nothing collides. Mountpoints:
+#   home=/home  var=/var  cache=/var/cache  srv=/srv  opt=/opt
+#   games=/home/<TARGET_USER>/Games  (only meaningful when @home is real)
+# Region partitions are rollback-exempt but not snapshotted (Snapper only
+# handles the root Btrfs). A mountpoint collision (e.g. @home mount left) is
+# impossible because the mounts above are gated on the region NOT being carved.
+# =============================================================================
+if [ -n "${REGION_PARTITIONED:-}" ]; then
+    for _rr in $REGION_PARTITIONED; do
+        eval "_rr_dev=\${REGION_PART_${_rr}:-}"
+        eval "_rr_fs=\${REGION_${_rr}_FS:-btrfs}"
+        [ -n "$_rr_dev" ] || { echo "FATAL: REGION_PART_${_rr} unset at region-mount time." >&2; exit 1; }
+        case "$_rr" in
+            home)  _rr_mp="/mnt/home" ; _rr_leaf="home" ;;
+            var)   _rr_mp="/mnt/var" ; _rr_leaf="var" ;;
+            cache) _rr_mp="/mnt/var/cache" ; _rr_leaf="var" ;;
+            srv)   _rr_mp="/mnt/srv" ; _rr_leaf="srv" ;;
+            opt)   _rr_mp="/mnt/opt" ; _rr_leaf="opt" ;;
+            games) _rr_mp="/mnt/home/${TARGET_USER}/Games" ; _rr_leaf="home" ;;
+            *) echo "FATAL: unknown region '$_rr'." >&2; exit 1 ;;
+        esac
+        mkdir -vp "$_rr_mp"
+        # Mount source options match the fstab row written below (see [MULTI-FS]
+        # fstab block) so the live chroot layout == boot layout.
+        if [ "$_rr_fs" = "ext4" ]; then
+            mount -vo defaults,noatime "$_rr_dev" "$_rr_mp"
+        else
+            if [ "$_rr_leaf" = "var" ] || [ "$_rr_leaf" = "srv" ]; then
+                mount -vo defaults,noatime,nodatacow,compress=none "$_rr_dev" "$_rr_mp"
+            else
+                mount -vo defaults,noatime,compress=zstd:1 "$_rr_dev" "$_rr_mp"
+            fi
+        fi
+        echo "  Region '${_rr}' mounted ($_rr_fs) → ${_rr_mp}"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS-RUNLOG]: the mount
+        # audit line (device, fs, mountpoint) mirrors the fstab row content so
+        # live-layout == boot-layout is checkable from the journal alone.
+        jl "MULTI-FS-RUNLOG: region '${_rr}' mounted (${_rr_fs}) ${_rr_dev} -> ${_rr_mp}"
+    done
+    unset _rr _rr_dev _rr_fs _rr_mp _rr_leaf
 fi
 
 ARCH="x86_64"
@@ -4616,16 +5182,69 @@ fi
 
 cat > /mnt/etc/fstab << EOF
 UUID=$BTRFS_UUID /                btrfs noatime,compress=zstd:1,subvol=@ 0 0
-UUID=$BTRFS_UUID /home            btrfs noatime,compress=zstd:1,subvol=@home 0 0
 UUID=$BTRFS_UUID /.snapshots      btrfs noatime,compress=zstd:1,subvol=@snapshots 0 0
-UUID=$BTRFS_UUID /opt             btrfs noatime,compress=zstd:1,subvol=@opt 0 0
-UUID=$BTRFS_UUID /srv             btrfs noatime,nodatacow,compress=none,subvol=@srv 0 0
-UUID=$BTRFS_UUID /var/cache       btrfs noatime,nodatacow,compress=none,subvol=@cache 0 0
-UUID=$BTRFS_UUID /var/log         btrfs noatime,nodatacow,compress=none,subvol=@log 0 0
-UUID=$BTRFS_UUID /var/spool       btrfs noatime,nodatacow,compress=none,subvol=@spool 0 0
 tmpfs            /tmp             tmpfs defaults,noatime,mode=1777 0 0
 tmpfs            /var/tmp         tmpfs defaults,noatime,mode=1777 0 0
 EOF
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: region-owned rows are
+# written as separate fstab entries (not in the heredoc) because each one is
+# either a folded subvol row (region NOT carved — Btrfs root) or a region
+# partition row (region carved — its own UUID). The gating mirrors the
+# Stage-1 mounts exactly so the chroot layout == the boot layout.
+if ! _region_carved home; then
+    echo "UUID=$BTRFS_UUID /home            btrfs noatime,compress=zstd:1,subvol=@home 0 0" >> /mnt/etc/fstab
+fi
+if ! _region_carved opt; then
+    echo "UUID=$BTRFS_UUID /opt             btrfs noatime,compress=zstd:1,subvol=@opt 0 0" >> /mnt/etc/fstab
+fi
+if ! _region_carved srv; then
+    echo "UUID=$BTRFS_UUID /srv             btrfs noatime,nodatacow,compress=none,subvol=@srv 0 0" >> /mnt/etc/fstab
+fi
+if ! _region_carved cache; then
+    echo "UUID=$BTRFS_UUID /var/cache       btrfs noatime,nodatacow,compress=none,subvol=@cache 0 0" >> /mnt/etc/fstab
+fi
+if ! _region_carved var; then
+    echo "UUID=$BTRFS_UUID /var/log         btrfs noatime,nodatacow,compress=none,subvol=@log 0 0" >> /mnt/etc/fstab
+    echo "UUID=$BTRFS_UUID /var/spool       btrfs noatime,nodatacow,compress=none,subvol=@spool 0 0" >> /mnt/etc/fstab
+fi
+
+# Region partition rows: source is the region device's own fs UUID; the
+# mountpoint/options repeat the Stage-1 region mount block above.
+if [ -n "${REGION_PARTITIONED:-}" ]; then
+    for _rr in $REGION_PARTITIONED; do
+        eval "_rr_dev=\${REGION_PART_${_rr}:-}"
+        eval "_rr_fs=\${REGION_${_rr}_FS:-btrfs}"
+        eval "_rr_uuid=\${REGION_UUID_${_rr}:-}"
+        if [ -z "$_rr_uuid" ]; then
+            _rr_uuid=$(blkid -s UUID -o value "$_rr_dev")
+            eval "REGION_UUID_${_rr}=\"\${_rr_uuid}\""
+        fi
+        [ -n "$_rr_uuid" ] || { echo "FATAL: could not read UUID for region '$_rr' device $_rr_dev." >&2; exit 1; }
+        case "$_rr" in
+            home)  _rr_mp="/home" ; _rr_leaf="home" ;;
+            var)   _rr_mp="/var" ; _rr_leaf="var" ;;
+            cache) _rr_mp="/var/cache" ; _rr_leaf="var" ;;
+            srv)   _rr_mp="/srv" ; _rr_leaf="srv" ;;
+            opt)   _rr_mp="/opt" ; _rr_leaf="opt" ;;
+            games) _rr_mp="/home/${TARGET_USER}/Games" ; _rr_leaf="home" ;;
+            *) echo "FATAL: unknown region '$_rr'." >&2; exit 1 ;;
+        esac
+        # fstab totals: ext4=0 2 (fsck), btrfs=0 0 (no fsck / needs Btrfs first).
+        if [ "$_rr_fs" = "ext4" ]; then
+            echo "UUID=$_rr_uuid $_rr_mp ext4 defaults,noatime 0 2" >> /mnt/etc/fstab
+        elif [ "$_rr_leaf" = "var" ] || [ "$_rr_leaf" = "srv" ]; then
+            echo "UUID=$_rr_uuid $_rr_mp btrfs defaults,noatime,nodatacow,compress=none 0 0" >> /mnt/etc/fstab
+        else
+            echo "UUID=$_rr_uuid $_rr_mp btrfs defaults,noatime,compress=zstd:1 0 0" >> /mnt/etc/fstab
+        fi
+        # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS-RUNLOG]: log the row
+        # actually emitted (not just the mount) so the journal records the fstab
+        # as built — the checkable companion to the boot-time layout.
+        jl "MULTI-FS-RUNLOG: fstab row UUID=$_rr_uuid $_rr_mp $_rr_fs"
+    done
+    unset _rr _rr_dev _rr_fs _rr_uuid _rr_mp _rr_leaf
+fi
 
 # AI (Big Pickle) CHANGE — Beta-v2.6.2 [GRUB-ESP-BOOT]: the ESP mountpoint
 # is /boot in the GRUB+ENCRYPT combo (it covers the whole boot tree so GRUB
@@ -4685,15 +5304,21 @@ if [ "$PROVISION_PODMAN_SUBVOL" = "true" ]; then
     echo "UUID=$BTRFS_UUID /var/lib/containers btrfs noatime,compress=zstd:1,subvol=@containers 0 0" >> /mnt/etc/fstab
 fi
 # AI (Big Pickle) ADDITION — Beta-v2.6.1 [SUBVOLS]: @network fstab entry
-# (unconditional, NM is always installed).
-echo "UUID=$BTRFS_UUID /var/lib/NetworkManager btrfs noatime,compress=zstd:1,subvol=@network 0 0" >> /mnt/etc/fstab
+# (unconditional in prior versions because NM is always installed).
+# Beta-v2.9.38 [MULTI-FS]: skipped when the var region is carved (NM state
+# lives on the region partition's /var/lib/NetworkManager instead).
+if ! _region_carved var; then
+    echo "UUID=$BTRFS_UUID /var/lib/NetworkManager btrfs noatime,compress=zstd:1,subvol=@network 0 0" >> /mnt/etc/fstab
+fi
 # AI (Claude, Sonnet 5, Medium) CHANGE — Beta-v2.4.0: mount the display manager's
 # runtime/state subvolume, matching the one created in Stage 1. @sddm is
 # mounted (via tmpfs in older revisions) for SDDM; when LightDM is chosen, a
 # dedicated @lightdm btrfs subvolume persists its per-user state instead.
-if [ "$DISPLAY_MANAGER" = "sddm" ]; then
+# Beta-v2.9.38 [MULTI-FS]: both DM subvols are var-owned, so they are also
+# skipped when the var region is carved.
+if [ "$DISPLAY_MANAGER" = "sddm" ] && ! _region_carved var; then
     echo "UUID=$BTRFS_UUID /var/lib/sddm btrfs noatime,compress=zstd:1,subvol=@sddm 0 0" >> /mnt/etc/fstab
-elif [ "$DISPLAY_MANAGER" = "lightdm" ]; then
+elif [ "$DISPLAY_MANAGER" = "lightdm" ] && ! _region_carved var; then
     echo "UUID=$BTRFS_UUID /var/lib/lightdm btrfs noatime,compress=zstd:1,subvol=@lightdm 0 0" >> /mnt/etc/fstab
 fi
 # AI (Big Pickle) CHANGE — Beta-v2.4.0 [item 5]: /boot/grub fstab
@@ -4765,6 +5390,19 @@ echo "export PROVISION_BRAVE_SUBVOL=\"$PROVISION_BRAVE_SUBVOL\"" >> /mnt/tmp/chr
 echo "export PROVISION_THUNDERBIRD_SUBVOL=\"$PROVISION_THUNDERBIRD_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_GAME_SUBVOL=\"$PROVISION_GAME_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_VIRTUALBOX_SUBVOL=\"$PROVISION_VIRTUALBOX_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: thread the region choices
+# into Stage 2 so the chroot's games/@usercache/profile flows can gate on
+# whether a region was carved (e.g. ~/Games is a plain dir on the region
+# partition vs a subvolume tree, and @usercache/fstab rows must agree with the
+# folded mount layout). The purpose is purely informational in the chroot —
+# the actual mounts/fstab already happened on the ROOT side.
+echo "export REGION_PARTITIONED=\"$REGION_PARTITIONED\"" >> /mnt/tmp/chroot_env.sh
+echo "export REGION_HOME_FS=\"$REGION_HOME_FS\"" >> /mnt/tmp/chroot_env.sh
+echo "export REGION_VAR_FS=\"$REGION_VAR_FS\"" >> /mnt/tmp/chroot_env.sh
+echo "export REGION_CACHE_FS=\"$REGION_CACHE_FS\"" >> /mnt/tmp/chroot_env.sh
+echo "export REGION_SRV_FS=\"$REGION_SRV_FS\"" >> /mnt/tmp/chroot_env.sh
+echo "export REGION_OPT_FS=\"$REGION_OPT_FS\"" >> /mnt/tmp/chroot_env.sh
+echo "export REGION_GAMES=\"$REGION_GAMES\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_LINUXBREW_SUBVOL=\"$PROVISION_LINUXBREW_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_PODMAN_ROOTLESS=\"$INSTALL_PODMAN_ROOTLESS\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROVISION_PODMAN_ROOTLESS_SUBVOL=\"$PROVISION_PODMAN_ROOTLESS_SUBVOL\"" >> /mnt/tmp/chroot_env.sh
@@ -5286,6 +5924,18 @@ USER_GROUPS="adm,video,audio"
 [ "$ACCOUNT_MODEL" != "debian" ] && USER_GROUPS="wheel,${USER_GROUPS}"
 [ "$INSTALL_VIRT" = "true" ] && USER_GROUPS="${USER_GROUPS},kvm,libvirt"
 useradd -m -G "$USER_GROUPS" -s "$USER_SHELL" -c "${TARGET_FULL_NAME:-$TARGET_USER}" "$TARGET_USER"
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: when the games region is
+# carved, ~/Games is a freshly-mkfs'd partition mounted plain — it is
+# root-owned after Stage-1, so adopt-own it here right after useradd (mirrors
+# the .cache/@containers-user chown pattern). Non-carved installs have a plain
+# ~/Games dir already owned via @home's chown, so nothing to do.
+case " ${REGION_PARTITIONED:-} " in
+    *" games "*)
+        mkdir -p "/home/${TARGET_USER}/Games"
+        chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/Games"
+        ;;
+esac
 
 # AI (Big Pickle) ADDITION — Beta-v2.9.13 [ACCTSVCS-ICON]: give the user's
 # org.freedesktop.Accounts entry a real default avatar. The COSMIC greeter
@@ -6712,6 +7362,9 @@ provision_firefox_subvols() {
 # NOT mounted: ~/Games (default install dir, @home is already rollback-exempt)
 # and ~/.wine (Bottles/Lutris manage their own prefixes). Fired on the RESOLVED
 # PROVISION_GAME_SUBVOL flag — the single source of truth (Gate 1/Gate 2).
+# Beta-v2.9.38 [MULTI-FS]: when the games region is carved, ~/Games is a plain
+# dir on the games partition (mounted in Stage 1 by [MULTI-FS] region mounts);
+# the @game subvol isolation is unaffected — both can coexist.
 if [ "$PROVISION_GAME_SUBVOL" = "true" ]; then
     [ "$INSTALL_STEAM"  = "true" ] && provision_browser_subvol "@game" ".local/share/Steam"
     [ "$INSTALL_LUTRIS" = "true" ] && provision_browser_subvol "@game" ".local/share/lutris"
@@ -6786,12 +7439,22 @@ INNER_EOF
 chown -R "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.config/containers"
 fi
 
-echo "UUID=${BTRFS_UUID} /home/${TARGET_USER}/.cache btrfs noatime,compress=zstd:1,subvol=@usercache,noauto 0 0" >> /etc/fstab
-
-chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.cache"
-mount "/home/${TARGET_USER}/.cache"
-chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.cache"
-chmod 700 "/home/${TARGET_USER}/.cache"
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: when the home region is
+# carved onto its own partition, @usercache has been folded out of the root
+# layout and ~/.cache lives directly on the home region partition — creating/
+# mounting @usercache here would shadow it. Threaded via chroot_env.
+case " ${REGION_PARTITIONED:-} " in
+    *" home "*)
+        echo "MULTI-FS: home region carved — skipping @usercache fstab/mount (~/.cache lives on the home partition)."
+        ;;
+    *)
+        echo "UUID=${BTRFS_UUID} /home/${TARGET_USER}/.cache btrfs noatime,compress=zstd:1,subvol=@usercache,noauto 0 0" >> /etc/fstab
+        chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.cache"
+        mount "/home/${TARGET_USER}/.cache"
+        chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.cache"
+        chmod 700 "/home/${TARGET_USER}/.cache"
+        ;;
+esac
 
 # AI (Big Pickle) CHANGE — Beta-v2.4.0 [SWAP]: activate the disk swapfile only when
 # a disk swapfile backend was chosen (swapfile or both).
@@ -7105,6 +7768,24 @@ INSTALL_GAME_WINE="${INSTALL_GAME_WINE:-false}"
 INSTALL_GAMEMODE="${INSTALL_GAMEMODE:-false}"
 INSTALL_ANY_GAME="${INSTALL_ANY_GAME:-false}"
 PROVISION_GAME_SUBVOL="${PROVISION_GAME_SUBVOL:-false}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: as-built record of every
+# data-region decision (fs per location + carved sizes + the derived carve
+# list). Sizes/fs strings are public config, secret-free. REGION_PARTITIONED
+# is the space-joined carve list in fixed order; the per-location fs/size rows
+# let the recovery diagnosis map a mountpoint back to its partition.
+REGION_HOME_FS="${REGION_HOME_FS:-btrfs}"
+REGION_VAR_FS="${REGION_VAR_FS:-btrfs}"
+REGION_CACHE_FS="${REGION_CACHE_FS:-btrfs}"
+REGION_SRV_FS="${REGION_SRV_FS:-btrfs}"
+REGION_OPT_FS="${REGION_OPT_FS:-btrfs}"
+REGION_GAMES="${REGION_GAMES:-none}"
+REGION_PARTITIONED="${REGION_PARTITIONED:-}"
+REGION_HOME_SIZE="${REGION_HOME_SIZE:-}"
+REGION_VAR_SIZE="${REGION_VAR_SIZE:-}"
+REGION_CACHE_SIZE="${REGION_CACHE_SIZE:-}"
+REGION_SRV_SIZE="${REGION_SRV_SIZE:-}"
+REGION_OPT_SIZE="${REGION_OPT_SIZE:-}"
+REGION_GAMES_SIZE="${REGION_GAMES_SIZE:-}"
 INNER_EOF
 chmod 644 /etc/void-installer/install-config
 
@@ -7160,6 +7841,20 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
         echo "NVIDIA_DRIVER=${INSTALL_NVIDIA:-no} (GPU: ${GPU_FAMILIES:-<none detected>})"
         echo "BR0_NIC=${BR0_NIC:-<unset>}"
         echo "MICROCODE_PKG=${MICROCODE_PKG:-<unset>} (decided: ${MICROCODE_DECIDED:-<unset>})"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: one secret-free
+        # pointer line for the data regions. Only carved regions are listed
+        # (mountpoint + fs); plain-Btrfs subsystems are implied by absence.
+        if [ -n "${REGION_PARTITIONED:-}" ]; then
+            _doc_regions=""
+            for _dr in $REGION_PARTITIONED; do
+                eval "_dr_fs=\${REGION_${_dr}_FS:-btrfs}"
+                _doc_regions="${_doc_regions} ${_dr}=${_dr_fs}"
+            done
+            echo "DATA_REGIONS=${REGION_PARTITIONED} (${_doc_regions# })"
+            unset _dr _dr_fs _doc_regions
+        else
+            echo "DATA_REGIONS=none (all on root Btrfs)"
+        fi
         echo ""
         # AI (Big Pickle) ADDITION — Beta-v2.7.6 [PKG-LIST]: append the FULL
         # finished-system package inventory (every package on this box — the
@@ -8358,6 +9053,40 @@ cmd_check() {
 }
 
 # ---------------------------------------------------------------------------
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS-GUARD]: data-region guard.
+# When a data region was carved onto its own partition at install time, the
+# subvolumes that region owns can NEVER be created as root-Btrfs subvolumes
+# (they would collide with — and be shadowed by — the region partition mount
+# at the same mountpoint). Reads /etc/void-installer/install-config REGION_*
+# facts (default btrfs = not carved); dies with an actionable message when an
+# add would create an owned subvol under a carved region. Mirrors the
+# host-asbuilt guard. Region ownership map (must match the FOLD in the
+# installer): home owns the per-user/browser set, var owns the /var set,
+# cache/srv/opt own themselves, games owns nothing (a plain dir).
+# ---------------------------------------------------------------------------
+region_fs() { # $1=region name -> the fs it was carved to (default btrfs)
+    local _v
+    _v=$(sed -n "s/^REGION_${1}_FS=//p" /etc/void-installer/install-config 2>/dev/null | tail -1)
+    [ -n "$_v" ] || _v="btrfs"
+    echo "$_v"
+}
+
+guard_region_subvol() { # $1=subvol name; dies if its region was carved
+    local sv="$1" reg=""
+    case "$sv" in
+        @home|@usercache|@mozilla|@mozilla-cache|@chromium|@vivaldi|@falkon|@brave|@thunderbird|@game|@containers-user|@linuxbrew|@virtualbox) reg="home" ;;
+        @log|@spool|@network|@sddm|@lightdm|@libvirt|@flatpak|@docker|@containers) reg="var" ;;
+        @cache) reg="cache" ;;
+        @srv)  reg="srv" ;;
+        @opt)  reg="opt" ;;
+    esac
+    if [ -n "$reg" ] && [ "$(region_fs "$reg")" != "btrfs" ]; then
+        unmount_top
+        die "subvolume '$sv' is owned by the '$reg' data region, which is carved onto its own partition on this machine (REGION_${reg}_FS != btrfs). It cannot be created as a root-Btrfs subvolume — its mountpoint is provided by the region partition. (MULTI-FS-GUARD)"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # add_subvol — the actual create/mount/fstab body, shared by `add <subvol>`
 # and `add --class <name>`. nodatacow: 1/0. src: optional migration source.
 # install: 1/0 — when 1, xbps-install the owning package(s) AFTER the subvol is
@@ -8367,6 +9096,10 @@ cmd_check() {
 add_subvol() {
     local sv="$1" mnt="$2" nodatacow="$3" src="$4" install="$5" mode sp pkgs
     pkgs="${PKG_MAP[$sv]:-}"
+    # [MULTI-FS-GUARD] (Beta-v2.9.38): refuse to create region-owned subvols on
+    # a machine where that region lives on its own partition. Runs before
+    # mount_top so the top-level mount is not touched on a disallowed add.
+    guard_region_subvol "$sv"
     mount_top
     sp="$(sibling_path "$sv")"
     [ -e "$sp" ] && { unmount_top; die "sibling '$sv' already exists (delete it first if you mean to recreate)."; }
@@ -9559,7 +10292,15 @@ if command -v vkpurge >/dev/null 2>&1; then
 fi
 
 if ! grep -q 'rd.live.overlay.overlayfs=1' /proc/cmdline 2>/dev/null; then
-    mountpoint -q "/home/__TARGET_USER__/.cache" || mount "/home/__TARGET_USER__/.cache" 2>/dev/null || true
+    # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: when the home region
+    # is carved onto its own partition, ~/.cache lives on that partition and
+    # MUST NOT get a @usercache mount on top (it would shadow the region
+    # data). __REGION_PARTITIONED__ is baked at generation time (space-joined
+    # carve list); the case match confirms the home region was NOT carved.
+    case " __REGION_PARTITIONED__ " in
+        *" home "*) : ;;
+        *) mountpoint -q "/home/__TARGET_USER__/.cache" || mount "/home/__TARGET_USER__/.cache" 2>/dev/null || true ;;
+    esac
 fi
 
 # [RESHADOW-BOOT] Self-heal the xbps-install shadow on every boot (OUTSIDE the
@@ -9737,6 +10478,7 @@ sed -i \
     -e "s/__DISPLAY_MANAGER__/${DM_SERVICE_NAME}/g" \
     -e "s/__SESSION_STACK__/${SESSION_STACK}/g" \
     -e "s/__SWAP_BACKEND__/${SWAP_BACKEND}/g" \
+    -e "s/__REGION_PARTITIONED__/${REGION_PARTITIONED}/g" \
     -e "s/__PROFILE_BT__/${PROFILE_BT}/g" \
     -e "s/__PROFILE_TLP__/${PROFILE_TLP}/g" \
     -e "s/__PROFILE_PRELOAD__/${PROFILE_PRELOAD}/g" \
@@ -10137,6 +10879,14 @@ if [ -n "$0" ] && [ -f "$0" ]; then
         && jl "Installer script archived to /etc/void-installer/Void_Linux_Installer.sh" \
         || echo "WARNING: could not archive installer script into target." >&2
 fi
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS-RUNLOG]: also keep the
+# run journal in the target. /tmp is tmpfs on the live USB and dies on reboot;
+# this is the durable, on-disk copy of everything the install logged (including
+# the [MULTI-FS] geometry/mkfs/mount/fstab audit lines above). Secret-free by
+# the same construction as the journal itself — it prints flags, never secrets.
+cp -f "$JOURNAL" /mnt/etc/void-installer/installer-run.log 2>/dev/null \
+    && jl "Journal archived to /etc/void-installer/installer-run.log" \
+    || echo "WARNING: could not archive installer journal into target." >&2
 # AI (Big Pickle) CHANGE — Beta-v2.5.0 [REBOOT-COUNTDOWN]: the pre-reboot
 # wait now prints the ACTUAL remaining seconds (from $REBOOT_DELAY rather
 # than the old canned "a few seconds" message) as a live, self-updating

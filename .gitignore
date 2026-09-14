@@ -33,6 +33,10 @@ Debug/*
 # the tracker for real-hardware findings that need a root-cause (Entry #1:
 # ENCRYPT boot-unlock passphrase rejection).
 !Debug/REVIEW.md
+# ...and the one-page live-validation runbook (Beta-v2.9.38 MULTI-FS scenarios
+# A-E + batched pending items) is committed — it is the target-medium proof
+# checklist for the multi-filesystem data regions era.
+!Debug/LIVE-VALIDATION-RUNBOOK.md
 # ...and the COSMIC grey-screen validation kit (on-box repro/repair script,
 # diagnose bundle, triage + session-log snapshots) is committed so the
 # hardware-validated Beta-v2.9.10/11 cookbook survives the box reboots.
