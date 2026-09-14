@@ -79,6 +79,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.21** | `[GREETER-BG-EXPORT]` — the MATE/Slick black greeter's REAL root cause: the lightdm greeter-background block runs inside the single-quoted chroot heredoc, so its `case "$LIGHTDM_GREETER"` (gtk/slick) resolved an **empty** variable in-chroot and NEITHER greeter conf file was ever written. Only `_PKG`/`_SESSION` were exported to chroot_env.sh, never the bare choice. The earlier `-maxdepth 5` find fix (`[GREETER-BG-DEPTH]`) was necessary but not sufficient — it only supplied the image path; the missing export is what silently skips the `cat >` write. Live-confirmed on `<host>` (slick-greeter.conf stayed the pristine package default while lightdm.conf was written, and the block's gnome-backgrounds retry had fired). Fix: `export LIGHTDM_GREETER` added to chroot_env.sh | Beta-v2.9.21 below |
 | **Beta-v2.9.22** | `[FALKON-QT-NOTICE]` — closes the Falkon gating discussion item. On a non-KDE desktop (`DESKTOP_ENV != kde`), the Falkon prompt now prints an inline NOTICE before the y/N: full "pulls in the Qt + QtWebEngine stack (no KDE desktop)" wording on GTK desktops, and a shorter "shares Qt5 but adds QtWebEngine" variant on LXQt. A warn-not-gate notice matching the existing Vivaldi/Brave notices, since Falkon remains a legitimate standalone browser on any DE; the heavy cost is QtWebEngine, not a full KDE desktop, and LXQt already shares the Qt5 base | Beta-v2.9.22 below |
 | **Beta-v2.9.23** | `[SSH-SERVER]`+`[SSH-KEYS]` — closes the OpenSSH discussion item: default-OFF OpenSSH server install+enable toggle with a selectable port (default 22) threaded into BOTH sshd_config and the nftables input chain (policy-drop baseline) + prompted password/root access policies (defaults: ON / prohibit-password). Reuses the wallpaper picker (refactored to a shared `browse_pick` browser) to import an existing keypair from removable media into the target's `~/.ssh` (0700/0600/0644, owner TARGET_USER) and/or generate a fresh ed25519 pair with opt-in comment (default user@host) + opt-in passphrase (read -s type-or-paste, twice + match, in-memory; protects both the `~/.ssh` copy and any picked-dir backup). All staging under `/mnt/tmp/ssh-import/` shredded post-deposit and on failure; no key material ever reaches install-config/limine-env/resume state (only the public comment + protected flags do) | Beta-v2.9.23 below |
+| **Beta-v2.9.24** | `[DEVICE-PROFILE-BT-DETECT]` — the Automatic device-profile option now scans the live CD for a Bluetooth controller (USB interface class `0xE0:0x01:0x01` = the Bluetooth Programming Interface, read from `/sys/bus/usb/devices/*/{,*/}modalias` as `icE0isc01ip01` — catches USB dongles AND M.2/PCIe WiFi+BT combo cards, and needs no lsusb/bluez) and ties `PROFILE_BT` to real hardware instead of assuming every box has bluetooth. Within each chassis class the probe picks laptop-bt↔laptop and desktop-bt↔desktop; an unresolvable chassis (VM/unknown) keeps the laptop baseline (tlp on) with bluetooth from the probe. The `[DEVICE-PROFILE-CONFIRM]` keep/override step still lets the user correct a misdetection. Maintainer-signed design decision: bare-Enter stays Automatic (a detected desktop drops tlp — pointless on a battery-less box now the service actually runs) | Beta-v2.9.24 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1340,6 +1341,77 @@ chosen port from a second box (nftables rule present, `sshd_config.d` drop-in
 accepted, `/etc/sv/sshd` linked on first boot) and that an import produces a
 log-in-able `~/.ssh`; the `sshd_config` `Include` fallback could not be
 verified against the `<host>` archive (it has no `/etc/` snapshot).
+
+---
+
+---
+
+## Beta-v2.9.24 — `[DEVICE-PROFILE-BT-DETECT]` (bluetooth hardware probe feeds Automatic device-profile detection)
+
+`SCRIPT_VERSION = Beta-v2.9.24`. The Automatic device-profile option (1) now
+scans the live CD for a Bluetooth controller and ties `PROFILE_BT` to the real
+hardware, instead of assuming every box has bluetooth.
+
+### Why
+
+Within `[DEVICE-PROFILE]` (Beta-v2.9.17), Automatic only looked at the SMBIOS
+chassis type and then shipped **bluetooth unconditionally** on every resolved
+profile (`laptop-bt` or `desktop-bt` — there was never an automatic path to the
+non-BT variants). A desktop with no radio therefore got `bluez` +
+`libspa-bluetooth` + a linked `bluetoothd` for nothing. Since the tlp/bluetoothd
+service links now actually run (the `[DEVICE-PROFILE-RCL]` fix), that phantom
+`bluetoothd` would churn from first boot on machines that can never talk to a
+radio. The probe makes `PROFILE_BT` descriptive of the box.
+
+### 1. The detection
+
+All modern x86 Bluetooth controllers — USB dongles AND M.2/PCIe WiFi+BT combo
+cards (Intel, MediaTek, Realtek, Broadcom…) — expose a USB interface of the
+**Bluetooth Programming Interface** class `0xE0:0x01:0x01`. The USB core
+enumerates those interfaces and writes their modalias (`icE0isc01ip01`, i.e.
+`icE0` `isc01` `ip01`) into
+`/sys/bus/usb/devices/<dev>/<iface>/modalias` **even when no BT driver/module is
+bound**, so the check needs no `lsusb`, no bluez, no kernel module loaded on the
+live CD. The dev box itself (MediaTek combo, `0E8D:223C`) matches.
+
+```
+_bt_hw="no"
+for _m in /sys/bus/usb/devices/*/modalias /sys/bus/usb/devices/*/*/modalias; do
+    [ -r "$_m" ] || continue
+    if grep -qi 'icE0isc01ip01' "$_m"; then _bt_hw="yes"; break; fi
+done
+```
+
+### 2. How it feeds the profile
+
+Within each chassis class the probe picks the BT vs no-BT variant:
+
+- laptop chassis (`8/9/10/11/14/30/31/32`): BT detected → `laptop-bt`, else
+  `laptop` (tlp stays on either way).
+- desktop/server chassis (`3/4/5/6/7/13/15`): BT detected → `desktop-bt`, else
+  `desktop` (preload stays desktop-only either way).
+- unresolvable chassis (VM/unknown): keeps the **laptop baseline (tlp on)** —
+  the historical behavior — with bluetooth now also from the probe (a VM with
+  no BT no longer ships bluez).
+
+Two echo lines tell the user what the probe found, and the existing
+`[DEVICE-PROFILE-CONFIRM]` keep/override step still lets them correct a
+misdetection (`n`/`2-5`) before anything is committed. tlp behavior is
+unchanged by this release — the bare-Enter = Automatic sign-off (maintainer,
+2026-09-08) continues to hold: a detected desktop still drops tlp.
+
+### 3. Validation / gates
+
+- `bash -n` clean; `Debug/check-defaults.sh` (44 vars) untouched — no new
+  prompts; `Debug/check-heredocs.sh` untouched — no scheme/heredoc change;
+  shellcheck 0 findings.
+- Probe validated on the dev box (built-in MediaTek combo detected; PCI-check
+  option deliberately not added — combo cards already show as USB, and a PCI
+  `0x0d11` heuristic risks false positives on legacy wireless controllers).
+- **Pending live validation** (next fresh install): Automatic on a box with
+  no BT must resolve `laptop`/`desktop` (no bluez, no bluetoothd link), a BT
+  box keeps `laptop-bt`/`desktop-bt`, and REVIEW/dry-run/install-config show
+  the concrete booleans.
 
 ---
 
