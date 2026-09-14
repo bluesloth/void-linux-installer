@@ -90,6 +90,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.32** | `[FW-AUDIT]` — closes the "per-vendor firmware pruning" discussion item. Verified against the void-packages templates: `linux-base` hard-depends on `alsa-firmware` `linux-firmware-network` `sof-firmware` and (x86_64) `linux-firmware-amd` `-intel` `-nvidia`; the network split itself hard-depends on `linux-firmware-broadcom`; XBPS has no recommends tier, so an installer-side prune is impossible (xbps-remove refuses: "dependency of installed 'linux-base'"). The ONE firmware Void leaves per-host is CPU microcode, already pruned to a single package by `[CPU-DETECT]`. So a report-only post-install audit now prints what *landed* vs what this box's probe *needs*, names the splits kept solely by the dependency wall (the irreducible wholesale tax), and confirms the Broadcom gap state. Nothing gated | Beta-v2.9.32 below |
 | **Beta-v2.9.33** | `[FW-AUDIT-LOG]` — the `[FW-AUDIT]` accounting (Beta-v2.9.32, console-only) is now **persisted** into the installed machine's as-built record `~/Documents/Void_Install.txt`. The audit builds its text once, prints it to the console, and appends it as a `# -------- FIRMWARE ACCOUNTING ([FW-AUDIT], as-built) --------` section after the package inventory. The record file is written earlier in the chroot by the `[DOCS-LOG-CHOWN]` block; the root→user-owned append preserves ownership, and nothing is gated on it (missing file / empty `TARGET_USER` → silently skipped). The end-of-install NEXT-STEPS line now advertises the record "incl. firmware accounting". Report-only | Beta-v2.9.33 below |
 | **Beta-v2.9.34** | `[SLICK-BG-QUOTES]`+`[SSH-DEPOSIT-LOG]`+`[FLATPAK-NM-DISPATCH]` — slick-greeter does NOT strip quotes from config values (a quoted `background="path"` is opened as `"/path"` and fails → black greeter), so the Slick background is now written UNQUOTED (GTK greeter keeps the quoted form); the ssh-key deposit guard's fragile `ls -A` subshell replaced with `find -quit` plus an explicit WARNING when the account is missing; the first-boot Flatpak queue moved from the old rc.local background subshell to a NetworkManager dispatcher script (`99-flatpak-firstboot`, fires on up/vpn-up with a default route — guaranteed DNS); sshd + vboxdrv rc.local links realigned (sshd early) | Beta-v2.9.34 below |
+| **Beta-v2.9.35** | `[ESP-SIZE]` — the EFI ESP size becomes a real prompt-time decision via a shared `esp_size_choose()` menu (4 GiB default / 6 GiB / 8 GiB / Custom, 1 GiB floor, normalized to gdisk single-letter K/M/G): Limine calls it after the bootloader choice (esp-copy mirrors every kernel/snapshot onto the ESP), and the GRUB+ENCRYPT path mounts the ESP AT `/boot` so it shares the same menu. Plain GRUB never calls it (fixed 1G at /boot/efi). Fixes `[GRUB-ESP-SIZE-ORDER]` — the old in-loop check read ENCRYPT before its own prompt, so the wrong size applied | Beta-v2.9.35 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -2017,6 +2018,34 @@ so a partial failure leaves the queue live for the next up event
 (`[FLATPAK-NM-DISPATCH-STAMP]`, Beta-v2.9.46). Also realigned in this build:
 the sshd + vboxdrv rc.local service links (sshd now linked first, so its
 host-key generation isn't starved behind the vboxdrv module load).
+
+---
+
+## Beta-v2.9.35 — `[ESP-SIZE]` (shared EFI ESP-size menu; GRUB+ENCRYPT mounts the ESP at /boot)
+
+> Reconstructed from the header VERSION-HISTORY row, the inline `esp_size_choose()`
+> markers (`[ESP-SIZE]`), and the gitlog era commit. No recovered original
+> CHANGELOG text exists for this version; this entry fills the documentation gap.
+
+`SCRIPT_VERSION = Beta-v2.9.35`. The EFI ESP size becomes a real prompt-time
+decision, served by ONE shared menu:
+
+**`[ESP-SIZE]` — a shared `esp_size_choose()` menu (4 GiB default / 6 GiB /
+8 GiB / Custom, 1 GiB floor).** Two bootloader paths need a real ESP, and
+each now calls the same menu: Limine (right after the bootloader choice —
+`esp-copy` mirrors every kernel/initramfs/snapshot onto the ESP) and the
+GRUB+ENCRYPT path (which mounts the ESP AT `/boot`, so it shares the same
+menu). Custom sizes are uppercased, validated with the 1 GiB floor, matched
+against the gdisk single-letter forms, and normalized to K/M/G before being
+stored in `$EFI_PART_SIZE` (threaded unchanged into sgdisk, the dry-run plan,
+and resume state). Plain GRUB never calls it — its ESP at `/boot/efi` holds
+only the bootloader and stays a fixed 1G.
+
+**`[GRUB-ESP-SIZE-ORDER]` — real bug fixed.** The old GRUB+ENCRYPT in-loop
+`[ "$ENCRYPT" = "yes" ] && EFI_PART_SIZE="4G"` read ENCRYPT BEFORE the ENCRYPT
+prompt had settled it, so a GRUB+ENCRYPT fresh run always shipped a 1G ESP.
+The size decision now happens AFTER the encryption choice, so the value is
+correct.
 
 ---
 
