@@ -91,6 +91,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.33** | `[FW-AUDIT-LOG]` — the `[FW-AUDIT]` accounting (Beta-v2.9.32, console-only) is now **persisted** into the installed machine's as-built record `~/Documents/Void_Install.txt`. The audit builds its text once, prints it to the console, and appends it as a `# -------- FIRMWARE ACCOUNTING ([FW-AUDIT], as-built) --------` section after the package inventory. The record file is written earlier in the chroot by the `[DOCS-LOG-CHOWN]` block; the root→user-owned append preserves ownership, and nothing is gated on it (missing file / empty `TARGET_USER` → silently skipped). The end-of-install NEXT-STEPS line now advertises the record "incl. firmware accounting". Report-only | Beta-v2.9.33 below |
 | **Beta-v2.9.34** | `[SLICK-BG-QUOTES]`+`[SSH-DEPOSIT-LOG]`+`[FLATPAK-NM-DISPATCH]` — slick-greeter does NOT strip quotes from config values (a quoted `background="path"` is opened as `"/path"` and fails → black greeter), so the Slick background is now written UNQUOTED (GTK greeter keeps the quoted form); the ssh-key deposit guard's fragile `ls -A` subshell replaced with `find -quit` plus an explicit WARNING when the account is missing; the first-boot Flatpak queue moved from the old rc.local background subshell to a NetworkManager dispatcher script (`99-flatpak-firstboot`, fires on up/vpn-up with a default route — guaranteed DNS); sshd + vboxdrv rc.local links realigned (sshd early) | Beta-v2.9.34 below |
 | **Beta-v2.9.35** | `[ESP-SIZE]` — the EFI ESP size becomes a real prompt-time decision via a shared `esp_size_choose()` menu (4 GiB default / 6 GiB / 8 GiB / Custom, 1 GiB floor, normalized to gdisk single-letter K/M/G): Limine calls it after the bootloader choice (esp-copy mirrors every kernel/snapshot onto the ESP), and the GRUB+ENCRYPT path mounts the ESP AT `/boot` so it shares the same menu. Plain GRUB never calls it (fixed 1G at /boot/efi). Fixes `[GRUB-ESP-SIZE-ORDER]` — the old in-loop check read ENCRYPT before its own prompt, so the wrong size applied | Beta-v2.9.35 below |
+| **Beta-v2.9.36** | `[CHANNEL-GROUP]`+`[INSTALL-BREW]` — Flatpak and Homebrew are shown as one "THIRD-PARTY APP CHANNELS" umbrella but stay INDEPENDENT yes/no toggles (both default OFF — brew must not read as a sub-choice of Flatpak's sandbox). Homebrew/Linuxbrew is the unsandboxed, user-owned `~/.linuxbrew` CLI/dev channel: installs only the xbps runtime deps (git, curl, file, procps-ng), deliberately never pipes the vendor's `curl|bash` — the operator creates the prefix on first login. Isolation is a separate opt-in `@linuxbrew` per-user subvol (SUBVOL_ROWS row → `PROVISION_LINUXBREW_SUBVOL`, default OFF) + subvol-tool `dev` class | Beta-v2.9.36 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -2046,6 +2047,34 @@ only the bootloader and stays a fixed 1G.
 prompt had settled it, so a GRUB+ENCRYPT fresh run always shipped a 1G ESP.
 The size decision now happens AFTER the encryption choice, so the value is
 correct.
+
+---
+
+## Beta-v2.9.36 — `[CHANNEL-GROUP]` + `[INSTALL-BREW]` (third-party app channels umbrella; opt-in Homebrew/Linuxbrew CLI/dev channel)
+
+> Reconstructed from the header VERSION-HISTORY row and the inline
+> `[CHANNEL-GROUP]`/`[INSTALL-BREW]` markers. No recovered original CHANGELOG
+> text exists for this version; this entry fills the documentation gap.
+
+`SCRIPT_VERSION = Beta-v2.9.36`. Third-party app channels get an umbrella and
+a second channel:
+
+**1. `[CHANNEL-GROUP]` — Flatpak and Homebrew shown as one umbrella, each an
+INDEPENDENT toggle (both default OFF).** The banner reads "THIRD-PARTY APP
+CHANNELS — Flatpak (sandboxed GUI apps) and Homebrew / Linuxbrew (unsandboxed
+CLI & dev tools) are independent choices — enable either, both, or neither."
+brew must not read as a sub-choice of Flatpak's sandbox; brew-only and
+flatpak-only are both expressible. Complement, not replacement.
+
+**2. `[INSTALL-BREW]` — Homebrew (classic Linuxbrew) opt-in.** The unsandboxed,
+user-owned `~/.linuxbrew` CLI/dev channel. Installs ONLY the xbps runtime deps
+(linuxbrew pulls the rest at prefix creation: `git curl file procps-ng`); the
+installer deliberately does NOT pipe the vendor's `curl|bash` — the operator
+creates the prefix on first login (NEWS step). Isolation is a separate opt-in
+`@linuxbrew` per-user subvol (SUBVOL_ROWS row → `PROVISION_LINUXBREW_SUBVOL`,
+default OFF — a correctly-owned plain `~/.linuxbrew` in `@home` already
+survives a `@` rollback and isn't snapshotted), plus the subvol-tool `dev`
+class.
 
 ---
 
