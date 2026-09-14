@@ -640,6 +640,7 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.46   (post-audit from first real ENCRYPT+regions boot on <host>: [SUBVOL-TOOL-RESOLVEDEV] strip [/@] suffix from findmnt SOURCE before subvolid=5 mount + rename shadowed awk -v sub= → svpat; [INSTALL-CONFIG-FLATPAK] install-config gains INSTALL_FLATPAK/INSTALL_BRAVE public rows; KERNEL_PKGS/PKG-PREFLIGHT verification; [VBOX-SV-GUARD] first-boot vboxdrv link guarded on /etc/sv/vboxdrv dir; [FLATPAK-NM-DISPATCH-STAMP] flatpak queue dispatch check)
 #     Beta-v2.9.47   [TEE-BOOT-QUIET]+[TEE-BLACKLIST] — two env-only PUBLIC limine-env knob rows (DEFAULT_QUIET_BOOT, DEFAULT_TEE_BLACKLIST, both default no) thread into a shared TEE_QB_FRAG ("quiet" + "modprobe.blacklist=tee") threaded through every GRUB/Limine BASE_CMD builder + the limine write-conf recompute; byte-identical output at defaults; existing installs untouched
 #     Beta-v2.9.48   [NO-DE]/[DE-ORDER] — desktop menu reordered most-to-least popular (KDE stays option 1/defaults); option 8 = "none" (console-only / headless base). [NO-DM] — display-manager gains "none"; DM_SERVICE_NAME="none" branch + rc.local DM link guarded (no /etc/sv/none symlink). [HEADLESS] — HAS_GRAPHICAL computed from DE!=none OR DM!=none; gates the xorg/wayland base chain + audio install. [HEADLESS-XORG-OPT]/[HEADLESS-AUDIO] — on a headless box, INSTALL_XORG and INSTALL_AUDIO are explicit opt-in prompts; graphically unconditional. [DISK-BUDGET] — pre-write fit check: DISK_BYTES captured at disk-pick (lsblk, persisted for resume, fails open when unreadable); human/sgdisk size → byte conversion; sum ESP + carved regions + >=1 GiB system headroom = required; over-provisioned layout refuses before sgdisk -Z; --dry-run also fails to launch on an over-provision; ENCRYPT container=remainder identity (same math); also fixes the latent 2.9.38 REGION_*_SIZE uppercase-fold eval bug (region tokens in REGION_PARTITIONED are lowercase; without the ^^ fold the outer/inner carve read the nonexistent REGION_home_SIZE and FATAL); the KDE else branch is converted to an explicit elif so headless DE skips the metapackage.
+#     Beta-v2.9.49   [VERIFY-FIXES] — post-verification corrections proven against the live as-built machine (2026-09-14): [WINE-RENAME] the game-wine prompt variable was INSTALL_GAME_WINE in the draft but INSTALL_WINE everywhere else (as-built record + recovered prompt docs) — renamed so the chroot package gate actually honors the prompt; [FLATHUB-URL-FIX] both remote-add sites (chroot install-time + first-boot rc.local fallback) now use the .flatpakrepo file (https://flathub.org/repo/flathub.flatpakrepo) instead of the bare website URL — the website 307-redirects to /en and imports no GPG key, so every queued flatpak install failed with "public key not found" (proven on real hardware); [DOCS-LOG-ASBUILT] the ~/Documents/Void_Install.txt header now reproduces the recovered real build's row set byte-format: SSH_SERVER (port + policy pointer), NVIDIA_DRIVER (GPU + wifi flag), WIFI_HARDWARE (0xVVVV:0xDDDD id), CPU (vendor + microcode pkg), HOMEBREW (deps + prefix + isolation), GAMING (enabled-launcher list, flatpak-delivered tagged, @game isolation), DATA_REGIONS (ALL SIX locations fixed-order name:fs, games only when !=none); BR0_NIC/MICROCODE_PKG rows removed to match the as-built; [FW-AUDIT-LOG-DROP] the [FW-AUDIT] accounting stays console/install-log-only — the recovered as-built record file ends at the package inventory with NO "FIRMWARE ACCOUNTING" section, so the record append was dropped to reproduce the proven build.
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -719,7 +720,7 @@ DEFAULT_STEAM="${DEFAULT_STEAM:-false}"               # Steam gaming client? [y/
 DEFAULT_LUTRIS="${DEFAULT_LUTRIS:-false}"             # Lutris game library/installer? [y/N]
 DEFAULT_HEROIC="${DEFAULT_HEROIC:-false}"             # Heroic Epic/GOG launcher (Flatpak-only)? [y/N]
 DEFAULT_BOTTLES="${DEFAULT_BOTTLES:-false}"           # Bottles per-game Wine prefixes (Flatpak-only)? [y/N]
-DEFAULT_GAME_WINE="${DEFAULT_GAME_WINE:-false}"       # system Wine (multilib)? [y/N]
+DEFAULT_WINE="${DEFAULT_WINE:-false}"       # system Wine (multilib)? [y/N]
 DEFAULT_GAMEMODE="${DEFAULT_GAMEMODE:-false}"         # gamemode + libgamemode-32bit? [y/N]
 DEFAULT_VIRTUALBOX="${DEFAULT_VIRTUALBOX:-false}"     # VirtualBox full virtualizer? [y/N]
 # AI (Big Pickle) ADDITION — Beta-v2.9.0 [SUBVOL-GATES]: the two master
@@ -3266,13 +3267,13 @@ else
 fi
 
 ask "Install Wine (system, multilib)? [y/N]: "
-read -r INSTALL_GAME_WINE_INPUT
-case "$INSTALL_GAME_WINE_INPUT" in
-    "") INSTALL_GAME_WINE="$DEFAULT_GAME_WINE" ;;
-    [yY]*) INSTALL_GAME_WINE="true" ;;
-    *) INSTALL_GAME_WINE="false" ;;
+read -r INSTALL_WINE_INPUT
+case "$INSTALL_WINE_INPUT" in
+    "") INSTALL_WINE="$DEFAULT_WINE" ;;
+    [yY]*) INSTALL_WINE="true" ;;
+    *) INSTALL_WINE="false" ;;
 esac
-export INSTALL_GAME_WINE
+export INSTALL_WINE
 
 ask "Install gamemode (+ libgamemode-32bit)? [y/N]: "
 read -r INSTALL_GAMEMODE_INPUT
@@ -4791,7 +4792,7 @@ DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
 INSTALL_FLATPAK INSTALL_BREW INSTALL_FIREFOX INSTALL_CHROMIUM \
                  INSTALL_VIVALDI INSTALL_FALKON INSTALL_BRAVE \
                  INSTALL_THUNDERBIRD INSTALL_STEAM INSTALL_VIRTUALBOX \
-                 INSTALL_LUTRIS INSTALL_HEROIC INSTALL_BOTTLES INSTALL_GAME_WINE INSTALL_GAMEMODE INSTALL_ANY_GAME \
+                 INSTALL_LUTRIS INSTALL_HEROIC INSTALL_BOTTLES INSTALL_WINE INSTALL_GAMEMODE INSTALL_ANY_GAME \
                 SETUP_WEB_BROWSERS SETUP_CONTAINERS \
                  SUBVOL_ISOLATE_INSTALLED SUBVOL_PRECREATE \
                 INSTALL_PODMAN INSTALL_PODMAN_ROOTLESS INSTALL_PODMAN_ROOTFUL \
@@ -4854,7 +4855,7 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "  Data regions (MULTI-FS): carved=['${REGION_PARTITIONED:-}'] home=${REGION_HOME_FS:-btrfs} var=${REGION_VAR_FS:-btrfs} cache=${REGION_CACHE_FS:-btrfs} srv=${REGION_SRV_FS:-btrfs} opt=${REGION_OPT_FS:-btrfs} games=${REGION_GAMES:-none}"
     echo "  Accounts model        : ${ACCOUNT_MODEL:-<unset>}"
     echo "  App channels          : Flatpak=${INSTALL_FLATPAK:-no} Homebrew=${INSTALL_BREW:-no}"
-    echo "  Game launchers        : steam=${INSTALL_STEAM:-no} lutris=${INSTALL_LUTRIS:-no} heroic=${INSTALL_HEROIC:-no} bottles=${INSTALL_BOTTLES:-no} wine=${INSTALL_GAME_WINE:-no} gamemode=${INSTALL_GAMEMODE:-no}"
+    echo "  Game launchers        : steam=${INSTALL_STEAM:-no} lutris=${INSTALL_LUTRIS:-no} heroic=${INSTALL_HEROIC:-no} bottles=${INSTALL_BOTTLES:-no} wine=${INSTALL_WINE:-no} gamemode=${INSTALL_GAMEMODE:-no}"
     echo "  Hardware              : GPU=${GPU_FAMILIES:-<none detected>} wireless=${WIFI_HW:-unknown}"
     echo "  NVIDIA driver         : ${INSTALL_NVIDIA:-auto}"
     echo "=============================================================="
@@ -5993,7 +5994,7 @@ echo "export INSTALL_STEAM=\"$INSTALL_STEAM\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_LUTRIS=\"$INSTALL_LUTRIS\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_HEROIC=\"$INSTALL_HEROIC\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_BOTTLES=\"$INSTALL_BOTTLES\"" >> /mnt/tmp/chroot_env.sh
-echo "export INSTALL_GAME_WINE=\"$INSTALL_GAME_WINE\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_WINE=\"$INSTALL_WINE\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_GAMEMODE=\"$INSTALL_GAMEMODE\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_ANY_GAME=\"$INSTALL_ANY_GAME\"" >> /mnt/tmp/chroot_env.sh
  echo "export INSTALL_VIRTUALBOX=\"$INSTALL_VIRTUALBOX\"" >> /mnt/tmp/chroot_env.sh
@@ -7510,7 +7511,13 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
     # fetch summary" error whenever Flatpak was selected (see [FLATHUB-RCL]).
     # remote-add here targets the system installation (/var/lib/flatpak,
     # mounted from the @flatpak subvolume) and persists into the target.
-    flatpak remote-add --if-not-exists flathub https://flathub.org || \
+    # [FLATHUB-URL-FIX] (Beta-v2.9.49, verified on real hardware 2026-09-14):
+    # the old `https://flathub.org` is the WEBSITE (307 -> /en), not the repo,
+    # and remote-add from a bare web URL imports NO GPG keyring — a flatpak
+    # queue then always failed with "public key not found". Use the canonical
+    # .flatpakrepo file (carries both the correct repo base URL and the
+    # signing key), proven to make queued installs succeed.
+    flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || \
         echo "WARNING: could not add flathub remote at install time. It will be re-attempted, non-blocking, at first boot (see [FLATHUB-RCL])." >&2
 fi
 
@@ -7557,7 +7564,7 @@ fi
 # via the first-boot Flatpak queue below ([GAME-FLATPAK-GATE], Beta-v2.9.40),
 # only when Flatpak is also selected.
 [ "$INSTALL_LUTRIS" = "true" ] && install_pkgs lutris
-[ "$INSTALL_GAME_WINE" = "true" ] && install_pkgs wine
+[ "$INSTALL_WINE" = "true" ] && install_pkgs wine
 [ "$INSTALL_GAMEMODE" = "true" ] && install_pkgs gamemode libgamemode-32bit
 # AI (Big Pickle) ADDITION — Beta-v2.8.4 [INSTALL-VBOX]: VirtualBox is now a
 # real installable option (previously pre-create-only). The -ose package is
@@ -8472,7 +8479,7 @@ PROVISION_LINUXBREW_SUBVOL="${PROVISION_LINUXBREW_SUBVOL:-false}"
 INSTALL_LUTRIS="${INSTALL_LUTRIS:-false}"
 INSTALL_HEROIC="${INSTALL_HEROIC:-false}"
 INSTALL_BOTTLES="${INSTALL_BOTTLES:-false}"
-INSTALL_GAME_WINE="${INSTALL_GAME_WINE:-false}"
+INSTALL_WINE="${INSTALL_WINE:-false}"
 INSTALL_GAMEMODE="${INSTALL_GAMEMODE:-false}"
 INSTALL_ANY_GAME="${INSTALL_ANY_GAME:-false}"
 PROVISION_GAME_SUBVOL="${PROVISION_GAME_SUBVOL:-false}"
@@ -8532,37 +8539,57 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
         echo "YUBIKEY_UNLOCK=${YK_MODE:-off}"
         echo "SESSION_STACK=${SESSION_STACK:-<unset>}"
         echo "DESKTOP_ENV=${DESKTOP_ENV:-<unset>}"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]: one pointer
+        # line for the OpenSSH decision; the port + a pointer to the
+        # authoritative as-built config (which holds auth/root-login policy).
+        # Public facts only.
+        echo "SSH_SERVER=${INSTALL_SSH_SERVER:-no} (port ${SSH_PORT:-22}; policy: /etc/void-installer/install-config)"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.25 [NVIDIA-GATE]: one pointer
+        # line for the hardware-gated driver; the wifi presence flag rides
+        # here alongside the GPU families (both are live-probed facts).
+        echo "NVIDIA_DRIVER=${INSTALL_NVIDIA:-no} (GPU: ${GPU_FAMILIES:-<none detected>}, wifi: ${WIFI_HW:-no})"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.25 [WIFI-HARDWARE]: the probe's
+        # raw vendor:device id(s) for the detected wireless radio(s), so a
+        # support person can map the box to its firmware without re-probing.
+        echo "WIFI_HARDWARE=${WIFI_IDS:-<none>}"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.27 [CPU-DETECT]: the CPU vendor
+        # (re-derived in-chroot from /proc/cpuinfo — same hardware as the live
+        # probe) + the microcode package the installer chose for it.
+        _doc_cpu="$(grep -m1 vendor_id /proc/cpuinfo 2>/dev/null | awk '{print $3}')"
+        echo "CPU=${_doc_cpu:-<unknown>} (microcode: ${MICROCODE_PKG:-none})${MICROCODE_PKG:-}"
+        unset _doc_cpu
         # AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: one pointer
         # line for the Homebrew (Linuxbrew) channel. The prefix itself is
         # deliberately NOT created by the installer — this is the NEWS step
         # reminder: the operator runs Homebrew's official installer on first
         # login to create ~/.linuxbrew. Declining the subvolume only leaves a
         # correctly-owned plain ~/.linuxbrew inside @home.
-        echo "HOMEBREW=${INSTALL_BREW:-no} (prefix created on first login via Homebrew's official installer; isolated subvol: ${PROVISION_LINUXBREW_SUBVOL:-false})"
+        echo "HOMEBREW=${INSTALL_BREW:-no} (deps: git/curl/file via xbps; install the prefix yourself: ~/.linuxbrew — see NEWS; isolation: ${PROVISION_LINUXBREW_SUBVOL:-false})"
         # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-LAUNCHERS]: one pointer
-        # line for the game-launcher umbrella; full per-launcher flags live in
-        # install-config. Heroic/Bottles are Flatpak-delivered (Flathub).
-        echo "GAMING=${INSTALL_ANY_GAME:-no} (steam=${INSTALL_STEAM:-no} lutris=${INSTALL_LUTRIS:-no} heroic=${INSTALL_HEROIC:-no} bottles=${INSTALL_BOTTLES:-no} wine=${INSTALL_GAME_WINE:-no} gamemode=${INSTALL_GAMEMODE:-no}); isolated subvol: ${PROVISION_GAME_SUBVOL:-false}"
-        # AI (Big Pickle) ADDITION — Beta-v2.9.25 [NVIDIA-GATE]: one pointer
-        # line for the hardware-gated driver; the full probe facts (GPU
-        # families, wireless) live in install-config.
-        echo "NVIDIA_DRIVER=${INSTALL_NVIDIA:-no} (GPU: ${GPU_FAMILIES:-<none detected>})"
-        echo "BR0_NIC=${BR0_NIC:-<unset>}"
-        echo "MICROCODE_PKG=${MICROCODE_PKG:-<unset>} (decided: ${MICROCODE_DECIDED:-<unset>})"
-        # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: one secret-free
-        # pointer line for the data regions. Only carved regions are listed
-        # (mountpoint + fs); plain-Btrfs subsystems are implied by absence.
-        if [ -n "${REGION_PARTITIONED:-}" ]; then
-            _doc_regions=""
-            for _dr in $REGION_PARTITIONED; do
-                eval "_dr_fs=\${REGION_${_dr}_FS:-btrfs}"
-                _doc_regions="${_doc_regions} ${_dr}=${_dr_fs}"
-            done
-            echo "DATA_REGIONS=${REGION_PARTITIONED} (${_doc_regions# })"
-            unset _dr _dr_fs _doc_regions
+        # line listing the enabled launchers (flatpak-delivered ones tagged);
+        # full per-launcher flags live in install-config.
+        _doc_g=""
+        [ "$INSTALL_STEAM" = "true" ] && _doc_g="$_doc_g steam"
+        [ "$INSTALL_LUTRIS" = "true" ] && _doc_g="$_doc_g lutris"
+        [ "$INSTALL_HEROIC" = "true" ] && _doc_g="$_doc_g heroic(flatpak)"
+        [ "$INSTALL_BOTTLES" = "true" ] && _doc_g="$_doc_g bottles(flatpak)"
+        [ "$INSTALL_WINE" = "true" ] && _doc_g="$_doc_g wine"
+        [ "$INSTALL_GAMEMODE" = "true" ] && _doc_g="$_doc_g gamemode"
+        if [ -n "$_doc_g" ]; then
+            echo "GAMING=${_doc_g# } (@game isolation: ${PROVISION_GAME_SUBVOL:-false})"
         else
-            echo "DATA_REGIONS=none (all on root Btrfs)"
+            echo "GAMING=no"
         fi
+        unset _doc_g
+        # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: one secret-free
+        # pointer line listing ALL SIX data-region locations in fixed order
+        # with their resolved filesystem (btrfs subvol or carved ext4/partition);
+        # games omitted only when REGION_GAMES=none. Matches the recovered
+        # as-built record format (home:fs,var:fs,...,games:fs).
+        _doc_regions="home:${REGION_HOME_FS:-btrfs},var:${REGION_VAR_FS:-btrfs},cache:${REGION_CACHE_FS:-btrfs},srv:${REGION_SRV_FS:-btrfs},opt:${REGION_OPT_FS:-btrfs}"
+        [ "${REGION_GAMES:-none}" != "none" ] && _doc_regions="${_doc_regions},games:${REGION_GAMES}"
+        echo "DATA_REGIONS=${_doc_regions}"
+        unset _doc_regions
         echo ""
         # AI (Big Pickle) ADDITION — Beta-v2.7.6 [PKG-LIST]: append the FULL
         # finished-system package inventory (every package on this box — the
@@ -11288,7 +11315,9 @@ if [ ! -f /var/log/firstboot.log ]; then
         # fetch summary" error. The remote is now added inside the chroot at
         # install time (see [FLATHUB-CHROOT]) where the network is already up;
         # here we only (a) re-guard the add as an idempotent no-op fallback.
-        flatpak remote-add --if-not-exists flathub https://flathub.org 2>/dev/null || true
+        # Same [FLATHUB-URL-FIX] (Beta-v2.9.49): .flatpakrepo URL carries the
+        # repo base + signing key; the bare website URL imports no key.
+        flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo 2>/dev/null || true
         flatpak remote-modify --enable flathub 2>/dev/null || true
         # AI (Big Pickle) CHANGE — Beta-v2.9.34 [FLATPAK-NM-DISPATCH]: the
         # queued Flatpak app install (Brave etc.) was moved from the old
@@ -11540,23 +11569,6 @@ fi
 unset _fw_audio
 
 echo "$FW_AUDIT_TEXT"
-
-# AI (Big Pickle) ADDITION — Beta-v2.9.33 [FW-AUDIT-LOG]: persist the
-# [FW-AUDIT] report-only firmware accounting (built above in the chroot into
-# FW_AUDIT_TEXT) into the same ~/Documents/Void_Install.txt record — one
-# greppable place for everything an operator/support person needs to know about
-# what this machine was built with. The record write (DOCS-LOG) precedes this,
-# so the append lands after the existing content; the root→user-owned append
-# preserves the file's ownership (no chown needed again). Guarded: empty
-# TARGET_USER or a missing/unwritable record file → silently skipped; nothing
-# about the install is gated on it.
-if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ] && [ -f "/home/${TARGET_USER}/Documents/Void_Install.txt" ] && [ -w "/home/${TARGET_USER}/Documents/Void_Install.txt" ]; then
-    {
-        echo ""
-        echo "# -------- FIRMWARE ACCOUNTING ([FW-AUDIT], as-built) --------"
-        echo "$FW_AUDIT_TEXT"
-    } >> "/home/${TARGET_USER}/Documents/Void_Install.txt"
-fi
 
 if [ "$BOOTLOADER" = "limine" ]; then
 # AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.3.0 [KERNEL-HOOK follow-up] §4.15: re-sync

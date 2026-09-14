@@ -104,6 +104,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.46** | Five ENCRYPT+regions post-audit fixes from the first real boot on `<host>`: `[SUBVOL-TOOL-RESOLVEDEV]` (strip `[/@]` from findmnt SOURCE before subvolid=5 mount + `awk -v sub=`→`svpat` rename), `[INSTALL-CONFIG-FLATPAK]` (INSTALL_FLATPAK/INSTALL_BRAVE public rows), KERNEL_PKGS/PKG-PREFLIGHT verification, `[VBOX-SV-GUARD]` (vboxdrv link guarded on `/etc/sv/vboxdrv`), `[FLATPAK-NM-DISPATCH-STAMP]` (flatpak queue dispatch check) | Beta-v2.9.46 below |
 | **Beta-v2.9.47** | `[TEE-BOOT-QUIET]`+`[TEE-BLACKLIST]` — two env-only PUBLIC limine-env knob rows (`DEFAULT_QUIET_BOOT`, `DEFAULT_TEE_BLACKLIST`, default no) thread a shared `TEE_QB_FRAG` (`quiet` + `modprobe.blacklist=tee`) through every GRUB/Limine BASE_CMD builder + the write-conf recompute; byte-identical at defaults | Beta-v2.9.47 below |
 | **Beta-v2.9.48** | `[NO-DE]`/`[NO-DM]`/`[HEADLESS]`/`[HEADLESS-XORG-OPT]`/`[HEADLESS-AUDIO]`/`[DE-ORDER]`/`[DISK-BUDGET]` — headless/server install path (DESKTOP_ENV option 8 = none, DM `none` → `DM_SERVICE_NAME=none` + sed-guarded rc.local link, `HAS_GRAPHICAL` gates the xorg/wayland base chain + audio, INSTALL_XORG/INSTALL_AUDIO opt-ins only when headless) + pre-write partition fit check (`DISK_BYTES` captured at disk-pick and persisted; `_size_to_bytes` + `_disk_budget_check` refuse an over-provisioned layout before `sgdisk -Z` and fail dry-run; ENCRYPT via container=remainder identity) + the latent 2.9.38 `REGION_*_SIZE` uppercase-fold eval fix | Beta-v2.9.48 below |
+| **Beta-v2.9.49** | `[VERIFY-FIXES]` — post-verification corrections proven against the live as-built machine (2026-09-14): `[WINE-RENAME]` (prompt var `INSTALL_GAME_WINE` → `INSTALL_WINE`, matching the as-built record + recovered prompt docs), `[FLATHUB-URL-FIX]` (both remote-add sites now use `https://flathub.org/repo/flathub.flatpakrepo` — the bare website URL 307s to `/en` and imports no GPG key, so queued flatpak installs failed with "public key not found", proven on hardware), `[DOCS-LOG-ASBUILT]` (`~/Documents/Void_Install.txt` header rewritten to the recovered as-built row set byte-format: SSH_SERVER/NVIDIA_DRIVER(wifi)/WIFI_HARDWARE/CPU/HOMEBREW/GAMING/DATA_REGIONS all-six ordered), `[FW-AUDIT-LOG-DROP]` (accounting stays console-only — the as-built record has no firmware section) | Beta-v2.9.49 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -343,6 +344,75 @@ added); `Debug/check-pkg-preflight.sh` 135 ALL COVERED (143 install_pkgs +
 bootstrap literals); `Debug/check-heredocs.sh` 65 ALL CLEAN.
 `_size_to_bytes`/`_disk_budget_check` unit-tested standalone (fits / over /
 ESP-only-1G / exactly-fit / unreadable).
+
+---
+
+## Beta-v2.9.49 — `[VERIFY-FIXES]` (post-verification corrections proven against the live as-built machine)
+
+`SCRIPT_VERSION = Beta-v2.9.49`. Verification of the reconstructed 2.9.48
+against the recovered as-built machine (`Recovered-Corpus-2026-09-13/` +
+live `<host>`, 2026-09-14) surfaced six divergences; five are fixed here.
+
+**1. `[WINE-RENAME]` — the wine prompt variable was `INSTALL_GAME_WINE`.**
+The draft's wine prompt (top `[PROMPT-DEFAULTS]`: `DEFAULT_GAME_WINE`) and its
+read branch exported `INSTALL_GAME_WINE`, but every other consumer — the
+install-config writer, DRY_RUN plan, chroot_env.sh, the `install_pkgs wine`
+gate, and the as-built record (`GAMING=… wine …`) + recovered prompt docs
+(`INSTALL_WINE` at byte offset 49804 of `recovered_INSTALL_PROMPTS.md`) — uses
+`INSTALL_WINE`. With mismatched names the chroot `install_pkgs wine` gate
+silently read the wrong variable and never installed Wine even when the prompt
+said yes. Renamed to `INSTALL_WINE`/`DEFAULT_WINE` everywhere (12 refs +
+defaults); zero `GAME_WINE` remain and `bash -n` + `check-defaults` pass.
+
+**2. `[FLATHUB-URL-FIX]` — remote-add shipped the bare website URL.**
+Both flathub `remote-add` sites used `https://flathub.org`, which is the
+*website* (its root 307-redirects to `/en/`) and — when added as a remote — a
+location that carries no GPG keyring at all. A flatpak queue then always died
+with `flathub: public key not found for correction … is not trusted`. Fix
+(proven on the live box, 2026-09-14): use the canonical manifest file
+`https://flathub.org/repo/flathub.flatpakrepo`, which carries BOTH the correct
+base URL (`https://dl.flathub.org/repo/`) and the signing key. Applied to the
+install-time add (`[FLATHUB-CHROOT]` stub + real chroot add) and the first-boot
+rc.local fallback (`[FLATHUB-RCL]`), each with a `[FLATHUB-URL-FIX]
+(Beta-v2.9.49)` note.
+
+**3. `[DOCS-LOG-ASBUILT]` — the record header is now the as-built row set.**
+The recovered real record (`Documents_Void_Install.txt` lines 8-25) lists —
+in order — DESKTOP_ENV, SSH_SERVER (port + `policy:` pointer),
+NVIDIA_DRIVER (`GPU:` + `wifi:`), WIFI_HARDWARE (`0xVVVV:0xDDDD` id),
+CPU (vendor + microcode pkg), HOMEBREW (`deps: git/curl/file via xbps;
+install the prefix yourself` + `isolation:`), GAMING (enabled-launcher list,
+`heroic(flatpak)`-tagged, `@game isolation:`), DATA_REGIONS (ALL SIX locations
+`name:fs,` fixed order, games only when `!=none`). The draft instead wrote
+BR0_NIC/MICROCODE_PKG rows (not in the as-built) and a carved-regions-only
+DATA_REGIONS. The writer now reproduces the as-built byte-format and drops the
+two invented rows. The CPU row re-derives the vendor in-chroot from
+`/proc/cpuinfo` (same hardware as the live probe) and prints the microcode pkg
+verbatim. All vars consumed (`INSTALL_SSH_SERVER`/`SSH_PORT`,
+`INSTALL_NVIDIA`/`GPU_FAMILIES`/`WIFI_HW`/`WIFI_IDS`, `MICROCODE_PKG`,
+`INSTALL_BREW`/`PROVISION_LINUXBREW_SUBVOL`,
+`INSTALL_STEAM`/`INSTALL_LUTRIS`/`INSTALL_HEROIC`/`INSTALL_BOTTLES`/`INSTALL_WINE`/
+`INSTALL_GAMEMODE`/`PROVISION_GAME_SUBVOL`, `REGION_*_FS`/`REGION_GAMES`) are
+exported into the chroot, so the header is complete and truthful.
+
+**4. `[FW-AUDIT-LOG-DROP]` — the as-built record has no firmware section.**
+Beta-v2.9.33's `[FW-AUDIT-LOG]` appends the firmware accounting into
+`~/Documents/Void_Install.txt` after the package inventory. The recovered real
+record (the authoritative as-built) ends at the package list (`zxing-cpp-3.1.1_1`)
+with NO `# -------- FIRMWARE ACCOUNTING … --------` section — the append never
+fired on the real build. To reproduce the proven machine, the record append is
+dropped; the `[FW-AUDIT]` accounting itself remains and still prints to the
+install log/console (report-only, unchanged).
+
+**5. Divergence examined and left as-is:** the recreated script writes a `BR0_NIC`
+legacy variable header it never populates on the 2.9.48-era path
+(`SYSPREFIX_BTRFS` dead-data equivalent) — harmless, no behavior change.
+
+**Validation:** gates on the fixed tree — `bash -n` OK;
+`Debug/check-defaults.sh` ALL CONSISTENT (DEFAULT_WINE rename ok);
+`Debug/check-pkg-preflight.sh` 135 ALL COVERED;
+`Debug/check-heredocs.sh` 65 ALL CLEAN. The flathub `.flatpakrepo` fix is
+real-hardware proven (all three queued apps installed, stamp-on-success).
 
 ---
 
