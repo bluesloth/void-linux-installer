@@ -101,6 +101,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.43** | `[INNER-PARTSCAN-BOOT]` — boot-time partscan dracut module (98void-inner-partscan): udev RUN fires on the opened mapper's DM_NAME, partprobe-primary / partx-fallback force-registers the inner GPT BEFORE dracut's settle resolves `root=UUID=<inner btrfs>`; gated on `ENCRYPT=yes` + carved `REGION_PARTITIONED` | Beta-v2.9.43 below |
 | **Beta-v2.9.44** | `[DRACUT-CONF-NAME]` — the `add_dracutmodules` conf value MUST be the SHORT module name without the numeric prefix (`void-inner-partscan`, NOT `98void-...`); dracut-ng resolves conf names as `[0-9][0-9]<name>` so a prefixed name matches nothing and the regen dies | Beta-v2.9.44 below |
 | **Beta-v2.9.45** | `[INNER-PARTSCAN-DMPROBE]` — partprobe-first inner-GPT rescan (libparted dm-linear submaps are the ONLY tool that can BLKPG a dm mapper; `partx -a` fallback only); named `_region_inner_partscan`/`_region_inner_dev` helpers; chroot FATAL initramfs gate + per-image guard in void-limine-sync-kernels; cleanup `partx -d` before luksClose | Beta-v2.9.45 below |
+| **Beta-v2.9.46** | Five ENCRYPT+regions post-audit fixes from the first real boot on `<host>`: `[SUBVOL-TOOL-RESOLVEDEV]` (strip `[/@]` from findmnt SOURCE before subvolid=5 mount + `awk -v sub=`→`svpat` rename), `[INSTALL-CONFIG-FLATPAK]` (INSTALL_FLATPAK/INSTALL_BRAVE public rows), KERNEL_PKGS/PKG-PREFLIGHT verification, `[VBOX-SV-GUARD]` (vboxdrv link guarded on `/etc/sv/vboxdrv`), `[FLATPAK-NM-DISPATCH-STAMP]` (flatpak queue dispatch check) | Beta-v2.9.46 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -242,6 +243,28 @@ unwind in `cleanup_on_failure` before `luksClose`, and `parted` added to
 
 **Validation:** `Debug/LIVE-VALIDATION-RUNBOOK.md` updated; the
 ENCRYPT+regions boot-to-desktop path is real-hardware proven.
+
+---
+
+## Beta-v2.9.46 — five post-audit fixes from the first real ENCRYPT+regions boot
+
+`SCRIPT_VERSION = Beta-v2.9.46`. The first true ENCRYPT+regions install on
+`<host>` produced five code-only fixes (`0a60f06`):
+
+- **`[SUBVOL-TOOL-RESOLVEDEV]`** — `void-subvol-tool.sh` strips the `[/@]`
+  suffix from `findmnt` SOURCE before mounting the `subvolid=5` root, and the
+  shadowed `awk -v sub=` variable is renamed to `svpat`.
+- **`[INSTALL-CONFIG-FLATPAK]`** — install-config gains the public
+  `INSTALL_FLATPAK` / `INSTALL_BRAVE` rows.
+- **KERNEL_PKGS / PKG-PREFLIGHT verification** — the installed kernel set and
+  the preflight list stay consistent with what was actually installed.
+- **`[VBOX-SV-GUARD]`** — the first-boot vboxdrv runsvdir link is guarded on
+  `/etc/sv/vboxdrv` existing (a host without the service dir no longer gets a
+  dangling link).
+- **`[FLATPAK-NM-DISPATCH-STAMP]`** — the first-boot Flatpak queue dispatch is
+  verified after the NetworkManager/D-Bus handoff instead of blindly firing.
+
+**Validation:** `bash -n` + all committed Debug gates CLEAN.
 
 ---
 
