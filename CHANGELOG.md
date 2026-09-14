@@ -92,6 +92,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.34** | `[SLICK-BG-QUOTES]`+`[SSH-DEPOSIT-LOG]`+`[FLATPAK-NM-DISPATCH]` — slick-greeter does NOT strip quotes from config values (a quoted `background="path"` is opened as `"/path"` and fails → black greeter), so the Slick background is now written UNQUOTED (GTK greeter keeps the quoted form); the ssh-key deposit guard's fragile `ls -A` subshell replaced with `find -quit` plus an explicit WARNING when the account is missing; the first-boot Flatpak queue moved from the old rc.local background subshell to a NetworkManager dispatcher script (`99-flatpak-firstboot`, fires on up/vpn-up with a default route — guaranteed DNS); sshd + vboxdrv rc.local links realigned (sshd early) | Beta-v2.9.34 below |
 | **Beta-v2.9.35** | `[ESP-SIZE]` — the EFI ESP size becomes a real prompt-time decision via a shared `esp_size_choose()` menu (4 GiB default / 6 GiB / 8 GiB / Custom, 1 GiB floor, normalized to gdisk single-letter K/M/G): Limine calls it after the bootloader choice (esp-copy mirrors every kernel/snapshot onto the ESP), and the GRUB+ENCRYPT path mounts the ESP AT `/boot` so it shares the same menu. Plain GRUB never calls it (fixed 1G at /boot/efi). Fixes `[GRUB-ESP-SIZE-ORDER]` — the old in-loop check read ENCRYPT before its own prompt, so the wrong size applied | Beta-v2.9.35 below |
 | **Beta-v2.9.36** | `[CHANNEL-GROUP]`+`[INSTALL-BREW]` — Flatpak and Homebrew are shown as one "THIRD-PARTY APP CHANNELS" umbrella but stay INDEPENDENT yes/no toggles (both default OFF — brew must not read as a sub-choice of Flatpak's sandbox). Homebrew/Linuxbrew is the unsandboxed, user-owned `~/.linuxbrew` CLI/dev channel: installs only the xbps runtime deps (git, curl, file, procps-ng), deliberately never pipes the vendor's `curl|bash` — the operator creates the prefix on first login. Isolation is a separate opt-in `@linuxbrew` per-user subvol (SUBVOL_ROWS row → `PROVISION_LINUXBREW_SUBVOL`, default OFF) + subvol-tool `dev` class | Beta-v2.9.36 below |
+| **Beta-v2.9.37** | `[GAME-LAUNCHERS]`+`[GAME-SUBVOL]` — a "GAME LAUNCHERS & RUNTIMES" umbrella (after app channels, before Steam) with independent default-OFF toggles: Lutris (Void main, xbps), Heroic + Bottles (NO official Void package → Flatpak-only, offered only when `INSTALL_FLATPAK=true`), Wine (multilib runtime, never auto-pulled by a launcher), gamemode (Feral governor daemon). ONE shared `@game` per-user subvol (replaces `@steam`) mounted at the derived per-launcher set (`~/.local/share/Steam` + `~/.local/share/lutris`) via the subvol-tool multi-mount loop + `@steam`/gaming alias resolution + `@game` fstab-guard relaxation + detach/destroy BRE-paren sed fix | Beta-v2.9.37 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -2075,6 +2076,36 @@ creates the prefix on first login (NEWS step). Isolation is a separate opt-in
 default OFF — a correctly-owned plain `~/.linuxbrew` in `@home` already
 survives a `@` rollback and isn't snapshotted), plus the subvol-tool `dev`
 class.
+
+---
+
+## Beta-v2.9.37 — `[GAME-LAUNCHERS]` + `[GAME-SUBVOL]` (game launchers & runtimes umbrella; ONE shared `@game` subvol replaces `@steam`)
+
+> Reconstructed from the header VERSION-HISTORY row and the inline
+> `[GAME-LAUNCHERS]`/`[GAME-SUBVOL]` markers (lines 713/3208/3295/3964/5530/
+> 8028 in the reconstructed installer). No recovered original CHANGELOG text
+> exists for this version; this entry fills the documentation gap.
+
+`SCRIPT_VERSION = Beta-v2.9.37`. A gaming umbrella and a consolidated subvolume:
+
+**1. `[GAME-LAUNCHERS]` — "GAME LAUNCHERS & RUNTIMES", a default-OFF umbrella
+after app channels / before Steam.** Delivery model: Lutris is Void main
+(xbps); Heroic + Bottles have NO official Void package so they are Flatpak-only
+and only offered when `INSTALL_FLAPTAK=true` (formalized as `[GAME-FLATPAK-GATE]`,
+Beta-v2.9.40). Wine (system, multilib) is a separate runtime toggle a launcher
+NEVER auto-pulls; gamemode (Feral governor daemon + 32-bit libs) likewise.
+The banner keys an advisory line off the `[HARDWARE-REVIEW]` GPU probe
+(`GPU_FAMILIES`) — advisory only, never a gate. Not in scope: Wine-GE /
+Proton-FS (not in Void repos), ProtonUp-Qt.
+
+**2. `[GAME-SUBVOL]` — ONE shared `@game` per-user subvol replaces the former
+`@steam`-only subvol.** Gated on `INSTALL_ANY_GAME` (Steam ∨ Lutris ∨ Heroic ∨
+Bottles, computed AFTER all launcher prompts; Wine/gamemode deliberately
+excluded — no isolated data datadir) and the resolved `PROVISION_GAME_SUBVOL`
+(Gate 1/Gate 2). Stage-2 derives the per-launcher mount set from `@game`
+(`~/.local/share/Steam` + `~/.local/share/lutris`) via the subvol-tool
+multi-mount loop + `@steam`/gaming alias resolution + `@game` fstab-guard
+relaxation + the detach/destroy BRE-paren sed fix.
 
 ---
 
