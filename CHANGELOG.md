@@ -87,6 +87,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.29** | `[NFT-VIRT-PRINT]` — on a virtualization build (`INSTALL_VIRT=true`) the installer now echoes the just-written `/etc/nftables.conf` to the terminal so the operator can visually confirm the `br0`/`virbr*` forward accepts landed (those rules only reference interfaces that exist on a virt install — the whole point of `[NFT-VIRT-GATE]`); the printout doubles as an on-target live-validation artifact for that gate. Non-virt builds print nothing. No prompt, gate, or `DEFAULT_*` change | Beta-v2.9.29 below |
 | **Beta-v2.9.30** | `[NFT-ICMPV6-RATELIMIT]` + `[NFT-RA-RATELIMIT]` + `[NFT-OPEN-PORT]` — three nftables refinements. IPv6 echo-request now gets the same `1/second burst 5` rate limit its IPv4 twin already had (the prior broad `meta l4proto ipv6-icmp accept` was unrate-limited, so IPv6 ping was both harder to log and abusable); `nd-router-advert` is capped at `6/minute` to blunt an RA-flood / SLAAC-hijack attack; and a new root helper `/usr/local/sbin/void-firewall-open-port` maintains an explicit-accept block inside the policy-drop input chain (marker-comment managed, `nft -c` parse-checked, runit reload on success, add/rm/list) so a future WAN-facing service is reachable without hand-editing the generated file. A "how to open a port" comment heads the config. No prompt or `DEFAULT_*` change | Beta-v2.9.30 below |
 | **Beta-v2.9.31** | `[NFT-COUNTERS]` + `[NFT-RATELIMIT-KNOB]` — firewall observability and a control knob. The anti-spoof drops (`127.0.0.0/8`, `::1`), the `ct state invalid` drop, and the broad `ipv6-icmp` accept now carry `counter`; an explicit trailing `counter drop` rule at the end of both the input and forward chains makes the implicit policy-drop a countable rule, so `nft list ruleset` shows exactly why packets die. The two 2.9.30 hardening rules (IPv6 echo-request cap + `nd-router-advert` flood cap) are now gated by the env knob `DEFAULT_NFT_RATELIMIT` (no prompt, `DEFAULT_MICROCODE` style; default `yes` = tightened posture, `no` = plain broad-icmp config). Knob scope is the rate-limit rules only — the counters and the IPv4 echo cap stay unconditional, and the knob references no interfaces (no `[NFT-VIRT-GATE]` coupling). Also fixed: the generated config's header comment used `nft -c` in literal backticks inside an *unquoted* heredoc, which nft would have tried to execute at install; reworded to plain text | Beta-v2.9.31 below |
+| **Beta-v2.9.32** | `[FW-AUDIT]` — closes the "per-vendor firmware pruning" discussion item. Verified against the void-packages templates: `linux-base` hard-depends on `alsa-firmware` `linux-firmware-network` `sof-firmware` and (x86_64) `linux-firmware-amd` `-intel` `-nvidia`; the network split itself hard-depends on `linux-firmware-broadcom`; XBPS has no recommends tier, so an installer-side prune is impossible (xbps-remove refuses: "dependency of installed 'linux-base'"). The ONE firmware Void leaves per-host is CPU microcode, already pruned to a single package by `[CPU-DETECT]`. So a report-only post-install audit now prints what *landed* vs what this box's probe *needs*, names the splits kept solely by the dependency wall (the irreducible wholesale tax), and confirms the Broadcom gap state. Nothing gated | Beta-v2.9.32 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1878,6 +1879,64 @@ to plain text, matching the unquoted-heredoc contract documented next to the
   extracted, all clean), and the exact rendered `/etc/nftables.conf` was
   verified for virt/knob-on, non-virt/knob-off, and sshd-on combinations via
   the `/tmp` render harness.
+
+---
+
+## Beta-v2.9.32 — `[FW-AUDIT]` (report-only firmware accounting closes the per-vendor pruning discussion)
+
+`SCRIPT_VERSION = Beta-v2.9.32`. The "per-vendor firmware pruning" TODO
+discussion is resolved, and the resolution is a *report*, not a prune:
+Void's wholesale firmware set is a hard dependency wall, so the honest
+installer contribution is accurate accounting of what ships vs what the box
+needs.
+
+### Why pruning is impossible from the installer (verified against void-packages)
+
+The `linux-base` template (2026.03.23) `depends` on:
+
+```
+dracut alsa-firmware linux-firmware-network sof-firmware
+# x86_64/i686 additionally:
+linux-firmware-intel linux-firmware-nvidia linux-firmware-amd
+```
+
+and `linux-firmware-network` itself `depends` on `linux-firmware-broadcom`.
+All five firmware splits arrive as *required* dependencies of the
+kernel-adjacent `linux-base`, and XBPS has **no recommends/optional tier** (an
+apt concept Void deliberately omits). `xbps-remove linux-firmware-nvidia`
+therefore refuses with *"cannot remove ... it's a dependency of installed
+'linux-base'"*; forcing it leaves the pkgdb inconsistent and the next
+`xbps-install -u` flags a broken system. Nothing in the installer can change
+that — it acts *after* the dependency contract, not before it.
+
+The **one** firmware decision Void genuinely leaves per-host is **CPU
+microcode** (`intel-ucode` vs `linux-firmware-amd`), and `[CPU-DETECT]`
+already prunes it to exactly one package (and `linux-firmware-amd` doubles as
+the amdgpu/radeon blob, which is why it is not dropped on an AMD-GPU box even
+under the wall).
+
+### The audit block (chroot post-install, report-only)
+
+After `[WIFI-FW-VERIFY]`, a `[fw] Firmware accounting (report-only):` block
+queries the *target* pkgdb (`xbps-query -l`) and prints, per split:
+
+- **present + "matches this box's probe (GPU/CPU)"** for `-amd`/`-intel`/
+  `-nvidia` when the live-box hardware review detected matching hardware;
+- **present + "kept ONLY by the linux-base dependency wall"** when the box
+  does not need it — the irreducible wholesale tax (typically at least one of
+  the three on any single-vendor build);
+- `linux-firmware-network` as the always-kept bulk (every LAN/WLAN/Bluetooth
+  vendor wholesale; never prunable);
+- `linux-firmware-broadcom` as the one *closed gap* (installed for a detected
+  Broadcom radio) or flagged absent when the install was declined;
+- microcode line showing the one genuinely pruned package (`[CPU-DETECT]`);
+- audio line when `sof-firmware`/`alsa-firmware` are present.
+
+Nothing is gated and no prompt appears — same report-don't-decide ethos as
+`[WIFI-FW-VERIFY]`. Validation: `bash -n`, check-defaults (no `DEFAULT_*`
+change), check-heredocs all green; the block's output was exercised against
+stubbed target pkgdb across five hardware scenarios (AMD/Intel/NVIDIA,
+Broadcom-on/off, microcode-opt-out).
 
 ---
 
