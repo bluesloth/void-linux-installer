@@ -85,6 +85,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.27** | `[CPU-DETECT]`+`[NIC-DETECT]` — the hardware review gains two probes, each on the fact-vs-decision side it belongs to. CPU microcode becomes a REPORTED, silently AUTO-INSTALLED fact (no prompt over the vendor-locked always-beneficial `intel-ucode`/`linux-firmware-amd` — microcode joins `linux-firmware`, unlike wifi's Broadcom-split prompt and NVIDIA's DKMS/nouveau tradeoff prompt; `DEFAULT_MICROCODE=no` is the only lever). `MICROCODE_DECIDED` marks "live review ran" so the chroot honors a decided empty (opt-out/unknown vendor) and re-derives only on a cross-version resume. The br0 wired-NIC pick moves INTO the review as `Keep this interface? [Y/n] or type another name:` (carrier-then-USB probe, `DEFAULT_NIC=<name>` pins a name and skips every prompt); a decline/nothing-found defers to the existing `INSTALL_VIRT`-gated re-probe whose "same USB port" notice still shows | Beta-v2.9.27 below |
 | **Beta-v2.9.28** | `[SUBVOL-FLATPAK-TEXT]` — the subvolume-isolation preamble (Beta-v2.9.3) falsely documented Flatpak as "excluded" from per-app subvolume isolation; it was in the `[SUBVOL-GATES]` loop all along (Beta-v2.9.0), so `@flatpak` was already created/mounted/fstab'd on a yes. Text corrected to list Flatpak and document the `@flatpak` rationale (the GB-scale `/var/lib/flatpak` store stays out of `@` snapshots and survives a `@` rollback); OctoXBPS remains the sole documented exclusion. Plus `[APPIMAGE-FUSE]` — INSTALL_FLATPAK now also pulls `fuse` + `fuse3` (FUSE 2 for the AppImage runtime's historical `libfuse.so.2` dlopen, FUSE 3 for modern runtimes; they coexist on Void, and base-system pulls neither), so AppImages self-mount instead of falling back to extract-and-run. Gear Lever stays a manual Flathub add (no official Void package) and AppImages stay in `~/Applications` under `@home` — no AppImage subvolume. Plus `[BRAVE-FLATPAK-GATE]` — the Brave choice is only *offered* when Flatpak was selected (its sole installer route; the Flatpak prompt precedes the browser section), otherwise hidden with a one-line NOTICE and `INSTALL_BRAVE=false`; the Stage-2 WARNING is kept as a resume/export safety net. No gate or `DEFAULT_*` change | Beta-v2.9.28 below |
 | **Beta-v2.9.29** | `[NFT-VIRT-PRINT]` — on a virtualization build (`INSTALL_VIRT=true`) the installer now echoes the just-written `/etc/nftables.conf` to the terminal so the operator can visually confirm the `br0`/`virbr*` forward accepts landed (those rules only reference interfaces that exist on a virt install — the whole point of `[NFT-VIRT-GATE]`); the printout doubles as an on-target live-validation artifact for that gate. Non-virt builds print nothing. No prompt, gate, or `DEFAULT_*` change | Beta-v2.9.29 below |
+| **Beta-v2.9.30** | `[NFT-ICMPV6-RATELIMIT]` + `[NFT-RA-RATELIMIT]` + `[NFT-OPEN-PORT]` — three nftables refinements. IPv6 echo-request now gets the same `1/second burst 5` rate limit its IPv4 twin already had (the prior broad `meta l4proto ipv6-icmp accept` was unrate-limited, so IPv6 ping was both harder to log and abusable); `nd-router-advert` is capped at `6/minute` to blunt an RA-flood / SLAAC-hijack attack; and a new root helper `/usr/local/sbin/void-firewall-open-port` maintains an explicit-accept block inside the policy-drop input chain (marker-comment managed, `nft -c` parse-checked, runit reload on success, add/rm/list) so a future WAN-facing service is reachable without hand-editing the generated file. A "how to open a port" comment heads the config. No prompt or `DEFAULT_*` change | Beta-v2.9.30 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1737,6 +1738,62 @@ live-validation artifact: on a real virt install, seeing the `br0`/`virbr*`
 accepts in the output confirms both `[NFT-VIRT-GATE]` and the
 `INSTALL_VIRT`-export path (`chroot_env.sh`) worked end-to-end, closing the
 last un-validated corner of that feature.
+
+---
+
+---
+
+## Beta-v2.9.30 — `[NFT-ICMPV6-RATELIMIT]` + `[NFT-RA-RATELIMIT]` + `[NFT-OPEN-PORT]` (IPv6 ping rate limit, RA-flood cap, firewall port helper)
+
+`SCRIPT_VERSION = Beta-v2.9.30`. Three /etc/nftables.conf-era refinements —
+two config parity/hardening rules and one operator helper, all chroot-phase.
+No prompt, no new gate, no `DEFAULT_*` surface.
+
+### `[NFT-ICMPV6-RATELIMIT]` — IPv6 ping gets the same cap as IPv4
+
+The config already rate-limited IPv4 echo-request (`limit rate 1/second burst
+5 packets`), but the IPv6 path was a blanket `meta l4proto ipv6-icmp accept`
+with no limit — every IPv6 ping, unbounded. The rate-limited rule now mirrors
+IPv4, still sitting *before* the broad `ipv6-icmp accept` (first-match wins,
+so everything else ICMPv6 — ND, RA, MLD — keeps its unconstrained flow):
+
+```text
+        ip protocol icmp icmp type echo-request counter limit rate 1/second burst 5 packets accept
+        meta l4proto ipv6-icmp icmpv6 type echo-request counter limit rate 1/second burst 5 packets accept
+        meta l4proto ipv6-icmp icmpv6 type nd-router-advert counter limit rate 6/minute accept
+        meta l4proto ipv6-icmp accept
+```
+
+### `[NFT-RA-RATELIMIT]` — router advertisements are capped
+
+Neighbor-Discovery Router Advertisements are accepted broadly (required for
+SLAAC), but a hostile actor on the LAN can flood RAs to hijack default-routing
+/ DNS, or just spam. `nd-router-advert` is now capped at `limit rate
+6/minute` — far above normal router cadence (RA frequency is minutes apart in
+steady state), generous enough never to break a real router, tight enough to
+blunt a flood. Same insertion-order reasoning as the ping rule.
+
+### `[NFT-OPEN-PORT]` — `void-firewall-open-port` helper + config doc
+
+The input chain's `policy drop` makes any future WAN-facing service silently
+unreachable — there was no sanctioned way to open a port except editing the
+generated file. A new root helper, installed for **all** builds (a
+non-virt / non-sshd box can still grow services later):
+
+- `void-firewall-open-port add tcp:8080` / `rm` / `list`
+- Rules are kept between two `# void-firewall-open-port: managed rules start/end`
+  marker comments inside `chain input`.
+- Every `add`/`rm` is **idempotent** and **parse-checked first**: the edit is
+  written to `/etc/nftables.conf.new`, validated with `nft -c -f`, and only on
+  success moved over the live file and the runit `nftables` service restarted
+  (`sv restart nftables`). A failed parse or a missing marker leaves the live
+  config untouched. `rm` refuses to touch a matching rule that lives *outside*
+  the managed block (e.g. the installer's own `tcp dport 22` sshd line).
+- The fixed `sh`d/`tcp dport 22 accept` line and the `br0`/`virbr*` forwards
+  are not affected by the helper's scope.
+
+A short comment at the top of `/etc/nftables.conf` documents the default-drop
+rule and points at the helper, so the generated file is self-explaining.
 
 ---
 
