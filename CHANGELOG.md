@@ -93,6 +93,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.35** | `[ESP-SIZE]` — the EFI ESP size becomes a real prompt-time decision via a shared `esp_size_choose()` menu (4 GiB default / 6 GiB / 8 GiB / Custom, 1 GiB floor, normalized to gdisk single-letter K/M/G): Limine calls it after the bootloader choice (esp-copy mirrors every kernel/snapshot onto the ESP), and the GRUB+ENCRYPT path mounts the ESP AT `/boot` so it shares the same menu. Plain GRUB never calls it (fixed 1G at /boot/efi). Fixes `[GRUB-ESP-SIZE-ORDER]` — the old in-loop check read ENCRYPT before its own prompt, so the wrong size applied | Beta-v2.9.35 below |
 | **Beta-v2.9.36** | `[CHANNEL-GROUP]`+`[INSTALL-BREW]` — Flatpak and Homebrew are shown as one "THIRD-PARTY APP CHANNELS" umbrella but stay INDEPENDENT yes/no toggles (both default OFF — brew must not read as a sub-choice of Flatpak's sandbox). Homebrew/Linuxbrew is the unsandboxed, user-owned `~/.linuxbrew` CLI/dev channel: installs only the xbps runtime deps (git, curl, file, procps-ng), deliberately never pipes the vendor's `curl|bash` — the operator creates the prefix on first login. Isolation is a separate opt-in `@linuxbrew` per-user subvol (SUBVOL_ROWS row → `PROVISION_LINUXBREW_SUBVOL`, default OFF) + subvol-tool `dev` class | Beta-v2.9.36 below |
 | **Beta-v2.9.37** | `[GAME-LAUNCHERS]`+`[GAME-SUBVOL]` — a "GAME LAUNCHERS & RUNTIMES" umbrella (after app channels, before Steam) with independent default-OFF toggles: Lutris (Void main, xbps), Heroic + Bottles (NO official Void package → Flatpak-only, offered only when `INSTALL_FLATPAK=true`), Wine (multilib runtime, never auto-pulled by a launcher), gamemode (Feral governor daemon). ONE shared `@game` per-user subvol (replaces `@steam`) mounted at the derived per-launcher set (`~/.local/share/Steam` + `~/.local/share/lutris`) via the subvol-tool multi-mount loop + `@steam`/gaming alias resolution + `@game` fstab-guard relaxation + detach/destroy BRE-paren sed fix | Beta-v2.9.37 below |
+| **Beta-v2.9.38** | `[MULTI-FS]` — per-region data filesystems: each of `/home`, `/var`, `/var/cache`, `/srv`, `/opt` (+ optional `Games`) can be carved onto its OWN dedicated partition with an ext4/btrfs filesystem choice instead of a root-Btrfs subvolume. Fixed-order outer carve right after the ESP and BEFORE the single LINUX root partition (LINUX last, sized to the remainder), or as an INNER GPT inside the LUKS2 container when `[ENCRYPT]`; region subvols (`@home`/`@var`/…) are FOLDED out of the flat topology so no subvolume collides with a partition mountpoint; owned fstab rows skipped; subvol-tool `[MULTI-FS-GUARD]` prevents re-creating a carved region's subvolume; region mounts before chroot; games chown; DOCS-LOG `DATA_REGIONS`. Plus `[MULTI-FS-RUNLOG]` (journal audit lines + journal archived to `/etc/void-installer/installer-run.log` on success) and `[CRASH-USB-LOG]` (crash post-mortem — journal + `.info` sidecar — to the first mounted stick; `--save-log` parsed BEFORE the journal truncation / network gate / STAGE-1 banner so it works from a crashed, networkless live env). Default (bare Enter) = all-Btrfs flat layout, byte-identical to 2.9.37 | Beta-v2.9.38 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -2109,6 +2110,56 @@ relaxation + the detach/destroy BRE-paren sed fix.
 
 ---
 
+## Beta-v2.9.38 — `[MULTI-FS]` per-region data filesystems; `[MULTI-FS-RUNLOG]`; `[CRASH-USB-LOG]` (carved data regions; journal archiving; crash post-mortem to USB)
+
+> Reconstructed from the header VERSION-HISTORY rows (lines 628-632), the
+> ARCHITECTURE SUMMARY + inline `[MULTI-FS]` markers, the gitlog
+> (`5dfd880b` "feat: multi-filesystem data regions; Beta-v2.9.34->Beta-v2.9.38",
+> `1d03546e` `[MULTI-FS-RUNLOG]`, `0a5bbfae` `[CRASH-USB-LOG]` +
+> numeric-path browse hardening), and the `recovered_HANDOFF.md` validation
+> list. No recovered original CHANGELOG text exists for this version; this
+> entry fills the documentation gap.
+
+`SCRIPT_VERSION = Beta-v2.9.38`. The era's big feature — and the reason this
+whole 2.9.34→2.9.38 batch shipped in ONE feat commit:
+
+**1. `[MULTI-FS]` — per-region data filesystems.** Each of `/home`, `/var`,
+`/var/cache`, `/srv`, `/opt` (+ the optional `Games` region) can either stay a
+root-Btrfs subvolume (default) or be carved onto its OWN dedicated partition
+with a per-region fs choice (**ext4 or btrfs**). The root fs (`/`,
+`/.snapshots`, `/boot`, `@swap`) is ALWAYS Btrfs. Key invariants:
+- **Fixed-order outer carve** right after the ESP and BEFORE the single LINUX
+  root partition (order: home, var, cache, srv, opt, games; LINUX last, sized
+  to the remainder). With `[ENCRYPT]`, the carved regions become an INNER GPT
+  inside the single LUKS2 container.
+- **Region subvols are FOLDED out of the flat topology** (`[MULTI-FS-FOLD]`):
+  `@home`/`@var`/`@cache`/`@srv`/`@opt` and their owners are removed so no
+  subvolume collides with a partition mountpoint.
+- **Owned fstab rows skipped** for carved regions (the mounter owns them), and
+  the owned `void-subvol-tool` entries are guarded against re-creating a
+  carved region's subvolume (`[MULTI-FS-GUARD]`).
+- **Region mounts happen before the chroot**; the `Games` region gets its
+  `chown`; DOCS-LOG records `DATA_REGIONS`.
+- **Rollback-exempt** (not Snapper-managed), never inside `@root`.
+- Bare Enter on EVERY region line = all-Btrfs flat layout, byte-identical to
+  2.9.37 (no extra partitions, no size prompts).
+
+**2. `[MULTI-FS-RUNLOG]` — journal audit lines.** The region carve and its
+mounters are audit-logged to the journal, and on success the journal is
+archived to `/etc/void-installer/installer-run.log`.
+
+**3. `[CRASH-USB-LOG]` — crash post-mortem to USB.** On a crash, the journal +
+a `.info` sidecar are dumped to the FIRST mounted removable stick. The
+`--save-log` CLI flag is parsed BEFORE the journal truncation / network gate
+/ STAGE-1 banner, so it works from a crashed, networkless live env. (The
+planned-`exit 1` FATAL coverage arrived in Beta-v2.9.39
+`[CRASH-USB-LOG-FATAL-EXIT]`.)
+
+**Known limits (documented at the time):** a carved region's roundtrip is
+UNPROVEN beyond the bureau-targeting fallback behavior, and the ENCRYPT+region
+inner-GPT is UNPROVEN on real hardware (both got their boot-side proof across
+2.9.43-2.9.46: `[INNER-PARTSCAN-BOOT]`, `[DRACUT-CONF-NAME]`,
+`[INNER-PARTSCAN-DMPROBE]`).
 
 ---
 
