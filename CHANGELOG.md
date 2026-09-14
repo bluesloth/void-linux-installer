@@ -97,6 +97,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.39** | `[CRASH-USB-LOG-FATAL-EXIT]`+`[SUBVOL-ROWS-FIX]` — the crash post-mortem dump also fires on planned `exit 1` FATALs (EXIT-trap `_save_log_on_exit` + `_usb_dumped` double-write guard); SUBVOL_ROWS loop skips `#`-comment rows before the resolve eval + spurious duplicate INSTALL_BREW row removed | Beta-v2.9.39 below |
 | **Beta-v2.9.40** | `[PKG-PREFLIGHT]`+`[GAME-FLATPAK-GATE]` — Stage-1 package-name gate resolves every chroot-installable package against the live union pool BEFORE `sgdisk -Z` (closed crash #005; 134-pkg superset candidate list + committed drift-guard; repo hiccups WARN+skip, never false FATAL); Heroic/Bottles are Flatpak-queue-only delivery (`@game` mounts only `~/.local/share/Steam`+`~/.local/share/lutris`) | Beta-v2.9.40 below |
 | **Beta-v2.9.41** | (intermediate build) `98void-inner-partscan` dracut-module draft — module-setup.sh + udev rules + helper skeleton (crash #008: dracut crypttab `partscan` is unreliable on non-loopback LUKS2 at boot) | Beta-v2.9.41 below |
+| **Beta-v2.9.42** | (intermediate build) FATAL initramfs-content gate + `parted` shipping into the target (crash #009: `partx -a` cannot BLKPG a dm mapper, so the module initially booted to the emergency shell) | Beta-v2.9.42 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -167,6 +168,21 @@ nodes/by-uuid symlinks never registered, so `root=UUID=<inner btrfs>` "does
 not exist" stranded boot. This intermediate build carried no prompt/header
 changes; it was folded into the released `[INNER-PARTSCAN-BOOT]`
 (Beta-v2.9.43).
+
+**Validation:** `bash -n` CLEAN.
+
+---
+
+## Beta-v2.9.42 — (intermediate build) FATAL initramfs gate + parted shipping
+
+`SCRIPT_VERSION = Beta-v2.9.42` (intermediate build). Added the FATAL
+initramfs-content gate (verify after `dracut --force` that every `/boot`
+kernel image actually carries the partscan helper / cryptsetup / parted bits,
+aborting before the ESP re-sync) and `parted` shipping into the target
+whenever the module installs. Crash #009 showed `partx -a` cannot BLKPG a dm
+mapper ("error adding partitions" on the opened LUKS2), so images built at
+Beta-v2.9.41/42 booted to the emergency shell despite the module. Folded into
+the released `[INNER-PARTSCAN-DMPROBE]` work (Beta-v2.9.45).
 
 **Validation:** `bash -n` CLEAN.
 
