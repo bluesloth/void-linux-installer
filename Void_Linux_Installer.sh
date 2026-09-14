@@ -630,6 +630,19 @@ DEFAULT_INSTALL_NVIDIA="${DEFAULT_INSTALL_NVIDIA:-auto}"          # install nvid
 # ONLY vendor not covered by Void's default linux-firmware split), no/absent
 # for everything else; export DEFAULT_WIFI_FW=yes|no to pin.
 DEFAULT_WIFI_FW="${DEFAULT_WIFI_FW:-auto}"                         # install linux-firmware-broadcom? [Y/n]
+# AI (Big Pickle) ADDITION — Beta-v2.9.27 [CPU-DETECT]: microcode is a
+# report-only auto-install — the CPU vendor is read-only hardware, there is
+# one correct package per vendor, and prompting is friction without a decision.
+# auto (default) installs intel-ucode / linux-firmware-amd per the detected
+# vendor; no skips it; the chroot re-derives only when MICROCODE_DECIDED is
+# absent (resume from a pre-2.9.27 state file).
+DEFAULT_MICROCODE="${DEFAULT_MICROCODE:-auto}"                      # auto-install CPU microcode? [y/N]
+# AI (Big Pickle) ADDITION — Beta-v2.9.27 [NIC-DETECT]: the wired NIC that
+# feeds the bridged br0 VM network (when INSTALL_VIRT) is now a detect-and-
+# confirm hardware fact in the review instead of a silent virt-phase pick.
+# DEFAULT_NIC=<name> pins it and skips both the review prompt and the late
+# INSTALL_VIRT-gated re-probe. Empty = not detected / not pinned.
+DEFAULT_NIC="${DEFAULT_NIC:-}"                                     # pin the bridged-VM wired NIC name
 
 
 # =============================================================================
@@ -1706,6 +1719,106 @@ fi
 echo "  NVIDIA driver: ${INSTALL_NVIDIA} (GPU: ${GPU_FAMILIES:-<none detected>})"
 export INSTALL_NVIDIA GPU_FAMILIES HAS_NVIDIA_GPU HAS_AMD_GPU HAS_INTEL_GPU WIFI_HW
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.27 [CPU-DETECT]: read the CPU vendor
+# from /proc/cpuinfo on the live box and decide the microcode package
+# word-split into the base toolchain install line. intel-ucode for GenuineIntel,
+# linux-firmware-amd for AuthenticAMD (already pulled by the default
+# linux-firmware dependency wall on AMD); empty for unknown vendors — the
+# chroot honors a decided EMPTY verbatim (opt-out / unknown) and only re-derives
+# from its own /proc/cpuinfo when MICROCODE_DECIDED is absent.
+# auto (default) installs the detected package; no skips it.
+MICROCODE_PKG=""
+MICROCODE_DECIDED="yes"
+if [ "$DEFAULT_MICROCODE" = "no" ]; then
+    _cpu_line="SKIPPED (DEFAULT_MICROCODE=no)"
+else
+    _cpu_vendor="$(awk -F: '/^vendor_id/ {print $2; exit}' /proc/cpuinfo 2>/dev/null | tr -d '[:space:]' || true)"
+    case "$_cpu_vendor" in
+        GenuineIntel)
+            MICROCODE_PKG="intel-ucode"
+            _cpu_line="GenuineIntel"
+            ;;
+        AuthenticAMD)
+            MICROCODE_PKG="linux-firmware-amd"
+            _cpu_line="AuthenticAMD"
+            ;;
+        *)
+            _cpu_line="$_cpu_vendor"
+            ;;
+    esac
+    unset _cpu_vendor
+    if [ -n "$MICROCODE_PKG" ]; then
+        _cpu_line="$_cpu_line — microcode: ${MICROCODE_PKG} (auto-installed)"
+    else
+        if [ -n "$_cpu_line" ]; then
+            _cpu_line="$_cpu_line — no vendor microcode package (in-kernel defaults)"
+        else
+            _cpu_line="<vendor unreadable> — no vendor microcode package (in-kernel defaults)"
+        fi
+    fi
+fi
+echo "  Detected CPU : ${_cpu_line}"
+unset _cpu_line
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.27 [NIC-DETECT]: detect a carrier-
+# active wired NIC (and USB-ethernet adapters) for the bridged VM network,
+# confirm or override it here in the review instead of silently in the virt
+# phase. Wireless and non-physical devices are excluded. Nothing found → empty
+# → the existing INSTALL_VIRT-gated late re-probe (plug in a USB ethernet
+# adapter in the SAME USB port) runs untouched. DEFAULT_NIC=<name> pins it and
+# skips both this prompt and the late probe.
+_NIC_NAME=""
+if [ -n "$DEFAULT_NIC" ]; then
+    _NIC_NAME="$DEFAULT_NIC"
+else
+    for _iface in /sys/class/net/*; do
+        [ -d "$_iface" ] || continue
+        _name="$(basename "$_iface")"
+        case "$_name" in
+            lo|ww*|wl*|bn*|bt*|dm-*) continue ;;
+        esac
+        _carrier="/sys/class/net/$_name/carrier"
+        if [ -f "$_carrier" ] && [ "$(cat "$_carrier" 2>/dev/null || echo 0)" = "1" ]; then
+            _NIC_NAME="$_name"
+            break
+        fi
+    done
+    unset _iface _name _carrier
+    if [ -z "$_NIC_NAME" ]; then
+        for _devpath in /sys/devices/*/net/*; do
+            [ -d "$_devpath" ] || continue
+            _name="$(basename "$_devpath")"
+            case "$_name" in
+                lo|ww*|wl*|bn*|bt*|dm-*) continue ;;
+            esac
+            _dev="$(dirname "$_devpath")"
+            if [ -d "$_dev/subsystem" ] && readlink "$_dev/subsystem" 2>/dev/null | grep -qi 'usb'; then
+                _NIC_NAME="$_name"
+                break
+            fi
+        done
+        unset _devpath _name _dev
+    fi
+fi
+if [ -n "$_NIC_NAME" ]; then
+    echo "  Detected wired NIC : $_NIC_NAME (feeds the bridged VM network if you choose virtualization)"
+    while true; do
+        ask "Keep this interface? [Y/n] or type another name: "
+        read -r _nic_input
+        case "${_nic_input:-y}" in
+            y|Y|yes|YES) break ;;
+            n|N|no|NO) _NIC_NAME=""; break ;;
+            *) _NIC_NAME="$_nic_input"; break ;;
+        esac
+    done
+else
+    echo "  Detected wired NIC : (none detected — late re-probe will decide if you choose virtualization)"
+fi
+BR0_NIC="$_NIC_NAME"
+unset _NIC_NAME _nic_input
+echo "  Bridged-VM NIC : ${BR0_NIC:-<not set>}"
+export BR0_NIC
+
 # AI (Big Pickle) ADDITION — Beta-v2.9.26 [WIFI-FW]: name the actual radios,
 # map each vendor to the firmware package that covers it (so an installer sees
 # WHY no extra download is needed), and close the single gap Void leaves by
@@ -2589,18 +2702,31 @@ if [ "$SETUP_WEB_BROWSERS" = "true" ]; then
     esac
     export INSTALL_FALKON
 
-    echo "NOTICE: Brave has no official Void package. If selected, it will only"
-    echo "be installed via Flatpak — and only if Flatpak was selected above. If"
-    echo "Flatpak wasn't selected, Brave will be skipped rather than reaching"
-    echo "for an unofficial third-party package repository."
-    ask "Install Brave? [y/N]: "
-    read -r INSTALL_BRAVE_INPUT
-    case "$INSTALL_BRAVE_INPUT" in
-        "") INSTALL_BRAVE="$DEFAULT_BRAVE" ;;
-        [yY]*) INSTALL_BRAVE="true" ;;
-        *) INSTALL_BRAVE="false" ;;
-    esac
-    export INSTALL_BRAVE
+    # AI (Big Pickle) ADDITION — Beta-v2.9.28 [BRAVE-FLATPAK-GATE]: Brave has
+    # no official Void package, so its only installer route is the Flatpak
+    # first-boot queue. The Flatpak prompt already ran above, so INSTALL_FLATPAK
+    # is resolved here. Hide the Brave prompt unless Flatpak is on; when hidden,
+    # force INSTALL_BRAVE=false and explain why. The Stage-2 WARNING (below)
+    # survives as defense-in-depth for a resume from an older state file that
+    # could carry INSTALL_BRAVE=true alongside INSTALL_FLATPAK=false.
+    if [ "$INSTALL_FLATPAK" != "true" ]; then
+        INSTALL_BRAVE="false"
+        echo "NOTICE: Brave is only offered when Flatpak is selected (it has no"
+        echo "official Void package). Flatpak was not selected — Brave skipped."
+    else
+        echo "NOTICE: Brave has no official Void package. If selected, it will only"
+        echo "be installed via Flatpak — and only if Flatpak was selected above. If"
+        echo "Flatpak wasn't selected, Brave will be skipped rather than reaching"
+        echo "for an unofficial third-party package repository."
+        ask "Install Brave? [y/N]: "
+        read -r INSTALL_BRAVE_INPUT
+        case "$INSTALL_BRAVE_INPUT" in
+            "") INSTALL_BRAVE="$DEFAULT_BRAVE" ;;
+            [yY]*) INSTALL_BRAVE="true" ;;
+            *) INSTALL_BRAVE="false" ;;
+        esac
+        export INSTALL_BRAVE
+    fi
 else
     # No web browsers wanted: force every browser install toggle off so
     # downstream SUBVOL_LIST / provision_browser_subvol gating stays correct.
@@ -4404,6 +4530,27 @@ echo "export HAS_NVIDIA_GPU=\"$HAS_NVIDIA_GPU\"" >> /mnt/tmp/chroot_env.sh
 echo "export HAS_AMD_GPU=\"$HAS_AMD_GPU\"" >> /mnt/tmp/chroot_env.sh
 echo "export HAS_INTEL_GPU=\"$HAS_INTEL_GPU\"" >> /mnt/tmp/chroot_env.sh
 echo "export WIFI_HW=\"$WIFI_HW\"" >> /mnt/tmp/chroot_env.sh
+# AI (Big Pickle) ADDITION — Beta-v2.9.26 follow-up [WIFI-FW-CHROOT]: carry the
+# wifi probe + firmware decision across the chroot boundary. chroot_env.sh is
+# the ONLY variable path into /mnt (a bare live `export` never crosses it), and
+# the in-chroot base-install line gates its install_pkgs on INSTALL_WIFI_FW +
+# WIFI_FW_PKG while [WIFI-FW-VERIFY] iterates WIFI_IDS — without these they were
+# empty in the chroot, so the Broadcom gap-close silently no-oped and the verify
+# loop never ran. [RECONSTRUCTED]: both the local 2.9.26 WIP and Solar Pro 4's
+# byte-identical draft exported these live-only and missed the chroot_env path.
+echo "export INSTALL_WIFI_FW=\"$INSTALL_WIFI_FW\"" >> /mnt/tmp/chroot_env.sh
+echo "export WIFI_IDS=\"$WIFI_IDS\"" >> /mnt/tmp/chroot_env.sh
+echo "export WIFI_CHIPS=\"$WIFI_CHIPS\"" >> /mnt/tmp/chroot_env.sh
+echo "export WIFI_FW_PKG=\"$WIFI_FW_PKG\"" >> /mnt/tmp/chroot_env.sh
+# AI (Big Pickle) ADDITION — Beta-v2.9.27 [CPU-DETECT]/[NIC-DETECT]: the CPU
+# microcode decision and the bridged-VM NIC name ride into the chroot so Stage 2
+# can word-split MICROCODE_PKG into the base toolchain install line and so the
+# NM br0 profile (when INSTALL_VIRT) picks the right interface. MICROCODE_
+# DECIDED tells the chroot whether to trust the live value or re-derive from its
+# own /proc/cpuinfo (resume from a pre-2.9.27 state file).
+echo "export MICROCODE_PKG=\"$MICROCODE_PKG\"" >> /mnt/tmp/chroot_env.sh
+echo "export MICROCODE_DECIDED=\"$MICROCODE_DECIDED\"" >> /mnt/tmp/chroot_env.sh
+echo "export BR0_NIC=\"$BR0_NIC\"" >> /mnt/tmp/chroot_env.sh
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [LOCALIZE]: carry the chosen locale/timezone
 # into the chroot so Stage 2 can generate+activate the locale and set the zone.
 echo "export LOCALE=\"$LOCALE\"" >> /mnt/tmp/chroot_env.sh
@@ -4731,6 +4878,19 @@ ${NFT_FWD_RULES}
 }
 INNER_EOF
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.29 [NFT-VIRT-PRINT]: on a virtualization
+# build, print the generated /etc/nftables.conf to the terminal right after it is
+# written, so the operator can confirm the br0/virbr* forward accepts landed (and
+# that the INSTALL_VIRT export path through chroot_env.sh worked end-to-end). A
+# non-virt build stays silent — the forward chain is just the drop rule, nothing
+# runtime-specific to review. Doubles as a live-validation artifact.
+if [ "$INSTALL_VIRT" = "true" ]; then
+    echo ""
+    echo "--- /etc/nftables.conf (virtualization build: br0/virbr* forwards present) ---"
+    cat /etc/nftables.conf
+    echo "--- end nftables.conf ---"
+fi
+
 # AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]: optional OpenSSH
 # server install + config. The input chain above already carries the
 # ${SSH_PORT_RULE} accept when INSTALL_SSH_SERVER=true; here we install
@@ -4961,13 +5121,22 @@ INNER_EOF
 chmod 644 /etc/polkit-1/rules.d/50-libvirt.rules
 fi
 
-CPU_VENDOR=$(grep -m1 vendor_id /proc/cpuinfo | awk '{print $3}')
-case "$CPU_VENDOR" in
-    GenuineIntel) MICROCODE_PKG="intel-ucode" ;;
-    AuthenticAMD) MICROCODE_PKG="linux-firmware-amd" ;;
-    *) echo "WARNING: unrecognized CPU vendor '${CPU_VENDOR}', skipping microcode package." >&2
-       MICROCODE_PKG="" ;;
-esac
+# AI (Big Pickle) ADDITION — Beta-v2.9.27 [CPU-DETECT]: honor the live-box
+# microcode decision verbatim (including a decided-empty opt-out) unless this
+# is a resume from a pre-2.9.27 state file that never recorded MICROCODE_DECIDED
+# — then re-derive from the target's own /proc/cpuinfo. [RECONSTRUCTED]: Solar
+# Pro 4's 2.9.27 draft exported MICROCODE_DECIDED but never consumed it here,
+# so the chroot unconditionally re-derived (an opt-out was silently overruled);
+# this guard is the documented behavior restored.
+if [ -z "${MICROCODE_DECIDED:-}" ]; then
+    CPU_VENDOR=$(grep -m1 vendor_id /proc/cpuinfo | awk '{print $3}')
+    case "$CPU_VENDOR" in
+        GenuineIntel) MICROCODE_PKG="intel-ucode" ;;
+        AuthenticAMD) MICROCODE_PKG="linux-firmware-amd" ;;
+        *) echo "WARNING: unrecognized CPU vendor '${CPU_VENDOR}', skipping microcode package." >&2
+           MICROCODE_PKG="" ;;
+    esac
+fi
 install_pkgs ${MICROCODE_PKG} linux-firmware dracut sudo vim nano bash bash-completion curl
 # AI (Big Pickle) ADDITION — Beta-v2.5.5 [ENCRYPT]: install the userspace
 # cryptsetup/LUKS tooling into the target only when encryption was enabled
@@ -5724,7 +5893,15 @@ install_pkgs xdg-user-dirs xdg-utils xtools rsync git curl wget make binutils in
 [ "$INSTALL_OCTOXBPS" = "true" ] && install_pkgs octoxbps
 
 if [ "$INSTALL_FLATPAK" = "true" ]; then
-    install_pkgs flatpak
+    install_pkgs flatpak fuse fuse3
+    # AI (Big Pickle) ADDITION — Beta-v2.9.28 [APPIMAGE-FUSE]: installing
+    # Flatpak now also brings FUSE 2 (libfuse.so.2) and FUSE 3 so the AppImage
+    # runtime can self-mount its squashfs payload (most wild AppImages ship the
+    # FUSE 2 dlopen; recent static runtimes speak FUSE 3). On Void the two
+    # coexist cleanly and base-system pulls neither, so this is the only
+    # AppImage readiness the installer grants — a flatpak-only install that
+    # never adds an AppImage would leave the user on the slow
+    # --appimage-extract-and-run fallback otherwise.
     # AI (Big Pickle) ADDITION — Beta-v2.5.2 [FLATHUB-CHROOT]: add the
     # flathub remote NOW, inside the chroot, instead of at first boot in
     # rc.local. This stage runs with the live-CD's network already up (the
@@ -6509,6 +6686,13 @@ HAS_NVIDIA_GPU="${HAS_NVIDIA_GPU:-<unset>}"
 HAS_AMD_GPU="${HAS_AMD_GPU:-<unset>}"
 HAS_INTEL_GPU="${HAS_INTEL_GPU:-<unset>}"
 INSTALL_NVIDIA="${INSTALL_NVIDIA:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.27 [CPU-DETECT]/[NIC-DETECT]: the
+# microcode package decision (the one genuinely pruned package) and the wired
+# NIC that feeds the bridged VM network are public as-built facts recorded here
+# alongside the other hardware review data.
+BR0_NIC="${BR0_NIC:-<unset>}"
+MICROCODE_PKG="${MICROCODE_PKG:-<unset>}"
+MICROCODE_DECIDED="${MICROCODE_DECIDED:-<unset>}"
 INNER_EOF
 chmod 644 /etc/void-installer/install-config
 
@@ -6551,6 +6735,8 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
         # line for the hardware-gated driver; the full probe facts (GPU
         # families, wireless) live in install-config.
         echo "NVIDIA_DRIVER=${INSTALL_NVIDIA:-no} (GPU: ${GPU_FAMILIES:-<none detected>})"
+        echo "BR0_NIC=${BR0_NIC:-<unset>}"
+        echo "MICROCODE_PKG=${MICROCODE_PKG:-<unset>} (decided: ${MICROCODE_DECIDED:-<unset>})"
         echo ""
         # AI (Big Pickle) ADDITION — Beta-v2.7.6 [PKG-LIST]: append the FULL
         # finished-system package inventory (every package on this box — the
@@ -9097,6 +9283,126 @@ for _wid in $WIFI_IDS; do
     fi
 done
 unset _wid _fw_dir _d _fw_ok _mod_ok newest_kver
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.32 [FW-AUDIT]: report-only firmware
+# accounting. Void's wholesale firmware set is a hard dependency wall
+# (linux-base depends on dracut alsa-firmware linux-firmware-network
+# sof-firmware + (x86_64) linux-firmware-intel -nvidia -amd; and
+# linux-firmware-network depends on linux-firmware-broadcom) — so pruning is
+# impossible from the installer, which acts AFTER the dependency contract. The
+# honest contribution is accurate accounting of what ships vs what this box
+# actually needs. Queries the TARGET pkgdb (xbps-query -l) and prints, per
+# split, what is present and why. Report-only — nothing is gated on it.
+FW_AUDIT_TEXT=""
+fw_audit_line() { FW_AUDIT_TEXT="${FW_AUDIT_TEXT}${1}"$'\n'; }
+
+fw_audit_line "[fw] Firmware accounting (report-only):"
+
+# linux-firmware-network is the always-kept bulk (every LAN/WLAN/BT vendor
+# wholesale; never prunable — it is pulled by linux-base and is the single
+# split that drags in the Broadcom gap closer).
+if xbps-query -l 2>/dev/null | grep -q '^linux-firmware-network-'; then
+    fw_audit_line "  linux-firmware-network : present — always-kept bulk (every LAN/WLAN/Bluetooth vendor wholesale; never prunable)."
+else
+    fw_audit_line "  linux-firmware-network : ABSENT (unexpected — linux-base should pull it)."
+fi
+
+# -amd : amdgpu/radeon firmware blob. Present when installed; "matches this
+# box's probe" when the live hardware review saw an AMD GPU, otherwise kept
+# ONLY by the linux-base dependency wall. (linux-firmware-amd also doubles as
+# the amdgpu/radeon blob, so it is not dropped on an AMD-GPU box even under
+# the wall — that is why HAS_AMD_GPU is not a prune signal here.)
+if xbps-query -l 2>/dev/null | grep -q '^linux-firmware-amd-'; then
+    if [ "${HAS_AMD_GPU:-no}" = "yes" ]; then
+        fw_audit_line "  linux-firmware-amd      : present — matches this box's probe (AMD GPU present)."
+    else
+        fw_audit_line "  linux-firmware-amd      : present — kept ONLY by the linux-base dependency wall (no AMD GPU detected)."
+    fi
+else
+    fw_audit_line "  linux-firmware-amd      : absent."
+fi
+
+# -intel : Intel GPU/firmware. Same logic as -amd.
+if xbps-query -l 2>/dev/null | grep -q '^linux-firmware-intel-'; then
+    if [ "${HAS_INTEL_GPU:-no}" = "yes" ]; then
+        fw_audit_line "  linux-firmware-intel    : present — matches this box's probe (Intel GPU present)."
+    else
+        fw_audit_line "  linux-firmware-intel    : present — kept ONLY by the linux-base dependency wall (no Intel GPU detected)."
+    fi
+else
+    fw_audit_line "  linux-firmware-intel    : absent."
+fi
+
+# -nvidia : NVIDIA GPU firmware. Same logic.
+if xbps-query -l 2>/dev/null | grep -q '^linux-firmware-nvidia-'; then
+    if [ "${HAS_NVIDIA_GPU:-no}" = "yes" ]; then
+        fw_audit_line "  linux-firmware-nvidia   : present — matches this box's probe (NVIDIA GPU present)."
+    else
+        fw_audit_line "  linux-firmware-nvidia   : present — kept ONLY by the linux-base dependency wall (no NVIDIA GPU detected)."
+    fi
+else
+    fw_audit_line "  linux-firmware-nvidia   : absent."
+fi
+
+# The one genuinely closed gap: Broadcom. Installed for a detected Broadcom
+# radio (the gap-closing prompt), or flagged absent when declined.
+# AI (Big Pickle) FIX — [RECONSTRUCTED]: Solar Pro 4's draft compared WIFI_IDS
+# against the glob "*0x14e4:*" with a string `=` (never true), so the
+# broadcom-present-but-declined case fell into the wrong branch. This `case`
+# contains-check matches the space-joined ID list (an entry of form 0x14e4:*)
+# the way the live probe actually builds it.
+if xbps-query -l 2>/dev/null | grep -q '^linux-firmware-broadcom-'; then
+    fw_audit_line "  linux-firmware-broadcom : present — the ONE closed gap (installed for the detected Broadcom radio)."
+else
+    case " ${WIFI_IDS:-} " in
+        *" 0x14e4:"*)
+            fw_audit_line "  linux-firmware-broadcom : ABSENT but a Broadcom radio was detected — the detected radio has no firmware (declined, or the [WIFI-FW] install failed)."
+            ;;
+        *)
+            fw_audit_line "  linux-firmware-broadcom : absent (no Broadcom radio detected — nothing to close)."
+            ;;
+    esac
+fi
+
+# The one genuinely pruned package: CPU microcode. Exactly one is installed
+# (or neither, on an opt-out / unknown-vendor build). Shows the decision that
+# [CPU-DETECT] already made live.
+if xbps-query -l 2>/dev/null | grep -q '^intel-ucode-'; then
+    fw_audit_line "  intel-ucode             : present — the one genuinely pruned package (Intel microcode, installed per live CPU-detect)."
+elif xbps-query -l 2>/dev/null | grep -q '^linux-firmware-amd-'; then
+    : # linux-firmware-amd line already covers the AMD case above; microcode
+       # on AMD is the same split, so do not double-count it here.
+else
+    fw_audit_line "  intel-ucode             : absent (microcode: ${MICROCODE_PKG:-<none>} per live CPU-detect / opt-out)."
+fi
+
+# audio firmware: alsa-firmware + sof-firmware when present.
+_fw_audio=""
+xbps-query -l 2>/dev/null | grep -q '^alsa-firmware-' && _fw_audio="alsa-firmware "
+xbps-query -l 2>/dev/null | grep -q '^sof-firmware-' && _fw_audio="${_fw_audio}sof-firmware"
+if [ -n "$_fw_audio" ]; then
+    fw_audit_line "  ${_fw_audio% } : present (audio firmware)."
+fi
+unset _fw_audio
+
+echo "$FW_AUDIT_TEXT"
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.33 [FW-AUDIT-LOG]: persist the
+# [FW-AUDIT] report-only firmware accounting (built above in the chroot into
+# FW_AUDIT_TEXT) into the same ~/Documents/Void_Install.txt record — one
+# greppable place for everything an operator/support person needs to know about
+# what this machine was built with. The record write (DOCS-LOG) precedes this,
+# so the append lands after the existing content; the root→user-owned append
+# preserves the file's ownership (no chown needed again). Guarded: empty
+# TARGET_USER or a missing/unwritable record file → silently skipped; nothing
+# about the install is gated on it.
+if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ] && [ -f "/home/${TARGET_USER}/Documents/VOID_INSTALL.txt" ] && [ -w "/home/${TARGET_USER}/Documents/VOID_INSTALL.txt" ]; then
+    {
+        echo ""
+        echo "# -------- FIRMWARE ACCOUNTING ([FW-AUDIT], as-built) --------"
+        echo "$FW_AUDIT_TEXT"
+    } >> "/home/${TARGET_USER}/Documents/VOID_INSTALL.txt"
+fi
 
 if [ "$BOOTLOADER" = "limine" ]; then
 # AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.3.0 [KERNEL-HOOK follow-up] §4.15: re-sync
