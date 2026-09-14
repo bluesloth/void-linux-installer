@@ -550,7 +550,12 @@ SCRIPT_VERSION="Beta-v2.9.13"
 DEFAULT_LOGIN_SHELL="${DEFAULT_LOGIN_SHELL:-1}"       # 1=bash 2=zsh 3=fish 4=mksh
 DEFAULT_DESKTOP="${DEFAULT_DESKTOP:-1}"               # 1=kde 2=cinnamon 3=gnome 4=xfce 5=mate 6=lxqt 7=cosmic
 DEFAULT_SESSION_STACK="${DEFAULT_SESSION_STACK:-1}"   # 1=elogind 2=turnstile
-DEFAULT_BOOTLOADER="${DEFAULT_BOOTLOADER:-1}"         # 1=limine 2=grub (EFI size follows)
+DEFAULT_BOOTLOADER="${DEFAULT_BOOTLOADER:-1}"         # 1=limine 2=grub
+# AI (Big Pickle) ADDITION — Beta-v2.9.35 [ESP-SIZE]: the EFI ESP size is a
+# prompt-time decision (Limine esp-copy mirrors every kernel/snapshot onto the
+# ESP; GRUB+ENCRYPT mounts the ESP AT /boot). Menu index 1-4, default 1=4G;
+# plain GRUB never shows it (fixed 1G at /boot/efi).
+DEFAULT_EFI_ESP_SIZE="${DEFAULT_EFI_ESP_SIZE:-1}"     # 1=4G 2=6G 3=8G 4=custom
 # AI (Big Pickle) ADDITION — Beta-v2.9.16 [KERNEL-SELECT]: the kernel the
 # installer deploys is now a real Stage-1 choice. The base `linux` (rolling)
 # kernel is ALWAYS installed — Void's base-system meta-package depends on it,
@@ -702,6 +707,90 @@ ask() { # ask "label text" "default-suffix-message?"
 note() { echo "${C_GRN}==>${C_RST} $*"; }
 warn() { echo "${C_YLW}!! ${C_RST}$*" >&2; }
 critical() { echo "${C_RED}!!!! CRITICAL:${C_RST} $*" >&2; }
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.35 [ESP-SIZE]: shared EFI ESP-size menu.
+# Serves the ONE prompt-time decision point where the chosen bootloader path
+# needs a real ESP:
+#   * Limine        — right after the bootloader choice (esp-copy mirrors every
+#                     kernel/initramfs/snapshot onto the ESP).
+#   * GRUB+ENCRYPT  — right after the full-disk-encryption choice (the ESP is
+#                     mounted AT /boot and holds the whole boot tree).
+# Plain GRUB never calls it (its ESP at /boot/efi holds only the bootloader and
+# stays fixed 1G — see [GRUB-ESP-SIZE-ORDER] for why the old in-loop check was
+# wrong). Bare Enter selects the default via DEFAULT_EFI_ESP_SIZE (a menu index
+# 1-4, default 1=4G); the menu header shows the resolved default name. Custom
+# sizes are uppercased, validated with a 1 GiB floor, matched, and normalized to
+# gdisk's native single-letter K/M/G before being stored in $EFI_PART_SIZE
+# (which threads unchanged into sgdisk, the dry-run plan, and resume state).
+esp_size_choose() {
+    _esp_default_idx="${DEFAULT_EFI_ESP_SIZE}"
+    [ -z "$_esp_default_idx" ] && _esp_default_idx=1
+    case "$_esp_default_idx" in
+        1) _esp_default_name="4 GiB" ;;
+        2) _esp_default_name="6 GiB" ;;
+        3) _esp_default_name="8 GiB" ;;
+        4) _esp_default_name="Custom" ;;
+        *) _esp_default_name="4 GiB"; _esp_default_idx=1 ;;
+    esac
+    echo ""
+    echo "${C_BOLD}${C_BLU}EFI ESP partition size${C_RST}  (default: ${_esp_default_name})"
+    echo "  The ESP is the partition whose size caps how many kernels + snapshots"
+    echo "  coexist on it (Limine mirrors every kernel/snapshot; GRUB+ENCRYPT mounts"
+    echo "  the ESP AT /boot). Larger = more headroom."
+    echo "  ${C_BOLD}1)${C_RST} 4 GiB (default) — ArchWiki's recommendation for bootable snapshots"
+    echo "  ${C_BOLD}2)${C_RST} 6 GiB — headroom for many kernel flavors + snapshots"
+    echo "  ${C_BOLD}3)${C_RST} 8 GiB — generous; large initramfses + many snapshots"
+    echo "  ${C_BOLD}4)${C_RST} Custom — type any sgdisk size (512M, 3G, 10GiB, ...); enforced to a 1 GiB floor"
+    while true; do
+        ask "Enter choice [1-4/Custom] (default ${DEFAULT_EFI_ESP_SIZE}: ${_esp_default_name}): "
+        read -r ESP_SIZE_INPUT
+        case "${ESP_SIZE_INPUT:-$_esp_default_idx}" in
+            1) EFI_PART_SIZE="4G"; break ;;
+            2) EFI_PART_SIZE="6G"; break ;;
+            3) EFI_PART_SIZE="8G"; break ;;
+            4|custom) 
+                ask "Custom ESP size (e.g. 512M, 3G, 10GiB): "
+                read -r ESP_SIZE_CUSTOM
+                _esp_custom="${ESP_SIZE_CUSTOM^^}"
+                # 1 GiB floor (a below-floor or malformed entry is rejected with
+                # an explanation and the menu loops).
+                case "$_esp_custom" in
+                    *[!0-9a-gKMG]*|"") echo "Please enter a size like 512M, 3G, or 1024M." >&2 ;;
+                    *)
+                        _esp_num="${_esp_custom%[KMG]}"
+                        _esp_units="${_esp_custom##*[0-9]}"
+                        _esp_bytes=0
+                        case "$_esp_units" in
+                            G) _esp_bytes=$(( _esp_num * 1024 )) ;;
+                            M) _esp_bytes=$_esp_num ;;
+                            K) _esp_bytes=$(( _esp_num / 1024 )) ;;
+                        esac
+                        if [ "$_esp_bytes" -lt 1024 ]; then
+                            echo "  ESP too small — floor is 1 GiB (1024M). Try again." >&2
+                        else
+                            # Normalize to gdisk's native single-letter K/M/G.
+                            case "$_esp_units" in
+                                G) EFI_PART_SIZE="${_esp_custom}"; EFI_PART_SIZE="${_esp_num}G" ;;
+                                M|K)
+                                    _esp_gb=$(( _esp_bytes / 1024 ))
+                                    if [ $(( _esp_bytes % 1024 )) -eq 0 ]; then
+                                        EFI_PART_SIZE="${_esp_gb}G"
+                                    else
+                                        EFI_PART_SIZE="${_esp_num}${_esp_units}"
+                                    fi
+                                    ;;
+                            esac
+                            break
+                        fi
+                        ;;
+                esac
+                ;;
+            *) echo "Please enter 1, 2, 3, or 4." >&2 ;;
+        esac
+    done
+    unset _esp_default_idx _esp_default_name _esp_custom _esp_num _esp_units _esp_bytes _esp_gb
+    echo "  Resolved ESP size: ${EFI_PART_SIZE}"
+}
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-KEYS] browse_pick(): a reusable
@@ -1485,11 +1574,20 @@ echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snaps
      ask "Enter choice [1/2] (default ${DEFAULT_BOOTLOADER}: ${_boot_default}): "
      read -r BOOTLOADER_INPUT
      case "${BOOTLOADER_INPUT:-$DEFAULT_BOOTLOADER}" in
-         1) BOOTLOADER="limine"; EFI_PART_SIZE="4G"; break ;;
-         2) BOOTLOADER="grub"; EFI_PART_SIZE="1G"
-            # Beta-v2.6.2 [GRUB-ESP-BOOT]: GRUB+ENCRYPT keeps the whole boot
-            # tree (grub + every kernel/initramfs) on the ESP — needs 4GiB.
-            [ "$ENCRYPT" = "yes" ] && EFI_PART_SIZE="4G"
+         1) BOOTLOADER="limine"
+            # AI (Big Pickle) ADDITION — Beta-v2.9.35 [ESP-SIZE]: Limine's
+            # esp-copy mirrors kernels + snapshots onto the ESP, so its size is
+            # a real prompt-time decision (default 4G via DEFAULT_EFI_ESP_SIZE).
+            esp_size_choose
+            break ;;
+         2) BOOTLOADER="grub"
+            # Plain GRUB's ESP holds only the bootloader at /boot/efi and stays
+            # fixed 1G — NO size menu here. [GRUB-ESP-SIZE-ORDER] (Beta-v2.9.35):
+            # the old in-loop `[ "$ENCRYPT" = "yes" ] && EFI_PART_SIZE="4G"`
+            # read ENCRYPT BEFORE the ENCRYPT prompt settled it, so GRUB+ENCRYPT
+            # fresh runs always shipped a 1G ESP. The GRUB+ENCRYPT sizing decision
+            # now happens AFTER the encryption choice (see the [ENCRYPT] block).
+            EFI_PART_SIZE="1G"
             break ;;
          *) echo "Please enter 1 or 2." >&2 ;;
      esac
@@ -2055,6 +2153,18 @@ case "$ENCRYPT_INPUT" in
     [yY]*) ENCRYPT="yes" ;;
     *)     ENCRYPT="no" ;;
 esac
+# AI (Big Pickle) FIX — Beta-v2.9.35 [GRUB-ESP-SIZE-ORDER]: GRUB+ENCRYPT now
+# sizes the ESP HERE, right after the ENCRYPT choice actually settles — the
+# old in-loop `[ "$ENCRYPT" = "yes" ] && EFI_PART_SIZE="4G"` inside the
+# bootloader case ran BEFORE this prompt and read the pre-prompt default "no",
+# so GRUB+ENCRYPT fresh runs always shipped a 1G ESP. The ESP is mounted AT
+# /boot in that combo (grub.cfg + kernels live unencrypted on it), so its size
+# now gets the same shared esp_size_choose menu (default 4G, growable).
+if [ "$BOOTLOADER" = "grub" ] && [ "$ENCRYPT" = "yes" ]; then
+    echo "  GRUB + full-disk encryption: the ESP is mounted AT /boot and will hold"
+    echo "  the whole boot tree (grub + every kernel/initramfs) — pick a size."
+    esp_size_choose
+fi
 export ENCRYPT
 
 # AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: optional YubiKey
