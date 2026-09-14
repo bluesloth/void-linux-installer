@@ -99,6 +99,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.41** | (intermediate build) `98void-inner-partscan` dracut-module draft — module-setup.sh + udev rules + helper skeleton (crash #008: dracut crypttab `partscan` is unreliable on non-loopback LUKS2 at boot) | Beta-v2.9.41 below |
 | **Beta-v2.9.42** | (intermediate build) FATAL initramfs-content gate + `parted` shipping into the target (crash #009: `partx -a` cannot BLKPG a dm mapper, so the module initially booted to the emergency shell) | Beta-v2.9.42 below |
 | **Beta-v2.9.43** | `[INNER-PARTSCAN-BOOT]` — boot-time partscan dracut module (98void-inner-partscan): udev RUN fires on the opened mapper's DM_NAME, partprobe-primary / partx-fallback force-registers the inner GPT BEFORE dracut's settle resolves `root=UUID=<inner btrfs>`; gated on `ENCRYPT=yes` + carved `REGION_PARTITIONED` | Beta-v2.9.43 below |
+| **Beta-v2.9.44** | `[DRACUT-CONF-NAME]` — the `add_dracutmodules` conf value MUST be the SHORT module name without the numeric prefix (`void-inner-partscan`, NOT `98void-...`); dracut-ng resolves conf names as `[0-9][0-9]<name>` so a prefixed name matches nothing and the regen dies | Beta-v2.9.44 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -208,6 +209,20 @@ ENCRYPT layout does not enable the module.
 
 **Validation:** fresh-install initramfs content verified in the chroot gate;
 `bash -n`/`check-heredocs.sh` CLEAN.
+
+---
+
+## Beta-v2.9.44 — `[DRACUT-CONF-NAME]` (short module name in `add_dracutmodules`)
+
+`SCRIPT_VERSION = Beta-v2.9.44`. Closed the crash #009 residual: the
+`add_dracutmodules` conf value MUST be the **short module name WITHOUT the
+numeric prefix** (`void-inner-partscan`, not `98void-inner-partscan`). dracut-ng
+resolves conf names as `[0-9][0-9]<name>`, so a prefixed name matches nothing
+and the regen died with "Module cannot be found". The same rule applies to
+`99void-yubikey` → `void-yubikey`. The on-disk module keeps its `NN-` prefix;
+only the `add_dracutmodules` conf string is unprefixed.
+
+**Validation:** `bash -n` CLEAN.
 
 ---
 
