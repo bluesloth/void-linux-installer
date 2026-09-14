@@ -89,6 +89,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.31** | `[NFT-COUNTERS]` + `[NFT-RATELIMIT-KNOB]` — firewall observability and a control knob. The anti-spoof drops (`127.0.0.0/8`, `::1`), the `ct state invalid` drop, and the broad `ipv6-icmp` accept now carry `counter`; an explicit trailing `counter drop` rule at the end of both the input and forward chains makes the implicit policy-drop a countable rule, so `nft list ruleset` shows exactly why packets die. The two 2.9.30 hardening rules (IPv6 echo-request cap + `nd-router-advert` flood cap) are now gated by the env knob `DEFAULT_NFT_RATELIMIT` (no prompt, `DEFAULT_MICROCODE` style; default `yes` = tightened posture, `no` = plain broad-icmp config). Knob scope is the rate-limit rules only — the counters and the IPv4 echo cap stay unconditional, and the knob references no interfaces (no `[NFT-VIRT-GATE]` coupling). Also fixed: the generated config's header comment used `nft -c` in literal backticks inside an *unquoted* heredoc, which nft would have tried to execute at install; reworded to plain text | Beta-v2.9.31 below |
 | **Beta-v2.9.32** | `[FW-AUDIT]` — closes the "per-vendor firmware pruning" discussion item. Verified against the void-packages templates: `linux-base` hard-depends on `alsa-firmware` `linux-firmware-network` `sof-firmware` and (x86_64) `linux-firmware-amd` `-intel` `-nvidia`; the network split itself hard-depends on `linux-firmware-broadcom`; XBPS has no recommends tier, so an installer-side prune is impossible (xbps-remove refuses: "dependency of installed 'linux-base'"). The ONE firmware Void leaves per-host is CPU microcode, already pruned to a single package by `[CPU-DETECT]`. So a report-only post-install audit now prints what *landed* vs what this box's probe *needs*, names the splits kept solely by the dependency wall (the irreducible wholesale tax), and confirms the Broadcom gap state. Nothing gated | Beta-v2.9.32 below |
 | **Beta-v2.9.33** | `[FW-AUDIT-LOG]` — the `[FW-AUDIT]` accounting (Beta-v2.9.32, console-only) is now **persisted** into the installed machine's as-built record `~/Documents/Void_Install.txt`. The audit builds its text once, prints it to the console, and appends it as a `# -------- FIRMWARE ACCOUNTING ([FW-AUDIT], as-built) --------` section after the package inventory. The record file is written earlier in the chroot by the `[DOCS-LOG-CHOWN]` block; the root→user-owned append preserves ownership, and nothing is gated on it (missing file / empty `TARGET_USER` → silently skipped). The end-of-install NEXT-STEPS line now advertises the record "incl. firmware accounting". Report-only | Beta-v2.9.33 below |
+| **Beta-v2.9.34** | `[SLICK-BG-QUOTES]`+`[SSH-DEPOSIT-LOG]`+`[FLATPAK-NM-DISPATCH]` — slick-greeter does NOT strip quotes from config values (a quoted `background="path"` is opened as `"/path"` and fails → black greeter), so the Slick background is now written UNQUOTED (GTK greeter keeps the quoted form); the ssh-key deposit guard's fragile `ls -A` subshell replaced with `find -quit` plus an explicit WARNING when the account is missing; the first-boot Flatpak queue moved from the old rc.local background subshell to a NetworkManager dispatcher script (`99-flatpak-firstboot`, fires on up/vpn-up with a default route — guaranteed DNS); sshd + vboxdrv rc.local links realigned (sshd early) | Beta-v2.9.34 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1976,6 +1977,46 @@ Validation: gates green (`bash -n`, check-defaults, check-heredocs 61 clean);
 the console-print + append behavior was exercised against a sandboxed record
 file (path rewritten to `/tmp`) across the firmware scenarios — appended
 section matches the console verbatim.
+
+---
+
+## Beta-v2.9.34 — `[SLICK-BG-QUOTES]` + `[SSH-DEPOSIT-LOG]` + `[FLATPAK-NM-DISPATCH]` (slick greeter background quotes; robust ssh-key deposit detection; Flatpak first-boot queue moves to an NM dispatcher)
+
+> Reconstructed from the header VERSION-HISTORY row, the inline `AI (Big
+> Pickle)` markers, the gitlog (`5dfd880b` "feat: multi-filesystem data
+> regions; Beta-v2.9.34->Beta-v2.9.38" region), and the `recovered_HANDOFF.md`
+> live-validation list. No recovered original CHANGELOG text exists for this
+> version (2.9.34–2.9.38 were folded into a single multi-filesystem feat
+> commit); this entry fills that documentation gap.
+
+`SCRIPT_VERSION = Beta-v2.9.34`. Three fixes shipped in this build:
+
+**1. `[SLICK-BG-QUOTES]` — slick-greeter does NOT strip quotes.** The two
+greeters differ: lightdm-gtk-greeter strips quotes from config values, but
+slick-greeter opens a quoted `background="path"` as the literal `"/path"`
+(quotes in the filename), fails, and falls back to `#000000` — a black
+greeter. The slick branch now writes `background=${_greeter_bg}` UNQUOTED
+(only the GTK branch keeps the quoted form).
+
+**2. `[SSH-DEPOSIT-LOG]` — replace the fragile `ls -A` presence guard.** The
+ssh-key deposit check (`[ -d /tmp/ssh-import ] && [ -n "$(ls -A ...)" ]`)
+used an `ls -A` subshell that was fragile under `set -eEo pipefail` and gave
+ZERO diagnostics when the deposit was silently skipped. Detection now uses
+`find -quit` (no subshell, no pipefail hazard), and a missing account logs an
+explicit WARNING. (The deposit semantics from `[SSH-KEYS]`, Beta-v2.9.23,
+are unchanged.)
+
+**3. `[FLATPAK-NM-DISPATCH]` — first-boot Flatpak queue moved out of the
+rc.local background subshell.** Queued Flatpak apps (Brave etc.) install on
+first login via a NetworkManager dispatcher script,
+`/etc/NetworkManager/dispatcher.d/99-flatpak-firstboot` (the `__TARGET_USER__`
+placeholder sed-substituted at generation time like rc.local). It fires on
+`up`/`vpn-up` when the interface has a default route — guaranteed DNS — and
+stamps `/var/log/flatpak-firstboot.done` only when EVERY queued app succeeds,
+so a partial failure leaves the queue live for the next up event
+(`[FLATPAK-NM-DISPATCH-STAMP]`, Beta-v2.9.46). Also realigned in this build:
+the sshd + vboxdrv rc.local service links (sshd now linked first, so its
+host-key generation isn't starved behind the vboxdrv module load).
 
 ---
 
