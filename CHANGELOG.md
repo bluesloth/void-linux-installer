@@ -78,6 +78,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.20** | `[LIMINE-WP-DRIVES]` — the Limine wallpaper picker can no longer strand the user inside a single USB drive's tree: `/run/media` is keyed by per-user subdirs (`/run/media/<user>/<label>`), so entering a drive left `..` only climbing to the per-user parent (whose siblings are just that one user's mounts) with no shortcut back to the "all mounted drives" view. The keywords `m`/`drives` now jump straight back to `/run/media`, and the browse hint names them and notes that `..` from the per-user dir reaches the drive list | Beta-v2.9.20 below |
 | **Beta-v2.9.21** | `[GREETER-BG-EXPORT]` — the MATE/Slick black greeter's REAL root cause: the lightdm greeter-background block runs inside the single-quoted chroot heredoc, so its `case "$LIGHTDM_GREETER"` (gtk/slick) resolved an **empty** variable in-chroot and NEITHER greeter conf file was ever written. Only `_PKG`/`_SESSION` were exported to chroot_env.sh, never the bare choice. The earlier `-maxdepth 5` find fix (`[GREETER-BG-DEPTH]`) was necessary but not sufficient — it only supplied the image path; the missing export is what silently skips the `cat >` write. Live-confirmed on `<host>` (slick-greeter.conf stayed the pristine package default while lightdm.conf was written, and the block's gnome-backgrounds retry had fired). Fix: `export LIGHTDM_GREETER` added to chroot_env.sh | Beta-v2.9.21 below |
 | **Beta-v2.9.22** | `[FALKON-QT-NOTICE]` — closes the Falkon gating discussion item. On a non-KDE desktop (`DESKTOP_ENV != kde`), the Falkon prompt now prints an inline NOTICE before the y/N: full "pulls in the Qt + QtWebEngine stack (no KDE desktop)" wording on GTK desktops, and a shorter "shares Qt5 but adds QtWebEngine" variant on LXQt. A warn-not-gate notice matching the existing Vivaldi/Brave notices, since Falkon remains a legitimate standalone browser on any DE; the heavy cost is QtWebEngine, not a full KDE desktop, and LXQt already shares the Qt5 base | Beta-v2.9.22 below |
+| **Beta-v2.9.23** | `[SSH-SERVER]`+`[SSH-KEYS]` — closes the OpenSSH discussion item: default-OFF OpenSSH server install+enable toggle with a selectable port (default 22) threaded into BOTH sshd_config and the nftables input chain (policy-drop baseline) + prompted password/root access policies (defaults: ON / prohibit-password). Reuses the wallpaper picker (refactored to a shared `browse_pick` browser) to import an existing keypair from removable media into the target's `~/.ssh` (0700/0600/0644, owner TARGET_USER) and/or generate a fresh ed25519 pair with opt-in comment (default user@host) + opt-in passphrase (read -s type-or-paste, twice + match, in-memory; protects both the `~/.ssh` copy and any picked-dir backup). All staging under `/mnt/tmp/ssh-import/` shredded post-deposit and on failure; no key material ever reaches install-config/limine-env/resume state (only the public comment + protected flags do) | Beta-v2.9.23 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1239,6 +1240,106 @@ suppressed.
   suppressed under `kde`.
 - `Debug/check-defaults.sh` / `Debug/check-heredocs.sh` — unaffected (the
   notice is pure Stage-1 prompt text, no new heredoc or default).
+
+---
+
+---
+
+## Beta-v2.9.23 — `[SSH-SERVER]` + `[SSH-KEYS]` (OpenSSH server toggle + key import/backup, closing the OpenSSH discussion item)
+
+`SCRIPT_VERSION = Beta-v2.9.23`. Closes the "OpenSSH server toggle + SSH-key
+import/backup" TODO discussion item with all three planned pieces, plus the
+shared-picker refactor that makes the wallpaper browser a reusable utility.
+
+### Why
+
+The `<host>` as-built had OpenSSH **never** installed (it is not in the default
+`install_pkgs` list) and `/etc/sv/sshd` never linked, so SSH administration out
+of the box meant a post-install `xbps-install openssh`, hand-edited
+`sshd_config`, and a `nftables.conf` edit — the input chain is `policy drop`,
+so merely installing sshd leaves it unreachable. The discussion also asked for
+a way to import an existing keypair into the target from removable media and to
+generate + back up a keypair, all of which the script lacked.
+
+### 1. `[SSH-SERVER]` — default-OFF install + enable toggle
+
+- New prompt after the virtualization install choice, before the subvolume
+  gates: **Install and enable the OpenSSH server (sshd)? [y/N]** (default OFF).
+- When enabled: a validated **SSH port** loop (1–65535, default 22) that
+  threads into **both** the `sshd_config` drop-in (`Port`) and the
+  `/etc/nftables.conf` input chain (a `${SSH_PORT_RULE}` fragment mirroring the
+  `${NFT_FWD_RULES}` placeholder pattern — empty/blank on a no-sshd build, so
+  the policy-drop chain stays closed).
+- Two access-policy sub-prompts (deliberately prompted, not preshipped):
+  **Allow password authentication over SSH? [Y/n]** (default ON — a bare-Enter
+  box stays reachable without key setup) and **Allow root to log in over SSH
+  (public-key only)? [Y/n]** (default `prohibit-password`, Void's stock; `no`
+  hard-blocks root SSH).
+- Chroot: `install_pkgs openssh`; config via a drop-in
+  `/etc/ssh/sshd_config.d/10-void-installer.conf` when the upstream
+  `Include /etc/ssh/sshd_config.d/*.conf` line is present, else an append
+  fallback (sshd honors the first value and upstream keeps these keys
+  commented). Service linked first-boot via the direct runsvdir rule (invariant
+  #3): `[ "__INSTALL_SSH_SERVER__" = "true" ] && ln -sfn /etc/sv/sshd ...`,
+  with the placeholder added to the rc.local sed pass. Void's `/etc/sv/sshd`
+  generates host keys on first start, so no keygen is needed at install time.
+- Public facts only ride chroot_env/install-config/`Void_Install.txt`:
+  `INSTALL_SSH_SERVER`, `SSH_PORT`, `SSH_PASSWORD_AUTH`, `SSH_ROOT_LOGIN`.
+  No key material, no passphrase — the `[SSH-KEYS]` copies live only in
+  `~/.ssh` and the user's backup medium.
+
+### 2. `[SSH-KEYS]` — import existing key / generate fresh key
+
+- **Import:** reuses a new shared `browse_pick <mode> <title>` file browser
+  (refactored from the `[LIMINE-WALLPAPER-BROWSE]` picker, behavior
+  unchanged — the wallpaper prompt is now just the `img`-mode caller). Pops an
+  absolute/relative-path-vs-menu prompt or the numbered browser starting at
+  `/run/media` (else `/root`). Picking a private key stages it (plus its
+  `<name>.pub` sibling when present) to `/mnt/tmp/ssh-import/imported/`;
+  picking a `.pub` file prints a warn-not-gate "that looks like a public key"
+  notice.
+- **Generate:** `ssh-keygen -q -t ed25519` on the **live env** (guaranteed
+  present; the target's openssh only exists when `[SSH-SERVER]` is on). Two
+  opt-in options are offered first — a **comment** (default
+  `${TARGET_USER}@${TARGET_HOSTNAME}`, a public string that sits inside the
+  `.pub` regardless; typed to override, Enter keeps the default) and a
+  **passphrase** (`[Y/n]`, default **on**). A protected key is typed/pasted
+  (`read -s` accepts both) twice + match, held in memory ONLY, and `unset`
+  right after ssh-keygen burns it in — so the `~/.ssh` copy AND any exported
+  backup are equally encrypted at rest. Exporting (a `browse_pick dir`
+  destination → `id_ed25519-backup{,.pub}`, private chmod 600) just copies the
+  already-protected-or-not key; whether protection is on is a public fact (it
+  is in the key's own header), the passphrase itself is not.
+- **Deposit:** the chroot copies `/tmp/ssh-import/*` (the `/mnt/tmp` → `/tmp`
+  mapping) into `~/.ssh` with 0700/0600/0644 perms — dir 0700, private keys
+  0600, `.pub` 0644, owner `TARGET_USER` — guarded on the account existing.
+- **Shred:** every staging copy is `shred -u`'d right after the chroot deposit
+  AND inside the failure unwind (`cleanup_on_failure`), so an aborted run never
+  leaves key material on the live USB. Explicitly **not** persisted to
+  install-config / limine-env / resume state / chroot_env (only the public
+  generated-key facts `SSH_KEY_COMMENT` / `SSH_KEY_PROTECTED` go to
+  install-config).
+
+### `[PROMPT-DEFAULTS]` additions
+
+`DEFAULT_INSTALL_SSH_SERVER=false`, `DEFAULT_SSH_PORT=22`,
+`DEFAULT_SSH_PASSWORD_AUTH=yes`, `DEFAULT_SSH_ROOT_LOGIN=prohibit-password`,
+`DEFAULT_IMPORT_SSH_KEY=false`, `DEFAULT_GENERATE_SSH_KEY=false`,
+`DEFAULT_SSH_KEY_PROTECTED=yes`, `DEFAULT_EXPORT_SSH_KEY=false`.
+
+### Validation
+
+- `bash -n Void_Linux_Installer.sh` — clean.
+- `Debug/check-defaults.sh` — 44/44 defaults declared + wired, all consistent.
+- `Debug/check-heredocs.sh` — 59 heredocs (30 shell, 29 non-shell), ALL CLEAN
+  (the rc.local SSH link is a baked `__INSTALL_SSH_SERVER__` placeholder under
+  the existing SC2050 carve-out).
+
+**Pending:** one fresh install to confirm an enabled server is reachable on the
+chosen port from a second box (nftables rule present, `sshd_config.d` drop-in
+accepted, `/etc/sv/sshd` linked on first boot) and that an import produces a
+log-in-able `~/.ssh`; the `sshd_config` `Include` fallback could not be
+verified against the `<host>` archive (it has no `/etc/` snapshot).
 
 ---
 
