@@ -103,6 +103,41 @@
 #     fallback behavior; ENCRYPT+region inner-GPT is UNPROVEN on real
 #     hardware. Default (bare Enter everywhere) = all-Btrfs flat layout,
 #     byte-identical to 2.9.37.
+#     AI (Big Pickle) ADDITION — Beta-v2.9.43 [INNER-PARTSCAN-BOOT]: the
+#     boot-time partscan dracut module (98void-inner-partscan), written into
+#     the chroot ONLY when ENCRYPT=yes + carved REGION_PARTITIONED. A udev
+#     RUN fires the instant the opened LUKS2 mapper's DM_NAME appears,
+#     calling a partprobe-primary / partx-a-fallback helper to force-register
+#     the on-disk inner GPT via BLKPG BEFORE dracut's udev settle resolves
+#     root=UUID=<inner btrfs> — an unregistered inner GPT strands boot at the
+#     emergency shell (crash #008 residual). Beta-v2.9.44 [DRACUT-CONF-NAME]:
+#     the add_dracutmodules conf value MUST be the SHORT module name (no
+#     numeric prefix); dracut-ng resolves conf names as [0-9][0-9]<name> so
+#     a prefixed name matches nothing and the regen dies. Beta-v2.9.45
+#     [INNER-PARTSCAN-DMPROBE]: the partprobe-primary helper (libparted
+#     builds dm-linear submaps — the ONLY tool that can BLKPG a dm mapper;
+#     partx -a is fallback only) replaces the old inline partscan in both
+#     the fresh and the resume paths; _region_inner_partscan +
+#     _region_inner_dev are named functions; cleanup_on_failure partx-d
+#     unwinds before luksClose; a chroot FATAL initramfs-content gate runs
+#     after the dracut --force loop (abort before ESP re-sync if any image
+#     lacks cryptsetup/partprobe/helper bits); the void-limine-sync-kernels
+#     per-image guard (same lsinitrd checks) prevents ever copying a broken
+#     initramfs onto the ESP on a future kernel update. Parted is shipped
+#     into the target and added to PKG_PREFLIGHT whenever the module
+#     installs. The __CRYPT_NAME__ token is baked via sed with &\/\ escape;
+#     do NOT simplify back to partx-primary, do NOT drop inst_binary
+#     partprobe, do NOT udevadm-settle inside the helper (deadlocks udevd),
+#     and do NOT rework to an initqueue hook (dracut resolves root through
+#     the same settle — too late).
+#     AI (Big Pickle) ADDITION — Beta-v2.9.47 [TEE-BOOT-QUIET]+
+#     [TEE-BLACKLIST]: two env-only PUBLIC limine-env knob rows
+#     (DEFAULT_QUIET_BOOT, DEFAULT_TEE_BLACKLIST, both default "no") thread
+#     a shared TEE_QB_FRAG ("quiet" + "modprobe.blacklist=tee") through
+#     every GRUB/Limine BASE_CMD builder (live AND the limine write-conf
+#     embedded recompute that runs on every kernel update / snapper-plugin
+#     resync), so a hand-edited cmdline fragment can never silently vanish.
+#     Byte-identical output at defaults; existing installs untouched.
 #   - Most subvolumes use noatime+zstd:1 compression. Several are
 #     deliberately nodatacow+compress=none instead: @swap (COW + compression
 #     both break swapfiles), @libvirt (COW hurts qcow2/raw VM disk
@@ -295,7 +330,7 @@
 #     mountpoint, forcing the source-dir migrate form so pre-existing data inside
 #     @ is never silently hidden behind the fresh mount.
 #     AI (Big Pickle) ADDITION — Beta-v2.7.6 [PKG-LIST]: the post-install
-#     ~/Documents/VOID_INSTALL.txt record now appends the FULL finished-system
+#     ~/Documents/Void_Install.txt record now appends the FULL finished-system
 #     package inventory (xbps-query -l, status prefix stripped, sorted, one per
 #     line) so a box records not just the installer version + choices but exactly
 #     WHAT was installed. Written in the chroot against the target's /var/db/xbps;
@@ -571,6 +606,13 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.38   [MULTI-FS] — per-region data filesystems (/home /var /var/cache /srv /opt + optional Games) carved onto their own partition with an ext4/btrfs filesystem choice; fixed-order outer carve 2..1+NREG (LINUX last), INNER GPT for ENCRYPT; region subvols folded out of the flat topology; owned fstab rows skipped; subvol-tool MULTI-FS-GUARD; region mounts before chroot; games chown; DOCS-LOG DATA_REGIONS. Plus [MULTI-FS-RUNLOG] (journal audit lines + journal archived to /etc/void-installer/installer-run.log on success) and [CRASH-USB-LOG] (crash post-mortem — journal + .info sidecar — to the first mounted stick; --save-log CLI flag parsed BEFORE the journal truncation / network gate / STAGE-1 banner so it works from a crashed, networkless live env)
 #     Beta-v2.9.39   [CRASH-USB-LOG-FATAL-EXIT] — the ERR trap handles failures inside set -eEo traps, but an explicit `exit 1` FATAL never trips ERR; planned aborts (disk validation, preflight) silently skipped the USB snapshot. Keep an EXIT-trap `_save_log_on_exit` guarded by a `_usb_dumped` flag (ERR-unwind and EXIT never double-write), so a fatal exit dumps the journal too. Also fixes crash #005-reporting spurious BMP. Plus [SUBVOL-ROWS-FIX] — SUBVOL_ROWS read loop skips `#`-comment rows before the resolve eval (bad-substitution ERR-trap crash) and the spurious duplicate INSTALL_BREW SUBVOL_ROWS row is removed.
 #     Beta-v2.9.40   [PKG-PREFLIGHT];[GAME-FLATPAK-GATE] — Stage-1 package-name gate (closed crash #005): every package name the Stage-2 chroot can install is resolved against the live union pool BEFORE sgdisk -Z; doomed installs abort pre-write. PKG_PREFLIGHT candidate list is a superset of every install_pkgs literal + base-bootstrap literals; live void-repo-* install + -Sy refresh + base-system sanity probe degrade to WARN+skip (never false FATAL); COSMIC third-party repo excluded; drift-guard Debug/check-pkg-preflight.sh committed. [GAME-FLATPAK-GATE]: `install_pkgs heroic`/`install_pkgs bottles` must never come back — Heroic/Bottles ship only via the first-boot Flatpak queue (com.heroicgameslauncher.hgl / com.usebottles.bottles) gated on INSTALL_FLATPAK, with a Stage-2 WARNING when INSTALL_FLATPAK=false; @game mounts ONLY .local/share/Steam + .local/share/lutris.
+#     Beta-v2.9.41   (intermediate build — 98void-inner-partscan module draft; module-setup.sh + udev rules + helper script skeleton; crash #008 revealed dracut `partscan` crypttab option is NOT reliable on non-loopback LUKS2 at boot)
+#     Beta-v2.9.42   (intermediate build — FATAL initramfs gate + parted shipping into the target; crash #009 showed partx -a cannot BLKPG a dm mapper, so module initially booted to emergency shell)
+#     Beta-v2.9.43   [INNER-PARTSCAN-BOOT] — the boot-time partscan dracut module (98void-inner-partscan): udev RUN fires on the instant the opened LUKS2 mapper's DM_NAME appears, calling partprobe + partx -a helper to force-register the inner GPT BEFORE dracut's udev settle resolves root=UUID=<inner btrfs>; module gated on ENCRYPT=yes + carved REGION_PARTITIONED; parted shipped into the target when module installs; __CRYPT_NAME__ token baked via sed; add_dracutmodules short name in 90-system.conf; module placed BEFORE the final xbps-reconfigure
+#     Beta-v2.9.44   [DRACUT-CONF-NAME] — the add_dracutmodules conf value MUST be the SHORT module name WITHOUT the numeric prefix (void-inner-partscan, NOT 98void-inner-partscan); dracut-ng resolves conf names as [0-9][0-9]<name> so a prefixed name matches nothing; same for 99void-yubikey → void-yubikey; closed crash #009 residual
+#     Beta-v2.9.45   [INNER-PARTSCAN-DMPROBE] — partprobe-first inner-GPT rescan (partprobe builds libparted dm-linear submaps — the ONLY tool that can BLKPG a dm mapper; partx -a fallback only); _region_inner_partscan + _region_inner_dev named functions replace inline blocks; chroot FATAL initramfs-content gate after dracut --force loop + before ESP re-sync; per-image guard in void-limine-sync-kernels; partx -d unwind in cleanup_on_failure before luksClose; parted added to PKG_PREFLIGHT; live + resume partscan paths rewired to call the new helpers
+#     Beta-v2.9.46   (post-audit from first real ENCRYPT+regions boot on <host>: [SUBVOL-TOOL-RESOLVEDEV] strip [/@] suffix from findmnt SOURCE before subvolid=5 mount + rename shadowed awk -v sub= → svpat; [INSTALL-CONFIG-FLATPAK] install-config gains INSTALL_FLATPAK/INSTALL_BRAVE public rows; KERNEL_PKGS/PKG-PREFLIGHT verification; [VBOX-SV-GUARD] first-boot vboxdrv link guarded on /etc/sv/vboxdrv dir; [FLATPAK-NM-DISPATCH-STAMP] flatpak queue dispatch check)
+#     Beta-v2.9.47   [TEE-BOOT-QUIET]+[TEE-BLACKLIST] — two env-only PUBLIC limine-env knob rows (DEFAULT_QUIET_BOOT, DEFAULT_TEE_BLACKLIST, both default no) thread into a shared TEE_QB_FRAG ("quiet" + "modprobe.blacklist=tee") threaded through every GRUB/Limine BASE_CMD builder + the limine write-conf recompute; byte-identical output at defaults; existing installs untouched
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -730,6 +772,14 @@ DEFAULT_REGION_CACHE_SIZE="${DEFAULT_REGION_CACHE_SIZE:-4G}"  # /var/cache parti
 DEFAULT_REGION_SRV_SIZE="${DEFAULT_REGION_SRV_SIZE:-4G}"    # /srv partition size
 DEFAULT_REGION_OPT_SIZE="${DEFAULT_REGION_OPT_SIZE:-4G}"    # /opt partition size
 DEFAULT_REGION_GAMES_SIZE="${DEFAULT_REGION_GAMES_SIZE:-60G}"  # Games partition size
+# AI (Big Pickle) ADDITION — Beta-v2.9.47 [TEE-BOOT-QUIET]/[TEE-BLACKLIST]:
+# env-only PUBLIC boot-cmdline knobs (no prompt reads them — set by exporting
+# the name before a run, or by editing limine-env after install). Threaded into
+# the shared TEE_QB_FRAG ("quiet" + "modprobe.blacklist=tee") that the
+# limine-env generator re-derives on every kernel/snapshot resync, and baked
+# into GRUB_CMDLINE_LINUX_DEFAULT at install time for the GRUB branch.
+DEFAULT_QUIET_BOOT="${DEFAULT_QUIET_BOOT:-no}"          # append "quiet"? (boot-cmdline knob)
+DEFAULT_TEE_BLACKLIST="${DEFAULT_TEE_BLACKLIST:-no}"    # append "modprobe.blacklist=tee"? (boot-cmdline knob)
 
 
 # =============================================================================
@@ -1193,6 +1243,15 @@ cleanup_on_failure() {
     # re-run choked on luksFormat/mkfs of a busy partition. Close the mapper we
     # opened so a failure returns the disk to a locked, clean state. CRYPT_NAME
     # may be unset if the crash pre-dates the prompt; default guards that.
+    # Beta-v2.9.45 [INNER-PARTSCAN-DMPROBE]: if a carve had registered inner
+    # partitions on the mapper via partx -a, unregister them BEFORE the close —
+    # otherwise luksClose refuses a busy dm node and the "disk is now LOCKED"
+    # promise breaks exactly like the first inner-GPT failures. partx -d is a
+    # safe no-op when partprobe (BLKPG) had registered or nothing was open yet;
+    # guard on ENCRYPT + carved REGION_PARTITIONED only.
+    if [ "$ENCRYPT" = "yes" ] && [ -n "${REGION_PARTITIONED:-}" ]; then
+        partx -d "${CRYPT_DEV:-/dev/mapper/${CRYPT_NAME:-void-root}}" 2>/dev/null || true
+    fi
     cryptsetup luksClose "${CRYPT_NAME:-void-root}" 2>/dev/null || true
     [ "$ENCRYPT" = "yes" ] && echo "!! Note: the LUKS mapper has been closed — the disk is now LOCKED." >&2
     echo "!! Unwind attempted. Re-check 'mount | grep /mnt' before re-running." >&2
@@ -4300,6 +4359,42 @@ else
 fi
 export NREG
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.45 [INNER-PARTSCAN-DMPROBE]: force the
+# kernel to REGISTER the on-disk inner GPT of an OPENED LUKS2 mapper via BLKPG.
+# partprobe is PRIMARY (it builds libparted dm-linear submaps — the ONLY tool
+# able to BLKPG a device-mapper target); partx -a is the FALLBACK ONLY (it
+# cannot probe a dm target: "partx: /dev/mapper/<name>: error adding partitions
+# 1-N"). MUST be called AFTER every open of a container hosting the inner GPT
+# and BEFORE _region_inner_dev re-resolves the region devices — never before
+# the close: probing the device while a stale open holds it breaks the
+# luksClose cycle (and with it the "disk is now LOCKED" promise). Best-effort:
+# returns 0 no matter what, mirroring the boot-time udev RUN helper.
+_region_inner_partscan() {
+    local _ps_dev="${1:-$CRYPT_DEV}"
+    if command -v partprobe > /dev/null 2>&1; then
+        partprobe "$_ps_dev" 2> /dev/null || partx -a "$_ps_dev" 2> /dev/null || true
+    else
+        partx -a "$_ps_dev" 2> /dev/null || true
+    fi
+    sleep 2
+}
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.45 [INNER-PARTSCAN-DMPROBE]: re-resolve
+# the region devices + the Btrfs LINUX root off the OPENED mapper, in fixed
+# carve order (region i at mapper-pi, Btrfs root at mapper-p(NREG+1)). Only
+# valid AFTER _region_inner_partscan has registered the inner GPT — without it
+# the pN nodes don't exist yet (fresh carve) or still point at the stale layout
+# (resume). Formerly inlined in both the fresh and the resume partscan blocks.
+_region_inner_dev() {
+    _rr_i=1
+    for _rr in $REGION_PARTITIONED; do
+        eval "REGION_PART_${_rr}=\"\${CRYPT_DEV}p\${_rr_i}\""
+        _rr_i=$((_rr_i + 1))
+    done
+    unset _rr_i _rr
+    BTRFS_DEV="${CRYPT_DEV}p$((NREG + 1))"
+}
+
 # AI (Big Pickle) ADDITION — Beta-v2.4.1 [MIRROR]: these defaults are only applied
 # when no mirror was chosen in the earlier prompt step (e.g. on a resumed run
 # that skipped it); otherwise the user's regional selection is preserved.
@@ -4636,6 +4731,7 @@ nftables
 nvidia
 octoxbps
 openssh
+parted
 pipewire
 plasma-pa
 pluma
@@ -4875,21 +4971,17 @@ if [ "$RESUME" != "1" ]; then
             sgdisk -n "${_rr_pn}::" -t "${_rr_pn}":8300 -c "${_rr_pn}":'LINUX' "$BTRFS_DEV"
             unset _rr_pn _rr_posn _rr
             # Force partscan: close + re-open the mapper (fresh passphrase is
-            # still in memory at this point), which makes the kernel register
-            # the inner GPT. UNPROVEN on real hardware at Beta-v2.9.38 — later
-            # [MULTI-FS-PARTSCAN-FORCE]/[INNER-PARTSCAN-BOOT] harden this.
+            # still in memory at this point), then REGISTER the fresh inner GPT
+            # with the kernel via BLKPG (partprobe-primary + partx -a fallback,
+            # [INNER-PARTSCAN-DMPROBE]) BEFORE _region_inner_dev re-resolves the
+            # region devices. The old inline partprobe only worked because the
+            # whole install used the SAME freshly-carved node; the hardened
+            # version closes/reopens then re-probes (and the boot-time
+            # 98void-inner-partscan module does the same at next boot).
             cryptsetup luksClose "$CRYPT_NAME"
             printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksOpen --key-file=- "$PART_SYS" "$CRYPT_NAME"
-            partprobe "$BTRFS_DEV" 2>/dev/null || true
-            sleep 2
-            # Inner devices use the mapper's pN naming (like an nvme disk).
-            _rr_i=1
-            for _rr in $REGION_PARTITIONED; do
-                eval "REGION_PART_${_rr}=\"\${BTRFS_DEV}p\${_rr_i}\""
-                _rr_i=$((_rr_i + 1))
-            done
-            unset _rr_i _rr
-            BTRFS_DEV="${CRYPT_DEV}p$((NREG + 1))"
+            _region_inner_partscan
+            _region_inner_dev
             jl "MULTI-FS inner GPT carved inside LUKS2; BTRFS_DEV=${BTRFS_DEV} PART_SYS=${PART_SYS}"
         fi
         # AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: bind the YubiKey
@@ -5041,18 +5133,14 @@ else
     # the inner GPT already lives inside the LUKS container from the previous
     # run; resolve the region devices from the (just opened) mapper the same
     # way the fresh path does, and point BTRFS_DEV at the LAST inner partition
-    # (the LINUX Btrfs root). Partscan is forced here too (partprobe after
-    # open), mirroring the fresh-install close/re-open force above.
+    # (the LINUX Btrfs root). Partscan is forced here too — Beta-v2.9.45
+    # [INNER-PARTSCAN-DMPROBE] runs _region_inner_partscan (partprobe-primary +
+    # partx -a fallback) AFTER this open and BEFORE _region_inner_dev re-resolves
+    # the region devices; the stale 2.9.38 partprobe-only after-open inline
+    # (which could race the reopen already in flight) is what the helpers replace.
     if [ "$ENCRYPT" = "yes" ] && [ -n "${REGION_PARTITIONED:-}" ]; then
-        partprobe "$CRYPT_DEV" 2>/dev/null || true
-        sleep 2
-        _rr_i=1
-        for _rr in $REGION_PARTITIONED; do
-            eval "REGION_PART_${_rr}=\"\${CRYPT_DEV}p\${_rr_i}\""
-            _rr_i=$((_rr_i + 1))
-        done
-        unset _rr_i _rr
-        BTRFS_DEV="${CRYPT_DEV}p$((NREG + 1))"
+        _region_inner_partscan
+        _region_inner_dev
         jl "MULTI-FS resume: inner region devices resolved; BTRFS_DEV=${BTRFS_DEV}"
     fi
 
@@ -5785,6 +5873,12 @@ echo "export GRUB_ESP_BOOT=\"$GRUB_ESP_BOOT\"" >> /mnt/tmp/chroot_env.sh
 echo "export KERNEL_MODE=\"$KERNEL_MODE\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIMINE_WALLPAPER=\"$LIMINE_WALLPAPER\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIMINE_WALLPAPER_STYLE=\"$LIMINE_WALLPAPER_STYLE\"" >> /mnt/tmp/chroot_env.sh
+# AI (Big Pickle) ADDITION — Beta-v2.9.47 [TEE-BOOT-QUIET]/[TEE-BLACKLIST]:
+# env-only boot-cmdline knobs carried into the chroot so Stage 2 can bake the
+# GRUB branch (GRUB_CMDLINE_LINUX_DEFAULT) and persist the PUBLIC limine-env
+# rows the generator re-derives from.
+echo "export DEFAULT_QUIET_BOOT=\"$DEFAULT_QUIET_BOOT\"" >> /mnt/tmp/chroot_env.sh
+echo "export DEFAULT_TEE_BLACKLIST=\"$DEFAULT_TEE_BLACKLIST\"" >> /mnt/tmp/chroot_env.sh
 echo "export SCRIPT_VERSION=\"$SCRIPT_VERSION\"" >> /mnt/tmp/chroot_env.sh
 # AI (Big Pickle) ADDITION — Beta-v2.5.2 [SHELL]: carry the chosen login shell
 # into the chroot so Stage 2 can install its package and set it as -s.
@@ -6343,6 +6437,13 @@ install_pkgs ${MICROCODE_PKG} linux-firmware dracut sudo vim nano bash bash-comp
 # (the dracut `crypt` module needs the cryptsetup binary + udev rules to
 # unlock the volume at boot). Not installed for the unencrypted default.
 [ "$ENCRYPT" = "yes" ] && install_pkgs cryptsetup
+# AI (Big Pickle) ADDITION — Beta-v2.9.43 [INNER-PARTSCAN-BOOT]: when the inner
+# GPT (MULTI-FS + ENCRYPT) needs a boot-time partscan, parted must ship IN THE
+# TARGET so the 98void-inner-partscan dracut module's module-setup.sh can
+# `inst_binary partprobe` (partprobe is the PRIMARY BLKPG registration tool for
+# a device-mapper target; `partx -a` alone cannot probe a dm mapper). Gate
+# exactly like the module: ENCRYPT + carved REGION_PARTITIONED.
+[ "$ENCRYPT" = "yes" ] && [ -n "${REGION_PARTITIONED:-}" ] && install_pkgs parted
 # AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: install the C-only
 # `yubikey-personalization` (ykpers) tools (ykpersonalize for enrolling already
 # ran on the live medium; ykchalresp is what the initramfs keyscript calls at
@@ -7790,6 +7891,21 @@ if [ "$ENABLE_HIBERNATION" = "true" ] && [ -f /var/swap/swapfile ]; then
 else
     GRUB_CMD="loglevel=3 ${LUKS_RD}"
 fi
+# AI (Big Pickle) ADDITION — Beta-v2.9.47 [TEE-BOOT-QUIET]/[TEE-BLACKLIST]:
+# thread the shared TEE_QB_FRAG ("quiet" + "modprobe.blacklist=tee") into the
+# GRUB cmdline. For GRUB the fragment is baked once here into
+# GRUB_CMDLINE_LINUX_DEFAULT (no limine-env generator exists on the GRUB
+# branch); the limine branch re-derives the identical fragment from its
+# persisted PUBLIC rows on every resync.
+TEE_QB_FRAG=""
+if [ "${DEFAULT_QUIET_BOOT:-no}" = "yes" ]; then
+    TEE_QB_FRAG=" quiet"
+fi
+if [ "${DEFAULT_TEE_BLACKLIST:-no}" = "yes" ]; then
+    TEE_QB_FRAG="${TEE_QB_FRAG} modprobe.blacklist=tee"
+fi
+GRUB_CMD="${GRUB_CMD}${TEE_QB_FRAG}"
+unset TEE_QB_FRAG
 sed -i '/GRUB_CMDLINE_LINUX_DEFAULT/d' /etc/default/grub
 echo "GRUB_CMDLINE_LINUX_DEFAULT=\"$GRUB_CMD\"" >> /etc/default/grub
 
@@ -7921,6 +8037,14 @@ HIBERNATION_ENABLED="${ENABLE_HIBERNATION}"
 # file each time, so this must be state the generator can re-read).
 LIMINE_WALLPAPER="${LIMINE_WALLPAPER}"
 LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.47 [TEE-BOOT-QUIET]/[TEE-BLACKLIST]:
+# env-only PUBLIC boot-cmdline knobs, persisted beside LIMINE_WALLPAPER so
+# void-limine-write-conf re-derives the shared TEE_QB_FRAG ("quiet" +
+# "modprobe.blacklist=tee") on every kernel update / snapper-plugin resync —
+# the regenerated limine.conf is rewritten each time, so the fragment must be
+# state the generator can re-read. "no" = absent from the cmdline.
+DEFAULT_QUIET_BOOT="${DEFAULT_QUIET_BOOT:-no}"
+DEFAULT_TEE_BLACKLIST="${DEFAULT_TEE_BLACKLIST:-no}"
 # AI (Big Pickle) ADDITION — Beta-v2.5.5 [ENCRYPT]: persisted so
 # void-limine-write-conf re-emits the rd.luks.uuid=/rd.luks.name= kernel
 # params on every kernel update / snapper-plugin resync (the generated limine.conf is
@@ -8021,6 +8145,12 @@ INSTALL_NVIDIA="${INSTALL_NVIDIA:-<unset>}"
 BR0_NIC="${BR0_NIC:-<unset>}"
 MICROCODE_PKG="${MICROCODE_PKG:-<unset>}"
 MICROCODE_DECIDED="${MICROCODE_DECIDED:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.46 [INSTALL-CONFIG-FLATPAK]: record the
+# Flatpak/Flathub channel + the Brave browser decision in the as-built config —
+# Heroic/Bottles ship via that first-boot Flatpak queue, so INSTALL_FLATPAK is
+# the gate row that explains why (or why not) they're present. Public flags only.
+INSTALL_FLATPAK="${INSTALL_FLATPAK:-false}"
+INSTALL_BRAVE="${INSTALL_BRAVE:-false}"
 # AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: record the Homebrew
 # channel decision + its (separate, opt-in) subvolume isolation flag. Public
 # flags only — no brew credentials/prefix keys, matches secret-free rule.
@@ -8141,9 +8271,9 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
         else
             echo "# xbps-query unavailable in chroot — package inventory omitted"
         fi
-    } > "/home/${TARGET_USER}/Documents/VOID_INSTALL.txt"
-    chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/Documents/VOID_INSTALL.txt"
-    chmod 644 "/home/${TARGET_USER}/Documents/VOID_INSTALL.txt"
+    } > "/home/${TARGET_USER}/Documents/Void_Install.txt"
+    chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/Documents/Void_Install.txt"
+    chmod 644 "/home/${TARGET_USER}/Documents/Void_Install.txt"
 fi
 
 # AI (Big Pickle) ADDITION — Beta-v2.5.1 [LIMINE-WALLPAPER]: if the user
@@ -8238,6 +8368,21 @@ if [ "${HIBERNATION_ENABLED}" = "true" ] && [ -f /var/swap/swapfile ]; then
 else
     BASE_CMD="loglevel=3 ${LUKS_RD} root=UUID=${BTRFS_UUID} rootflags=subvol=@"
 fi
+# AI (Big Pickle) ADDITION — Beta-v2.9.47 [TEE-BOOT-QUIET]/[TEE-BLACKLIST]:
+# re-derive the shared TEE_QB_FRAG from the persisted PUBLIC limine-env rows
+# on EVERY resync (kernel update / snapper-plugin resync / manual run), so the
+# "quiet" / "modprobe.blacklist=tee" cmdline fragment can never silently drop
+# out of the regenerated limine.conf. Same values as the GRUB branch bakes at
+# install time; limine always re-reads state instead of baking once.
+TEE_QB_FRAG=""
+if [ "${DEFAULT_QUIET_BOOT:-no}" = "yes" ]; then
+    TEE_QB_FRAG=" quiet"
+fi
+if [ "${DEFAULT_TEE_BLACKLIST:-no}" = "yes" ]; then
+    TEE_QB_FRAG="${TEE_QB_FRAG} modprobe.blacklist=tee"
+fi
+BASE_CMD="${BASE_CMD}${TEE_QB_FRAG}"
+unset TEE_QB_FRAG
 
 # [LIMINE-MULTI-KERNEL] Enumerate every kernel actually available — always
 # on the ESP under /boot/efi/void-kernel (esp-copy is now the only mode) —
@@ -8499,9 +8644,41 @@ if [ -z "$INSTALLED_KVERS" ]; then
 fi
 
 for _kver in $INSTALLED_KVERS; do
+    # AI (Big Pickle) ADDITION — Beta-v2.9.45 [INNER-PARTSCAN-DMPROBE]: verify
+    # the initramfs actually carries what this install's boot needs BEFORE
+    # overwriting the ESP copy — a future kernel upgrade must never be able to
+    # push a broken image over the last-known-good one (crash #009 residual:
+    # the 19:54 boot opened LUKS but never registered the inner-GPT partitions
+    # because partprobe was missing from the image, and the ESP had already
+    # been overwritten). Same demand-gating as the install-time FATAL gate:
+    # ENCRYPT=yes requires cryptsetup; when the 98void-inner-partscan module
+    # dir exists (carved regions), partprobe + the helper are required too.
+    # Skip-with-warning on failure and leave the old ESP copy in place. Only
+    # verified when lsinitrd is available (it ships with dracut, so it always
+    # is on these installs); skipping the check then is a bug detector, so the
+    # copy is also skipped — a missing lsinitrd means the image can't be
+    # audited and must not be trusted blind.
+    _img_ok=1
+    if command -v lsinitrd >/dev/null 2>&1; then
+        if [ "${ENCRYPT:-}" = "yes" ]; then
+            lsinitrd "/boot/initramfs-${_kver}.img" 2>/dev/null | grep -c 'bin/cryptsetup' >/dev/null || _img_ok=0
+            if [ -d /usr/lib/dracut/modules.d/98void-inner-partscan ]; then
+                lsinitrd "/boot/initramfs-${_kver}.img" 2>/dev/null | grep -c 'partprobe' >/dev/null || _img_ok=0
+                lsinitrd "/boot/initramfs-${_kver}.img" 2>/dev/null | grep -c 'void-inner-partscan.sh' >/dev/null || _img_ok=0
+                lsinitrd "/boot/initramfs-${_kver}.img" 2>/dev/null | grep -c '10-void-inner-partscan.rules' >/dev/null || _img_ok=0
+            fi
+        fi
+    else
+        _img_ok=0
+    fi
+    if [ "$_img_ok" != "1" ]; then
+        echo "WARNING: /boot/initramfs-${_kver}.img fails boot-content verification (missing cryptsetup and/or partprobe/void-inner-partscan bits) — NOT copying it to the ESP; the previous ESP initramfs stays. Re-run 'dracut --force /boot/initramfs-${_kver}.img ${_kver}' once the required packages (cryptsetup, parted) are installed." >&2
+        continue
+    fi
     cp -f "/boot/vmlinuz-${_kver}" "/boot/efi/void-kernel/vmlinuz-${_kver}"
     cp -f "/boot/initramfs-${_kver}.img" "/boot/efi/void-kernel/initramfs-${_kver}.img"
 done
+unset _img_ok
 echo "==> Limine ESP kernels synced (${INSTALLED_KVERS# })"
 
 for _esp_kfile in /boot/efi/void-kernel/vmlinuz-*; do
@@ -9114,7 +9291,11 @@ TOPMNT=""     # temp mountpoint for the top-level tree (subvolid=5)
 resolve_dev() {
     local src
     src="$(findmnt -no SOURCE / 2>/dev/null)" || die "cannot resolve mounted root device."
-    DEVDIR="$src"
+    # [SUBVOL-TOOL-RESOLVEDEV] (Beta-v2.9.46): btrfs findmnt SOURCE appends the
+    # active subvol as `[/@]` (e.g. /dev/mapper/void3[/@]), but a subvolid=5 mount
+    # needs the bare device node — every verb failed with "special device
+    # /dev/mapper/void3[/@] does not exist". Strip any `[/...]` suffix.
+    DEVDIR="${src%%\[*}"
     FSUUID="$(blkid -s UUID -o value "$DEVDIR" 2>/dev/null || \
               findmnt -no UUID / 2>/dev/null || true)"
     [ -n "$DEVDIR" ] || die "empty root device."
@@ -9288,7 +9469,7 @@ cmd_list() {
         [ -n "$sv" ] || continue
         found=1
         local mnt
-        mnt="$(awk -v sub="subvol=$sv" '$1 ~ /^UUID=/ && $0 ~ sub {print $2; exit}' /etc/fstab)"
+        mnt="$(awk -v svpat="subvol=$sv" '$1 ~ /^UUID=/ && $0 ~ svpat {print $2; exit}' /etc/fstab)"
         printf '  %-20s fstab=%s\n' "$sv" "${mnt:-<no fstab>}"
     done < <(siblings)
     [ "$found" = "1" ] || echo "  (no flat siblings found)"
@@ -10352,7 +10533,7 @@ exit 0
 INNER_EOF
     chmod 0755 /usr/lib/dracut/modules.d/99void-yubikey/cryptroot-ask.sh
     chmod 0755 /usr/lib/dracut/modules.d/99void-yubikey/module-setup.sh
-    echo 'add_dracutmodules+=" 99void-yubikey "' >> /etc/dracut.conf.d/90-system.conf
+    echo 'add_dracutmodules+=" void-yubikey "' >> /etc/dracut.conf.d/90-system.conf
 fi
 
 mkdir -p /usr/lib/dracut/modules.d/95snapshot-overlay
@@ -10417,6 +10598,105 @@ fi
 INNER_EOF
 chmod 0755 /usr/lib/dracut/modules.d/95snapshot-overlay/module-setup.sh
 chmod 0755 /usr/lib/dracut/modules.d/95snapshot-overlay/mount-snapshot-overlay.sh
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.43 [INNER-PARTSCAN-BOOT]: the inner-GPT
+# partscan dracut module (MULTI-FS + ENCRYPT carve). Written ONLY when ENCRYPT
+# + carved REGION_PARTITIONED, and PLACED here (before the final
+# `xbps-reconfigure -f $KERNEL_PKGS` below) so the very first boot already has
+# it. When the opened LUKS2 mapper node appears, udev RUNs the helper the
+# instant DM_NAME matches, forcing the kernel to REGISTER the on-disk inner GPT
+# via BLKPG before dracut's udev settle resolves root=UUID=<inner btrfs> — an
+# unregistered inner GPT strands boot at the emergency shell (crash #009
+# residual). Beta-v2.9.45 [INNER-PARTSCAN-DMPROBE]: the helper's PRIMARY tool
+# is partprobe (libparted dm-linear submaps — the ONLY tool that can BLKPG a
+# device-mapper target); partx -a is fallback only. Do NOT "simplify" back to
+# partx-primary (it errors "error adding partitions" against a dm mapper), do
+# NOT rework to a settled/initqueue hook (dracut resolves root through the same
+# settle — too late), do NOT udevadm-settle inside the RUN script (deadlocks
+# udevd), keep inst_binary partprobe, and keep the __CRYPT_NAME__ token bake
+# (sed-special &\/ escaped — never a raw typed name).
+if [ "$ENCRYPT" = "yes" ] && [ -n "${REGION_PARTITIONED:-}" ]; then
+    mkdir -p /usr/lib/dracut/modules.d/98void-inner-partscan
+
+    cat > /usr/lib/dracut/modules.d/98void-inner-partscan/module-setup.sh << 'INNER_EOF'
+#!/bin/bash
+# AI (Big Pickle) ADDITION — Beta-v2.9.43 [INNER-PARTSCAN-BOOT]: module-setup
+# for the inner-GPT partscan at boot (MULTI-FS + ENCRYPT carve).
+# Beta-v2.9.45 [INNER-PARTSCAN-DMPROBE]: MUST keep `inst_binary partprobe` —
+# the installer installs parted INTO the target whenever this module ships, so
+# this inst can never abort the dracut run.
+# shellcheck disable=SC2154  # $moddir is set by dracut before install() runs
+
+check() {
+    require_binaries partprobe || return 1
+    return 0
+}
+
+depends() {
+    # Numeric 98 > 90crypt: the container must already be open for DM_NAME to
+    # exist when our rule fires, so pull crypt explicitly alongside udev-rules.
+    echo crypt udev-rules
+    return 0
+}
+
+install() {
+    inst_binary partprobe
+    inst_binary partx
+    inst_script "$moddir/void-inner-partscan.sh" /usr/bin/void-inner-partscan.sh
+    inst_rules "$moddir/10-void-inner-partscan.rules"
+}
+INNER_EOF
+
+    cat > /usr/lib/dracut/modules.d/98void-inner-partscan/void-inner-partscan.sh << 'INNER_EOF'
+#!/bin/sh
+# AI (Big Pickle) ADDITION — Beta-v2.9.43 [INNER-PARTSCAN-BOOT] / Beta-v2.9.45
+# [INNER-PARTSCAN-DMPROBE]: udev RUN helper for the 98void-inner-partscan
+# module. Fires the instant the opened LUKS2 mapper node appears, forcing the
+# kernel to REGISTER the on-disk inner GPT via BLKPG BEFORE dracut resolves
+# root=UUID=<inner btrfs> through the udev settle.
+#
+# Beta-v2.9.45: partprobe is PRIMARY (libparted dm-linear submaps — the ONLY
+# tool that can BLKPG a device-mapper target); partx -a is FALLBACK ONLY (it
+# cannot BLKPG a dm target: "partx: /dev/mapper/<name>: error adding
+# partitions 1-N"). Best-effort by design: exit 0 even on failure — udev must
+# never wedge, and the post-open partscan covers the non-critical cases. NO
+# `udevadm settle` here: settling inside a udev RUN deadlocks udevd.
+#
+# shellcheck disable=SC2154  # DEVNAME is injected by udev at run time
+_dev="${1:-${DEVNAME:-/dev/mapper/__CRYPT_NAME__}}"
+
+[ -b "$_dev" ] || exit 0
+
+if command -v partprobe > /dev/null 2>&1; then
+    partprobe "$_dev" 2> /dev/null || partx -a "$_dev" 2> /dev/null || true
+else
+    partx -a "$_dev" 2> /dev/null || true
+fi
+unset _dev
+exit 0
+INNER_EOF
+
+    cat > /usr/lib/dracut/modules.d/98void-inner-partscan/10-void-inner-partscan.rules << 'INNER_EOF'
+# AI (Big Pickle) ADDITION — Beta-v2.9.43 [INNER-PARTSCAN-BOOT]: RUN the
+# partscan helper the instant the opened LUKS2 mapper node appears (MULTI-FS +
+# ENCRYPT carve), so the inner GPT is registered BEFORE dracut's udev settle
+# resolves root=UUID=<inner btrfs>. __CRYPT_NAME__ is a placeholder baked at
+# install time (sed-special &\/ escaped — never a raw typed name).
+ACTION=="add", SUBSYSTEM=="block", ENV{DM_NAME}=="__CRYPT_NAME__", RUN+="/usr/bin/void-inner-partscan.sh"
+INNER_EOF
+
+    chmod 0755 /usr/lib/dracut/modules.d/98void-inner-partscan/module-setup.sh
+    chmod 0755 /usr/lib/dracut/modules.d/98void-inner-partscan/void-inner-partscan.sh
+
+    # Bake the mapper name in (rules match + helper fallback): never a raw
+    # typed name — escape sed replacement specials (& / \) before substitution.
+    _cn_esc=$(printf '%s' "$CRYPT_NAME" | sed 's/[&/\\]/\\&/g')
+    sed -i "s/__CRYPT_NAME__/$_cn_esc/g" \
+        /usr/lib/dracut/modules.d/98void-inner-partscan/10-void-inner-partscan.rules
+    unset _cn_esc
+
+    echo 'add_dracutmodules+=" void-inner-partscan "' >> /etc/dracut.conf.d/90-system.conf
+fi
 
 if [ "$DISPLAY_MANAGER" = "sddm" ]; then
 cat > /etc/sv/sddm/conf << 'INNER_EOF'
@@ -10777,6 +11057,40 @@ for kver_dir in /lib/modules/*; do
     dracut --force "/boot/initramfs-${kver}.img" "$kver"
 done
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.45 [INNER-PARTSCAN-DMPROBE]: FATAL
+# initramfs-content gate. Every /boot initramfs MUST actually carry the
+# boot-required bits — a broken image that slips past here would be copied to
+# the ESP by the Limine re-sync below (and even GRUB would fail a LUKS root
+# whose initramfs cannot unlock/register it), dying only at next boot when disk
+# re-provisioning hurts. Abort HERE, while the disk is still consistent and
+# nothing half-built has shipped. Uses the same SIGPIPE-safe lsinitrd gates as
+# the live-side per-image guard; lsinitrd absent = cannot audit = FATAL.
+if [ "$ENCRYPT" = "yes" ]; then
+    _gate_fail=0
+    for kver_gate in /boot/*.img; do
+        [ -f "$kver_gate" ] || continue
+        _img="$kver_gate"
+        if command -v lsinitrd > /dev/null 2>&1; then
+            lsinitrd "$_img" 2> /dev/null | grep -c 'bin/cryptsetup' > /dev/null || _gate_fail=1
+            if [ -d /usr/lib/dracut/modules.d/98void-inner-partscan ]; then
+                lsinitrd "$_img" 2> /dev/null | grep -c 'partprobe' > /dev/null || _gate_fail=1
+                lsinitrd "$_img" 2> /dev/null | grep -c 'void-inner-partscan.sh' > /dev/null || _gate_fail=1
+                lsinitrd "$_img" 2> /dev/null | grep -c '10-void-inner-partscan.rules' > /dev/null || _gate_fail=1
+            fi
+        else
+            echo "FATAL: lsinitrd not available in chroot; cannot verify initramfs content." >&2
+            _gate_fail=1
+        fi
+        [ "$_gate_fail" -eq 1 ] && break
+    done
+    if [ "$_gate_fail" -eq 1 ]; then
+        echo "FATAL: initramfs ${_img} is missing required boot content (cryptsetup and/or partprobe/void-inner-partscan bits)." >&2
+        echo "       Aborting before the ESP sync — do not boot this disk. Install cryptsetup/parted, rebuild with dracut --force, and re-run." >&2
+        exit 1
+    fi
+    unset _gate_fail
+fi
+
 # AI (Big Pickle) ADDITION — Beta-v2.9.26 [WIFI-FW-VERIFY]: prove the finished
 # system really has driver + firmware for every radio detected on the LIVE box
 # (live hardware == target hardware). Iterates the detected chipset IDs; for
@@ -10927,12 +11241,12 @@ echo "$FW_AUDIT_TEXT"
 # preserves the file's ownership (no chown needed again). Guarded: empty
 # TARGET_USER or a missing/unwritable record file → silently skipped; nothing
 # about the install is gated on it.
-if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ] && [ -f "/home/${TARGET_USER}/Documents/VOID_INSTALL.txt" ] && [ -w "/home/${TARGET_USER}/Documents/VOID_INSTALL.txt" ]; then
+if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ] && [ -f "/home/${TARGET_USER}/Documents/Void_Install.txt" ] && [ -w "/home/${TARGET_USER}/Documents/Void_Install.txt" ]; then
     {
         echo ""
         echo "# -------- FIRMWARE ACCOUNTING ([FW-AUDIT], as-built) --------"
         echo "$FW_AUDIT_TEXT"
-    } >> "/home/${TARGET_USER}/Documents/VOID_INSTALL.txt"
+    } >> "/home/${TARGET_USER}/Documents/Void_Install.txt"
 fi
 
 if [ "$BOOTLOADER" = "limine" ]; then
@@ -11116,7 +11430,7 @@ fi
 echo "${C_GRN}  4.${C_RST} A baseline snapper snapshot has already been created for the clean install."
 echo "${C_GRN}  5.${C_RST} The exact choices + installer version that built this box are archived on it:"
 echo "     ${C_BOLD}/etc/void-installer/install-config${C_RST}  and  ${C_BOLD}/etc/void-installer/Void_Linux_Installer.sh${C_RST}"
-echo "     Quick record: ${C_BOLD}~/Documents/VOID_INSTALL.txt${C_RST} (installed user)"
+echo "     Quick record: ${C_BOLD}~/Documents/Void_Install.txt${C_RST} (installed user)"
 # AI (Big Pickle) ADDITION — Beta-v2.6.5 [PKG-SNAPSHOT-AUTO]:
 # tell the user that updates now snapshot automatically — no habit change needed.
 echo "${C_GRN}  6.${C_RST} System updates now auto-take a snapper pre/post rollback pair:"
