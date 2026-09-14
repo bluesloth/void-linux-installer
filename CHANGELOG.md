@@ -75,6 +75,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.17** | `[DEVICE-PROFILE]` — laptop vs desktop/server is now a real 5-way choice (Automatic/SMBIOS detection + four explicit profiles), resolved at pick time into a concrete `DEVICE_PROFILE` (`laptop-bt`/`laptop`/`desktop-bt`/`desktop`) plus derived `PROFILE_TLP`/`PROFILE_BT`/`PROFILE_PRELOAD` booleans. These gate the formerly unconditional `tlp`/`tlp-rdw`, `bluez`/`libspa-bluetooth`, and `preload` installs plus the `bluetoothd`/`tlp`/`preload` service links. preload (adaptive readahead) is desktop/server-only: its periodic pre-cache scans cost battery wakeups, so laptop profiles never get it. Bare-Enter = Automatic; an unresolvable chassis (VMs/unknown) falls back to the laptop+bluetooth baseline (historical package set, but tlp service now actually linked — an oversight fix) | Beta-v2.9.17 below |
 | **Beta-v2.9.18** | `[MATE-METAPACKAGE-REGRESSION]` — restore the `mate` metapackage to the MATE desktop install: Beta-v2.9.9's `[MATE-TERMINAL]` change accidentally replaced `install_pkgs mate network-manager-applet` (dropping `mate`), so a MATE fresh install had no mate-session/panel and no `/usr/share/xsessions/mate.desktop` — with `user-session=mate` set, every login bounced straight back to the greeter (the "cannot login at the greeter" showstopper). Plus `[LIMINE-WALLPAPER-STAGE2]` — re-stage the Limine wallpaper into the target's `/tmp` after the `@` root mount, so the chroot ESP copy finds the image (a prompt-phase stage to `/mnt/tmp` was covered by the mount and never reached the ESP) | Beta-v2.9.18 below |
 | **Beta-v2.9.19** | `[NFT-VIRT-GATE]` — the `/etc/nftables.conf` forward chain no longer hardcodes the `br0`/`virbr*` accepts unconditionally; those rules are a fragment emitted only when `$INSTALL_VIRT=true` (mirroring the existing gates on the virt package install, the user `kvm`/`libvirt` groups, the `br0` NM bridge, and the first-boot libvirtd teardown). On a non-virt build the forward rules no longer reference non-existent interfaces. Plus `[GREETER-BG-DEPTH]` — the lightdm greeter background's generic fallback `find` deepened to `-maxdepth 5` so it sees mate-backgrounds' depth-3 images, fixing the MATE + Slick black greeter. Plus `[DEVICE-PROFILE-CONFIRM]` — the Automatic device-profile option now shows the SMBIOS-detected profile and lets the user confirm or override it before continuing. Plus `[DEVICE-PROFILE-RCL]` — live-confirmed bug fix: the first-boot rc.local's tlp/bluetoothd/preload links used chroot-phase `$PROFILE_*` vars (never exported/persisted → always empty at boot), so those services never linked; converted to `__PROFILE_*__` placeholders added to the sed substitution pass. Plus `[LIMINE-WP-REGUARD]` — live-confirmed bug fix: the `[LIMINE-WALLPAPER-STAGE2]` re-stage guarded on the covered `/mnt/tmp` staged path so it never fired and the wallpaper never reached the ESP; re-guarded on the still-reachable live `WP_SRC` instead | Beta-v2.9.19 below |
+| **Beta-v2.9.20** | `[LIMINE-WP-DRIVES]` — the Limine wallpaper picker can no longer strand the user inside a single USB drive's tree: `/run/media` is keyed by per-user subdirs (`/run/media/<user>/<label>`), so entering a drive left `..` only climbing to the per-user parent (whose siblings are just that one user's mounts) with no shortcut back to the "all mounted drives" view. The keywords `m`/`drives` now jump straight back to `/run/media`, and the browse hint names them and notes that `..` from the per-user dir reaches the drive list | Beta-v2.9.20 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1072,6 +1073,45 @@ the target's `/tmp`, which the chroot ESP-copy loop then moves onto the ESP.
 **Live confirmation (this install):** chooing the wallpaper opt-in must now
 produce `/boot/efi/limine-splash.<ext>` + a `wallpaper:` line in limine.conf,
 and the image must show at the Limine boot menu.
+
+---
+
+---
+
+## Beta-v2.9.20 — `[LIMINE-WP-DRIVES]` (wallpaper picker can jump back to the mounted-drive list)
+
+### Why (UX gap, user-reported)
+
+The `[LIMINE-WALLPAPER-BROWSE]` browser starts at `/run/media`, which is keyed
+by per-user subdirs (`/run/media/<user>/<label>`). Once the user enters a
+mounted USB drive they could move up/down freely *within that drive's tree*,
+but pressing `..` (`WP_DIR="$(dirname "$WP_DIR")"`) only climbed to the
+per-user parent (`/run/media/<user>`), whose siblings are just that one user's
+mounts — not the "every mounted drive" view. When drives mount under different
+username parents (e.g. `/run/media/root/...` vs `/run/media/<user>/...`), the
+entered drive is the only sibling visible and there was **no on-screen
+shortcut or feedback** that another `..` (to `/run/media`) would list every
+drive. The user resorted to Ctrl-C + restart.
+
+### Fix
+
+- Add explicit jump keywords **`m`** and **`drives`** that set `WP_DIR` directly
+  back to `/run/media` (the drive-list root). If `/run/media` is absent (e.g.
+  `-d` on a box with no mounted media) it says so and stays in place rather
+  than silently jumping to a nonexistent root.
+- Update the browse hint to name the keywords and note that `..` from the
+  per-user dir reaches the drive list.
+
+### Validation
+
+- `bash -n Void_Linux_Installer.sh` — clean.
+- Keyword handler is a pure-bash `[ "$WP_SRC" = m ] || [ "$WP_SRC" = drives ]`
+  branch inserted before the path-exists check, so it cannot collide with a
+  file/dir named literally `m` or `drives` being *selected by number* (numbers
+  are expanded to full paths earlier).
+- `Debug/check-heredocs.sh` — this block is top-level script (not a heredoc
+  body), so it is covered by the script's own `bash -n`; no new heredoc added.
+- `Debug/check-defaults.sh` — no new prompt/default added.
 
 ---
 
