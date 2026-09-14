@@ -80,6 +80,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.22** | `[FALKON-QT-NOTICE]` — closes the Falkon gating discussion item. On a non-KDE desktop (`DESKTOP_ENV != kde`), the Falkon prompt now prints an inline NOTICE before the y/N: full "pulls in the Qt + QtWebEngine stack (no KDE desktop)" wording on GTK desktops, and a shorter "shares Qt5 but adds QtWebEngine" variant on LXQt. A warn-not-gate notice matching the existing Vivaldi/Brave notices, since Falkon remains a legitimate standalone browser on any DE; the heavy cost is QtWebEngine, not a full KDE desktop, and LXQt already shares the Qt5 base | Beta-v2.9.22 below |
 | **Beta-v2.9.23** | `[SSH-SERVER]`+`[SSH-KEYS]` — closes the OpenSSH discussion item: default-OFF OpenSSH server install+enable toggle with a selectable port (default 22) threaded into BOTH sshd_config and the nftables input chain (policy-drop baseline) + prompted password/root access policies (defaults: ON / prohibit-password). Reuses the wallpaper picker (refactored to a shared `browse_pick` browser) to import an existing keypair from removable media into the target's `~/.ssh` (0700/0600/0644, owner TARGET_USER) and/or generate a fresh ed25519 pair with opt-in comment (default user@host) + opt-in passphrase (read -s type-or-paste, twice + match, in-memory; protects both the `~/.ssh` copy and any picked-dir backup). All staging under `/mnt/tmp/ssh-import/` shredded post-deposit and on failure; no key material ever reaches install-config/limine-env/resume state (only the public comment + protected flags do) | Beta-v2.9.23 below |
 | **Beta-v2.9.24** | `[DEVICE-PROFILE-BT-DETECT]` — the Automatic device-profile option now scans the live CD for a Bluetooth controller (USB interface class `0xE0:0x01:0x01` = the Bluetooth Programming Interface, read from `/sys/bus/usb/devices/*/{,*/}modalias` as `icE0isc01ip01` — catches USB dongles AND M.2/PCIe WiFi+BT combo cards, and needs no lsusb/bluez) and ties `PROFILE_BT` to real hardware instead of assuming every box has bluetooth. Within each chassis class the probe picks laptop-bt↔laptop and desktop-bt↔desktop; an unresolvable chassis (VM/unknown) keeps the laptop baseline (tlp on) with bluetooth from the probe. The `[DEVICE-PROFILE-CONFIRM]` keep/override step still lets the user correct a misdetection. Maintainer-signed design decision: bare-Enter stays Automatic (a detected desktop drops tlp — pointless on a battery-less box now the service actually runs) | Beta-v2.9.24 below |
+| **Beta-v2.9.25** | `[HARDWARE-REVIEW]`+`[NVIDIA-GATE]` — a live-box hardware probe (GPU families + wireless presence, pure sysfs like the BT probe) right after the device profile feeds a small drivers review, gating the ONE driver that can break a desktop installed blind: the NVIDIA proprietary driver, defaulting to `yes` only when an NVIDIA GPU is actually present. `nvidia` auto-pulls `nvidia-dkms`→`dkms` (gcc/make/linux-headers); the headers for every chosen kernel flavor are mapped from `KERNEL_PKGS` so dkms builds for all of them; nouveau is blacklisted. Probe results (`GPU_FAMILIES`/`WIFI_HW`/`HAS_*_GPU`) are exported + persisted + recorded in install-config for reuse by future work (Steam/Proton gaming deps, per-vendor firmware pruning) | Beta-v2.9.25 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1412,6 +1413,78 @@ unchanged by this release — the bare-Enter = Automatic sign-off (maintainer,
   no BT must resolve `laptop`/`desktop` (no bluez, no bluetoothd link), a BT
   box keeps `laptop-bt`/`desktop-bt`, and REVIEW/dry-run/install-config show
   the concrete booleans.
+
+---
+
+---
+
+## Beta-v2.9.25 — `[HARDWARE-REVIEW]` + `[NVIDIA-GATE]` (live-box GPU/wireless probe + NVIDIA-driver gate)
+
+`SCRIPT_VERSION = Beta-v2.9.25`. Right after the device profile, the installer
+probes the live box for GPU families and wireless presence, then gates the ONE
+driver worth gating on that probe: the NVIDIA proprietary driver.
+
+### Why
+
+The BT probe added in Beta-v2.9.24 proved the pattern (sysfs-only, no extra
+live-CD tooling, live hardware == target hardware). Extending it, the driver
+discussion item wanted "auto-detected drivers". The honest analysis: most of
+Void's driver story is in-kernel + in-mesa (nothing to install or prune), and
+the only driver that can actively break a desktop if installed blind is the
+NVIDIA proprietary driver (X.Org/PRIME/DKMS weight, conflicting-module risk).
+So instead of a dozen auto-detect prompts, this release ships one
+probe-and-recommend review that gates exactly that one decision — and exposes
+the probe results for future reuse (the Steam/gaming TODO can consume
+`GPU_FAMILIES` instead of re-probing).
+
+### 1. The probe (pure sysfs, no pciutils/lspci)
+
+- **GPU families:** scan `/sys/bus/pci/devices/*/class` for display controllers
+  (`0x03*`), read each `vendor` file, map to `NVIDIA` (0x10de) / `AMD`
+  (0x1002) / `Intel` (0x8086) / `ASPEED (BMC)` (0x1a03) / `VMware` (0x15ad) /
+  `QEMU` (0x1234) / `Other`, dedupe into `GPU_FAMILIES`. Dedicated booleans
+  `HAS_NVIDIA_GPU`/`HAS_AMD_GPU`/`HAS_INTEL_GPU` are derived.
+- **Wireless:** `WIFI_HW=yes` if `/sys/class/ieee80211/` has any phy.
+
+### 2. `[NVIDIA-GATE]` — the single hardware-gated driver
+
+- Prompt: **Install the NVIDIA proprietary driver?** — `[Y/n]` when an NVIDIA
+  GPU was detected, `[y/N]` otherwise. `DEFAULT_INSTALL_NVIDIA=auto` follows
+  the probe; exporting `DEFAULT_INSTALL_NVIDIA=yes|no` pins it regardless.
+- Chroot gate: `install_pkgs nvidia` only when `INSTALL_NVIDIA=true`. `nvidia`
+  (nonfree, already enabled) auto-pulls `nvidia-dkms` → `dkms` →
+  gcc/make/`linux-headers`; the headers for each installed kernel flavor
+  (`linux-headers`/`linux-lts-headers`/`linux-mainline-headers`) are mapped
+  from `KERNEL_PKGS` so dkms can build the module for all of them.
+- `/etc/modprobe.d/50-nvidia.conf` blacklists `nouveau` so the open driver
+  cannot bind the device ahead of the proprietary module.
+- A warning is printed if the user opts in without NVIDIA hardware.
+
+### 3. Threading
+
+- Exported + persisted on resume: `INSTALL_NVIDIA`, `GPU_FAMILIES`, `WIFI_HW`,
+  `HAS_*_GPU`; carried into chroot_env.
+- Recorded in `/etc/void-installer/install-config` (hardware facts are public)
+  and a pointer line (`NVIDIA_DRIVER=... (GPU: ...)`) in `Void_Install.txt`.
+- REVIEW and the `--dry-run` plan both print a Hardware + NVIDIA line.
+- `[PROMPT-DEFAULTS]` count grows to 45 (`DEFAULT_INSTALL_NVIDIA=auto`).
+
+### 4. Validation / gates
+
+- `bash -n` clean; `Debug/check-defaults.sh` (45 vars) ALL CONSISTENT;
+  `Debug/check-heredocs.sh` 60 bodies (the new `50-nvidia.conf` is one)
+  ALL CLEAN; shellcheck 0 findings.
+- Probe validated on the dev box: AMD iGPU (`0x1002:0x1900`) detected as the
+  single GPU family, `WIFI_HW=yes` (phy0 present) — and it correctly resolves
+  the NVIDIA prompt to `[y/N]` (no NVIDIA hardware).
+- Verified against the live Void repo (xbps on the dev box): `nvidia` =
+  `nvidia-595.91.07_1` in `current/nonfree`, pulls `nvidia-dkms` → `dkms`
+  (whose own deps include gcc/make/`linux-headers`); all three
+  `linux[-lts|-mainline]-headers` metas exist.
+- **Pending live validation** (next fresh install): NVIDIA box → `[Y/n]`
+  default, driver + headers land, dkms build succeeds for every installed
+  kernel, nouveau blacklisted, glxinfo/nvidia-smi work; non-NVIDIA box →
+  `[y/N]` default stays off.
 
 ---
 
