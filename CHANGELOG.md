@@ -73,6 +73,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.15** | `[COSMIC-GREETER-DBUS-POLICY]` — re-emit `/etc/dbus-1/system.d/com.system76.CosmicGreeter.conf` granting the renamed `cosmic-greeter` group system-bus send/receive on `com.system76.CosmicGreeter`: the packaged file still grants the pre-rename `_cosmicgreeter` group, so after `[COSMIC-GREETER-USER]` the greeter's `GetUserData` to the (root) daemon was `AccessDenied` every start on a fresh install (live: `<host>` fresh Beta-v2.9.14 boot logged "failed to load user data from daemon: AccessDenied … GetUserData" + "Failed to apply user display config") — login unaffected, per-user display config/avatar lookups silently fail | Beta-v2.9.15 below |
 | **Beta-v2.9.16** | `[KERNEL-SELECT]` — which kernels get installed is a real choice: Void base-system always pulls the main `linux` kernel, and a per-flavor toggle pair adds `linux-mainline` (newest, "experts only", opt-in) and/or `linux-lts` (default ON — bare Enter ships `linux` + `linux-lts`) on top. The resolved space-joined `$KERNEL_PKGS` threads through the base bootstrap, the post-install `xbps-reconfigure`, resume state, chroot_env, and install-config; orthogonal to `$KERNEL_MODE` (which only describes how Limine *reads* kernels from the ESP) | Beta-v2.9.16 below |
 | **Beta-v2.9.17** | `[DEVICE-PROFILE]` — laptop vs desktop/server is now a real 5-way choice (Automatic/SMBIOS detection + four explicit profiles), resolved at pick time into a concrete `DEVICE_PROFILE` (`laptop-bt`/`laptop`/`desktop-bt`/`desktop`) plus derived `PROFILE_TLP`/`PROFILE_BT`/`PROFILE_PRELOAD` booleans. These gate the formerly unconditional `tlp`/`tlp-rdw`, `bluez`/`libspa-bluetooth`, and `preload` installs plus the `bluetoothd`/`tlp`/`preload` service links. preload (adaptive readahead) is desktop/server-only: its periodic pre-cache scans cost battery wakeups, so laptop profiles never get it. Bare-Enter = Automatic; an unresolvable chassis (VMs/unknown) falls back to the laptop+bluetooth baseline (historical package set, but tlp service now actually linked — an oversight fix) | Beta-v2.9.17 below |
+| **Beta-v2.9.18** | `[MATE-METAPACKAGE-REGRESSION]` — restore the `mate` metapackage to the MATE desktop install: Beta-v2.9.9's `[MATE-TERMINAL]` change accidentally replaced `install_pkgs mate network-manager-applet` (dropping `mate`), so a MATE fresh install had no mate-session/panel and no `/usr/share/xsessions/mate.desktop` — with `user-session=mate` set, every login bounced straight back to the greeter (the "cannot login at the greeter" showstopper). Plus `[LIMINE-WALLPAPER-STAGE2]` — re-stage the Limine wallpaper into the target's `/tmp` after the `@` root mount, so the chroot ESP copy finds the image (a prompt-phase stage to `/mnt/tmp` was covered by the mount and never reached the ESP) | Beta-v2.9.18 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -754,6 +755,70 @@ vars declared and wired (including `DEFAULT_DEVICE_PROFILE`);
 the CHROOT heredoc and are bash-n'd by the extractor). `[DEVICE-PROFILE]` is
 **NOT yet verified on a real install** — and it stacks on the still-unverified
 `[KERNEL-SELECT]`, so the next fresh install must exercise BOTH (see TODO.md).
+
+---
+
+---
+
+## Beta-v2.9.18 — `[MATE-METAPACKAGE-REGRESSION]` (restore `mate` — fixes the "cannot login at the greeter" showstopper) + `[LIMINE-WALLPAPER-STAGE2]` (staging into the target)
+
+`SCRIPT_VERSION = Beta-v2.9.18`. Two install-breaking defects found on the
+current-script fresh install (Limine + mainline/LTS kernels + MATE +
+LightDM/Slick + swap+zram+hibernate):
+
+### 1. MATE login showstopper — the `mate` metapackage was accidentally dropped
+
+`Beta-v2.9.9`'s `[MATE-TERMINAL]` change **replaced**
+`install_pkgs mate network-manager-applet` with
+`install_pkgs mate-terminal pluma mate-media network-manager-applet`,
+silently removing the `mate` metapackage. Every other DE installs its core
+metapackage (`cinnamon-all` / `gnome` / `xfce4`), but MATE no longer did — a
+fresh MATE install therefore had **no `mate-session`, no panel/settings
+daemon, and no `/usr/share/xsessions/mate.desktop`**.
+
+Because the installer also writes `user-session=mate` into the generated
+`lightdm.conf` (`[LIGHTDM-*]`), the Slick/GTK greeter selected a MATE session
+that did not exist. After the password authenticated, the wrapper had nothing
+to exec, so the session died instantly and LightDM bounced back to the
+greeter with an empty `.xsession-errors` — exactly the reported showstopper
+("cannot login at the greeter prompt"). The GTK-vs-Slick greeter choice was a
+**red herring**: the same failure hits either greeter because there is no
+MATE desktop to start. (Cinnamon "worked" because `cinnamon-all` was still
+installed correctly.)
+
+**Fix.** Restore the `mate` metapackage alongside the explicitly-installed
+helpers: `install_pkgs mate mate-terminal pluma mate-media
+network-manager-applet`. `mate` pulls `mate-base`/`mate-session-manager` →
+`/usr/share/xsessions/mate.desktop`, so `user-session=mate` now launches a
+real session. xbps dedups the overlapping helper deps.
+
+### 2. Limine wallpaper never reached the ESP — prompt-phase staging was covered by the root mount
+
+HANDOFF.md documented this latent bug; it recurs on every opt-in wallpaper
+install. The wallpaper was staged to `/mnt/tmp/limine-splash.<ext>` at
+**prompt** phase, when `/mnt` was still the live root's plain directory. Later
+the installer mounts the target `@` subvolume **over `/mnt`** (line ~3607),
+covering the live-root `/mnt/tmp`. `chroot_env.sh` survives because it is
+written *after* that mount (into the target's real `/tmp`); the wallpaper did
+not, so the chroot's `/tmp/limine-splash.*` loop found nothing and the ESP
+copy never ran — `limine-env` stayed `yes`/`stretched` but no
+`/boot/efi/limine-splash.<ext>` ever existed, and the guarded generator
+(`[LIMINE-WALLPAPER]` invariant #9) correctly stayed quiet.
+
+**Fix.** Re-stage the image into the mounted target right after the `@` root
+mount: if `LIMINE_WALLPAPER=yes` and the prompt-phase `WP_SRC` (still
+reachable on the live medium/USB) is a real file, copy it to
+`/mnt/tmp/limine-splash.<ext>` (the target's `/tmp`) so the existing chroot
+ESP copy finds it. A missing/declined source leaves the guarded "no wallpaper"
+default.
+
+**Validation.** `bash -n` passes; `Debug/check-defaults.sh` all consistent;
+`Debug/check-heredocs.sh` shell bodies all `bash -n` clean (the pre-existing
+accounts-daemon `shellcheck` note is unchanged). `[MATE-METAPACKAGE-REGRESSION]`
+restores the historical (pre-Beta-v2.9.9) behavior and still needs one live
+fresh MATE install to confirm the greeter now reaches the desktop;
+`[LIMINE-WALLPAPER-STAGE2]` needs one opt-in wallpaper install to confirm the
+image lands on the ESP/limine.conf.
 
 ---
 
