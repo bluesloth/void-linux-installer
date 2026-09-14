@@ -2475,9 +2475,13 @@ planned-`exit 1` FATAL coverage arrived in Beta-v2.9.39
 
 **Known limits (documented at the time):** a carved region's roundtrip is
 UNPROVEN beyond the bureau-targeting fallback behavior, and the ENCRYPT+region
-inner-GPT is UNPROVEN on real hardware (both got their boot-side proof across
-2.9.43-2.9.46: `[INNER-PARTSCAN-BOOT]`, `[DRACUT-CONF-NAME]`,
-`[INNER-PARTSCAN-DMPROBE]`).
+inner-GPT BROKE boot decryption — ENCRYPT/DECRYPT had worked cleanly before
+this release — because dracut could not resolve the partitions inside the
+opened LUKS2 container. The decryption fix came AFTER ext4 (the inner-GPT's
+introduction), across 2.9.43-2.9.46: `[INNER-PARTSCAN-BOOT]`,
+`[DRACUT-CONF-NAME]`, `[INNER-PARTSCAN-DMPROBE]`, and the 2.9.46 post-audit
+batch — which together restored boot-time unlock and gave the ENCRYPT+region
+layout its real-hardware proof.
 
 ---
 

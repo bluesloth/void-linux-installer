@@ -14,7 +14,7 @@ the sibling for YubiKey possession-only boot; this file covers everything else.
 
 ---
 
-## Entry #1 — ENCRYPT boot unlock rejects the correct install-time passphrase (OPEN)
+## Entry #1 — ENCRYPT boot unlock rejects the correct install-time passphrase (RESOLVED)
 
 **Reported:** Beta-v2.6.2 install, `ENCRYPT=yes`, YubiKey **declined**
 (`YK_MODE=off`), `BOOTLOADER=limine`. First boot prints the stock dracut
@@ -75,13 +75,45 @@ that was typed twice during installation, returns:
    between the two live-session frames). Excluded by H1's proof, which
    isolates the byte string at keyslot-write time.
 
-**Review ask (before any fix):**
-- Reproduce on the target medium with an ASCII-only passphrase to rank H1 vs
-  H2; then test a trailing-space passphrase to exercise H2 directly.
-- Inspect the built initramfs on the target (`lsinitramfs` /
-  `dracut --list-modules`) for `i18n`/`keymap` presence.
-- Note in the entry which hypothesis won and the exact fix + retest result
-  before marking RESOLVED. Log the outcome below.
+**Verdict — RESOLVED (2026-09-14, live-system evidence).** The reported symptom
+was fixed in the pre-reconstruction script by Beta-v2.6.9 `[ENCRYPT-KEYMAP]` +
+`[ENCRYPT-VERIFY]`; H1 (initramfs keymap mismatch) is confirmed as the root
+cause. The initramfs historically shipped NO `i18n` module, so early-boot
+`cryptroot-ask` used the kernel US layout regardless of the install-time
+console, and any passphrase byte sequence typed on a non-US/special-key layout
+was written to the keyslot differently than it was re-typed at boot.
+
+**Fix (carried in the reconstructed script):**
+- Capture `KEYMAP_LIVE` from the live medium's `/etc/rc.conf` and pin the
+  installed `/etc/rc.conf` `KEYMAP=` to it on the chroot side
+  (~6537-6546), so the runit console matches the live console.
+- Append `add_dracutmodules+=" i18n "` and `rd.vconsole.keymap=${KEYMAP_LIVE}`
+  to `/etc/dracut.conf.d/90-system.conf` (~10574-10580), so the early-boot
+  passphrase prompt runs under the SAME keymap the passphrase was typed under.
+- `[ENCRYPT-VERIFY]` (~5188-5211): right after format+open, close and re-open
+  with the byte-identical passphrase (`printf '%s'`, no trailing newline) and
+  abort with an actionable FATAL if the keyslot does not round-trip — a
+  welded-shut disk can never reach boot, so it is caught at install time.
+
+**Live proof:** `<host>` (as-built record, vBeta-v2.9.43, ENCRYPT=yes) boots its
+LUKS2 volume normally, and `/etc/dracut.conf.d/90-system.conf` carries exactly
+`add_dracutmodules+=" i18n "` + `rd.vconsole.keymap=us` — the on-disk state the
+reconstruction reproduces (verified on the live machine 2026-09-14).
+
+H2 (`read` trailing-whitespace stripping) was NOT the cause on this system and
+stays an unproven, optional one-line hardening (`IFS= read -r -s` at the
+~2588/~2595 capture) to apply only if a future report describes a passphrase
+that fails only because it trails in a space.
+
+**Chronology note (user correction, 2026-09-14):** the pre-ext4 era enjoyed
+working decrypt — the 2.6.9 keymap/verify fix above was that era's unlock fix.
+The ext4 introduction (Beta-v2.9.38 `[MULTI-FS]`: carved regions relocated into
+an INNER GPT inside the LUKS container) then RE-broke boot decryption, and the
+fix — one or more attempts — landed AFTER ext4 across 2.9.43/2.9.44/2.9.45
+(`[INNER-PARTSCAN-BOOT]`, `[DRACUT-CONF-NAME]`, `[INNER-PARTSCAN-DMPROBE]`)
+plus the 2.9.46 post-audit batch. The live `<host>` (as-built record installed by
+vBeta-v2.9.43, ENCRYPT=yes, `DATA_REGIONS` home:ext4 + games:ext4) boots its
+LUKS2 container today — the on-hardware proof of the post-ext4 decryption fix.
 
 ---
 

@@ -31,29 +31,30 @@
   secondary, not causal.
 - Session logs + worker scripts live in `Debug/Cosmic-Greeter/` here.
 
-## MATE + Slick greeter still black (real Beta-v2.9.8 MATE install)
-- Slick greeter shows a black login screen despite the Beta-v2.9.8
-  `[GREETER-BG-TIMING]` fix (block moved after the desktop install,
-  gnome-backgrounds retry).
-- Working hypotheses, ranked: (1) the search fell back to a dark
-  `mate-backgrounds` wall (MATE ships no adwaita-l, so it takes filesystem-
-  first match); (2) `/etc/lightdm/slick-greeter.conf` was never written; (3)
-  Slick cannot decode the pointed image. Verify on the target via the v2.9.9
-  terminal: `cat /etc/lightdm/slick-greeter.conf`, `ls /usr/share/backgrounds/mate/`,
-  `grep greeter-session /etc/lightdm/lightdm.conf`, `sv status accounts-daemon`,
-  `tail /var/log/lightdm/lightdm.log`.
-- Only patch code if conf + image + lightdm state are confirmed correct but the
-  greeter still renders black.
+## MATE + Slick greeter still black (real Beta-v2.9.8 MATE install) — RESOLVED
+- RESOLVED in the pre-reconstruction script; the fix is carried in the
+  reconstructed tree. Beta-v2.9.8 `[GREETER-BG-TIMING]` (greeter-bg block moved
+  AFTER the desktop install with the gnome-backgrounds retry) plus Beta-v2.9.34
+  `[SLICK-BG-QUOTES]` (slick-greeter background written UNQUOTED — slick does
+  not strip quotes, so a quoted path rendered the literal `"/path"` → black
+  greeter) remove the failure modes seen on this MATE install. The live `<host>`
+  box (DESKTOP_ENV=mate) boots to a working greeter.
+- The on-target triage list (slick-greeter.conf, backgrounds listing,
+  lightdm.conf greeter-session, accounts-daemon status, lightdm.log tail)
+  stays the standard first pass should a fresh MATE+slick report ever appear.
 
-## Limine bootloader background not showing
-- User does not see the boot-screen wallpaper on the real install. Before
-  touching code: check the target's `/etc/void-installer/limine-env`
-  (`LIMINE_WALLPAPER`, `LIMINE_WALLPAPER_STYLE`) and whether the image file
-  actually landed on the ESP (`/boot/efi/limine-splash.<ext>`). The guarded
-  design (invariant #9, `[LIMINE-WALLPAPER]`) only emits `wallpaper:` when the
-  ESP file exists — a missing image is the most likely cause. Verify on the
-  target medium first; only patch code if limine-env + ESP file are confirmed
-  present but limine.conf still lacks the directive.
+## Limine bootloader background not showing — RESOLVED
+- RESOLVED in the pre-reconstruction script; the fix is carried in the
+  reconstructed tree. The guarded design (invariant #9, `[LIMINE-WALLPAPER]`)
+  plus the Beta-v2.5.4 `[LIMINE-WALLPAPER-BROWSE]` /
+  `[LIMINE-WALLPAPER-OPT-OUT]` and the Beta-v2.9.18 `[LIMINE-WALLPAPER-STAGE2]`
+  stage2 fix (splash image staged on the ESP so it survives the mount/swap;
+  `void-limine-write-conf` emits `wallpaper:` only when the ESP file exists)
+  cover the reported missing-background failure. The live `<host>` box
+  (BOOTLOADER=limine) boots fine.
+- The verify-first checklist (limine-env flags + `/boot/efi/limine-splash.<ext>`
+  existence) remains the standard triage before any code change should a fresh
+  missing-wallpaper report appear.
 
 ## COSMIC + cosmic-greeter DM: greetd path RUNS but renders grey (validated 2026-09-05)
 - **RESOLVED 2026-09-06** by Beta-v2.9.12 `[COSMIC-GREETER-USER]` (see top of
