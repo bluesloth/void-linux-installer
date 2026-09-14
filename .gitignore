@@ -26,6 +26,11 @@ Debug/*
 # the [PROMPT-DEFAULTS] block stays consistent (every DEFAULT_* declared AND
 # wired, no stray references), per AGENTS.md's Validation section. Re-unignore.
 !Debug/check-defaults.sh
+# ...and Debug/check-pkg-preflight.sh IS committed — the reproducible
+# [PKG-PREFLIGHT] (Beta-v2.9.40) drift-guard that fails when a chroot
+# package name is added to the installer without also being added to the
+# PKG_PREFLIGHT candidate list (crash #005 regression guard). Re-unignore.
+!Debug/check-pkg-preflight.sh
 # ...and the YubiKey possession-only validation kit (probe + protocol) is
 # committed so it survives until the real-hardware run happens.
 !Debug/yk_validation/

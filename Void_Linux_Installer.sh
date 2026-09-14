@@ -23,6 +23,16 @@
 #     destructive partitioning step (sgdisk/mkfs/btrfs/openssl/etc.). Tools
 #     used only inside the chroot are installed INTO the target via xbps and
 #     are deliberately excluded from that gate.
+#     AI (Big Pickle) ADDITION — Beta-v2.9.40 [PKG-PREFLIGHT]: before the
+#     destructive partitioning step, EVERY package name the Stage-2 chroot can
+#     install is ALSO resolved against the live union pool (post -Sy) and the
+#     install aborts pre-write if any name is unresolvable — closing crash #005
+#     (a doomed install previously wrote the disk and then died in the chroot).
+#     The PKG_PREFLIGHT candidate list is kept a SUPERSET of every install_pkgs
+#     literal + the base-bootstrap literals by the committed drift-guard
+#     Debug/check-pkg-preflight.sh. Repository/network hiccups DEGRADE the gate
+#     to a WARN+skip, never a false FATAL. This block sits after --dry-run and
+#     before the RESUME/partition boundary — it must never move.
 #   - Single physical disk, GPT, UEFI boot — the disk is chosen
 #     interactively at install time (numbered lsblk-based picker, live
 #     medium and any already-mounted disks filtered out, requires typing
@@ -559,6 +569,8 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.36   [CHANNEL-GROUP];[INSTALL-BREW] — third-party app channels umbrella; Homebrew (Linuxbrew) opt-in CLI/dev channel (runtime xbps deps only, never curl|bash); @linuxbrew per-user subvol row + subvol-tool `dev` class
 #     Beta-v2.9.37   [GAME-LAUNCHERS];[GAME-SUBVOL] — game launchers & runtimes umbrella (Lutris/Heroic/Bottles/Wine/gamemode; Steam was earlier); Heroic+Bottles are Flatpak-only (xbps install pkg list actually NEVER contained them — they ship via the first-boot flatpak queue, gated on INSTALL_FLATPAK); the OLD `install_pkgs heroic` name never existed as a shipped line (crash #005 was a mis-labeled earlier build); ONE shared @game per-user subvol (replaces @steam) mounted at the derived per-launcher set (.local/share/Steam + .local/share/lutris) via subvol-tool multi-mount loop + @steam/gaming alias resolution + @game fstab-guard relaxation + detach/destroy BRE-paren sed fix
 #     Beta-v2.9.38   [MULTI-FS] — per-region data filesystems (/home /var /var/cache /srv /opt + optional Games) carved onto their own partition with an ext4/btrfs filesystem choice; fixed-order outer carve 2..1+NREG (LINUX last), INNER GPT for ENCRYPT; region subvols folded out of the flat topology; owned fstab rows skipped; subvol-tool MULTI-FS-GUARD; region mounts before chroot; games chown; DOCS-LOG DATA_REGIONS. Plus [MULTI-FS-RUNLOG] (journal audit lines + journal archived to /etc/void-installer/installer-run.log on success) and [CRASH-USB-LOG] (crash post-mortem — journal + .info sidecar — to the first mounted stick; --save-log CLI flag parsed BEFORE the journal truncation / network gate / STAGE-1 banner so it works from a crashed, networkless live env)
+#     Beta-v2.9.39   [CRASH-USB-LOG-FATAL-EXIT] — the ERR trap handles failures inside set -eEo traps, but an explicit `exit 1` FATAL never trips ERR; planned aborts (disk validation, preflight) silently skipped the USB snapshot. Keep an EXIT-trap `_save_log_on_exit` guarded by a `_usb_dumped` flag (ERR-unwind and EXIT never double-write), so a fatal exit dumps the journal too. Also fixes crash #005-reporting spurious BMP. Plus [SUBVOL-ROWS-FIX] — SUBVOL_ROWS read loop skips `#`-comment rows before the resolve eval (bad-substitution ERR-trap crash) and the spurious duplicate INSTALL_BREW SUBVOL_ROWS row is removed.
+#     Beta-v2.9.40   [PKG-PREFLIGHT];[GAME-FLATPAK-GATE] — Stage-1 package-name gate (closed crash #005): every package name the Stage-2 chroot can install is resolved against the live union pool BEFORE sgdisk -Z; doomed installs abort pre-write. PKG_PREFLIGHT candidate list is a superset of every install_pkgs literal + base-bootstrap literals; live void-repo-* install + -Sy refresh + base-system sanity probe degrade to WARN+skip (never false FATAL); COSMIC third-party repo excluded; drift-guard Debug/check-pkg-preflight.sh committed. [GAME-FLATPAK-GATE]: `install_pkgs heroic`/`install_pkgs bottles` must never come back — Heroic/Bottles ship only via the first-boot Flatpak queue (com.heroicgameslauncher.hgl / com.usebottles.bottles) gated on INSTALL_FLATPAK, with a Stage-2 WARNING when INSTALL_FLATPAK=false; @game mounts ONLY .local/share/Steam + .local/share/lutris.
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -786,6 +798,31 @@ save_log_to_usb() {
     } || true
     unset _usb_stamp _usb_target _usb_m _usb_dev _usb_base
 }
+
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.9.39 [CRASH-USB-LOG-FATAL-EXIT]: the ERR
+# trap (cleanup_on_failure) only fires on a REAL command failure under set -e.
+# A DELIBERATE `exit 1` — bad LUKS passphrase, failed luksOpen, unresolvable
+# inner-GPT, an aborted bootstrap — never trips it, so those planned aborts
+# silently skipped the USB snapshot. This EXIT-trap safety net catches EVERY
+# fatal exit (deliberate or not) and drops the journal too. _usb_dumped guards
+# against the double-write: when the ERR-unwind already saved, the EXIT trap
+# that fires right after (set -e makes the failing status exit the shell) must
+# not write a second copy. NOTE: the `--save-log` CLI flag does NOT set the
+# flag — it snapshots the PRE-truncation journal; a later real fatal still
+# deserves its own fresh post-mortem. The exit code is captured FIRST because
+# any command (including the save itself) would clobber `$?`.
+# =============================================================================
+_usb_dumped=0
+_save_log_on_exit() {
+    local _ec=$?
+    [ "$_ec" -eq 0 ] && return 0
+    [ "$_usb_dumped" = "1" ] && return 0
+    _usb_dumped=1
+    save_log_to_usb
+    return 0
+}
+trap _save_log_on_exit EXIT
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [RESUME]: COARSE PHASE RESUME / SUBVOL RESET
@@ -1163,8 +1200,11 @@ cleanup_on_failure() {
     # drop the post-mortem (journal + .info) onto the first mounted stick. Runs
     # here because the /tmp journal dies with the live reboot; the USB copy is
     # the durable evidence. Fully guarded inside save_log_to_usb() so a
-    # missing/locked stick can never abort this failure path.
+    # missing/locked stick can never abort this failure path. Beta-v2.9.39
+    # [CRASH-USB-LOG-FATAL-EXIT]: mark _usb_dumped so the EXIT trap that fires
+    # right after this ERR-unwind does not write a duplicate copy.
     save_log_to_usb
+    _usb_dumped=1
 }
 trap cleanup_on_failure ERR
 
@@ -3743,7 +3783,6 @@ INSTALL_VIVALDI|PROVISION_VIVALDI_SUBVOL|Vivaldi
 INSTALL_FALKON|PROVISION_FALKON_SUBVOL|Falkon
 INSTALL_BRAVE|PROVISION_BRAVE_SUBVOL|Brave
 INSTALL_THUNDERBIRD|PROVISION_THUNDERBIRD_SUBVOL|Thunderbird
-INSTALL_BREW|PROVISION_LINUXBREW_SUBVOL|Homebrew (Linuxbrew)
 # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-SUBVOL]: ONE row for the shared
 # @game subvol, gated on INSTALL_ANY_GAME (Steam ∨ Lutris ∨ Heroic ∨ Bottles)
 # instead of one row per launcher. Wine/gamemode stay out of the gate — they
@@ -3760,8 +3799,19 @@ INSTALL_VIRT|PROVISION_VIRT_SUBVOL|Virtualization
 
 echo ""
 echo "Subvolume isolation per app:"
+# [SUBVOL-ROWS-FIX] (Beta-v2.9.39): the table is allowed to carry `#`-comment
+# rows (e.g. the [GAME-SUBVOL] explanatory block above). The reader originally
+# only skipped EMPTY rows, so a quote-bearing comment line fell through to the
+# `eval "INSTALL_X=\${...}"` and produced a ``bad substitution'' — which under
+# this script's `set -eEo pipefail` fired the ERR trap and aborted a fresh
+# install at the subvolume prompts. Skip any row whose first non-space char is
+# `#` before touching eval; this is also what keeps future comment lines with
+# quotes/backslashes safe.
 while IFS='|' read -r _iv _pv _label; do
     [ -z "$_iv" ] && continue
+    case "$_iv" in
+        \#*) continue ;;
+    esac
     eval "INSTALL_X=\${${_iv}:-false}"
     if [ "$INSTALL_X" = "true" ]; then
         if   [ "$SUBVOL_ISOLATE_INSTALLED" = "yes" ]; then
@@ -4470,6 +4520,225 @@ if [ "$DRY_RUN" = "1" ]; then
     # remove it so a later real run isn't offered a pointless "resume".
     rm -f "$STATE_FILE" 2>/dev/null || true
     exit 0
+fi
+
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.9.40 [PKG-PREFLIGHT]: Stage-1 package-name
+# gate that closed crash #005. The old Stage-2 chroot attempted to install
+# every selected package name directly (install_pkgs ...); when a name did not
+# exist in the official pool (the historical `install_pkgs heroic` — Heroic is
+# Flatpak-only, [GAME-FLATPAK-GATE]), xbps-install died mid-transaction AFTER
+# the disk had already been partitioned/written, leaving a doomed install that
+# still had to unwind. This gate resolves EVERY package name the Stage-2 chroot
+# can possibly request against the LIVE union pool NOW — before sgdisk -Z — and
+# aborts pre-write if any name is unresolvable. Candidate list (PKG_PREFLIGHT)
+# is a deliberate SUPERSET of every literal `install_pkgs` argument in the
+# chroot plus the raw base-bootstrap literals; Debug/check-pkg-preflight.sh is
+# the committed drift-guard that fails when a literal is added without being
+# covered here. Repository/network hiccups DEGRADE to a WARN + skip (never a
+# false FATAL): a live -Sy refresh failure says nothing about whether a name
+# exists, so it must not abort the install. COSMIC third-party packages
+# (repo.REDACTED.de / install_cosmic) are deliberately NOT probed here — they
+# resolve from the third-party repo, not the official union pool. Placed
+# AFTER the --dry-run exit block and BEFORE the destructive partition boundary,
+# per invariant #17: the block must never move after sgdisk.
+# =============================================================================
+# shellcheck disable=SC2034  # PKG_PREFLIGHT is consumed by the gate loop below
+# and by the drift-guard Debug/check-pkg-preflight.sh — the variable itself is
+# never referenced via ${...} expansion.
+PKG_PREFLIGHT="
+accountsservice
+acpid
+alsa-pipewire
+alsa-ucm-conf
+alsa-utils
+ark
+base-system
+bash
+bash-completion
+binutils
+blueman
+bluez
+bridge-utils
+btrfs-progs
+catatonit
+chromium
+chrony
+cinnamon-all
+cronie
+crun
+cryptsetup
+curl
+dbus
+docker
+dracut
+efibootmgr
+elogind
+falkon
+fastfetch
+FeatherPad
+file
+firefox
+fish-shell
+flatpak
+fuse
+fuse3
+fuse-overlayfs
+gamemode
+gdm
+gedit
+git
+glibc-locales
+gnome
+gnome-backgrounds
+gnome-terminal
+go
+greetd
+grub-btrfs
+grub-btrfs-runit
+grub-x86_64-efi
+gvfs
+inotify-tools
+intel-ucode
+iptables
+kde-baseapps
+kde-plasma
+kio-admin
+libgamemode-32bit
+libjack-pipewire
+libspa-bluetooth
+libvirt
+lightdm
+lightdm-gtk-greeter
+lightdm-slick-greeter
+limine
+linux
+linux-firmware
+linux-firmware-amd
+linux-firmware-broadcom
+linux-headers
+linux-lts
+linux-lts-headers
+linux-mainline
+linux-mainline-headers
+lutris
+lxqt
+lxqt-policykit
+make
+mate
+mate-media
+mate-terminal
+mksh
+nano
+NetworkManager
+network-manager-applet
+nftables
+nvidia
+octoxbps
+openssh
+pipewire
+plasma-pa
+pluma
+podman
+polkit
+polkit-gnome
+preload
+procps-ng
+qemu
+rsync
+runit-nftables
+sddm
+seatd
+slirp4netns
+snapper
+sof-firmware
+steam
+sudo
+thunderbird
+tlp
+tlp-rdw
+turnstile
+vim
+virt-manager
+virtualbox-ose
+virtualbox-ose-dkms
+vivaldi
+void-repo-multilib
+void-repo-multilib-nonfree
+void-repo-nonfree
+wayland
+wayland-protocols
+wget
+wine
+wireplumber
+xbps
+xdg-user-dirs
+xdg-utils
+xfce4
+xfce4-pulseaudio-plugin
+xorg
+xtools
+ykpers
+zramen
+zsh
+"
+echo ""
+echo "Stage-1 package preflight [PKG-PREFLIGHT]: verifying package names against the live union pool..."
+jl "PKG-PREFLIGHT: begin — checking $(echo "$PKG_PREFLIGHT" | grep -c .) candidate packages"
+
+# 1. Ensure the union pool includes nonfree + multilib repos (needed by e.g.
+#    nvidia, virtualbox-ose, linux-firmware-broadcom, libgamemode-32bit).
+#    Best-effort: if a repo is already present or missing, that is harmless.
+xbps-install -y void-repo-nonfree void-repo-multilib void-repo-multilib-nonfree >/dev/null 2>&1 || true
+
+# 2. Refresh the live package index so queries reflect the current repo state.
+if ! xbps-install -Sy >/dev/null 2>&1; then
+    echo "  WARN: live -Sy refresh failed (network/repo hiccup); preflight DEGRADED — skipping package-name gate." >&2
+    jl "PKG-PREFLIGHT: DEGRADED — xbps-install -Sy failed (network/repo hiccup); gate skipped"
+else
+    # 3. Sanity probe: base-system MUST resolve. If it doesn't after a
+    #    successful -Sy, something is seriously wrong with the repo config;
+    #    skip the gate with a WARN to avoid a false FATAL.
+    if ! xbps-query -Rs "^base-system$" >/dev/null 2>&1; then
+        echo "  WARN: base-system is not resolvable after -Sy — repo config issue; preflight DEGRADED — skipping." >&2
+        jl "PKG-PREFLIGHT: DEGRADED — base-system not in pool; gate skipped"
+    else
+        # 4. Check every candidate against the union pool. xbps-query -Rs with
+        #    an anchored regex does an exact-name search in the cached remote
+        #    index (populated by the -Sy above).
+        _pre_missing=""
+        _pre_total=0
+        # shellcheck disable=SC2086  # $PKG_PREFLIGHT is deliberately word-split
+        for _pre_pkg in $PKG_PREFLIGHT; do
+            _pre_total=$((_pre_total + 1))
+            if ! xbps-query -Rs "^${_pre_pkg}$" >/dev/null 2>&1; then
+                _pre_missing="${_pre_missing:+${_pre_missing} }${_pre_pkg}"
+            fi
+        done
+        if [ -n "$_pre_missing" ]; then
+            echo "" >&2
+            echo "${C_RED}==============================================================================${C_RST}" >&2
+            echo "${C_RED}  FATAL: [PKG-PREFLIGHT] — the following packages are NOT resolvable in the${C_RST}" >&2
+            echo "${C_RED}  official Void Linux union pool:${C_RST}" >&2
+            echo "" >&2
+            for _pre_pkg in $_pre_missing; do
+                echo "    - ${_pre_pkg}" >&2
+            done
+            echo "" >&2
+            echo "  This is crash #005 (a doomed install would write the disk, then die" >&2
+            echo "  in the chroot when xbps-install fails). The disk is still untouched." >&2
+            echo "  Add the package(s) to Void's official repos or remove the option." >&2
+            echo "${C_RED}==============================================================================${C_RST}" >&2
+            echo "" >&2
+            jl "PKG-PREFLIGHT: ABORT — unresolvable packages: ${_pre_missing}"
+            # Beta-v2.9.39 [CRASH-USB-LOG-FATAL-EXIT]: this explicit exit 1
+            # does NOT trip the ERR trap but the EXIT trap now saves the
+            # journal to USB, so the post-mortem is never lost.
+            exit 1
+        fi
+        echo "  ALL ${_pre_total} preflight packages resolve in the live union pool."
+        jl "PKG-PREFLIGHT: ALL COVERED (${_pre_total} packages)"
+    fi
 fi
 
 # AI (Big Pickle) CHANGE — Beta-v2.4.0 [RESUME]: The destructive partitioning and
