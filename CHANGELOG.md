@@ -77,6 +77,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.19** | `[NFT-VIRT-GATE]` — the `/etc/nftables.conf` forward chain no longer hardcodes the `br0`/`virbr*` accepts unconditionally; those rules are a fragment emitted only when `$INSTALL_VIRT=true` (mirroring the existing gates on the virt package install, the user `kvm`/`libvirt` groups, the `br0` NM bridge, and the first-boot libvirtd teardown). On a non-virt build the forward rules no longer reference non-existent interfaces. Plus `[GREETER-BG-DEPTH]` — the lightdm greeter background's generic fallback `find` deepened to `-maxdepth 5` so it sees mate-backgrounds' depth-3 images, fixing the MATE + Slick black greeter. Plus `[DEVICE-PROFILE-CONFIRM]` — the Automatic device-profile option now shows the SMBIOS-detected profile and lets the user confirm or override it before continuing. Plus `[DEVICE-PROFILE-RCL]` — live-confirmed bug fix: the first-boot rc.local's tlp/bluetoothd/preload links used chroot-phase `$PROFILE_*` vars (never exported/persisted → always empty at boot), so those services never linked; converted to `__PROFILE_*__` placeholders added to the sed substitution pass. Plus `[LIMINE-WP-REGUARD]` — live-confirmed bug fix: the `[LIMINE-WALLPAPER-STAGE2]` re-stage guarded on the covered `/mnt/tmp` staged path so it never fired and the wallpaper never reached the ESP; re-guarded on the still-reachable live `WP_SRC` instead | Beta-v2.9.19 below |
 | **Beta-v2.9.20** | `[LIMINE-WP-DRIVES]` — the Limine wallpaper picker can no longer strand the user inside a single USB drive's tree: `/run/media` is keyed by per-user subdirs (`/run/media/<user>/<label>`), so entering a drive left `..` only climbing to the per-user parent (whose siblings are just that one user's mounts) with no shortcut back to the "all mounted drives" view. The keywords `m`/`drives` now jump straight back to `/run/media`, and the browse hint names them and notes that `..` from the per-user dir reaches the drive list | Beta-v2.9.20 below |
 | **Beta-v2.9.21** | `[GREETER-BG-EXPORT]` — the MATE/Slick black greeter's REAL root cause: the lightdm greeter-background block runs inside the single-quoted chroot heredoc, so its `case "$LIGHTDM_GREETER"` (gtk/slick) resolved an **empty** variable in-chroot and NEITHER greeter conf file was ever written. Only `_PKG`/`_SESSION` were exported to chroot_env.sh, never the bare choice. The earlier `-maxdepth 5` find fix (`[GREETER-BG-DEPTH]`) was necessary but not sufficient — it only supplied the image path; the missing export is what silently skips the `cat >` write. Live-confirmed on `<host>` (slick-greeter.conf stayed the pristine package default while lightdm.conf was written, and the block's gnome-backgrounds retry had fired). Fix: `export LIGHTDM_GREETER` added to chroot_env.sh | Beta-v2.9.21 below |
+| **Beta-v2.9.22** | `[FALKON-QT-NOTICE]` — closes the Falkon gating discussion item. On a non-KDE desktop (`DESKTOP_ENV != kde`), the Falkon prompt now prints an inline NOTICE before the y/N: full "pulls in the Qt + QtWebEngine stack (no KDE desktop)" wording on GTK desktops, and a shorter "shares Qt5 but adds QtWebEngine" variant on LXQt. A warn-not-gate notice matching the existing Vivaldi/Brave notices, since Falkon remains a legitimate standalone browser on any DE; the heavy cost is QtWebEngine, not a full KDE desktop, and LXQt already shares the Qt5 base | Beta-v2.9.22 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -1178,6 +1179,66 @@ resolve), but the export is what actually lets the `case` write the conf.
 
 **Pending:** one fresh MATE + LightDM install to confirm `slick-greeter.conf`
 now carries a real `background=` line and the greeter no longer boots black.
+
+---
+
+---
+
+## Beta-v2.9.22 — `[FALKON-QT-NOTICE]` (Falkon Qt-WebEngine notice on non-KDE desktops)
+
+`SCRIPT_VERSION = Beta-v2.9.22`.
+
+### Why
+
+Closes the long-standing "Falkon browser gating / KDE-dependency awareness"
+discussion item (`TODO.md`). The original framing that Falkon "pulls KDE
+dependencies" was overstated: on Void, `falkon`'s real package dependencies are
+essentially `qt5-webengine qt5-x11extras qt5-svg` — it pulls the Qt +
+QtWebEngine stack but does **not** install a KDE desktop. The genuine cost on a
+non-KDE DE is the heavyweight QtWebEngine web-engine set, which is redundant
+only when KDE is already the chosen desktop.
+
+### Design decision (warn-not-gate)
+
+Rather than block Falkon on non-KDE DEs (it is a legitimate standalone browser
+on any desktop), the choice follows the existing Vivaldi/Brave notice pattern:
+a short inline **NOTICE** line is printed before the `[y/N]` prompt, **only**
+when `DESKTOP_ENV != kde`. No separate confirmation gate is added, and the
+prompt text itself is unchanged.
+
+### Change
+
+In the web-browser selection block, before the Falkon prompt:
+
+```sh
+if [ "$DESKTOP_ENV" != "kde" ]; then
+    if [ "$DESKTOP_ENV" = "lxqt" ]; then
+        echo "NOTICE: Falkon shares LXQt's Qt5 but still pulls in the Qt"
+        echo "WebEngine stack on top (it does not install KDE)."
+    else
+        echo "NOTICE: Falkon runs standalone but pulls in the Qt + QtWebEngine"
+        echo "stack on top of your ${DESKTOP_ENV} desktop (it does not install KDE)."
+    fi
+fi
+ask "Install Falkon (KDE's browser, works fine standalone too)? [y/N]: "
+```
+
+`DESKTOP_ENV` is already in scope at this point in Stage 1 (set by the desktop
+choice earlier), so no new export or plumbing is needed.
+
+**LXQt nuance:** LXQt is a Qt5 desktop but not KDE, so it *does* get the notice
+— though its text differs: LXQt already shares the Qt5 base, so only the
+QtWebEngine set is newly pulled in. GTK-based desktops (GNOME/Xfce/MATE/
+Cinnamon/COSMIC) get the full "Qt + QtWebEngine" wording. KDE alone is
+suppressed.
+
+### Validation
+
+- `bash -n Void_Linux_Installer.sh` — clean.
+- Branch exercised: shows the notice under `gnome`/`xfce`/`mate`/`cosmic`/etc.,
+  suppressed under `kde`.
+- `Debug/check-defaults.sh` / `Debug/check-heredocs.sh` — unaffected (the
+  notice is pure Stage-1 prompt text, no new heredoc or default).
 
 ---
 
