@@ -103,6 +103,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.45** | `[INNER-PARTSCAN-DMPROBE]` — partprobe-first inner-GPT rescan (libparted dm-linear submaps are the ONLY tool that can BLKPG a dm mapper; `partx -a` fallback only); named `_region_inner_partscan`/`_region_inner_dev` helpers; chroot FATAL initramfs gate + per-image guard in void-limine-sync-kernels; cleanup `partx -d` before luksClose | Beta-v2.9.45 below |
 | **Beta-v2.9.46** | Five ENCRYPT+regions post-audit fixes from the first real boot on `<host>`: `[SUBVOL-TOOL-RESOLVEDEV]` (strip `[/@]` from findmnt SOURCE before subvolid=5 mount + `awk -v sub=`→`svpat` rename), `[INSTALL-CONFIG-FLATPAK]` (INSTALL_FLATPAK/INSTALL_BRAVE public rows), KERNEL_PKGS/PKG-PREFLIGHT verification, `[VBOX-SV-GUARD]` (vboxdrv link guarded on `/etc/sv/vboxdrv`), `[FLATPAK-NM-DISPATCH-STAMP]` (flatpak queue dispatch check) | Beta-v2.9.46 below |
 | **Beta-v2.9.47** | `[TEE-BOOT-QUIET]`+`[TEE-BLACKLIST]` — two env-only PUBLIC limine-env knob rows (`DEFAULT_QUIET_BOOT`, `DEFAULT_TEE_BLACKLIST`, default no) thread a shared `TEE_QB_FRAG` (`quiet` + `modprobe.blacklist=tee`) through every GRUB/Limine BASE_CMD builder + the write-conf recompute; byte-identical at defaults | Beta-v2.9.47 below |
+| **Beta-v2.9.48** | `[NO-DE]`/`[NO-DM]`/`[HEADLESS]`/`[HEADLESS-XORG-OPT]`/`[HEADLESS-AUDIO]`/`[DE-ORDER]`/`[DISK-BUDGET]` — headless/server install path (DESKTOP_ENV option 8 = none, DM `none` → `DM_SERVICE_NAME=none` + sed-guarded rc.local link, `HAS_GRAPHICAL` gates the xorg/wayland base chain + audio, INSTALL_XORG/INSTALL_AUDIO opt-ins only when headless) + pre-write partition fit check (`DISK_BYTES` captured at disk-pick and persisted; `_size_to_bytes` + `_disk_budget_check` refuse an over-provisioned layout before `sgdisk -Z` and fail dry-run; ENCRYPT via container=remainder identity) + the latent 2.9.38 `REGION_*_SIZE` uppercase-fold eval fix | Beta-v2.9.48 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -282,6 +283,66 @@ silently vanish on the next resync — the exact drift-class
 installs are untouched until the knobs are flipped.
 
 **Validation:** `bash -n` + all committed Debug gates CLEAN.
+
+---
+
+## Beta-v2.9.48 — `[NO-DE]`/`[NO-DM]`/`[HEADLESS]`/`[HEADLESS-XORG-OPT]`/`[HEADLESS-AUDIO]`/`[DE-ORDER]`/`[DISK-BUDGET]` (headless/server install path + pre-write partition budget)
+
+`SCRIPT_VERSION = Beta-v2.9.48` (`6a0e932`). The headless/server install path
+and a pre-write disk-fit check.
+
+**1. `[NO-DE]` / `[DE-ORDER]` — desktop options.** The DESKTOP_ENV menu is
+reordered most→least popular (KDE, GNOME, Cinnamon, Xfce, MATE, LXQt, COSMIC)
+with KDE staying option 1 and the bare-Enter default; option 8 is now `none`
+(console-only / headless base). `RECOMMENDED_DM` gains `none) = "none"`. The
+KDE catch-all `else` in the desktop-install chain becomes an explicit
+`elif [ "$DESKTOP_ENV" = "kde" ]` so a `none` (or any non-KDE) selection
+skips the metapackage. The Falkon Qt-WebEngine notice handles `DESKTOP_ENV=none`.
+
+**2. `[NO-DM]` — display-manager `none`.** The DISPLAY_MANAGER menu gains
+`none` (index 5 on the COSMIC branch / 4 otherwise so 1/2/3 stay stable).
+`DM_SERVICE_NAME="none"` installs no DM package and creates no
+`/etc/sv/none` symlink; the first-boot rc.local DM link is now guarded by
+`[ "__DISPLAY_MANAGER__" != "none" ] && ln -sfn ...` (sed substitution
+unchanged).
+
+**3. `[HEADLESS]` — `HAS_GRAPHICAL`.** Computed after the DM prompt:
+`DE != none AND DM != none`. When unset, the xorg/wayland base chain (and the
+audio install) are skipped — a headless box gets only the session stack +
+network layer. The chroot env threads `HAS_GRAPHICAL`/`INSTALL_XORG`/
+`INSTALL_AUDIO` (in-chroot `set -u` defaults yes/false/true), and the chroot
+`DESKTOP_ENV`/`DISPLAY_MANAGER` validations accept `none`.
+
+**4. `[HEADLESS-XORG-OPT]` / `[HEADLESS-AUDIO]` — headless opt-ins.** On a
+headless box, `INSTALL_XORG` (keeps the Xorg/Wayland base for a later startx /
+VNC WITHOUT flipping HAS_GRAPHICAL) and `INSTALL_AUDIO` are explicit opt-in
+prompts wired to the new `DEFAULT_XORG`/`DEFAULT_AUDIO` bare-Enter knobs.
+Graphical installs keep audio unconditional; a declined headless audio gets no
+dangling ALSA/jack/wireplumber/limits symlinks or rtprio file.
+
+**5. `[DISK-BUDGET]` — pre-write partition fit check.** `DISK_BYTES` is
+captured at disk-pick via `lsblk -bdn -o SIZE` and persisted for resumed runs
+(fails open on unreadable). `_size_to_bytes()` converts human/sgdisk sizes
+(KB/MB/GB/TB/KiB/MiB/GiB/TiB/PiB) to exact bytes; `_disk_budget_check()`
+sums the ESP + every carved REGION_*_SIZE + a >= 1 GiB system headroom and
+compares against the real disk. An over-provisioned layout is refused with a
+CRITICAL breakdown **BEFORE `sgdisk -Z`**, and `--dry-run` also fails to
+launch on an over-provision. ENCRYPT uses the same container=remainder identity
+math.
+
+**6. Latent 2.9.38 fix surfaced by the budget.** The 2.9.38 MULTI-FS carve
+evals read `REGION_${_rr}_SIZE` with lowercase `REGION_PARTITIONED` tokens
+while the size vars are stored UPPERCASE — now `${_rr^^}_SIZE` in all three
+eval sites (outer carve, inner carve, `_region_sizes_sum`) so the budget and
+the carve agree; without it any carved region FATALed ("size is unset") on a
+real install.
+
+**Validation:** gates on the committed tree `6e3e0c4` — `bash -n` OK;
+`Debug/check-defaults.sh` 71 ALL CONSISTENT (DEFAULT_XORG + DEFAULT_AUDIO
+added); `Debug/check-pkg-preflight.sh` 135 ALL COVERED (143 install_pkgs +
+bootstrap literals); `Debug/check-heredocs.sh` 65 ALL CLEAN.
+`_size_to_bytes`/`_disk_budget_check` unit-tested standalone (fits / over /
+ESP-only-1G / exactly-fit / unreadable).
 
 ---
 
