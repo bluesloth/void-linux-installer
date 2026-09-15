@@ -109,6 +109,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.51** | `[BROWSE-CAP-FIX]` — `browse_pick` is called exclusively through command substitution, so every STDOUT menu/help/listing/prompt line was captured INTO the result value: the Limine wallpaper pick (`img` mode) returned the whole multi-line banner (stage `cp -f "$WP_SRC" …` FATALed → any Limine run answering the wallpaper prompt aborted), and the SSH-key export pick (`dir` mode) returned banner-prefixed text so `[ -d "$_export_dst" ]` always failed ("No destination chosen; skipping export.") — even a bare-Enter DECLINE left the banner as a non-empty selection. All browser UI now writes to STDERR (`>&2`, the `_subvol_ask` pattern); ONLY the final picked value goes to stdout so the capture returns exactly the path | Beta-v2.9.51 below |
 | **Beta-v2.9.52** | `[PREREQ-DRY-RUN]` — a `--dry-run` plan run skips the live-CD package sync yet still ran the `[PREREQ]` outer-tool gate behind it, so on a medium without gptfdisk preinstalled it FATALed "required live-CD command not found: 'sgdisk'" at the confirmation boundary and never reached the plan printout. A plan run never partitions, so the gate (whose only job is to keep a REAL run from reaching destructive partitioning without its tools) is now skipped entirely under `DRY_RUN=1` | Beta-v2.9.52 below |
 | **Beta-v2.9.53** | `[HEADLESS-PLAN-LABEL]` — the DRY-RUN plan's Desktop/DM line printed `headless=$HAS_GRAPHICAL` verbatim, i.e. `(headless=yes)` for a GRAPHICAL MATE/LightDM install — the label's meaning was inverted. The plan now prints `(graphical)` or `(headless)` honestly. Print-only cosmetic fix. | Beta-v2.9.53 below |
+| **Beta-v2.9.54** | `[SSH-KEYGEN-STALE]` — on a live medium whose `/tmp` persists across runs, a stale `/tmp/ssh-keygen` makes the rerun's `ssh-keygen` prompt "Overwrite (y/n)?" and silently EATS the next answer-stream line (the keypair-backup export answer gets consumed as the overwrite reply, then the export is declined by the browse-path answer). Stale `id_ed25519{,.pub}` are removed before keygen so it stays non-interactive; the DRY-RUN exit path now also shreds the live SSH key stage like the failure/post-chroot cleanups do | Beta-v2.9.54 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -559,6 +560,53 @@ human-readable label in the dry-run printout was wrong.
 `Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
 CLEAN (no heredoc changed). Dry-run plan on the target medium now reads
 `(graphical)` for the MATE/LightDM setup.
+
+---
+
+## Beta-v2.9.54 — `[SSH-KEYGEN-STALE]` (a leftover /tmp/ssh-keygen made a re-run silently eat the export answer)
+
+`SCRIPT_VERSION = Beta-v2.9.54`. Found 2026-09-15 while inspecting the
+second full `--dry-run` transcript: the answer stream walked the SSH prompt
+group, and the keypair line read
+
+```
+/tmp/ssh-keygen/id_ed25519 already exists.
+Overwrite (y/n)?   Generated keypair → /tmp/ssh-keygen/id_ed25519{,.pub} (comment '<redacted>@<host>')
+-- Export a backup copy of the SSH keypair to removable media? [y/N]:
+```
+
+The FIRST dry-run had generated a keypair into `/tmp/ssh-keygen` and exited
+normally at the plan — a path neither the failure cleanup (line 1298) nor the
+post-chroot shred (line 11667) runs on. `ssh-keygen -f` then hit its own
+"Overwrite (y/n)?" prompt and consumed the NEXT answer-stream line — the
+`y` meant for "Export a backup copy…". That export prompt next received the
+browse *path*, which its `case` treated as a decline, so the keypair backup
+was silently skipped (and the browse-path/`!`/disk answers shifted down, only
+absorbed because the DRY-RUN still reached the plan).
+
+**Root cause — two layers:** (1) stale stage state on a medium whose `/tmp`
+outlives a run (tmpfs on a fresh boot clears it, so this only bites reruns,
+resumes, and dry-runs on the same boot — exactly this box, which had run the
+dry-run minutes before); (2) the generate branch never made `ssh-keygen`
+non-interactive, so the overwrite prompt VOIDED the deterministic answer
+stream on such media. On a real install (or dry-run) following a run on the
+same boot, the [SSH-KEYS] backup export — the feature this whole browser
+series restores — would have been declined by a misdirected answer with no
+error and no trace.
+
+**Fix `[SSH-KEYGEN-STALE]`:** (a) the generate branch now drops stale
+`$SSH_KEYGEN_DIR/id_ed25519{,.pub}` (`rm -f … || true`) right before
+`ssh-keygen`, so generating is always a fresh non-interactive keygen; (b) the
+DRY-RUN exit path now shreds the live `/tmp/ssh-keygen`/`/tmp/ssh-import`
+stage exactly like the failure and post-chroot cleanups do, so a plan run
+never leaves key material behind either. The interactive-passphrase and
+export flows are unchanged.
+
+**Validation:** `bash -n` OK; `Debug/check-defaults.sh` ALL CONSISTENT;
+`Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
+CLEAN (no heredoc changed). Re-run of the full `--dry-run` shows no
+"Overwrite (y/n)?" prompt, the export browse runs, and the live key stage is
+shredded at plan-run exit.
 
 ---
 

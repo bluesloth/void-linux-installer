@@ -645,6 +645,7 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.51   [BROWSE-CAP-FIX] — the browser is called exclusively via command substitution, so its STDOUT menu/prompt lines were captured into the result value: the wallpaper pick (`img` mode) came back as the whole multi-line banner (stage `cp -f "$WP_SRC" …` FATALed), and the SSH-key export pick (`dir` mode) came back banner-prefixed so `[ -d "$_export_dst" ]` always failed ("No destination chosen; skipping export."). Even a bare-Enter DECLINE left the captured banner as a non-empty selection, so every Limine run answering the wallpaper prompt aborted. Fix: every menu/help/listing/prompt line now writes to STDERR (`>&2`); ONLY the final picked value is printed to stdout, so the `$( )` capture returns exactly the path.
 #     Beta-v2.9.52   [PREREQ-DRY-RUN] — a `--dry-run` plan run skips the live-CD package sync (Beta-v2.5.1) yet still ran the [PREREQ] outer-tool gate behind it, so a minimal medium (gptfdisk not preinstalled) FATALed "required live-CD command not found: 'sgdisk'" right at the confirmation boundary, never reaching the plan printout. A plan run never partitions, so the gate — whose only job is to keep a REAL run from reaching destructive partitioning without its tools — is now skipped entirely under DRY_RUN=1.
 #     Beta-v2.9.53   [HEADLESS-PLAN-LABEL] — the DRY-RUN plan's Desktop/DM line printed "headless=$HAS_GRAPHICAL" verbatim, i.e. "(headless=yes)" for a GRAPHICAL MATE/LightDM install — the label's meaning was inverted. The plan now prints "(graphical)" or "(headless)" honestly. Print-only cosmetic fix.
+#     Beta-v2.9.54   [SSH-KEYGEN-STALE] — on a live medium whose /tmp persists across runs (tmpfs clears on fresh boot, but a re-run, resume, or a dry-run that exited before the stage shred leaves /tmp/ssh-keygen behind), ssh-keygen -f on the existing key prompts "Overwrite (y/n)?" and silently EATS the next answer-stream line: the keypair-backup export answer is consumed as the overwrite reply, then the export is declined by the browse-path answer. Generating means FRESH: stale id_ed25519{,.pub} are removed before keygen so it stays non-interactive. The DRY-RUN exit path now also shreds the live SSH key stage exactly like the failure/post-chroot cleanups do.
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -3857,6 +3858,16 @@ if [ "$GENERATE_SSH_KEY" = "true" ]; then
         *) SSH_KEY_PROTECTED="no" ;;
     esac
     mkdir -p "$SSH_KEYGEN_DIR"
+    # AI (Big Pickle) FIX — Beta-v2.9.54 [SSH-KEYGEN-STALE]: on a live medium
+    # whose /tmp persists across runs (tmpfs on a fresh boot clears it, but a
+    # re-run, a resume, or a dry-run that exited before the stage shred leaves
+    # /tmp/ssh-keygen behind), ssh-keygen -f on the existing key prompts
+    # "Overwrite (y/n)?" and silently EATS the next answer-stream line —
+    # the keypair-backup export answer gets consumed as the overwrite reply
+    # and the export is then declined by the stream's browse-path answer.
+    # Generating means generating FRESH: drop any stale keypair first so the
+    # keygen is non-interactive and the prompt stream stays aligned.
+    rm -f "$SSH_KEYGEN_DIR"/id_ed25519 "$SSH_KEYGEN_DIR"/id_ed25519.pub 2>/dev/null || true
     if [ "$SSH_KEY_PROTECTED" = "yes" ]; then
         while true; do
             read -r -s -p "  Enter passphrase for the new key: " _ssh_key_pass_1; echo ""
@@ -4921,6 +4932,17 @@ if [ "$DRY_RUN" = "1" ]; then
     # A dry-run persists a state file earlier (so the plan data was collected);
     # remove it so a later real run isn't offered a pointless "resume".
     rm -f "$STATE_FILE" 2>/dev/null || true
+    # AI (Big Pickle) FIX — Beta-v2.9.54 [SSH-KEYGEN-STALE]: the plan run may
+    # have generated an SSH keypair ([[SSH-KEYS]] prompts run before the plan);
+    # this exit path is neither the failure cleanup nor the post-chroot shred,
+    # so without this the key material would persist on a /tmp-that-persists
+    # medium and silently desync the next run's answer stream at ssh-keygen's
+    # "Overwrite (y/n)?" prompt. Shred here exactly like those two paths do.
+    if [ -d /tmp/ssh-keygen ] || [ -d /tmp/ssh-import ]; then
+        shred -u /tmp/ssh-keygen/* /tmp/ssh-import/* 2>/dev/null || true
+        rm -rf /tmp/ssh-keygen /tmp/ssh-import 2>/dev/null || true
+        echo "  SSH key stage shredded from live environment (dry-run exit)."
+    fi
     exit 0
 fi
 
