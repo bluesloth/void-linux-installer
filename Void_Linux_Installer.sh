@@ -642,6 +642,7 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.48   [NO-DE]/[DE-ORDER] — desktop menu reordered most-to-least popular (KDE stays option 1/defaults); option 8 = "none" (console-only / headless base). [NO-DM] — display-manager gains "none"; DM_SERVICE_NAME="none" branch + rc.local DM link guarded (no /etc/sv/none symlink). [HEADLESS] — HAS_GRAPHICAL computed from DE!=none OR DM!=none; gates the xorg/wayland base chain + audio install. [HEADLESS-XORG-OPT]/[HEADLESS-AUDIO] — on a headless box, INSTALL_XORG and INSTALL_AUDIO are explicit opt-in prompts; graphically unconditional. [DISK-BUDGET] — pre-write fit check: DISK_BYTES captured at disk-pick (lsblk, persisted for resume, fails open when unreadable); human/sgdisk size → byte conversion; sum ESP + carved regions + >=1 GiB system headroom = required; over-provisioned layout refuses before sgdisk -Z; --dry-run also fails to launch on an over-provision; ENCRYPT container=remainder identity (same math); also fixes the latent 2.9.38 REGION_*_SIZE uppercase-fold eval bug (region tokens in REGION_PARTITIONED are lowercase; without the ^^ fold the outer/inner carve read the nonexistent REGION_home_SIZE and FATAL); the KDE else branch is converted to an explicit elif so headless DE skips the metapackage.
 #     Beta-v2.9.49   [VERIFY-FIXES] — post-verification corrections proven against the live as-built machine (2026-09-14): [WINE-RENAME] the game-wine prompt variable was INSTALL_GAME_WINE in the draft but INSTALL_WINE everywhere else (as-built record + recovered prompt docs) — renamed so the chroot package gate actually honors the prompt; [FLATHUB-URL-FIX] both remote-add sites (chroot install-time + first-boot rc.local fallback) now use the .flatpakrepo file (https://flathub.org/repo/flathub.flatpakrepo) instead of the bare website URL — the website 307-redirects to /en and imports no GPG key, so every queued flatpak install failed with "public key not found" (proven on real hardware); [DOCS-LOG-ASBUILT] the ~/Documents/Void_Install.txt header now reproduces the recovered real build's row set byte-format: SSH_SERVER (port + policy pointer), NVIDIA_DRIVER (GPU + wifi flag), WIFI_HARDWARE (0xVVVV:0xDDDD id), CPU (vendor + microcode pkg), HOMEBREW (deps + prefix + isolation), GAMING (enabled-launcher list, flatpak-delivered tagged, @game isolation), DATA_REGIONS (ALL SIX locations fixed-order name:fs, games only when !=none); BR0_NIC/MICROCODE_PKG rows removed to match the as-built; [FW-AUDIT-LOG-DROP] the [FW-AUDIT] accounting stays console/install-log-only — the recovered as-built record file ends at the package inventory with NO "FIRMWARE ACCOUNTING" section, so the record append was dropped to reproduce the proven build.
 #     Beta-v2.9.50   [BROWSE-DIR-ACCEPT] — the browse_pick `dir` mode had NO accept action: selecting a directory (number or typed path) DESCENDED into it and bare Enter was a DECLINE, so a destination directory could never be confirmed — the Beta-v2.9.23 [SSH-KEYS] "export the keypair backup to removable media" flow ALWAYS ended "No destination chosen; skipping export." and the keys never reached the USB stick (matches the real v2.9.43 build). `!`/`ok` now accepts the CURRENT directory (returns it); bare Enter still declines; number/path navigation unchanged. `img` (wallpaper) + `file` (SSH import) modes return a FILE and are unaffected.
+#     Beta-v2.9.51   [BROWSE-CAP-FIX] — the browser is called exclusively via command substitution, so its STDOUT menu/prompt lines were captured into the result value: the wallpaper pick (`img` mode) came back as the whole multi-line banner (stage `cp -f "$WP_SRC" …` FATALed), and the SSH-key export pick (`dir` mode) came back banner-prefixed so `[ -d "$_export_dst" ]` always failed ("No destination chosen; skipping export."). Even a bare-Enter DECLINE left the captured banner as a non-empty selection, so every Limine run answering the wallpaper prompt aborted. Fix: every menu/help/listing/prompt line now writes to STDERR (`>&2`); ONLY the final picked value is printed to stdout, so the `$( )` capture returns exactly the path.
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -1126,6 +1127,20 @@ esp_size_choose() {
 # declines; number/path navigation is unchanged. `img`/`file` modes were never
 # affected — they return a FILE.
 # =============================================================================
+# AI (Big Pickle) FIX — Beta-v2.9.51 [BROWSE-CAP-FIX]: every caller uses
+# command substitution (`WP_SRC="$(browse_pick img …)"` /
+# `_export_dst="$(browse_pick dir …)"`), so each menu echo/printf written to
+# STDOUT was captured INTO the result value — the wallpaper pick came back as
+# the whole multi-line menu banner (the stage-copy `cp -f "$WP_SRC" …` then
+# FATALed "cannot stat <banner>"), and the SSH-key export dir came back
+# banner-prefixed so `[ -d "$_export_dst" ]` was always false ("No destination
+# chosen; skipping export."). No keyboard answer could dodge it — even a
+# bare-Enter DECLINE still left the captured banner as a non-empty "selection",
+# aborting a Limine run that answered the wallpaper prompt either way. All
+# menu/prompt output now goes to STDERR (the same `>&2` pattern `_subvol_ask`
+# uses); ONLY the final picked value is printed to stdout, so the `$( )`
+# capture sees the path and nothing else. The error lines were already `>&2`.
+# =============================================================================
 browse_pick() { # browse_pick <mode> <what-label>
     local _bp_mode="${1:-file}" _bp_label="${2:-file}"
     local _bp_start _bp_ok=0 _bp_src="" _bp_ext="" _bp_i
@@ -1137,17 +1152,17 @@ browse_pick() { # browse_pick <mode> <what-label>
     fi
     while [ "$_bp_ok" -eq 0 ]; do
         # A fresh menu pass carries the copyright-free note that Ctrl-C aborts.
-        echo ""
-        echo "  Browse for ${_bp_label}: ${C_BOLD}${C_CYN}/${_bp_start#/}${C_RST}"
-        echo "  Enter ${C_BOLD}..${C_RST} to go up a level, an absolute/relative path to jump there,"
-        echo "  ${C_BOLD}m${C_RST}/${C_BOLD}drives${C_RST} to jump back to the mounted-drive list at /run/media,"
+        echo "" >&2
+        echo "  Browse for ${_bp_label}: ${C_BOLD}${C_CYN}/${_bp_start#/}${C_RST}" >&2
+        echo "  Enter ${C_BOLD}..${C_RST} to go up a level, an absolute/relative path to jump there," >&2
+        echo "  ${C_BOLD}m${C_RST}/${C_BOLD}drives${C_RST} to jump back to the mounted-drive list at /run/media," >&2
         if [ "$_bp_mode" = "img" ]; then
-            echo "  or the number of an image below. ${C_BOLD}Enter alone${C_RST} declines (no image)."
+            echo "  or the number of an image below. ${C_BOLD}Enter alone${C_RST} declines (no image)." >&2
         elif [ "$_bp_mode" = "dir" ]; then
-            echo "  or the number of a directory below. ${C_BOLD}Enter alone${C_RST} declines;"
-            echo "  ${C_BOLD}!${C_RST}/${C_BOLD}ok${C_RST} accepts the CURRENT directory."
+            echo "  or the number of a directory below. ${C_BOLD}Enter alone${C_RST} declines;" >&2
+            echo "  ${C_BOLD}!${C_RST}/${C_BOLD}ok${C_RST} accepts the CURRENT directory." >&2
         else
-            echo "  or the number of an entry below. ${C_BOLD}Enter alone${C_RST} declines."
+            echo "  or the number of an entry below. ${C_BOLD}Enter alone${C_RST} declines." >&2
         fi
         _bp_items=()
         if [ "$_bp_start" != "/" ]; then
@@ -1162,17 +1177,17 @@ browse_pick() { # browse_pick <mode> <what-label>
             fi
         done < <(find "$_bp_start" -maxdepth 1 -mindepth 1 -printf '%p\n' 2>/dev/null | sort)
         if [ "${#_bp_items[@]}" -le 1 ]; then
-            echo "  (nothing matching here)"
+            echo "  (nothing matching here)" >&2
         fi
         for _bp_i in "${!_bp_items[@]}"; do
             _bp_ent="${_bp_items[$_bp_i]}"
             if [ -d "$_bp_ent" ]; then
-                echo "  ${C_BLU}${C_BOLD}$((_bp_i + 1))${C_RST}) ${_bp_ent##*/}/"
+                echo "  ${C_BLU}${C_BOLD}$((_bp_i + 1))${C_RST}) ${_bp_ent##*/}/" >&2
             else
-                echo "  ${C_BOLD}$((_bp_i + 1))${C_RST}) ${C_GRN}${_bp_ent##*/}${C_RST}"
+                echo "  ${C_BOLD}$((_bp_i + 1))${C_RST}) ${C_GRN}${_bp_ent##*/}${C_RST}" >&2
             fi
         done
-        printf '\n%s' "${C_BOLD}${C_YLW}-- Select [dir | number | path ( .. = up, m = drives)]${C_RST} "
+        printf '\n%s' "${C_BOLD}${C_YLW}-- Select [dir | number | path ( .. = up, m = drives)]${C_RST} " >&2
         read -r _bp_src
         if [ -z "$_bp_src" ]; then
             echo "  Declined." >&2

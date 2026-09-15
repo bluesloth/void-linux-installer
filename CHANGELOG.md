@@ -106,6 +106,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.48** | `[NO-DE]`/`[NO-DM]`/`[HEADLESS]`/`[HEADLESS-XORG-OPT]`/`[HEADLESS-AUDIO]`/`[DE-ORDER]`/`[DISK-BUDGET]` — headless/server install path (DESKTOP_ENV option 8 = none, DM `none` → `DM_SERVICE_NAME=none` + sed-guarded rc.local link, `HAS_GRAPHICAL` gates the xorg/wayland base chain + audio, INSTALL_XORG/INSTALL_AUDIO opt-ins only when headless) + pre-write partition fit check (`DISK_BYTES` captured at disk-pick and persisted; `_size_to_bytes` + `_disk_budget_check` refuse an over-provisioned layout before `sgdisk -Z` and fail dry-run; ENCRYPT via container=remainder identity) + the latent 2.9.38 `REGION_*_SIZE` uppercase-fold eval fix | Beta-v2.9.48 below |
 | **Beta-v2.9.49** | `[VERIFY-FIXES]` — post-verification corrections proven against the live as-built machine (2026-09-14): `[WINE-RENAME]` (prompt var `INSTALL_GAME_WINE` → `INSTALL_WINE`, matching the as-built record + recovered prompt docs), `[FLATHUB-URL-FIX]` (both remote-add sites now use `https://flathub.org/repo/flathub.flatpakrepo` — the bare website URL 307s to `/en` and imports no GPG key, so queued flatpak installs failed with "public key not found", proven on hardware), `[DOCS-LOG-ASBUILT]` (`~/Documents/Void_Install.txt` header rewritten to the recovered as-built row set byte-format: SSH_SERVER/NVIDIA_DRIVER(wifi)/WIFI_HARDWARE/CPU/HOMEBREW/GAMING/DATA_REGIONS all-six ordered), `[FW-AUDIT-LOG-DROP]` (accounting stays console-only — the as-built record has no firmware section) | Beta-v2.9.49 below |
 | **Beta-v2.9.50** | `[BROWSE-DIR-ACCEPT]` — `browse_pick` `dir` mode gains an explicit accept (`!`/`ok` confirms the CURRENT directory): a directory destination could previously never be confirmed (selecting a dir descended into it, bare Enter was a decline, only a FILE could exit the loop), so the `[SSH-KEYS]` keypair backup export (`export to removable media` → `_export_dst="$(browse_pick dir …)"`) ALWAYS ended "skipping export." and the keys never reached the USB stick — matching the real v2.9.43 build | Beta-v2.9.50 below |
+| **Beta-v2.9.51** | `[BROWSE-CAP-FIX]` — `browse_pick` is called exclusively through command substitution, so every STDOUT menu/help/listing/prompt line was captured INTO the result value: the Limine wallpaper pick (`img` mode) returned the whole multi-line banner (stage `cp -f "$WP_SRC" …` FATALed → any Limine run answering the wallpaper prompt aborted), and the SSH-key export pick (`dir` mode) returned banner-prefixed text so `[ -d "$_export_dst" ]` always failed ("No destination chosen; skipping export.") — even a bare-Enter DECLINE left the banner as a non-empty selection. All browser UI now writes to STDERR (`>&2`, the `_subvol_ask` pattern); ONLY the final picked value goes to stdout so the capture returns exactly the path | Beta-v2.9.51 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -443,6 +444,58 @@ SSH-import (`file`) modes return a FILE and were never affected.
 **Validation:** `bash -n` OK; `Debug/check-defaults.sh` ALL CONSISTENT;
 `Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
 CLEAN (no heredoc changed).
+
+---
+
+## Beta-v2.9.51 — `[BROWSE-CAP-FIX]` (browse_pick's menu UI was captured into its own return value; the wallpaper pick aborted every Limine run that answered the prompt)
+
+`SCRIPT_VERSION = Beta-v2.9.51`. Found live during the first `--dry-run` of this
+installation, 2026-09-15: the answer stream walked cleanly through every prompt
+to the Limine wallpaper browser and then aborted — the run died not on a wrong
+input but on the browser itself.
+
+**Root cause — stdout is the return channel.** `browse_pick` is called
+exclusively through command substitution: `WP_SRC="$(browse_pick img …)"` for
+the wallpaper ([LIMINE-WALLPAPER-BROWSE], Beta-v2.5.4) and
+`_export_dst="$(browse_pick dir …)"` for the SSH-keypair backup export
+([SSH-KEYS], Beta-v2.9.23). Under `$( )`, bash captures **all** of the
+subshell's stdout into the variable — and the browser printed its menu/help
+text, its item listing, and its `-- Select` prompt to stdout. So:
+
+- **Wallpaper (`img`):** `WP_SRC` came back as the whole multi-line banner
+  ending in the chosen path, and the stage-copy `cp -f "$WP_SRC" "$WP_STAGED"`
+  FATALed with `cp: cannot stat '<banner text>': No such file or directory`.
+- **SSH export (`dir`):** `_export_dst` came back banner-prefixed, so the
+  `[ -d "$_export_dst" ]` guard always failed → "No destination chosen;
+  skipping export." — every time, regardless of what was browsed.
+- **No answer could dodge it:** even a bare-Enter DECLINE breaks the loop with
+  an empty selection, but the menu banner had already been written to stdout
+  during that pass, so the captured "selection" was still the non-empty banner.
+  In practice this meant **any Limine install that was so much as asked about
+  the wallpaper aborted** (the Unix exit was swallowed by the crash/journal
+  path, so it read as a generic fail), and the SSH keypair export was silently
+  a no-op even after the [BROWSE-DIR-ACCEPT] `!` fix — the accept ran in the
+  loop, but its result was still mangled by the captured banner above it.
+
+The [BROWSE-DIR-ACCEPT] (Beta-v2.9.50) analysis was therefore only half the
+story: it fixed the *navigation/accept* layer, but the *capture* layer it ran
+under was broken all along. The SSH export "never reached the stick" on the
+real v2.9.43 build fits both (this live machine's dry-run reproduced the exact
+same "skipping export." symptom before the wallpaper crash pre-empted it).
+
+**Fix `[BROWSE-CAP-FIX]`:** every menu/help/listing/prompt line inside
+`browse_pick` now writes to **stderr** (`>&2` — the same pattern `_subvol_ask`
+already uses so its prompt text survives `$( )`, per §3.23-era notes); only the
+final `printf '%s' "$_bp_src"` stays on stdout. The `$( )` capture therefore
+sees exactly the picked value: the wallpaper `cp` gets a real path, and the SSH
+export `[ -d ]` check sees a real directory. The already-`>&2` error lines
+("Declined.", "File not found", etc.) are unchanged.
+
+**Validation:** `bash -n` OK; `Debug/check-defaults.sh` ALL CONSISTENT;
+`Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
+CLEAN (no heredoc changed). Unit repro of the capture before/after:
+`WP_SRC="$(browse_pick img …)"` returned the banner before the fix and the bare
+path after.
 
 ---
 
