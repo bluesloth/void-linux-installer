@@ -646,6 +646,7 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.52   [PREREQ-DRY-RUN] — a `--dry-run` plan run skips the live-CD package sync (Beta-v2.5.1) yet still ran the [PREREQ] outer-tool gate behind it, so a minimal medium (gptfdisk not preinstalled) FATALed "required live-CD command not found: 'sgdisk'" right at the confirmation boundary, never reaching the plan printout. A plan run never partitions, so the gate — whose only job is to keep a REAL run from reaching destructive partitioning without its tools — is now skipped entirely under DRY_RUN=1.
 #     Beta-v2.9.53   [HEADLESS-PLAN-LABEL] — the DRY-RUN plan's Desktop/DM line printed "headless=$HAS_GRAPHICAL" verbatim, i.e. "(headless=yes)" for a GRAPHICAL MATE/LightDM install — the label's meaning was inverted. The plan now prints "(graphical)" or "(headless)" honestly. Print-only cosmetic fix.
 #     Beta-v2.9.54   [SSH-KEYGEN-STALE] — on a live medium whose /tmp persists across runs (tmpfs clears on fresh boot, but a re-run, resume, or a dry-run that exited before the stage shred leaves /tmp/ssh-keygen behind), ssh-keygen -f on the existing key prompts "Overwrite (y/n)?" and silently EATS the next answer-stream line: the keypair-backup export answer is consumed as the overwrite reply, then the export is declined by the browse-path answer. Generating means FRESH: stale id_ed25519{,.pub} are removed before keygen so it stays non-interactive. The DRY-RUN exit path now also shreds the live SSH key stage exactly like the failure/post-chroot cleanups do.
+#     Beta-v2.9.55   [INNER-DEV-NAME] — the outer disk carve already checks `[[ "$DISK" =~ (nvme|mmcblk) ]]` to decide whether the base name needs a `p` separator before the partition number (nvme0n1p1 vs sda1). The inner GPT carved inside a LUKS2 mapper hardcoded `${CRYPT_DEV}p${N}` → `/dev/mapper/void-rootp1`, but dm-linear children are named without the `p` separator (void-root1, not void-rootp1) — the `p` is only for devices whose basename ends with a digit. First real install of an ENCRYPT+regions+MULTI-FS layout crashed here immediately.
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -4561,14 +4562,27 @@ _region_inner_partscan() {
 # valid AFTER _region_inner_partscan has registered the inner GPT — without it
 # the pN nodes don't exist yet (fresh carve) or still point at the stale layout
 # (resume). Formerly inlined in both the fresh and the resume partscan blocks.
+# AI (Big Pickle) FIX — Beta-v2.9.55 [INNER-DEV-NAME]: when partitioning the
+# outer disk, the code already checks `[[ "$DISK" =~ (nvme|mmcblk) ]]` to
+# decide whether the base name needs a `p` separator before the partition
+# number (nvme0n1p1 vs sda1). The inner GPT carved inside a LUKS2 mapper
+# had the same problem but no fix: `_region_inner_dev` hardcoded
+# `${CRYPT_DEV}p${N}` → `/dev/mapper/void-rootp1` for region p1. On a
+# dm-linear device the kernel names children without the `p` separator
+# (void-root1, void-root2); the `p` is only for devices whose basename ends
+# with a digit. The region format FATALed immediately and the installer
+# never got past partitioning on an ENCRYPT+regions+MULTI-FS run.
+# Now: check the mapper basename for a trailing digit, add `p` only if needed.
 _region_inner_dev() {
+    local _sep=""
+    case "${CRYPT_DEV##*/}" in *[0-9]) _sep="p";; esac
     _rr_i=1
     for _rr in $REGION_PARTITIONED; do
-        eval "REGION_PART_${_rr}=\"\${CRYPT_DEV}p\${_rr_i}\""
+        eval "REGION_PART_${_rr}=\"\${CRYPT_DEV}${_sep}\${_rr_i}\""
         _rr_i=$((_rr_i + 1))
     done
     unset _rr_i _rr
-    BTRFS_DEV="${CRYPT_DEV}p$((NREG + 1))"
+    BTRFS_DEV="${CRYPT_DEV}${_sep}$((NREG + 1))"
 }
 
 # AI (Big Pickle) ADDITION — Beta-v2.9.48 [DISK-BUDGET]: minimum HEADROOM that

@@ -110,6 +110,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.52** | `[PREREQ-DRY-RUN]` — a `--dry-run` plan run skips the live-CD package sync yet still ran the `[PREREQ]` outer-tool gate behind it, so on a medium without gptfdisk preinstalled it FATALed "required live-CD command not found: 'sgdisk'" at the confirmation boundary and never reached the plan printout. A plan run never partitions, so the gate (whose only job is to keep a REAL run from reaching destructive partitioning without its tools) is now skipped entirely under `DRY_RUN=1` | Beta-v2.9.52 below |
 | **Beta-v2.9.53** | `[HEADLESS-PLAN-LABEL]` — the DRY-RUN plan's Desktop/DM line printed `headless=$HAS_GRAPHICAL` verbatim, i.e. `(headless=yes)` for a GRAPHICAL MATE/LightDM install — the label's meaning was inverted. The plan now prints `(graphical)` or `(headless)` honestly. Print-only cosmetic fix. | Beta-v2.9.53 below |
 | **Beta-v2.9.54** | `[SSH-KEYGEN-STALE]` — on a live medium whose `/tmp` persists across runs, a stale `/tmp/ssh-keygen` makes the rerun's `ssh-keygen` prompt "Overwrite (y/n)?" and silently EATS the next answer-stream line (the keypair-backup export answer gets consumed as the overwrite reply, then the export is declined by the browse-path answer). Stale `id_ed25519{,.pub}` are removed before keygen so it stays non-interactive; the DRY-RUN exit path now also shreds the live SSH key stage like the failure/post-chroot cleanups do | Beta-v2.9.54 below |
+| **Beta-v2.9.55** | `[INNER-DEV-NAME]` — the outer disk carve already checks `[[ "$DISK" =~ (nvme|mmcblk) ]]` to decide whether the base name needs a `p` separator before the partition number (`nvme0n1p1` vs `sda1`). The inner GPT carved inside a LUKS2 mapper hardcoded `${CRYPT_DEV}p${N}` → `/dev/mapper/void-rootp1`, but dm-linear children are named WITHOUT the `p` separator (`void-root1`, not `void-rootp1`) — the `p` is only for devices whose basename ends with a digit. The first real ENCRYPT+regions+MULTI-FS install crashed here immediately ("region device ... does not exist (partscan?)"). Now resolves region devices + the Btrfs root with the same separator decision the outer carve uses | Beta-v2.9.55 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -607,6 +608,60 @@ export flows are unchanged.
 CLEAN (no heredoc changed). Re-run of the full `--dry-run` shows no
 "Overwrite (y/n)?" prompt, the export browse runs, and the live key stage is
 shredded at plan-run exit.
+
+---
+
+## Beta-v2.9.55 — `[INNER-DEV-NAME]` (ENCRYPT+regions install crashed immediately: region device `void-rootp1` vs `void-root1`)
+
+`SCRIPT_VERSION = Beta-v2.9.55`. Found on the FIRST REAL INSTALL of this
+reconstruction, 2026-09-15 (<host>-env live box, nvme0n1): the run passed the
+dry-run plan, wiped the disk, carved the outer ESP + LUKS container, opened
+the LUKS2 mapper, carved the inner GPT inside it, verified the passphrase —
+then died:
+
+```
+==> Carving inner GPT inside /dev/mapper/void-root (MULTI-FS + ENCRYPT)...
+... (sgdisk warnings: "kernel is still using the old partition table") ...
+mkfs.fat 4.2 (2021-01-31)
+FATAL: region device /dev/mapper/void-rootp1 for 'games' does not exist (partscan?).
+!! Crash post-mortem saved to /run/media/anon/void-installer-crash-*.log (+.info) — evidence for triage.
+```
+
+**Root cause — the `p` separator is device-name dependent, and the inner
+carve hardcoded the wrong one.** The outer disk carve already knows this:
+`[[ "$DISK" =~ (nvme|mmcblk) ]]` gets `nvme0n1p1` (the firmware/path name as
+shown embeds a trailing digit, so the kernel inserts `p`), while `sda`,
+`vda`, etc. get plain `sda1`. The inner GPT carved inside an OPENED LUKS2
+mapper is partitioned on a **dm-linear device** `/dev/mapper/void-root`,
+whose basename ends in `-root` (NOT a digit) — so the kernel names its
+children `void-root1`, `void-root2`, WITHOUT the `p`. But `_region_inner_dev`
+(Beta-v2.9.45, the [INNER-PARTSCAN-DMPROBE] helper) hardcoded
+`${CRYPT_DEV}p${N}` → `/dev/mapper/void-rootp1`. The `_region_inner_partscan`
+had faithfully registered the real nodes with the kernel (`partprobe` did its
+job: `/dev/mapper/void-root1` and `void-root2` existed on the box at crash
+time) — the FATAL was purely a WRONG DEVICE NAME, not a missing partscan. The
+region fs-format step resolved `REGION_PART_games=/dev/mapper/void-rootp1`,
+`[ -e ]` was false, and the run aborted. (The dry-run never saw this because
+it stops before any partition/format; the partscan wiring only executes on the
+real write path.)
+
+**Fix `[INNER-DEV-NAME]`:** `_region_inner_dev` now makes the same separator
+decision the outer carve makes — dm-linear basename ends with a digit gets
+`p` (`void-rootp1`), otherwise no separator (`void-root1`). Both the per-region
+`REGION_PART_*` devices and `BTRFS_DEV` (the mapper-p(NREG+1) Btrfs root)
+follow the rule.
+
+**Why the dry-run couldn't catch this:** DRY-RUN exits at the plan boundary,
+before `sgdisk -Z`/partscan/format ever run, so the [PREREQ-DRY-RUN] and
+[BROWSE-CAP-FIX] gates can't protect the ENCRYPT+regions write path. Only the
+first REAL install exercises it — hence this session's ladder of 2.9.51→2.9.55.
+
+**Validation:** `bash -n` OK; `Debug/check-defaults.sh` ALL CONSISTENT;
+`Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
+CLEAN (no heredoc changed). `_region_inner_dev` unit-checked against
+`CRYPT_DEV=/dev/mapper/void-root` (→ `void-root1`/`void-root2`) and a
+hypothetical digit-suffixed mapper (→ `p1/p2`). A full re-run of the real
+install exercises the crash point on the live box (see Work State).
 
 ---
 
