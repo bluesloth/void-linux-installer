@@ -644,6 +644,7 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.50   [BROWSE-DIR-ACCEPT] — the browse_pick `dir` mode had NO accept action: selecting a directory (number or typed path) DESCENDED into it and bare Enter was a DECLINE, so a destination directory could never be confirmed — the Beta-v2.9.23 [SSH-KEYS] "export the keypair backup to removable media" flow ALWAYS ended "No destination chosen; skipping export." and the keys never reached the USB stick (matches the real v2.9.43 build). `!`/`ok` now accepts the CURRENT directory (returns it); bare Enter still declines; number/path navigation unchanged. `img` (wallpaper) + `file` (SSH import) modes return a FILE and are unaffected.
 #     Beta-v2.9.51   [BROWSE-CAP-FIX] — the browser is called exclusively via command substitution, so its STDOUT menu/prompt lines were captured into the result value: the wallpaper pick (`img` mode) came back as the whole multi-line banner (stage `cp -f "$WP_SRC" …` FATALed), and the SSH-key export pick (`dir` mode) came back banner-prefixed so `[ -d "$_export_dst" ]` always failed ("No destination chosen; skipping export."). Even a bare-Enter DECLINE left the captured banner as a non-empty selection, so every Limine run answering the wallpaper prompt aborted. Fix: every menu/help/listing/prompt line now writes to STDERR (`>&2`); ONLY the final picked value is printed to stdout, so the `$( )` capture returns exactly the path.
 #     Beta-v2.9.52   [PREREQ-DRY-RUN] — a `--dry-run` plan run skips the live-CD package sync (Beta-v2.5.1) yet still ran the [PREREQ] outer-tool gate behind it, so a minimal medium (gptfdisk not preinstalled) FATALed "required live-CD command not found: 'sgdisk'" right at the confirmation boundary, never reaching the plan printout. A plan run never partitions, so the gate — whose only job is to keep a REAL run from reaching destructive partitioning without its tools — is now skipped entirely under DRY_RUN=1.
+#     Beta-v2.9.53   [HEADLESS-PLAN-LABEL] — the DRY-RUN plan's Desktop/DM line printed "headless=$HAS_GRAPHICAL" verbatim, i.e. "(headless=yes)" for a GRAPHICAL MATE/LightDM install — the label's meaning was inverted. The plan now prints "(graphical)" or "(headless)" honestly. Print-only cosmetic fix.
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -4892,7 +4893,15 @@ if [ "$DRY_RUN" = "1" ]; then
         echo "  Kernel access         : ${KERNEL_MODE:-<unset>} (Limine)"
         echo "  Wallpaper             : ${LIMINE_WALLPAPER:-none}${LIMINE_WALLPAPER_STYLE:+ (style=${LIMINE_WALLPAPER_STYLE})}"
     fi
-    echo "  Desktop / DM          : ${DESKTOP_ENV:-<unset>} / ${DISPLAY_MANAGER:-<unset>}${HAS_GRAPHICAL:+ (headless=${HAS_GRAPHICAL})}"
+    # AI (Big Pickle) FIX — Beta-v2.9.53 [HEADLESS-PLAN-LABEL]: the plan used to
+    # print "headless=$HAS_GRAPHICAL", i.e. "(headless=yes)" for a GRAPHICAL
+    # MATE/LightDM install — the label's meaning was inverted. Now prints
+    # "(graphical)" or "(headless)" honestly.
+    if [ "$HAS_GRAPHICAL" = "yes" ]; then
+        echo "  Desktop / DM          : ${DESKTOP_ENV:-<unset>} / ${DISPLAY_MANAGER:-<unset>} (graphical)"
+    else
+        echo "  Desktop / DM          : ${DESKTOP_ENV:-<unset>} / ${DISPLAY_MANAGER:-<unset>} (headless)"
+    fi
     echo "  Session stack         : ${SESSION_STACK:-<unset>}"
     echo "  Login shell           : ${USER_SHELL:-<unset>}"
     echo "  User / full name      : ${TARGET_USER:-<unset>}${TARGET_FULL_NAME:+ (${TARGET_FULL_NAME})}"

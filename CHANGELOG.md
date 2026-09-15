@@ -108,6 +108,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.50** | `[BROWSE-DIR-ACCEPT]` — `browse_pick` `dir` mode gains an explicit accept (`!`/`ok` confirms the CURRENT directory): a directory destination could previously never be confirmed (selecting a dir descended into it, bare Enter was a decline, only a FILE could exit the loop), so the `[SSH-KEYS]` keypair backup export (`export to removable media` → `_export_dst="$(browse_pick dir …)"`) ALWAYS ended "skipping export." and the keys never reached the USB stick — matching the real v2.9.43 build | Beta-v2.9.50 below |
 | **Beta-v2.9.51** | `[BROWSE-CAP-FIX]` — `browse_pick` is called exclusively through command substitution, so every STDOUT menu/help/listing/prompt line was captured INTO the result value: the Limine wallpaper pick (`img` mode) returned the whole multi-line banner (stage `cp -f "$WP_SRC" …` FATALed → any Limine run answering the wallpaper prompt aborted), and the SSH-key export pick (`dir` mode) returned banner-prefixed text so `[ -d "$_export_dst" ]` always failed ("No destination chosen; skipping export.") — even a bare-Enter DECLINE left the banner as a non-empty selection. All browser UI now writes to STDERR (`>&2`, the `_subvol_ask` pattern); ONLY the final picked value goes to stdout so the capture returns exactly the path | Beta-v2.9.51 below |
 | **Beta-v2.9.52** | `[PREREQ-DRY-RUN]` — a `--dry-run` plan run skips the live-CD package sync yet still ran the `[PREREQ]` outer-tool gate behind it, so on a medium without gptfdisk preinstalled it FATALed "required live-CD command not found: 'sgdisk'" at the confirmation boundary and never reached the plan printout. A plan run never partitions, so the gate (whose only job is to keep a REAL run from reaching destructive partitioning without its tools) is now skipped entirely under `DRY_RUN=1` | Beta-v2.9.52 below |
+| **Beta-v2.9.53** | `[HEADLESS-PLAN-LABEL]` — the DRY-RUN plan's Desktop/DM line printed `headless=$HAS_GRAPHICAL` verbatim, i.e. `(headless=yes)` for a GRAPHICAL MATE/LightDM install — the label's meaning was inverted. The plan now prints `(graphical)` or `(headless)` honestly. Print-only cosmetic fix. | Beta-v2.9.53 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -535,6 +536,29 @@ the sync AND the gate exactly as before.
 `Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
 CLEAN (no heredoc changed). Full `--dry-run` re-run on the target medium now
 reaches the plan printout and exits 0.
+
+---
+
+## Beta-v2.9.53 — `[HEADLESS-PLAN-LABEL]` (the DRY-RUN plan called a graphical box "headless=yes")
+
+`SCRIPT_VERSION = Beta-v2.9.53`. Cosmetic print-only fix, 2026-09-15: reading
+the very first full DRY-RUN PLAN (after the 2.9.51/2.9.52 fixes let it print)
+showed the Desktop/DM line as `mate / lightdm (headless=yes)` — the plan was
+echoing `headless=$HAS_GRAPHICAL` verbatim, but `HAS_GRAPHICAL=yes` means the
+DE/DM combo is GRAPHICAL (it is only `no` when DE and DM are BOTH `none`).
+The label therefore read "headless=yes" on a graphical install and
+"headless=no" on a genuinely headless one — exactly inverted.
+
+**Fix `[HEADLESS-PLAN-LABEL]`:** the plan now prints `(graphical)` when
+`HAS_GRAPHICAL=yes` and `(headless)` otherwise. The value's real semantics
+were always correct (the intro screen still showed `MATE / LightDM` and the
+xorg/session gating is driven by `$HAS_GRAPHICAL`, not this string); only the
+human-readable label in the dry-run printout was wrong.
+
+**Validation:** `bash -n` OK; `Debug/check-defaults.sh` ALL CONSISTENT;
+`Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
+CLEAN (no heredoc changed). Dry-run plan on the target medium now reads
+`(graphical)` for the MATE/LightDM setup.
 
 ---
 
