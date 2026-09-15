@@ -106,14 +106,17 @@
 #     AI (Big Pickle) ADDITION — Beta-v2.9.43 [INNER-PARTSCAN-BOOT]: the
 #     boot-time partscan dracut module (98void-inner-partscan), written into
 #     the chroot ONLY when ENCRYPT=yes + carved REGION_PARTITIONED. A udev
-#     RUN fires the instant the opened LUKS2 mapper's DM_NAME appears,
-#     calling a kpartx-primary / partprobe-fallback / partx-a-last helper to
-#     REGISTER the on-disk inner GPT + build its dm-linear submaps BEFORE
-#     dracut's udev settle resolves root=UUID=<inner btrfs> — an
-#     unregistered inner GPT strands boot at the emergency shell (crash #008
-#     residual; proven on the first real ENCRYPT+regions install — Beta-v2.9.56
-#     [INNER-PARTSCAN-KPARTX], where partprobe's BLKPG silently produced nothing
-#     and `kpartx -av` fixed it). Beta-v2.9.44 [DRACUT-CONF-NAME]:
+#     RUN fires as the opened LUKS2 mapper node appears (matched via the
+#     sysfs ATTR{dm/name} == mapper name since Beta-v2.9.57 — v2.9.43/2.9.56
+#     matched ENV{DM_NAME}, which the kernel's dm add-uevent NEVER carries; see
+#     [INNER-PARTSCAN-UDEV-ATTR] below), calling a kpartx-primary /
+#     partprobe-fallback / partx-a-last helper to REGISTER the on-disk inner
+#     GPT + build its dm-linear submaps BEFORE dracut's udev settle resolves
+#     root=UUID=<inner btrfs> — an unregistered inner GPT strands boot at the
+#     emergency shell (crash #008 residual; proven on the first real
+#     ENCRYPT+regions install — Beta-v2.9.56 [INNER-PARTSCAN-KPARTX], where
+#     partprobe's BLKPG silently produced nothing and `kpartx -av` fixed it).
+#     Beta-v2.9.44 [DRACUT-CONF-NAME]:
 #     the add_dracutmodules conf value MUST be the SHORT module name (no
 #     numeric prefix); dracut-ng resolves conf names as [0-9][0-9]<name> so
 #     a prefixed name matches nothing and the regen dies. Beta-v2.9.45
@@ -641,7 +644,7 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.40   [PKG-PREFLIGHT];[GAME-FLATPAK-GATE] — Stage-1 package-name gate (closed crash #005): every package name the Stage-2 chroot can install is resolved against the live union pool BEFORE sgdisk -Z; doomed installs abort pre-write. PKG_PREFLIGHT candidate list is a superset of every install_pkgs literal + base-bootstrap literals; live void-repo-* install + -Sy refresh + base-system sanity probe degrade to WARN+skip (never false FATAL); COSMIC third-party repo excluded; drift-guard Debug/check-pkg-preflight.sh committed. [GAME-FLATPAK-GATE]: `install_pkgs heroic`/`install_pkgs bottles` must never come back — Heroic/Bottles ship only via the first-boot Flatpak queue (com.heroicgameslauncher.hgl / com.usebottles.bottles) gated on INSTALL_FLATPAK, with a Stage-2 WARNING when INSTALL_FLATPAK=false; @game mounts ONLY .local/share/Steam + .local/share/lutris.
 #     Beta-v2.9.41   (intermediate build — 98void-inner-partscan module draft; module-setup.sh + udev rules + helper script skeleton; crash #008 revealed dracut `partscan` crypttab option is NOT reliable on non-loopback LUKS2 at boot)
 #     Beta-v2.9.42   (intermediate build — FATAL initramfs gate + parted shipping into the target; crash #009 showed partx -a cannot BLKPG a dm mapper, so module initially booted to emergency shell)
-#     Beta-v2.9.43   [INNER-PARTSCAN-BOOT] — the boot-time partscan dracut module (98void-inner-partscan): udev RUN fires on the instant the opened LUKS2 mapper's DM_NAME appears, calling partprobe + partx -a helper to force-register the inner GPT BEFORE dracut's udev settle resolves root=UUID=<inner btrfs>; module gated on ENCRYPT=yes + carved REGION_PARTITIONED; parted shipped into the target when module installs; __CRYPT_NAME__ token baked via sed; add_dracutmodules short name in 90-system.conf; module placed BEFORE the final xbps-reconfigure
+#     Beta-v2.9.43   [INNER-PARTSCAN-BOOT] — the boot-time partscan dracut module (98void-inner-partscan): udev RUN fires as the opened LUKS2 mapper node appears (sysfs ATTR{dm/name} match; v2.9.43/2.9.56 used ENV{DM_NAME}, which the kernel add-uevent never carries — see [INNER-PARTSCAN-UDEV-ATTR]), calling kpartx-primary / partprobe-fallback / partx-a-last helper to register the inner GPT BEFORE dracut's udev settle resolves root=UUID=<inner btrfs>; module gated on ENCRYPT=yes + carved REGION_PARTITIONED; parted shipped into the target when module installs; __CRYPT_NAME__ token baked via sed; add_dracutmodules short name in 90-system.conf; module placed BEFORE the final xbps-reconfigure
 #     Beta-v2.9.44   [DRACUT-CONF-NAME] — the add_dracutmodules conf value MUST be the SHORT module name WITHOUT the numeric prefix (void-inner-partscan, NOT 98void-inner-partscan); dracut-ng resolves conf names as [0-9][0-9]<name> so a prefixed name matches nothing; same for 99void-yubikey → void-yubikey; closed crash #009 residual
 #     Beta-v2.9.45   [INNER-PARTSCAN-DMPROBE] — partprobe-first inner-GPT rescan (partprobe builds libparted dm-linear submaps — the ONLY tool that can BLKPG a dm mapper; partx -a fallback only); _region_inner_partscan + _region_inner_dev named functions replace inline blocks; chroot FATAL initramfs-content gate after dracut --force loop + before ESP re-sync; per-image guard in void-limine-sync-kernels; partx -d unwind in cleanup_on_failure before luksClose; parted added to PKG_PREFLIGHT; live + resume partscan paths rewired to call the new helpers
 #     Beta-v2.9.46   (post-audit from first real ENCRYPT+regions boot on <host>: [SUBVOL-TOOL-RESOLVEDEV] strip [/@] suffix from findmnt SOURCE before subvolid=5 mount + rename shadowed awk -v sub= → svpat; [INSTALL-CONFIG-FLATPAK] install-config gains INSTALL_FLATPAK/INSTALL_BRAVE public rows; KERNEL_PKGS/PKG-PREFLIGHT verification; [VBOX-SV-GUARD] first-boot vboxdrv link guarded on /etc/sv/vboxdrv dir; [FLATPAK-NM-DISPATCH-STAMP] flatpak queue dispatch check)
@@ -655,6 +658,7 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.54   [SSH-KEYGEN-STALE] — on a live medium whose /tmp persists across runs (tmpfs clears on fresh boot, but a re-run, resume, or a dry-run that exited before the stage shred leaves /tmp/ssh-keygen behind), ssh-keygen -f on the existing key prompts "Overwrite (y/n)?" and silently EATS the next answer-stream line: the keypair-backup export answer is consumed as the overwrite reply, then the export is declined by the browse-path answer. Generating means FRESH: stale id_ed25519{,.pub} are removed before keygen so it stays non-interactive. The DRY-RUN exit path now also shreds the live SSH key stage exactly like the failure/post-chroot cleanups do.
 #     Beta-v2.9.55   [INNER-DEV-NAME] — the outer disk carve already checks `[[ "$DISK" =~ (nvme|mmcblk) ]]` to decide whether the base name needs a `p` separator before the partition number (nvme0n1p1 vs sda1). The inner GPT carved inside a LUKS2 mapper hardcoded `${CRYPT_DEV}p${N}` → `/dev/mapper/void-rootp1`, but dm-linear children are named without the `p` separator (void-root1, not void-rootp1) — the `p` is only for devices whose basename ends with a digit. First real install of an ENCRYPT+regions+MULTI-FS layout crashed here immediately.
 #     Beta-v2.9.56   [INNER-PARTSCAN-KPARTX] — the first real ENCRYPT+regions install booted only to the dracut emergency shell REPRODUCIBLY: LUKS unlocked fine and the mapper showed PTTYPE=gpt in blkid, yet dracut looped "Scanning for all btrfs devices" and root=UUID=<inner btrfs> never resolved. Root cause: partprobe (the Beta-v2.9.45 PRIMARY BLKPG tool) silently failed to register the inner GPT on the OPENED LUKS2 mapper on this kernel/hardware — no child dm devices appeared; partx -a is confirmed unable to BLKPG a dm target ("error adding partitions 1-2" live). The only tool that works is kpartx: `kpartx -av /dev/dm-0` instantly created void-root1/void-root2 (names derive from the mapper name, matching [INNER-DEV-NAME]). Fix: kpartx -a is now PRIMARY in the boot udev RUN helper, _region_inner_partscan, AND module-setup (`require_binaries kpartx` + `inst_binary kpartx`), with partprobe then partx -a kept as ordered fallbacks for sanity; the initramfs-content gates (ESP sync guard + chroot FATAL) now also require `kpartx`; `kpartx` package added to PKG_PREFLIGHT + the module-gated install_pkgs line.
+#     Beta-v2.9.57   [INNER-PARTSCAN-UDEV-ATTR] — v2.9.56's boot udev RUN rule still NEVER fired, so the box hit the same emergency shell even with kpartx in the image: the rule matched ENV{DM_NAME}=="void-root", but the kernel's dm add-uevent carries NO DM_NAME (libdevmapper writes that key into the udev db later, AFTER udev rules have already evaluated) — an ENV{DM_NAME} predicate can never match at rule time, which explains BOTH the 2.9.45 "partprobe silently did nothing" AND the 2.9.56 "kpartx still didn't help": the RUN helper never ran. Empirically proven on the NVMe box (udevadm monitor: add uevent for dm-0 has only ACTION/DEVNAME/DEVPATH/DEVTYPE/DISKSEQ/MAJOR/MINOR/SEQNUM/SUBSYSTEM; DM_NAME appears only on the later UDEV-processed record). Fix: match `KERNEL=="dm-*", ATTR{dm/name}=="__CRYPT_NAME__"` — the device-mapper name IS exposed in sysfs (/sys/block/dm-0/dm/name) at add-time. Live-proof: a udev rule with that predicate fired the RUN helper and kpartx instantly mapped void-root1/void-root2 on luksOpen. Rule line now: ACTION=="add", SUBSYSTEM=="block", KERNEL=="dm-*", ATTR{dm/name}=="__CRYPT_NAME__", RUN+="/path". No other script logic changes (helper + module-setup + gates untouched).
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -11067,13 +11071,14 @@ chmod 0755 /usr/lib/dracut/modules.d/95snapshot-overlay/mount-snapshot-overlay.s
 
 # AI (Big Pickle) ADDITION — Beta-v2.9.43 [INNER-PARTSCAN-BOOT]: the inner-GPT
 # partscan dracut module (MULTI-FS + ENCRYPT carve). Written ONLY when ENCRYPT
-# + carved REGION_PARTITIONED, and PLACED here (before the final
+ # + carved REGION_PARTITIONED, and PLACED here (before the final
 # `xbps-reconfigure -f $KERNEL_PKGS` below) so the very first boot already has
 # it. When the opened LUKS2 mapper node appears, udev RUNs the helper the
-# instant DM_NAME matches, forcing the kernel to REGISTER the on-disk inner GPT
-# before dracut's udev settle resolves root=UUID=<inner btrfs> — an
-# unregistered inner GPT strands boot at the emergency shell (crash #009
-# residual). Beta-v2.9.45 [INNER-PARTSCAN-DMPROBE]: the helper's PRIMARY tool
+# instant sysfs ATTR{dm/name} matches the mapper name (since Beta-v2.9.57;
+# ENV{DM_NAME} never carries at add-uevent time), forcing the kernel to
+# REGISTER the on-disk inner GPT before dracut's udev settle resolves
+# root=UUID=<inner btrfs> — an unregistered inner GPT strands boot at the
+# emergency shell (crash #009 residual). Beta-v2.9.45 [INNER-PARTSCAN-DMPROBE]: the helper's PRIMARY tool
 # is partprobe (libparted dm-linear submaps — the ONLY tool that can BLKPG a
 # device-mapper target); partx -a is fallback only. Beta-v2.9.56
 # [INNER-PARTSCAN-KPARTX]: HARDWARE-PROVEN rewrite — kpartx -a is now PRIMARY
@@ -11118,8 +11123,9 @@ check() {
 }
 
 depends() {
-    # Numeric 98 > 90crypt: the container must already be open for DM_NAME to
-    # exist when our rule fires, so pull crypt explicitly alongside udev-rules.
+    # Numeric 98 > 90crypt: the container must already be open for the
+    # mapper's sysfs dm/name to exist when our rule fires, so pull crypt
+    # explicitly alongside udev-rules.
     echo crypt udev-rules
     return 0
 }
@@ -11171,12 +11177,19 @@ exit 0
 INNER_EOF
 
     cat > /usr/lib/dracut/modules.d/98void-inner-partscan/10-void-inner-partscan.rules << 'INNER_EOF'
-# AI (Big Pickle) ADDITION — Beta-v2.9.43 [INNER-PARTSCAN-BOOT]: RUN the
-# partscan helper the instant the opened LUKS2 mapper node appears (MULTI-FS +
-# ENCRYPT carve), so the inner GPT is registered BEFORE dracut's udev settle
-# resolves root=UUID=<inner btrfs>. __CRYPT_NAME__ is a placeholder baked at
-# install time (sed-special &\/ escaped — never a raw typed name).
-ACTION=="add", SUBSYSTEM=="block", ENV{DM_NAME}=="__CRYPT_NAME__", RUN+="/usr/bin/void-inner-partscan.sh"
+# AI (Big Pickle) ADDITION — Beta-v2.9.43 [INNER-PARTSCAN-BOOT], fixed
+# Beta-v2.9.57 [INNER-PARTSCAN-UDEV-ATTR]: RUN the partscan helper the instant
+# the opened LUKS2 mapper node appears (MULTI-FS + ENCRYPT carve), so the inner
+# GPT is registered BEFORE dracut's udev settle resolves root=UUID=<inner btrfs>.
+# Do NOT match on ENV{DM_NAME}: the kernel's dm add-uevent carries NO DM_NAME
+# (libdevmapper writes it into the udev db later, AFTER udev rules evaluate), so
+# an ENV{DM_NAME} predicate never matched and the RUN never executed — both the
+# 2.9.45 partprobe and 2.9.56 kpartx "fixes" silently did nothing at boot. The
+# sysfs attribute ATTR{dm/name} IS present at add-time (live-proven: the RUN
+# helper then creates void-root1/void-root2 via kpartx -a). __CRYPT_NAME__ is a
+# placeholder baked at install time (sed-special &\/ escaped — never a raw
+# typed name).
+ACTION=="add", SUBSYSTEM=="block", KERNEL=="dm-*", ATTR{dm/name}=="__CRYPT_NAME__", RUN+="/usr/bin/void-inner-partscan.sh"
 INNER_EOF
 
     chmod 0755 /usr/lib/dracut/modules.d/98void-inner-partscan/module-setup.sh

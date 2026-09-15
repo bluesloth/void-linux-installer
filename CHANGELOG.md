@@ -112,6 +112,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.54** | `[SSH-KEYGEN-STALE]` — on a live medium whose `/tmp` persists across runs, a stale `/tmp/ssh-keygen` makes the rerun's `ssh-keygen` prompt "Overwrite (y/n)?" and silently EATS the next answer-stream line (the keypair-backup export answer gets consumed as the overwrite reply, then the export is declined by the browse-path answer). Stale `id_ed25519{,.pub}` are removed before keygen so it stays non-interactive; the DRY-RUN exit path now also shreds the live SSH key stage like the failure/post-chroot cleanups do | Beta-v2.9.54 below |
 | **Beta-v2.9.55** | `[INNER-DEV-NAME]` — the outer disk carve already checks `[[ "$DISK" =~ (nvme|mmcblk) ]]` to decide whether the base name needs a `p` separator before the partition number (`nvme0n1p1` vs `sda1`). The inner GPT carved inside a LUKS2 mapper hardcoded `${CRYPT_DEV}p${N}` → `/dev/mapper/void-rootp1`, but dm-linear children are named WITHOUT the `p` separator (`void-root1`, not `void-rootp1`) — the `p` is only for devices whose basename ends with a digit. The first real ENCRYPT+regions+MULTI-FS install crashed here immediately ("region device ... does not exist (partscan?)"). Now resolves region devices + the Btrfs root with the same separator decision the outer carve uses | Beta-v2.9.55 below |
 | **Beta-v2.9.56** | `[INNER-PARTSCAN-KPARTX]` — the first real ENCRYPT+regions install booted to the dracut emergency shell REPRODUCIBLY: LUKS unlocked fine and the mapper showed `PTTYPE=gpt` in blkid, yet dracut looped "Scanning for all btrfs devices" and root=UUID (the inner btrfs) never resolved. Root cause: `partprobe` (the Beta-v2.9.45 PRIMARY BLKPG tool) silently failed to register the inner GPT on the OPENED LUKS2 mapper on this kernel/hardware — no child dm devices appeared, and `partx -a` is confirmed unable to BLKPG a dm target ("error adding partitions 1-2" live). The tool that works is `kpartx`: `kpartx -av /dev/dm-0` instantly created `void-root1`/`void-root2` (names derive from the mapper name, matching [INNER-DEV-NAME]). Fix: `kpartx -a` is now PRIMARY in the boot udev RUN helper, `_region_inner_partscan`, AND module-setup (`require_binaries kpartx` + `inst_binary kpartx`), with partprobe then partx -a kept as ordered fallbacks; the initramfs-content gates (ESP-sync guard + chroot FATAL) now also require `kpartx`; `kpartx` package added to PKG_PREFLIGHT + the module-gated `install_pkgs` line | Beta-v2.9.56 below |
+| **Beta-v2.9.57** | `[INNER-PARTSCAN-UDEV-ATTR]` — v2.9.56's boot udev RUN rule STILL NEVER FIRED: even with `kpartx` in the image the box hit the SAME emergency shell on the fixed system's first boot. Root cause: the rule matched `ENV{DM_NAME}=="void-root"`, but the kernel's dm **add uevent carries NO `DM_NAME`** — libdevmapper writes that key into the udev db later, AFTER udev rules have already evaluated. An `ENV{DM_NAME}` predicate can therefore never match at rule time, which retroactively explains BOTH the 2.9.45 "partprobe silently did nothing" AND the 2.9.56 "kpartx still didn't help": the RUN helper had never run (captured live: the dm-0 add uevent carries only ACTION/DEVNAME/DEVPATH/DEVTYPE/DISKSEQ/MAJOR/MINOR/SEQNUM/SUBSYSTEM; `DM_NAME` appears only on the later UDEV-processed record). Fix: match `KERNEL=="dm-*", ATTR{dm/name}=="__CRYPT_NAME__"` — the device-mapper name IS exposed in sysfs (`/sys/block/dm-0/dm/name`) at add-time. Live-proof: a udev rule with that predicate fired the RUN helper and `kpartx` instantly mapped `void-root1`/`void-root2` on `luksOpen`. Rule line: `ACTION=="add", SUBSYSTEM=="block", KERNEL=="dm-*", ATTR{dm/name}=="__CRYPT_NAME__", RUN+="..."`. No other script logic changed (helper, module-setup, and content gates untouched); the 98 prefix and `add_dracutmodules` short-name convention are NOT implicated (module was present in every booted image) | Beta-v2.9.57 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -663,6 +664,85 @@ CLEAN (no heredoc changed). `_region_inner_dev` unit-checked against
 `CRYPT_DEV=/dev/mapper/void-root` (→ `void-root1`/`void-root2`) and a
 hypothetical digit-suffixed mapper (→ `p1/p2`). A full re-run of the real
 install exercises the crash point on the live box (see Work State).
+
+---
+
+## Beta-v2.9.57 — `[INNER-PARTSCAN-UDEV-ATTR]` (the v2.9.56 "fix" still stranded boot: the udev rule's `ENV{DM_NAME}` predicate NEVER matches — sysfs `ATTR{dm/name}` is the key that actually fires the RUN)
+
+`SCRIPT_VERSION = Beta-v2.9.57`. Found 2026-09-15 on the SECOND boot attempt of
+the same box: the v2.9.56-fixed installed system (kpartx in the image, dracut
+--force rebuilt initramfs, ESP re-synced — the previous session's whole
+checklist) STILL died the SAME way after the reboot: dracut emergency shell,
+~217s of "Scanning for all btrfs devices", `dracut Warning: Cancelling resume
+operation`, and `/proc/partitions` showing only `dm-0` (no `void-root1/2`).
+This was decisive: the fix content WAS in the booted image, so the tool choice
+was never wrong — the udev **trigger** was. The rule in the booted image:
+
+```
+ACTION=="add", SUBSYSTEM=="block", ENV{DM_NAME}=="void-root", RUN+="/usr/bin/void-inner-partscan.sh"
+```
+
+**Root cause — `ENV{DM_NAME}` can never match a udev rule.** Captured live on
+the NVMe box with `udevadm monitor` while `cryptsetup luksOpen` re-opened the
+container: the kernel first emits an **add** uevent for `/dev/dm-0` whose
+environment carries only `ACTION/DEVNAME/DEVPATH/DEVTYPE/DISKSEQ/MAJOR/MINOR/SEQNUM/SUBSYSTEM`
+— **no `DM_NAME` at all** (the udev-processed record that follows shows
+`DM_UDEV_DISABLE_DISK_RULES_FLAG=1` / `DM_UDEV_DISABLE_OTHER_RULES_FLAG=1`
+and a `DM_COOKIE`, still no `DM_NAME`). In this eudev/libdevmapper stack,
+`DM_NAME` is written into the udev database by libdevmapper **itself, after**
+rules have already evaluated the uevent — so no rule evaluated on the kernel
+event can ever see it. The initramfs's `11-dm.rules` (142 bytes, guards only +
+`OPTIONS+="db_persist"`) does not set it either. Consequences worth
+internalizing: this ALSO retroactively rewrites both prior chapters — the
+2.9.45 "partprobe silently did nothing" and the 2.9.56 "kpartx still didn't
+help" were the SAME bug: the RUN helper never executed at boot. (The earlier
+chapters' tool-level conclusions remain valid — partprobe's BLKPG genuinely
+does not register a dm-crypt mapper and `partx -a` demonstrably cannot
+("error adding partitions 1-2"); those were proven by DIRECT running of the
+tools, not by the boot trigger.)
+
+**The match key that works:** the device-mapper name IS exposed at add-time as
+a sysfs attribute — `/sys/block/dm-0/dm/name` reads `void-root`
+(`dm/uuid` reads `CRYPT-LUKS2-<luksuid>-void-root`). A rule using
+`ATTR{dm/name}=="void-root"` was written to the live box and reloaded, and on
+the next `luksOpen` the RUN **fired** (`HELPER dev=/dev/dm-0 DEVNAME=/dev/dm-0`)
+and the helper's `kpartx -a /dev/dm-0` **created both submaps** —
+`void-root1` + `void-root2` in `/dev/mapper/` — i.e. the exact boot-time
+sequence, end to end, proven on the target hardware.
+
+**Fix `[INNER-PARTSCAN-UDEV-ATTR]`:**
+
+1. **udev rule** (`10-void-inner-partscan.rules`): predicate is now
+   `ACTION=="add", SUBSYSTEM=="block", KERNEL=="dm-*", ATTR{dm/name}=="__CRYPT_NAME__",
+   RUN+="/usr/bin/void-inner-partscan.sh"` (token still sed-baked to the
+   mapper name). `KERNEL=="dm-*"` keeps the RUN scoped to device-mapper nodes;
+   the kpartx-created children (`void-root1/2`, dm-1/dm-2) carry different
+   `dm/name` values so there is no re-trigger loop.
+2. **Everything else is untouched**: helper (its `$1 → $DEVNAME → /dev/mapper/<name>`
+   fallback chain held up exactly as designed — argv is empty under this eudev,
+   `DEVNAME=/dev/dm-0` did the work), module-setup, content gates, package
+   lines, `98` module prefix, and the `add_dracutmodules` short-name conf.
+3. **Boot chain now reads**: LUKS unlock (90crypt) → dm-0 add uevent →
+   `ATTR{dm/name}` matches `void-root` → RUN helper → `kpartx -a` builds
+   `void-root1/void-root2` → dracut settle resolves `root=UUID=<inner btrfs>`
+   from the READY child devices → root mounts → init proceeds.
+
+**Applied to the installed system 2026-09-15:** installed rules replaced under
+`/mnt/root/usr/lib/dracut/modules.d/98void-inner-partscan/`, dracut --force
+rebuilt all three images (7.2.6_1, 6.18.52_1, 6.12.109_1 — junk
+`initramfs-.img` from a first quoting-mangled attempt removed), `lsinitrd`
+confirms the `ATTR{dm/name}` rule + helper + kpartx in every image,
+`void-limine-sync-kernels` re-synced the ESP (content gate passed), and md5
+parity `/boot` ↔ ESP verified for all kernels. The dracut-module discovery
+question (the `98` prefix / `add_dracutmodules` short name) was audited
+against `dracut(8)` source — scanning is `modules.d/[0-9][0-9]*`, name lookup
+is `modules.d/??<name>`, so the number is mandatory and was always resolving;
+it is NOT implicated.
+
+**Validation:** `bash -n` OK; heredoc bodies unchanged apart from the rules
+file that was recheck-exercised by the live end-to-end proof above;
+`Debug/check-heredocs.sh` re-run recommended before the next real install. A
+reboot of this (now fixed) system is the end-to-end confirmation.
 
 ---
 
