@@ -107,27 +107,34 @@
 #     boot-time partscan dracut module (98void-inner-partscan), written into
 #     the chroot ONLY when ENCRYPT=yes + carved REGION_PARTITIONED. A udev
 #     RUN fires the instant the opened LUKS2 mapper's DM_NAME appears,
-#     calling a partprobe-primary / partx-a-fallback helper to force-register
-#     the on-disk inner GPT via BLKPG BEFORE dracut's udev settle resolves
-#     root=UUID=<inner btrfs> — an unregistered inner GPT strands boot at the
-#     emergency shell (crash #008 residual). Beta-v2.9.44 [DRACUT-CONF-NAME]:
+#     calling a kpartx-primary / partprobe-fallback / partx-a-last helper to
+#     REGISTER the on-disk inner GPT + build its dm-linear submaps BEFORE
+#     dracut's udev settle resolves root=UUID=<inner btrfs> — an
+#     unregistered inner GPT strands boot at the emergency shell (crash #008
+#     residual; proven on the first real ENCRYPT+regions install — Beta-v2.9.56
+#     [INNER-PARTSCAN-KPARTX], where partprobe's BLKPG silently produced nothing
+#     and `kpartx -av` fixed it). Beta-v2.9.44 [DRACUT-CONF-NAME]:
 #     the add_dracutmodules conf value MUST be the SHORT module name (no
 #     numeric prefix); dracut-ng resolves conf names as [0-9][0-9]<name> so
 #     a prefixed name matches nothing and the regen dies. Beta-v2.9.45
 #     [INNER-PARTSCAN-DMPROBE]: the partprobe-primary helper (libparted
-#     builds dm-linear submaps — the ONLY tool that can BLKPG a dm mapper;
+#     dm-linear submaps — the ONLY tool that can BLKPG a dm mapper;
 #     partx -a is fallback only) replaces the old inline partscan in both
-#     the fresh and the resume paths; _region_inner_partscan +
+#     the fresh and the resume paths; Beta-v2.9.56 [INNER-PARTSCAN-KPARTX]
+#     promotes kpartx (-a) to PRIMARY (the hardware-proven registration tool
+#     for an opened dm-crypt mapper), keeping partprobe + partx -a as ordered
+#     fallbacks; _region_inner_partscan +
 #     _region_inner_dev are named functions; cleanup_on_failure partx-d
 #     unwinds before luksClose; a chroot FATAL initramfs-content gate runs
 #     after the dracut --force loop (abort before ESP re-sync if any image
-#     lacks cryptsetup/partprobe/helper bits); the void-limine-sync-kernels
+#     lacks cryptsetup/kpartx/partprobe/helper bits); the void-limine-sync-kernels
 #     per-image guard (same lsinitrd checks) prevents ever copying a broken
-#     initramfs onto the ESP on a future kernel update. Parted is shipped
-#     into the target and added to PKG_PREFLIGHT whenever the module
+#     initramfs onto the ESP on a future kernel update. kpartx + Parted are
+#     shipped into the target and added to PKG_PREFLIGHT whenever the module
 #     installs. The __CRYPT_NAME__ token is baked via sed with &\/\ escape;
-#     do NOT simplify back to partx-primary, do NOT drop inst_binary
-#     partprobe, do NOT udevadm-settle inside the helper (deadlocks udevd),
+#     do NOT simplify back to partx-primary or partprobe-primary alone, do
+#     NOT drop inst_binary kpartx/partprobe, do NOT udevadm-settle inside the
+#     helper (deadlocks udevd),
 #     and do NOT rework to an initqueue hook (dracut resolves root through
 #     the same settle — too late).
 #     AI (Big Pickle) ADDITION — Beta-v2.9.47 [TEE-BOOT-QUIET]+
@@ -647,6 +654,7 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.53   [HEADLESS-PLAN-LABEL] — the DRY-RUN plan's Desktop/DM line printed "headless=$HAS_GRAPHICAL" verbatim, i.e. "(headless=yes)" for a GRAPHICAL MATE/LightDM install — the label's meaning was inverted. The plan now prints "(graphical)" or "(headless)" honestly. Print-only cosmetic fix.
 #     Beta-v2.9.54   [SSH-KEYGEN-STALE] — on a live medium whose /tmp persists across runs (tmpfs clears on fresh boot, but a re-run, resume, or a dry-run that exited before the stage shred leaves /tmp/ssh-keygen behind), ssh-keygen -f on the existing key prompts "Overwrite (y/n)?" and silently EATS the next answer-stream line: the keypair-backup export answer is consumed as the overwrite reply, then the export is declined by the browse-path answer. Generating means FRESH: stale id_ed25519{,.pub} are removed before keygen so it stays non-interactive. The DRY-RUN exit path now also shreds the live SSH key stage exactly like the failure/post-chroot cleanups do.
 #     Beta-v2.9.55   [INNER-DEV-NAME] — the outer disk carve already checks `[[ "$DISK" =~ (nvme|mmcblk) ]]` to decide whether the base name needs a `p` separator before the partition number (nvme0n1p1 vs sda1). The inner GPT carved inside a LUKS2 mapper hardcoded `${CRYPT_DEV}p${N}` → `/dev/mapper/void-rootp1`, but dm-linear children are named without the `p` separator (void-root1, not void-rootp1) — the `p` is only for devices whose basename ends with a digit. First real install of an ENCRYPT+regions+MULTI-FS layout crashed here immediately.
+#     Beta-v2.9.56   [INNER-PARTSCAN-KPARTX] — the first real ENCRYPT+regions install booted only to the dracut emergency shell REPRODUCIBLY: LUKS unlocked fine and the mapper showed PTTYPE=gpt in blkid, yet dracut looped "Scanning for all btrfs devices" and root=UUID=<inner btrfs> never resolved. Root cause: partprobe (the Beta-v2.9.45 PRIMARY BLKPG tool) silently failed to register the inner GPT on the OPENED LUKS2 mapper on this kernel/hardware — no child dm devices appeared; partx -a is confirmed unable to BLKPG a dm target ("error adding partitions 1-2" live). The only tool that works is kpartx: `kpartx -av /dev/dm-0` instantly created void-root1/void-root2 (names derive from the mapper name, matching [INNER-DEV-NAME]). Fix: kpartx -a is now PRIMARY in the boot udev RUN helper, _region_inner_partscan, AND module-setup (`require_binaries kpartx` + `inst_binary kpartx`), with partprobe then partx -a kept as ordered fallbacks for sanity; the initramfs-content gates (ESP sync guard + chroot FATAL) now also require `kpartx`; `kpartx` package added to PKG_PREFLIGHT + the module-gated install_pkgs line.
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -1332,8 +1340,16 @@ cleanup_on_failure() {
     # promise breaks exactly like the first inner-GPT failures. partx -d is a
     # safe no-op when partprobe (BLKPG) had registered or nothing was open yet;
     # guard on ENCRYPT + carved REGION_PARTITIONED only.
+    # Beta-v2.9.56 [INNER-PARTSCAN-KPARTX]: kpartx -a is what actually creates
+    # the void-root1/void-root2 dm-linear submaps now, and ONLY kpartx -d can
+    # tear them down — partx -d cannot (it cannot BLKPG a dm target at all).
+    # Try kpartx -d first, then partx -d as the fallback.
     if [ "$ENCRYPT" = "yes" ] && [ -n "${REGION_PARTITIONED:-}" ]; then
-        partx -d "${CRYPT_DEV:-/dev/mapper/${CRYPT_NAME:-void-root}}" 2>/dev/null || true
+        if command -v kpartx > /dev/null 2>&1; then
+            kpartx -d "${CRYPT_DEV:-/dev/mapper/${CRYPT_NAME:-void-root}}" 2>/dev/null || partx -d "${CRYPT_DEV:-/dev/mapper/${CRYPT_NAME:-void-root}}" 2>/dev/null || true
+        else
+            partx -d "${CRYPT_DEV:-/dev/mapper/${CRYPT_NAME:-void-root}}" 2>/dev/null || true
+        fi
     fi
     cryptsetup luksClose "${CRYPT_NAME:-void-root}" 2>/dev/null || true
     [ "$ENCRYPT" = "yes" ] && echo "!! Note: the LUKS mapper has been closed — the disk is now LOCKED." >&2
@@ -4546,9 +4562,22 @@ export NREG
 # the close: probing the device while a stale open holds it breaks the
 # luksClose cycle (and with it the "disk is now LOCKED" promise). Best-effort:
 # returns 0 no matter what, mirroring the boot-time udev RUN helper.
+# AI (Big Pickle) FIX — Beta-v2.9.56 [INNER-PARTSCAN-KPARTX]: kpartx is now
+# PRIMARY — it reads the on-disk GPT off the opened LUKS2 mapper and creates
+# real dm-linear submaps (void-root1/void-root2...) via dmsetup, which is what
+# the boot path actually needs. The old partprobe-first order FAILED on the
+# first real ENCRYPT+regions hardware: the boot log showed luksopen fine, the
+# mapper reading its inner GPT (PTTYPE=gpt in blkid), yet dracut looped
+# "Scanning for all btrfs devices" until root=UUID dead — partprobe's BLKPG did
+# not produce the child dm devices, and partx -a cannot BLKPG a dm target at
+# all ("error adding partitions 1-2" on a dm-crypt device, confirmed live).
+# Live fix on that box: `kpartx -av /dev/dm-0` instantly created both submaps.
+# Order is now kpartx -a -> partprobe -> partx -a (all best-effort, exit 0).
 _region_inner_partscan() {
     local _ps_dev="${1:-$CRYPT_DEV}"
-    if command -v partprobe > /dev/null 2>&1; then
+    if command -v kpartx > /dev/null 2>&1; then
+        kpartx -a "$_ps_dev" 2> /dev/null || partprobe "$_ps_dev" 2> /dev/null || partx -a "$_ps_dev" 2> /dev/null || true
+    elif command -v partprobe > /dev/null 2>&1; then
         partprobe "$_ps_dev" 2> /dev/null || partx -a "$_ps_dev" 2> /dev/null || true
     else
         partx -a "$_ps_dev" 2> /dev/null || true
@@ -4714,16 +4743,17 @@ YK_LIVE_PKGS=""
 if [ "$DRY_RUN" = "1" ]; then
     # AI (Big Pickle) ADDITION — Beta-v2.5.1 [DRY-RUN]: a plan run must not
     # modify the live environment (xbps-install -Syu would sync/upgrade and
-    # install gptfdisk/parted/btrfs-progs/openssl into the running medium).
+    # install gptfdisk/parted/kpartx/btrfs-progs/openssl into the running
+    # medium).
     # Pretend success so the flow reaches the plan printout at the partition
     # boundary; the packages are not actually installed.
-    echo "==> [DRY-RUN] Skipping live-CD package sync (would install gptfdisk/parted/btrfs-progs/openssl${YK_LIVE_PKGS} into the live env)."
+    echo "==> [DRY-RUN] Skipping live-CD package sync (would install gptfdisk/parted/kpartx/btrfs-progs/openssl${YK_LIVE_PKGS} into the live env)."
     LIVECD_SYNC_OK=1
 else
 for REPO_ATTEMPT in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2"; do
     echo "==> Attempting live-CD package sync against repository: ${REPO_ATTEMPT}"
     # shellcheck disable=SC2086  # $YK_LIVE_PKGS is a space-separated package list, split on purpose
-    if xbps-install -Syu -R "$REPO_ATTEMPT" xbps -y && xbps-install -R "$REPO_ATTEMPT" gptfdisk parted btrfs-progs openssl${YK_LIVE_PKGS} -y; then
+    if xbps-install -Syu -R "$REPO_ATTEMPT" xbps -y && xbps-install -R "$REPO_ATTEMPT" gptfdisk parted kpartx btrfs-progs openssl${YK_LIVE_PKGS} -y; then
         LIVECD_SYNC_OK=1
         echo "==> Live-CD package sync succeeded using: ${REPO_ATTEMPT}"
         break
@@ -5042,6 +5072,7 @@ iptables
 kde-baseapps
 kde-plasma
 kio-admin
+kpartx
 libgamemode-32bit
 libjack-pipewire
 libspa-bluetooth
@@ -5326,7 +5357,8 @@ if [ "$RESUME" != "1" ]; then
             unset _rr_pn _rr_posn _rr
             # Force partscan: close + re-open the mapper (fresh passphrase is
             # still in memory at this point), then REGISTER the fresh inner GPT
-            # with the kernel via BLKPG (partprobe-primary + partx -a fallback,
+            # with the kernel + build its dm-linear submaps (kpartx-primary,
+            # partprobe + partx -a fallbacks, [INNER-PARTSCAN-KPARTX] /
             # [INNER-PARTSCAN-DMPROBE]) BEFORE _region_inner_dev re-resolves the
             # region devices. The old inline partprobe only worked because the
             # whole install used the SAME freshly-carved node; the hardened
@@ -5488,8 +5520,9 @@ else
     # run; resolve the region devices from the (just opened) mapper the same
     # way the fresh path does, and point BTRFS_DEV at the LAST inner partition
     # (the LINUX Btrfs root). Partscan is forced here too — Beta-v2.9.45
-    # [INNER-PARTSCAN-DMPROBE] runs _region_inner_partscan (partprobe-primary +
-    # partx -a fallback) AFTER this open and BEFORE _region_inner_dev re-resolves
+    # [INNER-PARTSCAN-DMPROBE] / Beta-v2.9.56 [INNER-PARTSCAN-KPARTX] runs
+    # _region_inner_partscan (kpartx-primary, partprobe + partx -a fallbacks)
+    # AFTER this open and BEFORE _region_inner_dev re-resolves
     # the region devices; the stale 2.9.38 partprobe-only after-open inline
     # (which could race the reopen already in flight) is what the helpers replace.
     if [ "$ENCRYPT" = "yes" ] && [ -n "${REGION_PARTITIONED:-}" ]; then
@@ -6804,10 +6837,12 @@ install_pkgs ${MICROCODE_PKG} linux-firmware dracut sudo vim nano bash bash-comp
 # AI (Big Pickle) ADDITION — Beta-v2.9.43 [INNER-PARTSCAN-BOOT]: when the inner
 # GPT (MULTI-FS + ENCRYPT) needs a boot-time partscan, parted must ship IN THE
 # TARGET so the 98void-inner-partscan dracut module's module-setup.sh can
-# `inst_binary partprobe` (partprobe is the PRIMARY BLKPG registration tool for
-# a device-mapper target; `partx -a` alone cannot probe a dm mapper). Gate
-# exactly like the module: ENCRYPT + carved REGION_PARTITIONED.
-[ "$ENCRYPT" = "yes" ] && [ -n "${REGION_PARTITIONED:-}" ] && install_pkgs parted
+# `inst_binary partprobe` and `inst_binary kpartx` (Beta-v2.9.56: kpartx is the
+# PRIMARY inner-partition registration tool — it builds dm-linear submaps from
+# the on-disk GPT off the opened mapper via dmsetup; partprobe's BLKPG and
+# `partx -a` alone cannot probe a dm mapper). Gate exactly like the module:
+# ENCRYPT + carved REGION_PARTITIONED.
+[ "$ENCRYPT" = "yes" ] && [ -n "${REGION_PARTITIONED:-}" ] && install_pkgs kpartx parted
 # AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: install the C-only
 # `yubikey-personalization` (ykpers) tools (ykpersonalize for enrolling already
 # ran on the live medium; ykchalresp is what the initramfs keyscript calls at
@@ -9081,7 +9116,8 @@ for _kver in $INSTALLED_KVERS; do
     # because partprobe was missing from the image, and the ESP had already
     # been overwritten). Same demand-gating as the install-time FATAL gate:
     # ENCRYPT=yes requires cryptsetup; when the 98void-inner-partscan module
-    # dir exists (carved regions), partprobe + the helper are required too.
+    # dir exists (carved regions), kpartx (Beta-v2.9.56 PRIMARY) + partprobe +
+    # the helper are required too.
     # Skip-with-warning on failure and leave the old ESP copy in place. Only
     # verified when lsinitrd is available (it ships with dracut, so it always
     # is on these installs); skipping the check then is a bug detector, so the
@@ -9092,6 +9128,7 @@ for _kver in $INSTALLED_KVERS; do
         if [ "${ENCRYPT:-}" = "yes" ]; then
             lsinitrd "/boot/initramfs-${_kver}.img" 2>/dev/null | grep -c 'bin/cryptsetup' >/dev/null || _img_ok=0
             if [ -d /usr/lib/dracut/modules.d/98void-inner-partscan ]; then
+                lsinitrd "/boot/initramfs-${_kver}.img" 2>/dev/null | grep -c 'kpartx' >/dev/null || _img_ok=0
                 lsinitrd "/boot/initramfs-${_kver}.img" 2>/dev/null | grep -c 'partprobe' >/dev/null || _img_ok=0
                 lsinitrd "/boot/initramfs-${_kver}.img" 2>/dev/null | grep -c 'void-inner-partscan.sh' >/dev/null || _img_ok=0
                 lsinitrd "/boot/initramfs-${_kver}.img" 2>/dev/null | grep -c '10-void-inner-partscan.rules' >/dev/null || _img_ok=0
@@ -9101,7 +9138,7 @@ for _kver in $INSTALLED_KVERS; do
         _img_ok=0
     fi
     if [ "$_img_ok" != "1" ]; then
-        echo "WARNING: /boot/initramfs-${_kver}.img fails boot-content verification (missing cryptsetup and/or partprobe/void-inner-partscan bits) — NOT copying it to the ESP; the previous ESP initramfs stays. Re-run 'dracut --force /boot/initramfs-${_kver}.img ${_kver}' once the required packages (cryptsetup, parted) are installed." >&2
+        echo "WARNING: /boot/initramfs-${_kver}.img fails boot-content verification (missing cryptsetup and/or kpartx/partprobe/void-inner-partscan bits) — NOT copying it to the ESP; the previous ESP initramfs stays. Re-run 'dracut --force /boot/initramfs-${_kver}.img ${_kver}' once the required packages (cryptsetup, kpartx, parted) are installed." >&2
         continue
     fi
     cp -f "/boot/vmlinuz-${_kver}" "/boot/efi/void-kernel/vmlinuz-${_kver}"
@@ -11034,15 +11071,23 @@ chmod 0755 /usr/lib/dracut/modules.d/95snapshot-overlay/mount-snapshot-overlay.s
 # `xbps-reconfigure -f $KERNEL_PKGS` below) so the very first boot already has
 # it. When the opened LUKS2 mapper node appears, udev RUNs the helper the
 # instant DM_NAME matches, forcing the kernel to REGISTER the on-disk inner GPT
-# via BLKPG before dracut's udev settle resolves root=UUID=<inner btrfs> — an
+# before dracut's udev settle resolves root=UUID=<inner btrfs> — an
 # unregistered inner GPT strands boot at the emergency shell (crash #009
 # residual). Beta-v2.9.45 [INNER-PARTSCAN-DMPROBE]: the helper's PRIMARY tool
 # is partprobe (libparted dm-linear submaps — the ONLY tool that can BLKPG a
-# device-mapper target); partx -a is fallback only. Do NOT "simplify" back to
-# partx-primary (it errors "error adding partitions" against a dm mapper), do
-# NOT rework to a settled/initqueue hook (dracut resolves root through the same
-# settle — too late), do NOT udevadm-settle inside the RUN script (deadlocks
-# udevd), keep inst_binary partprobe, and keep the __CRYPT_NAME__ token bake
+# device-mapper target); partx -a is fallback only. Beta-v2.9.56
+# [INNER-PARTSCAN-KPARTX]: HARDWARE-PROVEN rewrite — kpartx -a is now PRIMARY
+# (reads the on-disk GPT off the opened dm-crypt mapper and creates real
+# dm-linear submaps void-root1/void-root2... via dmsetup; the partprobe-first
+# order failed on the first real ENCRYPT+regions boot where BLKPG produced no
+# child devices and dracut looped "Scanning for all btrfs devices" to the
+# emergency shell, while `kpartx -av` registered both inner partitions
+# instantly). partprobe then partx -a remain as fallbacks. Do NOT "simplify"
+# back to partx-primary or partprobe-primary alone (both can fail against a dm
+# mapper: "partx: ... error adding partitions"), do NOT rework to a
+# settled/initqueue hook (dracut resolves root through the same settle — too
+# late), do NOT udevadm-settle inside the RUN script (deadlocks udevd), keep
+# inst_binary kpartx + partprobe, and keep the __CRYPT_NAME__ token bake
 # (sed-special &\/ escaped — never a raw typed name).
 if [ "$ENCRYPT" = "yes" ] && [ -n "${REGION_PARTITIONED:-}" ]; then
     mkdir -p /usr/lib/dracut/modules.d/98void-inner-partscan
@@ -11054,9 +11099,20 @@ if [ "$ENCRYPT" = "yes" ] && [ -n "${REGION_PARTITIONED:-}" ]; then
 # Beta-v2.9.45 [INNER-PARTSCAN-DMPROBE]: MUST keep `inst_binary partprobe` —
 # the installer installs parted INTO the target whenever this module ships, so
 # this inst can never abort the dracut run.
+# Beta-v2.9.56 [INNER-PARTSCAN-KPARTX]: kpartx is now the PRIMARY registration
+# tool — it reads the on-disk GPT off the OPENED LUKS2 mapper and creates real
+# dm-linear submaps (void-root1/void-root2...) via dmsetup. The old
+# partprobe-first order was proven dead on the first real ENCRYPT+regions boot
+# (luksopen worked, inner GPT readable, yet dracut looped "Scanning for all
+# btrfs devices" until root=UUID dead; `kpartx -av <mapper>` fixed it live and
+# instantly). module-setup therefore REQUIRES kpartx and inst's it FIRST, then
+# partprobe + partx as fallbacks (kept for environments where partprobe's
+# BLKPG does register). The installer installs kpartx AND parted INTO the
+# target whenever this module ships, so these inst's never abort the run.
 # shellcheck disable=SC2154  # $moddir is set by dracut before install() runs
 
 check() {
+    require_binaries kpartx || return 1
     require_binaries partprobe || return 1
     return 0
 }
@@ -11069,6 +11125,7 @@ depends() {
 }
 
 install() {
+    inst_binary kpartx
     inst_binary partprobe
     inst_binary partx
     inst_script "$moddir/void-inner-partscan.sh" /usr/bin/void-inner-partscan.sh
@@ -11079,24 +11136,32 @@ INNER_EOF
     cat > /usr/lib/dracut/modules.d/98void-inner-partscan/void-inner-partscan.sh << 'INNER_EOF'
 #!/bin/sh
 # AI (Big Pickle) ADDITION — Beta-v2.9.43 [INNER-PARTSCAN-BOOT] / Beta-v2.9.45
-# [INNER-PARTSCAN-DMPROBE]: udev RUN helper for the 98void-inner-partscan
-# module. Fires the instant the opened LUKS2 mapper node appears, forcing the
-# kernel to REGISTER the on-disk inner GPT via BLKPG BEFORE dracut resolves
-# root=UUID=<inner btrfs> through the udev settle.
+# [INNER-PARTSCAN-DMPROBE] / Beta-v2.9.56 [INNER-PARTSCAN-KPARTX]: udev RUN
+# helper for the 98void-inner-partscan module. Fires the instant the opened
+# LUKS2 mapper node appears, forcing the kernel to REGISTER the on-disk inner
+# GPT BEFORE dracut resolves root=UUID=<inner btrfs> through the udev settle.
 #
-# Beta-v2.9.45: partprobe is PRIMARY (libparted dm-linear submaps — the ONLY
-# tool that can BLKPG a device-mapper target); partx -a is FALLBACK ONLY (it
-# cannot BLKPG a dm target: "partx: /dev/mapper/<name>: error adding
-# partitions 1-N"). Best-effort by design: exit 0 even on failure — udev must
-# never wedge, and the post-open partscan covers the non-critical cases. NO
-# `udevadm settle` here: settling inside a udev RUN deadlocks udevd.
+# Beta-v2.9.56: kpartx -a is PRIMARY — it reads the on-disk GPT off the opened
+# dm-crypt mapper and creates real dm-linear submaps (void-root1/void-root2...)
+# via dmsetup, which is the only mechanism that provably registers the inner
+# partitions (proof: first real ENCRYPT+regions boot luksopened fine and the
+# mapper showed PTTYPE=gpt, yet partprobe's BLKPG produced no child devices and
+# the btrfs-device scan looped to the emergency shell; `kpartx -av` on that
+# live box created both submaps instantly). partprobe (BLKPG/libparted) remains
+# the first FALLBACK, partx -a the last (both can fail against a dm mapper:
+# "partx: /dev/mapper/<name>: error adding partitions 1-N"). Best-effort by
+# design: exit 0 even on failure — udev must never wedge, and the post-open
+# partscan covers the non-critical cases. NO `udevadm settle` here: settling
+# inside a udev RUN deadlocks udevd.
 #
 # shellcheck disable=SC2154  # DEVNAME is injected by udev at run time
 _dev="${1:-${DEVNAME:-/dev/mapper/__CRYPT_NAME__}}"
 
 [ -b "$_dev" ] || exit 0
 
-if command -v partprobe > /dev/null 2>&1; then
+if command -v kpartx > /dev/null 2>&1; then
+    kpartx -a "$_dev" 2> /dev/null || partprobe "$_dev" 2> /dev/null || partx -a "$_dev" 2> /dev/null || true
+elif command -v partprobe > /dev/null 2>&1; then
     partprobe "$_dev" 2> /dev/null || partx -a "$_dev" 2> /dev/null || true
 else
     partx -a "$_dev" 2> /dev/null || true
@@ -11488,14 +11553,18 @@ for kver_dir in /lib/modules/*; do
     dracut --force "/boot/initramfs-${kver}.img" "$kver"
 done
 
-# AI (Big Pickle) ADDITION — Beta-v2.9.45 [INNER-PARTSCAN-DMPROBE]: FATAL
-# initramfs-content gate. Every /boot initramfs MUST actually carry the
-# boot-required bits — a broken image that slips past here would be copied to
-# the ESP by the Limine re-sync below (and even GRUB would fail a LUKS root
-# whose initramfs cannot unlock/register it), dying only at next boot when disk
-# re-provisioning hurts. Abort HERE, while the disk is still consistent and
-# nothing half-built has shipped. Uses the same SIGPIPE-safe lsinitrd gates as
-# the live-side per-image guard; lsinitrd absent = cannot audit = FATAL.
+# AI (Big Pickle) ADDITION — Beta-v2.9.45 [INNER-PARTSCAN-DMPROBE] / Beta-v2.9.56
+# [INNER-PARTSCAN-KPARTX]: FATAL initramfs-content gate. Every /boot initramfs
+# MUST actually carry the boot-required bits — a broken image that slips past
+# here would be copied to the ESP by the Limine re-sync below (and even GRUB
+# would fail a LUKS root whose initramfs cannot unlock/register it), dying only
+# at next boot when disk re-provisioning hurts. Abort HERE, while the disk is
+# still consistent and nothing half-built has shipped. Since Beta-v2.9.56 the
+# partscan module also REQUIRES the kpartx binary (its PRIMARY tool) — an
+# image with only partprobe is exactly the broken one that stranded the first
+# real ENCRYPT+regions boot at the emergency shell. Uses the same SIGPIPE-safe
+# lsinitrd gates as the live-side per-image guard; lsinitrd absent = cannot
+# audit = FATAL.
 if [ "$ENCRYPT" = "yes" ]; then
     _gate_fail=0
     for kver_gate in /boot/*.img; do
@@ -11504,6 +11573,7 @@ if [ "$ENCRYPT" = "yes" ]; then
         if command -v lsinitrd > /dev/null 2>&1; then
             lsinitrd "$_img" 2> /dev/null | grep -c 'bin/cryptsetup' > /dev/null || _gate_fail=1
             if [ -d /usr/lib/dracut/modules.d/98void-inner-partscan ]; then
+                lsinitrd "$_img" 2> /dev/null | grep -c 'kpartx' > /dev/null || _gate_fail=1
                 lsinitrd "$_img" 2> /dev/null | grep -c 'partprobe' > /dev/null || _gate_fail=1
                 lsinitrd "$_img" 2> /dev/null | grep -c 'void-inner-partscan.sh' > /dev/null || _gate_fail=1
                 lsinitrd "$_img" 2> /dev/null | grep -c '10-void-inner-partscan.rules' > /dev/null || _gate_fail=1
@@ -11515,8 +11585,8 @@ if [ "$ENCRYPT" = "yes" ]; then
         [ "$_gate_fail" -eq 1 ] && break
     done
     if [ "$_gate_fail" -eq 1 ]; then
-        echo "FATAL: initramfs ${_img} is missing required boot content (cryptsetup and/or partprobe/void-inner-partscan bits)." >&2
-        echo "       Aborting before the ESP sync — do not boot this disk. Install cryptsetup/parted, rebuild with dracut --force, and re-run." >&2
+        echo "FATAL: initramfs ${_img} is missing required boot content (cryptsetup and/or kpartx/partprobe/void-inner-partscan bits)." >&2
+        echo "       Aborting before the ESP sync — do not boot this disk. Install cryptsetup/kpartx/parted, rebuild with dracut --force, and re-run." >&2
         exit 1
     fi
     unset _gate_fail

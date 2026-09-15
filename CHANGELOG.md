@@ -111,6 +111,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.53** | `[HEADLESS-PLAN-LABEL]` — the DRY-RUN plan's Desktop/DM line printed `headless=$HAS_GRAPHICAL` verbatim, i.e. `(headless=yes)` for a GRAPHICAL MATE/LightDM install — the label's meaning was inverted. The plan now prints `(graphical)` or `(headless)` honestly. Print-only cosmetic fix. | Beta-v2.9.53 below |
 | **Beta-v2.9.54** | `[SSH-KEYGEN-STALE]` — on a live medium whose `/tmp` persists across runs, a stale `/tmp/ssh-keygen` makes the rerun's `ssh-keygen` prompt "Overwrite (y/n)?" and silently EATS the next answer-stream line (the keypair-backup export answer gets consumed as the overwrite reply, then the export is declined by the browse-path answer). Stale `id_ed25519{,.pub}` are removed before keygen so it stays non-interactive; the DRY-RUN exit path now also shreds the live SSH key stage like the failure/post-chroot cleanups do | Beta-v2.9.54 below |
 | **Beta-v2.9.55** | `[INNER-DEV-NAME]` — the outer disk carve already checks `[[ "$DISK" =~ (nvme|mmcblk) ]]` to decide whether the base name needs a `p` separator before the partition number (`nvme0n1p1` vs `sda1`). The inner GPT carved inside a LUKS2 mapper hardcoded `${CRYPT_DEV}p${N}` → `/dev/mapper/void-rootp1`, but dm-linear children are named WITHOUT the `p` separator (`void-root1`, not `void-rootp1`) — the `p` is only for devices whose basename ends with a digit. The first real ENCRYPT+regions+MULTI-FS install crashed here immediately ("region device ... does not exist (partscan?)"). Now resolves region devices + the Btrfs root with the same separator decision the outer carve uses | Beta-v2.9.55 below |
+| **Beta-v2.9.56** | `[INNER-PARTSCAN-KPARTX]` — the first real ENCRYPT+regions install booted to the dracut emergency shell REPRODUCIBLY: LUKS unlocked fine and the mapper showed `PTTYPE=gpt` in blkid, yet dracut looped "Scanning for all btrfs devices" and root=UUID (the inner btrfs) never resolved. Root cause: `partprobe` (the Beta-v2.9.45 PRIMARY BLKPG tool) silently failed to register the inner GPT on the OPENED LUKS2 mapper on this kernel/hardware — no child dm devices appeared, and `partx -a` is confirmed unable to BLKPG a dm target ("error adding partitions 1-2" live). The tool that works is `kpartx`: `kpartx -av /dev/dm-0` instantly created `void-root1`/`void-root2` (names derive from the mapper name, matching [INNER-DEV-NAME]). Fix: `kpartx -a` is now PRIMARY in the boot udev RUN helper, `_region_inner_partscan`, AND module-setup (`require_binaries kpartx` + `inst_binary kpartx`), with partprobe then partx -a kept as ordered fallbacks; the initramfs-content gates (ESP-sync guard + chroot FATAL) now also require `kpartx`; `kpartx` package added to PKG_PREFLIGHT + the module-gated `install_pkgs` line | Beta-v2.9.56 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -662,6 +663,105 @@ CLEAN (no heredoc changed). `_region_inner_dev` unit-checked against
 `CRYPT_DEV=/dev/mapper/void-root` (→ `void-root1`/`void-root2`) and a
 hypothetical digit-suffixed mapper (→ `p1/p2`). A full re-run of the real
 install exercises the crash point on the live box (see Work State).
+
+---
+
+## Beta-v2.9.56 — `[INNER-PARTSCAN-KPARTX]` (the first real ENCRYPT+regions boot died in emergency shell: `kpartx`, not `partprobe`, is the tool that registers an opened LUKS2 mapper's inner GPT)
+
+`SCRIPT_VERSION = Beta-v2.9.56`. Found on the FIRST REAL ENCRYPT+regions+MULTI-FS
+install (nvme0n1, the same live box as 2.9.55), 2026-09-15: the install
+COMPLETED (post-2.9.55-verify run; LUKS2 argon2id, outer nvme0n1p1=ESP 6G
+FAT + nvme0n1p2=LUKS2 948G, inner GPT in the mapper with part1=games 200G btrfs
++ part2=LINUX btrfs root, Limine on the ESP, snapper baseline, SSH keypair
+exported to the stick), but the FIRST BOOT reproducibly landed at the **dracut
+emergency shell** → reboot → no unlock password prompt → rescue menu. NOT a
+password problem: `rd.luks.uuid=7559af9f...` canonical, live
+`cryptsetup luksOpen` + `kpartx` mapped the container; the real story is in
+the boot log (`rdsosreport.txt` captured on the stick):
+
+```
+dracut: luksOpen <LUKS uid> none luks
+...
+dracut: Scanning for all btrfs devices
+dracut: Scanning for all btrfs devices
+dracut: Scanning for all btrfs devices
+dracut: Scanning for all btrfs devices
+... (loops ~3 min, then)
+dracut: Switching root
+dracut: Warning: Can't process initqueue; breaking to emergency shell
+```
+
+LUKS **did** unlock at boot (initramfs holds the `crypt` module + carrier), the
+LUKS2 mapper node appeared with the inner GPT READABLE (`blkid` shows
+`PTTYPE=gpt`), but **no `/dev/mapper/void-root1/2` child devices ever
+appeared** — the on-disk inner partition table was never registered, so
+`root=UUID=e43914d9-...` had nothing to resolve, the btrfs component to scan
+was invisible → the 3-minute btrfs scan loop → emergency shell. This is EXACTLY the
+crash #009 residual the 2.9.43–2.9.45 partscan module was built to prevent —
+it just used the wrong tool.
+
+**Root cause — partprobe is not the registration tool for a dm-crypt mapper
+on this kernel/hardware.** The Beta-v2.9.45 premise that partprobe builds
+"libparted dm-linear submaps ... the ONLY tool that can BLKPG a device-mapper
+target" was derived from <host> (an unencrypted, plain-disk install where
+partprobe on the OUTER disk genuinely works). On the OPENED LUKS2 mapper it
+silently produced NOTHING — no dm children, no udev events, exit 0 (the
+helper redirected stderr, so the failure was invisible). The
+hands-on verification on the live box (documented in this session's
+recovery notes):
+
+- `partx -a /dev/mapper/void-root` → `partx: /dev/mapper/void-root: error adding
+  partitions 1-2` (as 2.9.45 documented, partx cannot BLKPG a dm target).
+- `partprobe` is **not even installed** on this live medium; in the installed
+  initramfs it IS present but the boot log proved it changed nothing.
+- `kpartx -av /dev/dm-0` (devname the udev RUN helper actually receives)
+  → **instantly created both submaps**: `add map void-root1 (254:1): 0
+  419430400 linear 254:0 2048` and `add map void-root2 (254:2): 0
+  1568359022 linear 254:0 419432448` — i.e. real, working dm-linear child
+  devices with the btrfs filesystems directly readable (`blkid` → LABEL
+  VOID-games / VOID; the exact `void-root1/2` names WITHOUT the `p`
+  separator, matching 2.9.55 [INNER-DEV-NAME]).
+
+kpartx is the tool that reads the partition table of a runtime block device
+(the OPENED mapper) and CREATES the dm-linear submaps via dmsetup — exactly
+the "BLKPG/register" job that libparted's partprobe attempts against an
+accessible device and fails against a device-mapper target.
+
+**Fix `[INNER-PARTSCAN-KPARTX]`:**
+
+1. **Boot helper** `void-inner-partscan.sh`: `kpartx -a` is now PRIMARY, with
+   `partprobe` then `partx -a` as ordered fallbacks (kept for environments
+   where partprobe's BLKPG does register). Best-effort exit-0 contract
+   unchanged.
+2. **_region_inner_partscan** (live install/resume path): same kpartx-first
+   order, same `sleep 2`, replaces the partprobe-primary version so a resumed
+   install re-registers with the tool that actually works.
+3. **module-setup.sh**: `check()` now `require_binaries kpartx` AND
+   `require_binaries partprobe`; `install()` `inst_binary kpartx` FIRST, then
+   partprobe + partx.
+4. **Package provisioning**: the module-gated `install_pkgs parted` line now
+   installs `kpartx parted` together (kpartx for the PRIMARY tool, parted for
+   the partprobe fallback); `kpartx` added to `PKG_PREFLIGHT` (alphabetical).
+5. **Content gates**: the ESP-sync per-image guard in `void-limine-sync-kernels`
+   and the chroot FATAL initramfs-content gate both now require `kpartx` in
+   every image (plus cryptsetup/partprobe/helper/rules as before) — an image
+   carrying only partprobe is exactly the broken one this fixed.
+6. Docs: VERSION-HISTORY row (header), ARCHITECTURE SUMMARY [INNER-PARTSCAN]
+   block, module gate comments, helper header — all updated from
+   partprobe-primary to kpartx-primary narrative.
+
+Boot tool chain for a future ENCRYPT+regions install therefore reads: LUKS
+unlock (90crypt) → DM_NAME=void-root udev RUN → kpartx builds
+void-root1/void-root2 → dracut settle resolves root=UUID=<inner btrfs> from
+the READY child devices → root mounts → init proceeds.
+
+**Validation:** `bash -n` OK. `Debug/check-defaults.sh` ALL CONSISTENT (no
+prompt surface touched). `Debug/check-pkg-preflight.sh` needs re-run after the
+`kpartx` PKG_PREFLIGHT addition. `Debug/check-heredocs.sh` re-run (heredocs
+changed). `kpartx` proven live (the 254:1/254:2 maps above); `partprobe`
+fallback path unchanged from 2.9.45. A reboot of the fixed installed system
+(dracut --force rebuild + ESP re-sync, then KERNEL boot) is the end-to-end
+confirmation.
 
 ---
 
