@@ -643,6 +643,7 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.49   [VERIFY-FIXES] — post-verification corrections proven against the live as-built machine (2026-09-14): [WINE-RENAME] the game-wine prompt variable was INSTALL_GAME_WINE in the draft but INSTALL_WINE everywhere else (as-built record + recovered prompt docs) — renamed so the chroot package gate actually honors the prompt; [FLATHUB-URL-FIX] both remote-add sites (chroot install-time + first-boot rc.local fallback) now use the .flatpakrepo file (https://flathub.org/repo/flathub.flatpakrepo) instead of the bare website URL — the website 307-redirects to /en and imports no GPG key, so every queued flatpak install failed with "public key not found" (proven on real hardware); [DOCS-LOG-ASBUILT] the ~/Documents/Void_Install.txt header now reproduces the recovered real build's row set byte-format: SSH_SERVER (port + policy pointer), NVIDIA_DRIVER (GPU + wifi flag), WIFI_HARDWARE (0xVVVV:0xDDDD id), CPU (vendor + microcode pkg), HOMEBREW (deps + prefix + isolation), GAMING (enabled-launcher list, flatpak-delivered tagged, @game isolation), DATA_REGIONS (ALL SIX locations fixed-order name:fs, games only when !=none); BR0_NIC/MICROCODE_PKG rows removed to match the as-built; [FW-AUDIT-LOG-DROP] the [FW-AUDIT] accounting stays console/install-log-only — the recovered as-built record file ends at the package inventory with NO "FIRMWARE ACCOUNTING" section, so the record append was dropped to reproduce the proven build.
 #     Beta-v2.9.50   [BROWSE-DIR-ACCEPT] — the browse_pick `dir` mode had NO accept action: selecting a directory (number or typed path) DESCENDED into it and bare Enter was a DECLINE, so a destination directory could never be confirmed — the Beta-v2.9.23 [SSH-KEYS] "export the keypair backup to removable media" flow ALWAYS ended "No destination chosen; skipping export." and the keys never reached the USB stick (matches the real v2.9.43 build). `!`/`ok` now accepts the CURRENT directory (returns it); bare Enter still declines; number/path navigation unchanged. `img` (wallpaper) + `file` (SSH import) modes return a FILE and are unaffected.
 #     Beta-v2.9.51   [BROWSE-CAP-FIX] — the browser is called exclusively via command substitution, so its STDOUT menu/prompt lines were captured into the result value: the wallpaper pick (`img` mode) came back as the whole multi-line banner (stage `cp -f "$WP_SRC" …` FATALed), and the SSH-key export pick (`dir` mode) came back banner-prefixed so `[ -d "$_export_dst" ]` always failed ("No destination chosen; skipping export."). Even a bare-Enter DECLINE left the captured banner as a non-empty selection, so every Limine run answering the wallpaper prompt aborted. Fix: every menu/help/listing/prompt line now writes to STDERR (`>&2`); ONLY the final picked value is printed to stdout, so the `$( )` capture returns exactly the path.
+#     Beta-v2.9.52   [PREREQ-DRY-RUN] — a `--dry-run` plan run skips the live-CD package sync (Beta-v2.5.1) yet still ran the [PREREQ] outer-tool gate behind it, so a minimal medium (gptfdisk not preinstalled) FATALed "required live-CD command not found: 'sgdisk'" right at the confirmation boundary, never reaching the plan printout. A plan run never partitions, so the gate — whose only job is to keep a REAL run from reaching destructive partitioning without its tools — is now skipped entirely under DRY_RUN=1.
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -4721,6 +4722,17 @@ fi
 # use is inside the chroot, and the live-CD sync never installs curl into the
 # medium, so a Void Live ISO that ships without curl (as some do) made this
 # prereq FATAL even though the sync "succeeded". It is removed below.
+# AI (Big Pickle) CORRECTION — Beta-v2.9.52 [PREREQ-DRY-RUN]: a `--dry-run`
+# plan run never partitions, chroots, or invokes ANY of these outer tools —
+# and it SKIPS the live-CD package sync that installs most of them (Beta-v2.5.1
+# [DRY-RUN]), so on a minimal medium the check below FATALed "required live-CD
+# command not found: 'sgdisk'" and the run died right at the confirmation
+# boundary, never reaching the plan printout. The prereq gate exists to keep a
+# REAL run from reaching destructive partitioning without its tools; a plan run
+# touches nothing, so the gate is skipped and the flow continues to the plan.
+if [ "$DRY_RUN" = "1" ]; then
+    echo "==> [DRY-RUN] Skipping [PREREQ] outer-tool check (a plan run never partitions; sgdisk/parted/btrfs are not required on the medium)."
+else
 for _prereq in sgdisk mkfs.fat mkfs.btrfs btrfs parted openssl mount umount \
                chroot lsblk blkid xbps-install${YK_LIVE_PKGS:+ ykpersonalize ykchalresp}; do
     if ! command -v "$_prereq" >/dev/null 2>&1; then
@@ -4730,6 +4742,7 @@ for _prereq in sgdisk mkfs.fat mkfs.btrfs btrfs parted openssl mount umount \
     fi
 done
 unset _prereq
+fi
 
 # AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: YubiKey hmac-sha1
 # enrollment. Only reached for a fresh (non-resumed) run when YK_MODE=hmac-sha1.

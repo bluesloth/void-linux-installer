@@ -107,6 +107,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.49** | `[VERIFY-FIXES]` — post-verification corrections proven against the live as-built machine (2026-09-14): `[WINE-RENAME]` (prompt var `INSTALL_GAME_WINE` → `INSTALL_WINE`, matching the as-built record + recovered prompt docs), `[FLATHUB-URL-FIX]` (both remote-add sites now use `https://flathub.org/repo/flathub.flatpakrepo` — the bare website URL 307s to `/en` and imports no GPG key, so queued flatpak installs failed with "public key not found", proven on hardware), `[DOCS-LOG-ASBUILT]` (`~/Documents/Void_Install.txt` header rewritten to the recovered as-built row set byte-format: SSH_SERVER/NVIDIA_DRIVER(wifi)/WIFI_HARDWARE/CPU/HOMEBREW/GAMING/DATA_REGIONS all-six ordered), `[FW-AUDIT-LOG-DROP]` (accounting stays console-only — the as-built record has no firmware section) | Beta-v2.9.49 below |
 | **Beta-v2.9.50** | `[BROWSE-DIR-ACCEPT]` — `browse_pick` `dir` mode gains an explicit accept (`!`/`ok` confirms the CURRENT directory): a directory destination could previously never be confirmed (selecting a dir descended into it, bare Enter was a decline, only a FILE could exit the loop), so the `[SSH-KEYS]` keypair backup export (`export to removable media` → `_export_dst="$(browse_pick dir …)"`) ALWAYS ended "skipping export." and the keys never reached the USB stick — matching the real v2.9.43 build | Beta-v2.9.50 below |
 | **Beta-v2.9.51** | `[BROWSE-CAP-FIX]` — `browse_pick` is called exclusively through command substitution, so every STDOUT menu/help/listing/prompt line was captured INTO the result value: the Limine wallpaper pick (`img` mode) returned the whole multi-line banner (stage `cp -f "$WP_SRC" …` FATALed → any Limine run answering the wallpaper prompt aborted), and the SSH-key export pick (`dir` mode) returned banner-prefixed text so `[ -d "$_export_dst" ]` always failed ("No destination chosen; skipping export.") — even a bare-Enter DECLINE left the banner as a non-empty selection. All browser UI now writes to STDERR (`>&2`, the `_subvol_ask` pattern); ONLY the final picked value goes to stdout so the capture returns exactly the path | Beta-v2.9.51 below |
+| **Beta-v2.9.52** | `[PREREQ-DRY-RUN]` — a `--dry-run` plan run skips the live-CD package sync yet still ran the `[PREREQ]` outer-tool gate behind it, so on a medium without gptfdisk preinstalled it FATALed "required live-CD command not found: 'sgdisk'" at the confirmation boundary and never reached the plan printout. A plan run never partitions, so the gate (whose only job is to keep a REAL run from reaching destructive partitioning without its tools) is now skipped entirely under `DRY_RUN=1` | Beta-v2.9.52 below |
 | *excluded* | `OxAlpha` fork + failed `4.0.0-SUSE` nested build | — |
 
 ---
@@ -496,6 +497,44 @@ export `[ -d ]` check sees a real directory. The already-`>&2` error lines
 CLEAN (no heredoc changed). Unit repro of the capture before/after:
 `WP_SRC="$(browse_pick img …)"` returned the banner before the fix and the bare
 path after.
+
+---
+
+## Beta-v2.9.52 — `[PREREQ-DRY-RUN]` (a --dry-run plan run died on the [PREREQ] gate instead of printing the plan)
+
+`SCRIPT_VERSION = Beta-v2.9.52`. Found during the first full `--dry-run` of
+this installation, 2026-09-15: after the browse fix let the run reach the
+confirmation boundary, this medium — a Void Live box without `gptfdisk`
+preinstalled — produced:
+
+```
+==> [DRY-RUN] Skipping live-CD package sync (would install gptfdisk/parted/btrfs-progs/openssl into the live env).
+FATAL: required live-CD command not found: 'sgdisk'.
+```
+
+**Root cause — the sync-skip and the prereq gate disagree.** Beta-v2.5.1
+[DRY-RUN] makes a plan run skip the live-CD package sync (which in a real run
+installs `gptfdisk`/`parted`/`btrfs-progs`/`openssl` into the live env) and
+marks `LIVECD_SYNC_OK=1` so the flow continues. The Beta-v2.4.1 [PREREQ] gate
+right behind it then checks that those exact outer-stage tools exist — but on a
+minimal medium they were never installed, so the check FATALed:
+"required live-CD command not found: 'sgdisk'". The dry-run therefore died at
+the confirm-settings boundary, before the DRY-RUN plan printout that the whole
+exercise exists to show.
+
+**Fix `[PREREQ-DRY-RUN]`:** the gate is now skipped entirely when
+`DRY_RUN=1`, with an explicit `==> [DRY-RUN] Skipping [PREREQ] outer-tool
+check …` notice. The gate's only job is to keep a REAL run from reaching
+destructive partitioning without the tools it relies on; a plan run never
+partitions, so requiring the tools is wrong there. With the skip, the plan
+run flows from the confirmation boundary straight into the DRY-RUN plan
+printout and exits without touching the disk. A real (non-dry) run still runs
+the sync AND the gate exactly as before.
+
+**Validation:** `bash -n` OK; `Debug/check-defaults.sh` ALL CONSISTENT;
+`Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
+CLEAN (no heredoc changed). Full `--dry-run` re-run on the target medium now
+reaches the plan printout and exits 0.
 
 ---
 
