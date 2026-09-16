@@ -700,6 +700,13 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #                     near /run/media, hence never auto-detected. The detect glob list now also probes
 #                     /xbps-cachedir-* (a no-op on ordinary non-persistent boots; seeded persist sticks
 #                     auto-detect and the prompt answer stays a plain Y).
+#     Beta-v2.9.62   [LOCAL-CACHE-DEPTH] — the [LOCAL-CACHE] detector's /run/media glob matched only
+#                     /run/media/*/xbps-cachedir-* (ONE level), but udisks mounts a labeled/unlabeled data
+#                     stick at /run/media/<user>/<uuid> (TWO levels), so the very layout this feature was
+#                     built for escaped auto-detection and fell back to the typed-path prompt. The glob list
+#                     now also probes /run/media/*/*/xbps-cachedir-* — the real-world udisks "-<uuid>" mount
+#                     — alongside the one-level layout and the live-root seed; depth-1+2 write into system
+#                     dirs in orders of the token newest-touched = first wins rule remains.
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -1462,6 +1469,15 @@ fi
 # rather than under /run/media. The glob list below also probes that live-root
 # path; on ordinary (non-persistent) boots the second glob matches nothing and
 # is a no-op, while the seeded persist stick auto-detects like any other medium.
+# AI (Big Pickle) ADDITION — Beta-v2.9.62 [LOCAL-CACHE-DEPTH]: the /run/media
+# glob probed only /run/media/*/xbps-cachedir-* — ONE level deep — but udisks
+# mounts an unlabeled data stick at /run/media/<user>/<uuid> (TWO levels), the
+# exact layout this feature was built to serve (e.g. the populated cache on the
+# SEPARATE data stick next to the VOID_LIVE stick), so auto-detect silently
+# missed it and fell back to the typed-path prompt. The glob list now also
+# probes /run/media/*/*/xbps-cachedir-*; depth-1, depth-2 and the live-root
+# seed share the same "newest-touched, writable, arch-matching, real .xbps"
+# first-wins rule.
 _local_cache_detect() {
     _lc_arch="$(uname -m)"
     while IFS= read -r _lc_dir; do
@@ -1475,7 +1491,7 @@ _local_cache_detect() {
         [ -n "$(find "$_lc_dir" -maxdepth 1 -name '*.xbps' -print -quit 2>/dev/null)" ] || continue
         printf '%s\n' "$_lc_dir"
         return 0
-    done < <(ls -1dt /run/media/*/xbps-cachedir-* /xbps-cachedir-* 2>/dev/null)
+    done < <(ls -1dt /run/media/*/xbps-cachedir-* /run/media/*/*/xbps-cachedir-* /xbps-cachedir-* 2>/dev/null)
     return 1
 }
 unset _lc_arch _lc_dir 2>/dev/null || true
