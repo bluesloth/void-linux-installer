@@ -5042,6 +5042,7 @@ fi
     for _sv in ACCOUNT_MODEL ROOT_PASS_HASH TARGET_PASS_HASH TARGET_USER TARGET_HOSTNAME \
                TARGET_DOMAIN TARGET_FQDN NET_INTERFACE_MATCH BOOTLOADER \
                EFI_PART_SIZE KERNEL_MODE DESKTOP_ENV DISPLAY_MANAGER \
+               HAS_GRAPHICAL INSTALL_XORG INSTALL_AUDIO \
                USER_SHELL USER_SHELL_PKG \
                LIGHTDM_GREETER LIGHTDM_GREETER_PKG LIGHTDM_GREETER_SESSION \
                LIMINE_WALLPAPER LIMINE_WALLPAPER_STYLE \
@@ -7134,6 +7135,29 @@ fi
 # DISPLAY_MANAGER=none) with both flags OFF skips wayland/xorg entirely and
 # installs only the session stack (elogind or turnstile+seatd+acpid) plus the
 # network layer — a lean, dependency-light server.
+# AI (Big Pickle) FIX — Beta-v2.9.60 [RESUME-GFX-FLAGS]: on a resumed (-r)
+# install, HAS_GRAPHICAL/INSTALL_XORG/INSTALL_AUDIO are NOT in the resume state
+# file, so after `source /tmp/chroot_env.sh` they can be empty (chroot_env was
+# written empty on the resume path). Nothing actually defaults them — the
+# "in-chroot defaults" the HEADLESS feature claimed to add (the :-fallbacks in
+# the install-config heredoc below) live INSIDE that heredoc, so they only
+# print to the config file and are never executed as shell assignments. A
+# resumed graphical install therefore silently took the headless else-branch
+# and skipped the Xorg/Wayland base chain (xorg-server/mesa never installed →
+# SDDM "Failed to start display server process" → no greeter on an otherwise
+# good LUKS boot). Recompute HAS_GRAPHICAL deterministically from
+# DESKTOP_ENV/DISPLAY_MANAGER (both ARE persisted), then apply the same
+# fallbacks the config-print claims.
+if [ -z "${HAS_GRAPHICAL:-}" ]; then
+    if { [ "${DESKTOP_ENV:-none}" = "none" ] && [ "${DISPLAY_MANAGER:-none}" = "none" ]; }; then
+        HAS_GRAPHICAL="no"
+    else
+        HAS_GRAPHICAL="yes"
+    fi
+fi
+INSTALL_XORG="${INSTALL_XORG:-false}"
+INSTALL_AUDIO="${INSTALL_AUDIO:-true}"
+export HAS_GRAPHICAL INSTALL_XORG INSTALL_AUDIO
 if [ "$HAS_GRAPHICAL" = "yes" ] || [ "${INSTALL_XORG:-false}" = "true" ]; then
     if [ "$SESSION_STACK" = "elogind" ]; then
         install_pkgs wayland wayland-protocols NetworkManager dbus elogind xorg
@@ -8759,9 +8783,10 @@ USER_FULL_NAME="${TARGET_FULL_NAME:-<unset>}"
 USER_SHELL="${USER_SHELL:-<unset>}"
 DESKTOP_ENV="${DESKTOP_ENV:-<unset>}"
 DISPLAY_MANAGER="${DISPLAY_MANAGER:-<unset>}"
-# AI (Big Pickle) ADDITION — Beta-v2.9.48 [HEADLESS]: in-chroot defaults for the
-# resolved graphics flags so the gating (xorg/wayland chain, audio install,
-# rc.local DM link) is `set -u`-safe even if chroot_env.sh predates them.
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [HEADLESS]: RECORD-ONLY copy of the
+# resolved graphics flags (the REAL in-chroot runtime defaults live at the
+# Stage-2 xorg/wayland gate — Beta-v2.9.60 [RESUME-GFX-FLAGS]). These lines
+# only print to this config file; they are never evaluated as shell code.
 HAS_GRAPHICAL="${HAS_GRAPHICAL:-yes}"
 INSTALL_XORG="${INSTALL_XORG:-false}"
 INSTALL_AUDIO="${INSTALL_AUDIO:-true}"
