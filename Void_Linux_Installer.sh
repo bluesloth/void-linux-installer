@@ -693,6 +693,13 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #                     recorded path is re-validated (re-detected if the stick remounted elsewhere) before
 #                     the sync; install-config records the flag only (the path is media-scoped, meaningless
 #                     post-install). Untouched by this feature: the PKG-PREFLIGHT gate (stays mirror-truthful).
+#     Beta-v2.9.61   [LOCAL-CACHE-ROOT] — the [LOCAL-CACHE] detector globs only /run/media/*/xbps-cachedir-*;
+#                     a --persist + --seed-cache Void_Linux_Live stick (voidlive-build-persist.sh) puts the
+#                     seeded cache at the ROOT of its VOID_OVL overlay, so on the booted live system it sits
+#                     at /xbps-cachedir-<arch> (writable persistence layer, arch-matched, real .xbps) — nowhere
+#                     near /run/media, hence never auto-detected. The detect glob list now also probes
+#                     /xbps-cachedir-* (a no-op on ordinary non-persistent boots; seeded persist sticks
+#                     auto-detect and the prompt answer stays a plain Y).
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -1449,6 +1456,12 @@ fi
 # the SAME raw .xbps cache is directly consumable by xbps-install -c on the live
 # medium AND (bind-mounted) inside the target chroot. Prints the FIRST matching
 # absolute path (newest-touched wins), or nothing when no usable cache exists.
+# AI (Big Pickle) ADDITION — Beta-v2.9.61 [LOCAL-CACHE-ROOT]: a persistent
+# (--persist) Void_Linux_Live stick seeds the cache into the root of its
+# VOID_OVL overlay, so on the booted live system it sits at /xbps-cachedir-<arch>
+# rather than under /run/media. The glob list below also probes that live-root
+# path; on ordinary (non-persistent) boots the second glob matches nothing and
+# is a no-op, while the seeded persist stick auto-detects like any other medium.
 _local_cache_detect() {
     _lc_arch="$(uname -m)"
     while IFS= read -r _lc_dir; do
@@ -1462,7 +1475,7 @@ _local_cache_detect() {
         [ -n "$(find "$_lc_dir" -maxdepth 1 -name '*.xbps' -print -quit 2>/dev/null)" ] || continue
         printf '%s\n' "$_lc_dir"
         return 0
-    done < <(ls -1dt /run/media/*/xbps-cachedir-* 2>/dev/null)
+    done < <(ls -1dt /run/media/*/xbps-cachedir-* /xbps-cachedir-* 2>/dev/null)
     return 1
 }
 unset _lc_arch _lc_dir 2>/dev/null || true
