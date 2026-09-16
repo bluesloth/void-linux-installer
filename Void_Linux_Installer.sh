@@ -475,6 +475,23 @@
 #     default) are retained for global failover. All baked-in mirror URLs were
 #     live-verified (HTTP 200 + valid x86_64-repodata). The community COSMIC
 #     repo is unaffected.
+#   - Local package cache (Beta-v2.9.59 [LOCAL-CACHE]): OPTIONAL reuse of a
+#     pre-seeded XBPS cache on an attached medium (<mount>/xbps-cachedir-<arch>,
+#     the mklive/void-live layout used by the Void_Linux_Live fork) so the live
+#     sync, base bootstrap, and every chroot install take present packages from
+#     disk and fall back to the mirrors per missing package. Default OFF
+#     (DEFAULT_LOCAL_CACHE=no — network-only baseline); the prompt auto-detects
+#     the newest-touched writable arch-matching dir or accepts a typed absolute
+#     path. Threading: `${LOCAL_CA}` (-c <dir>, empty when off) in the live CD
+#     sync + bootstrap; chroot installs reach the cache through a bind mount of
+#     the media dir at /mnt/tmp/xbps-cache (= /tmp/xbps-cache in the chroot,
+#     chroot_env.sh REMAPS LOCAL_CACHE_DIR) plus a chroot-wide
+#     ${_xbps_cache[@]} array into install_pkgs()/install_cosmic(). The cache
+#     dir MUST be writable (-Sy repodata + COSMIC index write into it); unusable
+#     → degrade to network-only, never a FATAL. State-file persisted for resume
+#     (path re-validated/re-detected); released in the Stage-3 teardown and the
+#     failure unwind; PKG-PREFLIGHT gate deliberately untouched (stays mirror-
+#     truthful).
 #
 # REGRESSIONS THAT HAVE ALREADY HAPPENED ONCE — search this file for
 # "CRITICAL" / "DO NOT" comments before removing anything that looks
@@ -660,6 +677,22 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #     Beta-v2.9.56   [INNER-PARTSCAN-KPARTX] — the first real ENCRYPT+regions install booted only to the dracut emergency shell REPRODUCIBLY: LUKS unlocked fine and the mapper showed PTTYPE=gpt in blkid, yet dracut looped "Scanning for all btrfs devices" and root=UUID=<inner btrfs> never resolved. Root cause: partprobe (the Beta-v2.9.45 PRIMARY BLKPG tool) silently failed to register the inner GPT on the OPENED LUKS2 mapper on this kernel/hardware — no child dm devices appeared; partx -a is confirmed unable to BLKPG a dm target ("error adding partitions 1-2" live). The only tool that works is kpartx: `kpartx -av /dev/dm-0` instantly created void-root1/void-root2 (names derive from the mapper name, matching [INNER-DEV-NAME]). Fix: kpartx -a is now PRIMARY in the boot udev RUN helper, _region_inner_partscan, AND module-setup (`require_binaries kpartx` + `inst_binary kpartx`), with partprobe then partx -a kept as ordered fallbacks for sanity; the initramfs-content gates (ESP sync guard + chroot FATAL) now also require `kpartx`; `kpartx` package added to PKG_PREFLIGHT + the module-gated install_pkgs line.
 #     Beta-v2.9.57   [INNER-PARTSCAN-UDEV-ATTR] — v2.9.56's boot udev RUN rule still NEVER fired, so the box hit the same emergency shell even with kpartx in the image: the rule matched ENV{DM_NAME}=="void-root", but the kernel's dm add-uevent carries NO DM_NAME (libdevmapper writes that key into the udev db later, AFTER udev rules have already evaluated) — an ENV{DM_NAME} predicate can never match at rule time, which explains BOTH the 2.9.45 "partprobe silently did nothing" AND the 2.9.56 "kpartx still didn't help": the RUN helper never ran. Empirically proven on the NVMe box (udevadm monitor: add uevent for dm-0 has only ACTION/DEVNAME/DEVPATH/DEVTYPE/DISKSEQ/MAJOR/MINOR/SEQNUM/SUBSYSTEM; DM_NAME appears only on the later UDEV-processed record). Fix: match `KERNEL=="dm-*", ATTR{dm/name}=="__CRYPT_NAME__"` — the device-mapper name IS exposed in sysfs (/sys/block/dm-0/dm/name) at add-time. Live-proof: a udev rule with that predicate fired the RUN helper and kpartx instantly mapped void-root1/void-root2 on luksOpen. Rule line now: ACTION=="add", SUBSYSTEM=="block", KERNEL=="dm-*", ATTR{dm/name}=="__CRYPT_NAME__", RUN+="/path". No other script logic changes (helper + module-setup + gates untouched).
 #     Beta-v2.9.58   [HOME-SELF-CHOWN] — the v2.9.57 boot udev fix got the box past the dracut emergency shell and INTO the LightDM greeter — and the greeter then REPRODUCIBLY bounced EVERY login (the correct password hash-verified, yet the greeter grey-bounced "Incorrect password" every time) because the account HOME DIRECTORY ITSELF was left root-owned. `useradd -m` creates /home/$TARGET_USER as root:root mode 755, and the installer's adopt-own chown pass covered ONLY the home SUBdirectories (~/Games, ~/.config, ~/.local, ~/.cache, ~/Documents, ...) — NEVER /home/$TARGET_USER itself. On a carved/adopted @home the home dir stays root-owned, so the fresh MATE/COSMIC/KDE account cannot write .Xauthority/.dmrc/.xsession-errors at greeter time → X auth fails → mate-session "Cannot open display" exits in ~0.02s (lightdm.log "Exited with return value 1") → the greeter bounces the CORRECT password back as a grey "wrong password" loop. Root cause is UNIVERSAL to every greeter (LightDM GTK/Slick, greetd/cosmic-greeter, SDDM, GDM) and every DE (MATE, COSMIC, KDE): the auth/session path needs a WRITABLE HOME DIR, not just writable subdirs — so the fix belongs in ACCOUNT PROVISIONING, not any greeter: `chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}"` is now executed IMMEDIATELY after useradd (mirroring the existing ~/Games + .cache/@containers-user adopt-own pattern). Proven on the live box (<host>): chowning the home tree to numeric uid 1000 made the SAME `<redacted-password>` MATE login succeed with ZERO greeter/session/config changes. The separate cosmic-greeter `_cosmicgreeter`-vs-`cosmic-greeter` username-dispatch packaging bug is a DIFFERENT, greeter-specific issue — do NOT fold this fix into [COSMIC-GREETER] logic; the account-provisioning chown is universal and must stay in the account stage.
+#     Beta-v2.9.59   [LOCAL-CACHE] — optional reuse of a pre-seeded XBPS package cache on an
+#                     attached medium (mklive/void-live layout <mount>/xbps-cachedir-<arch>, e.g. the
+#                     Void_Linux_Live build cache on the same USB stick) so the live-CD sync, base
+#                     bootstrap, and every chroot install take packages from disk instead of the mirror
+#                     (mirrors remain the per-package fallback). DEFAULT_LOCAL_CACHE=no (network-only
+#                     baseline, mirroring [BROWSER-GATE-NO] posture); auto-detect newest-touched writable
+#                     arch-matching dir with real .xbps files, or accept a typed absolute path. -c is
+#                     threaded via $LOCAL_CA into the live sync + bootstrap and — through a bind mount of
+#                     the media cache at /mnt/tmp/xbps-cache (= /tmp/xbps-cache in the chroot, via
+#                     chroot_env.sh's REMAPPED LOCAL_CACHE_DIR) + the chroot-wide ${_xbps_cache[@]} array —
+#                     into install_pkgs() and install_cosmic(). Cache dir MUST be writable (-Sy repodata +
+#                     COSMIC index write into it); read-only/undetected degrades to network-only, never a
+#                     FATAL. Resume: LOCAL_CACHE_REUSE/LOCAL_CACHE_DIR persist to the state file and the
+#                     recorded path is re-validated (re-detected if the stick remounted elsewhere) before
+#                     the sync; install-config records the flag only (the path is media-scoped, meaningless
+#                     post-install). Untouched by this feature: the PKG-PREFLIGHT gate (stays mirror-truthful).
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -712,6 +745,12 @@ DEFAULT_KERNEL_MAINLINE="${DEFAULT_KERNEL_MAINLINE:-false}"  # linux-mainline (e
 DEFAULT_KERNEL_LTS="${DEFAULT_KERNEL_LTS:-true}"             # linux-lts (conservative) [Y/n]
 DEFAULT_LOCALE="${DEFAULT_LOCALE:-1}"                 # 1=en_US.UTF-8 (menu index)
 DEFAULT_TIMEZONE="${DEFAULT_TIMEZONE:-1}"             # 1=America/New_York (menu index)
+# AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: reuse a pre-seeded XBPS
+# package cache (mklive-style xbps-cachedir-<arch> on an attached medium) so the
+# live sync / bootstrap / chroot installs take packages from disk instead of the
+# mirror. Default off — mirrors stay the baseline path, matching the lean
+# [BROWSER-GATE-NO] posture. A typed absolute path also counts as "yes".
+DEFAULT_LOCAL_CACHE="${DEFAULT_LOCAL_CACHE:-no}"
 DEFAULT_SWAP_BACKEND="${DEFAULT_SWAP_BACKEND:-1}"     # 1=swapfile 2=zram 3=both 4=none
 DEFAULT_HIBERNATION="${DEFAULT_HIBERNATION:-false}"   # enable suspend-to-disk? [y/N]
 DEFAULT_SNAPSHOT_AUDIO="${DEFAULT_SNAPSHOT_AUDIO:-false}"  # audio on snapshot boots? [y/N]
@@ -1330,6 +1369,10 @@ cleanup_on_failure() {
              var/cache srv opt .snapshots home; do
         umount -fl "/mnt/${m}" 2>/dev/null || true
     done
+    # AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: release the media
+    # cache bind mount on a crash too — same release-before-/mnt rule as the
+    # Stage-3 teardown. No-op safe when never bound.
+    umount -fl /mnt/tmp/xbps-cache 2>/dev/null || true
     umount -fl /mnt 2>/dev/null || true
     # AI (Big Pickle) FIX — Beta-v2.9.6 [LUKS-UNLOCK-LEFT-OPEN]: the unwind
     # previously unmounted everything but never closed an open LUKS mapper, so
@@ -1399,6 +1442,31 @@ fi
 # journal truncation, the network gate, and the STAGE-1 banner. The state-file
 # detection and resume prompting itself live below, unchanged.)
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: find a pre-seeded XBPS
+# package cache on an attached medium so the install can reuse already-downloaded
+# packages instead of re-fetching them from the mirror. mklive/void-live and the
+# Void_Linux_Live fork all keep the raw package cache as <mount>/xbps-cachedir-<arch>;
+# the SAME raw .xbps cache is directly consumable by xbps-install -c on the live
+# medium AND (bind-mounted) inside the target chroot. Prints the FIRST matching
+# absolute path (newest-touched wins), or nothing when no usable cache exists.
+_local_cache_detect() {
+    _lc_arch="$(uname -m)"
+    while IFS= read -r _lc_dir; do
+        [ -n "$_lc_dir" ] || continue
+        [ -d "$_lc_dir" ] || continue
+        case "$_lc_dir" in
+            *"xbps-cachedir-${_lc_arch}") : ;;
+            *) continue ;;
+        esac
+        [ -w "$_lc_dir" ] || continue
+        [ -n "$(find "$_lc_dir" -maxdepth 1 -name '*.xbps' -print -quit 2>/dev/null)" ] || continue
+        printf '%s\n' "$_lc_dir"
+        return 0
+    done < <(ls -1dt /run/media/*/xbps-cachedir-* 2>/dev/null)
+    return 1
+}
+unset _lc_arch _lc_dir 2>/dev/null || true
+
 # AI (Big Pickle) ADDITION — Beta-v2.4.1 [PREREQ]: this installer mounts, partitions
 # and formats real disks, so it must run as root. Placed AFTER option parsing so
 # `--help` still works for a non-root user, but before any disk operation. Fail
@@ -1436,6 +1504,33 @@ if [ -f "$STATE_FILE" ]; then
     fi
 fi
 unset _do_resume _resume_ans
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: a resumed install
+# re-runs the live sync + base bootstrap + chroot package installs, so the
+# cache decision must survive the restart. The recorded path can go stale
+# (the stick may remount at a different /run/media/<user>/<label>); when the
+# recorded dir is unusable, re-detect — and if nothing is found, fall back to
+# the network-only baseline rather than failing the resume.
+if [ "${LOCAL_CACHE_REUSE:-no}" = "yes" ]; then
+    if [ -n "${LOCAL_CACHE_DIR:-}" ] && [ -d "$LOCAL_CACHE_DIR" ] && [ -w "$LOCAL_CACHE_DIR" ]; then
+        : # recorded path still valid
+    else
+        _lc_redetect=$(_local_cache_detect || true)
+        if [ -n "$_lc_redetect" ]; then
+            echo "==> Local package cache re-detected on resume: ${_lc_redetect}"
+            LOCAL_CACHE_DIR="$_lc_redetect"
+        else
+            echo "!! Recorded local package cache is gone (or moved/mounted elsewhere);" >&2
+            echo "   continuing with a network-only install." >&2
+            LOCAL_CACHE_REUSE="no"
+            LOCAL_CACHE_DIR=""
+        fi
+        unset _lc_redetect
+    fi
+fi
+LOCAL_CA=""
+[ "${LOCAL_CACHE_REUSE:-no}" = "yes" ] && [ -n "${LOCAL_CACHE_DIR:-}" ] && LOCAL_CA="-c $LOCAL_CACHE_DIR"
+export LOCAL_CA
 
 # Prompt for root's password first, then the target username, then that
 # user's own password right after — groups the new-account info together
@@ -1767,6 +1862,70 @@ export REPO_PRIMARY
 REPO_BACKUP1="https://repo-fastly.voidlinux.org/current"
 REPO_BACKUP2="https://repo-default.voidlinux.org/current"
 export REPO_BACKUP1 REPO_BACKUP2
+
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: OPTIONAL REUSE OF A
+# PRE-SEEDED XBPS PACKAGE CACHE. The installer always mirrored its downloads;
+# with the Void_Linux_Live fork building its own KDE ISO+package cache, the raw
+# xbps cache on the SAME USB stick can feed this install too. A yes points every
+# xbps-install -c (live sync, base bootstrap, and — via a bind mount — the
+# chroot installs) at the cache, still falling back to the mirrors per package
+# the cache lacks. The cache dir MUST be writable (the -Sy/-Syu repodata
+# refresh + COSMIC repo sync write into it) — a read-only medium refuses here
+# rather than failing mid-install.
+# =============================================================================
+AUTO_LOCAL_CACHE=$(_local_cache_detect || true)
+LOCAL_CACHE_REUSE="${LOCAL_CACHE_REUSE:-no}"
+LOCAL_CACHE_DIR="${LOCAL_CACHE_DIR:-}"
+echo ""
+echo "${C_BOLD}${C_BLU}Local package cache${C_RST} — reuse already-downloaded XBPS packages instead of re-fetching."
+if [ -n "$AUTO_LOCAL_CACHE" ]; then
+    echo "  Auto-detected cache on an attached medium: ${C_GRN}${AUTO_LOCAL_CACHE}${C_RST}"
+else
+    echo "  No mklive-style xbps-cachedir-<arch> cache detected under /run/media."
+    echo "  (Place one at <mount>/xbps-cachedir-$(uname -m), or type its absolute path below.)"
+fi
+ask "Use a local package cache? [y/N] or type an absolute path: "
+read -r LOCAL_CACHE_INPUT
+case "${LOCAL_CACHE_INPUT:-$DEFAULT_LOCAL_CACHE}" in
+    /* )
+        if [ -d "$LOCAL_CACHE_INPUT" ] && [ -w "$LOCAL_CACHE_INPUT" ]; then
+            LOCAL_CACHE_REUSE="yes"
+            LOCAL_CACHE_DIR="$LOCAL_CACHE_INPUT"
+        else
+            echo "  Path not usable (not a directory, or not writable): ${LOCAL_CACHE_INPUT}" >&2
+            LOCAL_CACHE_REUSE="no"
+            LOCAL_CACHE_DIR=""
+        fi
+        ;;
+    y|Y|yes|YES)
+        LOCAL_CACHE_REUSE="yes"
+        if [ -n "$AUTO_LOCAL_CACHE" ] && [ -d "$AUTO_LOCAL_CACHE" ]; then
+            LOCAL_CACHE_DIR="$AUTO_LOCAL_CACHE"
+        else
+            echo "  No cache auto-detected. Place one at <mount>/xbps-cachedir-$(uname -m) on the" >&2
+            echo "  medium, or answer with its absolute path instead." >&2
+            LOCAL_CACHE_DIR=""
+        fi
+        ;;
+    *)
+        LOCAL_CACHE_REUSE="no"
+        LOCAL_CACHE_DIR=""
+        ;;
+esac
+if [ "$LOCAL_CACHE_REUSE" = "yes" ] && { [ -z "$LOCAL_CACHE_DIR" ] || [ ! -d "$LOCAL_CACHE_DIR" ] || [ ! -w "$LOCAL_CACHE_DIR" ]; }; then
+    echo "!! Local package cache unusable; falling back to a network-only install." >&2
+    LOCAL_CACHE_REUSE="no"
+    LOCAL_CACHE_DIR=""
+fi
+if [ "$LOCAL_CACHE_REUSE" = "yes" ]; then
+    echo "==> Package cache enabled: ${LOCAL_CACHE_DIR} (mirror fallback stays armed)."
+fi
+export LOCAL_CACHE_REUSE LOCAL_CACHE_DIR
+LOCAL_CA=""
+[ "$LOCAL_CACHE_REUSE" = "yes" ] && [ -n "$LOCAL_CACHE_DIR" ] && LOCAL_CA="-c $LOCAL_CACHE_DIR"
+export LOCAL_CA
+unset LOCAL_CACHE_INPUT AUTO_LOCAL_CACHE
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [SWAP]: REAL SWAP / ZRAM / HIBERNATION
@@ -4757,8 +4916,11 @@ if [ "$DRY_RUN" = "1" ]; then
 else
 for REPO_ATTEMPT in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2"; do
     echo "==> Attempting live-CD package sync against repository: ${REPO_ATTEMPT}"
+    # AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: point the live sync
+    # at the local cache when enabled; the -Syu repodata refresh + any missing
+    # package still fall through to the mirror, so a partial cache is safe.
     # shellcheck disable=SC2086  # $YK_LIVE_PKGS is a space-separated package list, split on purpose
-    if xbps-install -Syu -R "$REPO_ATTEMPT" xbps -y && xbps-install -R "$REPO_ATTEMPT" gptfdisk parted kpartx btrfs-progs openssl${YK_LIVE_PKGS} -y; then
+    if xbps-install -Syu -R "$REPO_ATTEMPT" ${LOCAL_CA} xbps -y && xbps-install -R "$REPO_ATTEMPT" ${LOCAL_CA} gptfdisk parted kpartx btrfs-progs openssl${YK_LIVE_PKGS} -y; then
         LIVECD_SYNC_OK=1
         echo "==> Live-CD package sync succeeded using: ${REPO_ATTEMPT}"
         break
@@ -4897,6 +5059,7 @@ DEVICE_PROFILE PROFILE_TLP PROFILE_BT PROFILE_PRELOAD \
                REGION_HOME_SIZE REGION_VAR_SIZE REGION_CACHE_SIZE REGION_SRV_SIZE REGION_OPT_SIZE REGION_GAMES_SIZE \
                REGION_PARTITIONED \
                REPO_PRIMARY REPO_BACKUP1 REPO_BACKUP2 \
+               LOCAL_CACHE_REUSE LOCAL_CACHE_DIR \
 DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
 INSTALL_FLATPAK INSTALL_BREW INSTALL_FIREFOX INSTALL_CHROMIUM \
                  INSTALL_VIVALDI INSTALL_FALKON INSTALL_BRAVE \
@@ -5728,6 +5891,24 @@ if [ -d /tmp/ssh-keygen ] || [ -d /tmp/ssh-import ]; then
     chmod -R go-rwx /mnt/tmp/ssh-keygen /mnt/tmp/ssh-import 2>/dev/null || true
 fi
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: when enabled, bind-mount
+# the media package cache into the target at /mnt/tmp/xbps-cache. Inside the
+# chroot that path reads as /tmp/xbps-cache (the /mnt/tmp → /tmp mapping of the
+# @ root), so install_pkgs()/install_cosmic() hand xbps -c at it WITHOUT copying
+# the multi-GB cache across — the media stays the package source, mirrors stay
+# the per-package fallback. Released again in the Stage-3 teardown + the failure
+# unwind, so a successful install leaves the media cache untouched.
+if [ "${LOCAL_CACHE_REUSE:-no}" = "yes" ] && [ -n "${LOCAL_CACHE_DIR:-}" ] && [ -d "$LOCAL_CACHE_DIR" ]; then
+    mkdir -p /mnt/tmp/xbps-cache
+    if ! mount -v --bind "$LOCAL_CACHE_DIR" /mnt/tmp/xbps-cache; then
+        echo "!! Cache bind mount failed; continuing with a network-only install." >&2
+        LOCAL_CACHE_REUSE="no"
+        LOCAL_CACHE_DIR=""
+    else
+        echo "==> Media package cache bind-mounted → /mnt/tmp/xbps-cache (=/tmp/xbps-cache in the chroot)."
+    fi
+fi
+
 mkdir -vp /mnt/home /mnt/.snapshots /mnt/opt /mnt/srv
 # AI (Big Pickle) CHANGE — Beta-v2.6.2 [GRUB-ESP-BOOT]: in the GRUB+ENCRYPT
 # combo the ESP mounts AT /boot, so the mountpoint is /mnt/boot (no nested
@@ -5881,7 +6062,10 @@ cp /var/db/xbps/keys/* /mnt/var/db/xbps/keys/
 BOOTSTRAP_OK=0
 for REPO_ATTEMPT in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2"; do
     echo "==> Attempting base-system bootstrap against repository: ${REPO_ATTEMPT}"
-    if XBPS_ARCH=$ARCH xbps-install -Suv -R "$REPO_ATTEMPT" -r /mnt base-system btrfs-progs $KERNEL_PKGS glibc-locales -y; then
+    # AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: same -c threading
+    # into the base bootstrap; an empty ${LOCAL_CA} is the plain network path.
+    # shellcheck disable=SC2086  # $LOCAL_CA word-split into -c <dir>; empty = network-only
+    if XBPS_ARCH=$ARCH xbps-install -Suv -R "$REPO_ATTEMPT" -r /mnt ${LOCAL_CA} base-system btrfs-progs $KERNEL_PKGS glibc-locales -y; then
         BOOTSTRAP_OK=1
         echo "==> Bootstrap succeeded using: ${REPO_ATTEMPT}"
         break
@@ -6111,6 +6295,15 @@ echo "export REPO_PRIMARY=\"$REPO_PRIMARY\"" >> /mnt/tmp/chroot_env.sh
 echo "export KEYMAP_LIVE=\"$KEYMAP_LIVE\"" >> /mnt/tmp/chroot_env.sh
 echo "export REPO_BACKUP1=\"$REPO_BACKUP1\"" >> /mnt/tmp/chroot_env.sh
 echo "export REPO_BACKUP2=\"$REPO_BACKUP2\"" >> /mnt/tmp/chroot_env.sh
+# AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: thread the cache choice
+# into the chroot. LOCAL_CACHE_DIR is REMAPPED here — /tmp/xbps-cache, the
+# /mnt/tmp/xbps-cache bind mount — so install_pkgs()/install_cosmic() hand xbps
+# -c at exactly the mounted media cache and never at a live-side path that does
+# not exist inside the chroot.
+echo "export LOCAL_CACHE_REUSE=\"${LOCAL_CACHE_REUSE:-no}\"" >> /mnt/tmp/chroot_env.sh
+if [ "${LOCAL_CACHE_REUSE:-no}" = "yes" ]; then
+    echo "export LOCAL_CACHE_DIR=\"/tmp/xbps-cache\"" >> /mnt/tmp/chroot_env.sh
+fi
 echo "export ENABLE_SNAPSHOT_AUDIO=\"$ENABLE_SNAPSHOT_AUDIO\"" >> /mnt/tmp/chroot_env.sh
 echo "export ACCOUNT_MODEL=\"$ACCOUNT_MODEL\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_FLATPAK=\"$INSTALL_FLATPAK\"" >> /mnt/tmp/chroot_env.sh
@@ -6311,6 +6504,15 @@ else
     echo "CRITICAL: BTRFS_UUID/TARGET_USER/password-hash parameters missing inside target environment. Aborting."
     exit 1
 fi
+# AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: the chroot-wide cache
+# arg set. An empty array = the plain network-only path (cache disabled or the
+# /tmp/xbps-cache bind mount missing); install_pkgs()/install_cosmic() below are
+# the ONLY two xbps entry points in the chroot, so threading -c here keeps every
+# package install consistent.
+_xbps_cache=()
+if [ "${LOCAL_CACHE_REUSE:-no}" = "yes" ] && [ -n "${LOCAL_CACHE_DIR:-}" ] && [ -d "$LOCAL_CACHE_DIR" ]; then
+    _xbps_cache=(-c "$LOCAL_CACHE_DIR")
+fi
 if [ -z "${TARGET_USER:-}" ] || [ -z "${TARGET_PASS_HASH:-}" ] || [ -z "${TARGET_HOSTNAME:-}" ] || [ -z "${ACCOUNT_MODEL:-}" ]; then
     echo "CRITICAL: Essential target account metadata parameters are empty. Aborting." >&2
     exit 1
@@ -6410,7 +6612,10 @@ fi
 install_pkgs() {
     _ipkgs_ok=0
     for _ipkgs_repo in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2"; do
-        if xbps-install -Suy -R "$_ipkgs_repo" "$@"; then
+        # AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: ${_xbps_cache[@]}
+        # is empty on a network-only run; when a /tmp/xbps-cache bind mount is
+        # live, xbps takes present packages from it and falls back to the mirror.
+        if xbps-install -Suy -R "$_ipkgs_repo" "${_xbps_cache[@]}" "$@"; then
             _ipkgs_ok=1
             break
         fi
@@ -6420,7 +6625,7 @@ install_pkgs() {
         # locked; refresh the index and let xbps reconcile the db before the
         # next mirror attempt, rather than replaying the same stale state and
         # failing all three mirrors for the same root cause.
-        xbps-install -Sy -R "$_ipkgs_repo" >/dev/null 2>&1 || true
+        xbps-install -Sy -R "$_ipkgs_repo" "${_xbps_cache[@]}" >/dev/null 2>&1 || true
         xbps-pkgdb -a >/dev/null 2>&1 || true
     done
     if [ "$_ipkgs_ok" -ne 1 ]; then
@@ -6467,14 +6672,17 @@ install_cosmic() {
 
     # Sync the (freshly added) COSMIC repo index; this is what imports/trusts
     # the repo's signing key, matching the maintainer's documented setup.
-    if ! xbps-install -Sy; then
+    # AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: the COSMIC sync also
+    # honors the cache (repodata refresh + the -Sy index write land in the cache
+    # dir), so the third-party packages reuse it exactly like the main-line ones.
+    if ! xbps-install "${_xbps_cache[@]}" -Sy; then
         echo "FATAL: could not sync/trust the third-party COSMIC repository (${_cosmic_repo})." >&2
         echo "       If it is a missing-signing-key prompt, re-check the repo; install aborted cleanly." >&2
         echo "       Repo docs / audit: ${_cosmic_audit}" >&2
         exit 1
     fi
 
-    if ! xbps-install -y "$@"; then
+    if ! xbps-install "${_xbps_cache[@]}" -y "$@"; then
         echo "FATAL: xbps-install failed for COSMIC package(s): $*" >&2
         echo "       Repo docs / audit: ${_cosmic_audit}" >&2
         exit 1
@@ -8577,6 +8785,10 @@ SESSION_STACK="${SESSION_STACK:-<unset>}"
 LOCALE="${LOCALE:-<unset>}"
 TIMEZONE="${TIMEZONE:-<unset>}"
 REPO_PRIMARY="${REPO_PRIMARY:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: flag only — the cache
+# PATH itself is media-scoped and meaningless after the install completes
+# (mirrors remain the installed system's package source).
+LOCAL_CACHE_REUSE="${LOCAL_CACHE_REUSE:-no}"
 SWAP_BACKEND="${SWAP_BACKEND:-<unset>}"
 ENABLE_HIBERNATION="${ENABLE_HIBERNATION:-<unset>}"
 SWAPFILE_SIZE="${SWAPFILE_SIZE:-<unset>}"
@@ -11857,6 +12069,10 @@ umount -v /mnt/srv || true
 umount -v /mnt/opt || true
 umount -v /mnt/.snapshots || true
 umount -v /mnt/home || true
+# AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: release the media cache
+# bind mount before /mnt itself; a live nested mount here would make the final
+# umount fail. No-op safe when the cache was never bound.
+umount -v /mnt/tmp/xbps-cache || true
 umount -v /mnt || true
 
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 10]: POST-INSTALL "NEXT STEPS" SUMMARY.

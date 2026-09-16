@@ -84,6 +84,16 @@
   - `6` Asia (China) — `https://mirrors.tuna.tsinghua.edu.cn/voidlinux/current`
   - `7` Oceania (Australia) — `https://mirror.aarnet.edu.au/pub/voidlinux/current`
   - `8` South/Central America (Brazil) — `https://void.voidbr.org/voidlinux/current`
+- **Local package cache `[Y/n or absolute path, default n]`** — reuse already-downloaded XBPS
+  packages instead of re-fetching from the mirror (Beta-v2.9.59 `[LOCAL-CACHE]`).
+  - `y`/`yes` → use the auto-detected cache at
+    `<mount>/xbps-cachedir-<arch>` under `/run/media` (newest-touched writable dir with real
+    `.xbps` files wins).
+  - A typed absolute path → same, for a cache that auto-detect misses.
+  - `n`/Enter (default) → network-only baseline.
+  - The cache dir must be writable (`-Sy` repodata writes into it). A read-only/unusable dir
+    **degrades to network-only** — never aborts the install. Mirrors stay the per-package
+    fallback. Also honored on `-r` resume (path re-validated/re-detected).
 
 ---
 
