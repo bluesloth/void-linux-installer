@@ -715,6 +715,13 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #                     ("Install failed (exit 2)" / failing command: the ls glob), even though the cache was
 #                     found and printed. Add `|| true` inside the process substitution so a no-match glob can
 #                     never propagate a non-zero status (matches the Void_Linux_Live _cache_detect form).
+#     Beta-v2.9.64   [PARTSCAN-HOST-COPY] — dracut's udev-rule scan resolves RUN= programs against the BUILD
+#                     HOST root, not $moddir; the partscan rule points at /usr/bin/void-inner-partscan.sh, a
+#                     path that only exists inside the module at build time, so every initramfs build logged
+#                     "Skipping program /usr/bin/void-inner-partscan.sh ... as it cannot be found" (cosmetic —
+#                     inst_script embeds it regardless). The installer now also materializes the helper at
+#                     the target's /usr/bin so the scan resolves it, the dinfo disappears on kernel updates,
+#                     and a debuggable copy stays on the installed system.
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -11493,6 +11500,22 @@ INNER_EOF
 
     chmod 0755 /usr/lib/dracut/modules.d/98void-inner-partscan/module-setup.sh
     chmod 0755 /usr/lib/dracut/modules.d/98void-inner-partscan/void-inner-partscan.sh
+
+    # AI (Big Pickle) FIX — Beta-v2.9.64 [PARTSCAN-HOST-COPY]: dracut's udev-rule
+    # scan (_inst_rule_programs in dracut-functions.sh) resolves each RUN= program
+    # against the BUILD HOST root, never the module dir — the partscan udev rule
+    # references /usr/bin/void-inner-partscan.sh, which at dracut time exists ONLY
+    # as $moddir/void-inner-partscan.sh, so EVERY initramfs build logged the
+    # cosmetic "Skipping program /usr/bin/void-inner-partscan.sh using in udev rule
+    # 10-void-inner-partscan.rules as it cannot be found" (the initrd was still
+    # correct — module-setup's inst_script embeds it). Materialize the helper at the
+    # target's /usr/bin/: the scan then resolves it and embeds it via inst_binary,
+    # the warning disappears, and a directly-inspectable copy also lives on the
+    # installed system for boot troubleshooting. Mirrors install_items+=" .../btrfs"
+    # precedent in 90-system.conf. The $moddir copy stays; inst_script remains the
+    # image's source of truth if the /usr/bin copy is ever removed.
+    cp -f /usr/lib/dracut/modules.d/98void-inner-partscan/void-inner-partscan.sh /usr/bin/void-inner-partscan.sh
+    chmod 0755 /usr/bin/void-inner-partscan.sh
 
     # Bake the mapper name in (rules match + helper fallback): never a raw
     # typed name — escape sed replacement specials (& / \) before substitution.

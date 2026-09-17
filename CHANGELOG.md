@@ -119,6 +119,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.61** | `[LOCAL-CACHE-ROOT]` — the `[LOCAL-CACHE]` detector globs only `/run/media/*/xbps-cachedir-*`; a `--persist` + `--seed-cache` Void_Linux_Live stick (`voidlive-build-persist.sh`) seeds the cache into the **root of its VOID_OVL overlay**, so on the booted live system it sits at `/xbps-cachedir-<arch>` — writable persistence layer, arch-matched, real `.xbps`, but nowhere near `/run/media` → never auto-detected. The detect glob list now also probes live-root `/xbps-cachedir-*` (a no-op on ordinary non-persistent boots; the seeded persist stick auto-detects and the prompt answer stays a plain `Y`) | Beta-v2.9.60 below |
 | **Beta-v2.9.62** | `[LOCAL-CACHE-DEPTH]` — the `[LOCAL-CACHE]`/`[LOCAL-CACHE-ROOT]` `/run/media` glob probed only `/run/media/*/xbps-cachedir-*` (**one** level), but udisks mounts an unlabeled data stick at `/run/media/<user>/<uuid>` (**two** levels) — precisely the "cache on a separate data stick next to the VOID_LIVE stick" layout this feature was built to serve — so auto-detect silently missed it on every such box and the prompt fell back to typing the absolute path. The detect glob list now also probes `/run/media/*/*/xbps-cachedir-*`; depth-1, depth-2 and the live-root seed all share the same newest-touched, writable, arch-matching, real-`.xbps` first-wins rule. Proven against the <host> layout: `/run/media/<user>/<uuid>/xbps-cachedir-x86_64` now auto-detects as root | Beta-v2.9.61 below |
 | **Beta-v2.9.63** | `[LOCAL-CACHE-ERR]` — the detector's process substitution `<(ls -1dt <globs> 2>/dev/null)` exits **2** whenever any glob matches nothing: the unmatched glob stays LITERAL, so `ls` reports it as a missing operand even when a sibling glob matched AND was listed — every real run (cache present or not) kills the install at the cache prompt. Under `set -eE` + `trap ERR` the non-zero status fires `cleanup_on_failure` **inside** the `$( _local_cache_detect || true )` subshell (the `|| true` guards only the call site), producing "!! Install failed (exit 2)" with `Failing command: ls ... xbps-cachedir-*` and a best-effort /mnt unwind although detect itself returned the cache path successfully. Reproduced live as root on both the target's desktop copy and the repo. Fix: `|| true` on the `ls` inside the process substitution — its status can no longer propagate — so the read loop just consumes whatever matched, exactly mirroring the `Void_Linux_Live` `_cache_detect()` form (that file already carried `|| true`, this was the lone divergence). `bash -n` clean; post-fix root run reaches the (now promptable) cache step | Beta-v2.9.62 below |
+| **Beta-v2.9.64** | `[PARTSCAN-HOST-COPY]` — dracut's udev-rule program scan (`_inst_rule_programs`, dracut-functions.sh) resolves each `RUN=` path against the BUILD HOST root, never the module dir. The 98void-inner-partscan udev rule references `/usr/bin/void-inner-partscan.sh`, a path that at dracut time exists only as `$moddir/void-inner-partscan.sh`, so EVERY initramfs build logged `Skipping program /usr/bin/void-inner-partscan.sh using in udev rule 10-void-inner-partscan.rules as it cannot be found`. Purely cosmetic on the image (module-setup's `inst_script` embeds the helper regardless — lsinitrd proves all bits present) but noisy on every kernel install, and it recurs on the installed system's kernel updates too. Fix: the installer now also copies the helper to the target's `/usr/bin/void-inner-partscan.sh` (0755) as part of the module-write step, so the scan resolves it and embeds it via `inst_binary` — warning gone, plus a directly-inspectable copy lives on the installed system. The `$moddir` copy and `inst_script` are unchanged (the image's source of truth). Applied live to the running install's chroot (02:36) so its next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean | Beta-v2.9.63 below |
 
 ---
 
@@ -753,6 +754,39 @@ done < <(ls -1dt /run/media/*/xbps-cachedir-* /run/media/*/*/xbps-cachedir-* /xb
 This is exactly the form `Void_Linux_Live/voidlive-build-persist.sh _cache_detect()` already used (`... || true`) on both of its `ls` lines — the installer's detector was the lone divergence, so the fork stays in lockstep with no further change.
 
 Validation: the crash was reproduced live as root against the repo script (identical result to the target's desktop copy: `rc=2`, same trace); after the `|| true` the root run sails past detection to the cache prompt and the install proceeds normally. `bash -n` clean.
+
+## Beta-v2.9.64 — `[PARTSCAN-HOST-COPY]` (dracut resolves udev `RUN=` programs against the build HOST, so every initramfs build logged the cosmetic "Skipping program /usr/bin/void-inner-partscan.sh ... as it cannot be found")
+
+`SCRIPT_VERSION` stays at the era checkpoint; era row added to the script header VERSION-HISTORY, index row added below the 2.9.63 index row, this section added as the newest section.
+
+The `98void-inner-partscan` dracut module writes its udev rule (RUN reference) and helper into the module dir, and module-setup's `inst_script $moddir/void-inner-partscan.sh /usr/bin/void-inner-partscan.sh` embeds the helper into every initramfs. The image was always correct — but dracut's udev-rule post-processing (`_inst_rule_programs` in `dracut-functions.sh`) also tries to resolve each `RUN=` program:
+
+```bash
+elif ...; then
+    _bin=$(find_binary "$_prog") || {
+        dinfo "Skipping program $_prog using in udev rule ${1##*/} as it cannot be found"
+        continue
+    }
+```
+
+The resolution is against the build host root (`find_binary` on PATH/absolute path with `dracutsysrootdir`), never the module dir. At dracut time `/usr/bin/void-inner-partscan.sh` exists only as `$moddir/void-inner-partscan.sh`, so every build printed:
+
+```
+dracut[I]: Skipping program /usr/bin/void-inner-partscan.sh using in udev rule 10-void-inner-partscan.rules as it cannot be found
+```
+
+That log line accompanied the very first LT-PC install's initramfs generation. It is cosmetic (lsinitrd on the built images shows `usr/bin/void-inner-partscan.sh`, the udev rules, `kpartx`, `partprobe`, and `cryptsetup` all present), but it recurs on the installed system's own kernel updates — every dracut run scans the rule again.
+
+Fix: the module-write step now also materializes the helper at the target's real `/usr/bin`:
+
+```bash
+cp -f /usr/lib/dracut/modules.d/98void-inner-partscan/void-inner-partscan.sh /usr/bin/void-inner-partscan.sh
+chmod 0755 /usr/bin/void-inner-partscan.sh
+```
+
+The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
+
+Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
 
 ## Beta-v2.9.59 — `[LOCAL-CACHE]` (optional reuse of a pre-seeded XBPS package cache on an attached medium — live sync, bootstrap, and every chroot install fetch from disk with the mirror as fallback)
 
