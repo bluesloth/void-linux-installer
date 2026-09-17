@@ -118,6 +118,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.60** | `[RESUME-GFX-FLAGS]` — the `[RESUME]` state-file persist list (stage-1 config block) omitted the three Beta-v2.9.48 `[HEADLESS]` flags `HAS_GRAPHICAL`/`INSTALL_XORG`/`INSTALL_AUDIO`, so every `-r` resume dropped into the chroot with them EMPTY. The in-chroot "defaults" the HEADLESS feature claimed (`HAS_GRAPHICAL=${HAS_GRAPHICAL:-yes}` etc.) live INSIDE the install-config heredoc — inscribed text, never executed — so the Stage-2 gate `[ "$HAS_GRAPHICAL" = "yes" ] || ...` fell through to the HEADLESS else-branch and a graphical KDE/SDDM install resumed as headless: the entire Xorg/Wayland base chain (`xorg`/xorg-server/mesa/xf86-*/xauth/xinit/wayland-protocols) was never installed → `/usr/bin/X` absent → SDDM "Failed to start display server process" → boot unlocked LUKS fine but never reached the greeter (proven live on <host>; audio alone survived because only ITS gate carries a real shell-side `:-true` default). Fix: (1) `HAS_GRAPHICAL`/`INSTALL_XORG`/`INSTALL_AUDIO` added to the resume-state persist list; (2) a REAL in-chroot recompute immediately before the base-chain gate — `HAS_GRAPHICAL` re-derived deterministically from the persisted `DESKTOP_ENV`/`DISPLAY_MANAGER` (both `none` ⇔ headless, else graphical), with `INSTALL_XORG`/`INSTALL_AUDIO` falling back to `false`/`true` — making resume safe even for state files written before this era | Beta-v2.9.59 below |
 | **Beta-v2.9.61** | `[LOCAL-CACHE-ROOT]` — the `[LOCAL-CACHE]` detector globs only `/run/media/*/xbps-cachedir-*`; a `--persist` + `--seed-cache` Void_Linux_Live stick (`voidlive-build-persist.sh`) seeds the cache into the **root of its VOID_OVL overlay**, so on the booted live system it sits at `/xbps-cachedir-<arch>` — writable persistence layer, arch-matched, real `.xbps`, but nowhere near `/run/media` → never auto-detected. The detect glob list now also probes live-root `/xbps-cachedir-*` (a no-op on ordinary non-persistent boots; the seeded persist stick auto-detects and the prompt answer stays a plain `Y`) | Beta-v2.9.60 below |
 | **Beta-v2.9.62** | `[LOCAL-CACHE-DEPTH]` — the `[LOCAL-CACHE]`/`[LOCAL-CACHE-ROOT]` `/run/media` glob probed only `/run/media/*/xbps-cachedir-*` (**one** level), but udisks mounts an unlabeled data stick at `/run/media/<user>/<uuid>` (**two** levels) — precisely the "cache on a separate data stick next to the VOID_LIVE stick" layout this feature was built to serve — so auto-detect silently missed it on every such box and the prompt fell back to typing the absolute path. The detect glob list now also probes `/run/media/*/*/xbps-cachedir-*`; depth-1, depth-2 and the live-root seed all share the same newest-touched, writable, arch-matching, real-`.xbps` first-wins rule. Proven against the <host> layout: `/run/media/<user>/<uuid>/xbps-cachedir-x86_64` now auto-detects as root | Beta-v2.9.61 below |
+| **Beta-v2.9.63** | `[LOCAL-CACHE-ERR]` — the detector's process substitution `<(ls -1dt <globs> 2>/dev/null)` exits **2** whenever any glob matches nothing: the unmatched glob stays LITERAL, so `ls` reports it as a missing operand even when a sibling glob matched AND was listed — every real run (cache present or not) kills the install at the cache prompt. Under `set -eE` + `trap ERR` the non-zero status fires `cleanup_on_failure` **inside** the `$( _local_cache_detect || true )` subshell (the `|| true` guards only the call site), producing "!! Install failed (exit 2)" with `Failing command: ls ... xbps-cachedir-*` and a best-effort /mnt unwind although detect itself returned the cache path successfully. Reproduced live as root on both the target's desktop copy and the repo. Fix: `|| true` on the `ls` inside the process substitution — its status can no longer propagate — so the read loop just consumes whatever matched, exactly mirroring the `Void_Linux_Live` `_cache_detect()` form (that file already carried `|| true`, this was the lone divergence). `bash -n` clean; post-fix root run reaches the (now promptable) cache step | Beta-v2.9.62 below |
 
 ---
 
@@ -708,6 +709,50 @@ done < <(ls -1dt /run/media/*/xbps-cachedir-* /run/media/*/*/xbps-cachedir-* /xb
 - Mirrored fix in the `Void_Linux_Live` fork (`voidlive-build-persist.sh _cache_detect()`), so the build host auto-finds the same top-level cache when `--cache` is omitted.
 
 Validation: `bash -n` OK; as root, `_local_cache_detect()` returns `/run/media/<user>/<uuid>/xbps-cachedir-x86_64` on the <host> layout (previously empty).
+
+## Beta-v2.9.63 — `[LOCAL-CACHE-ERR]` (the cache detector's `ls` process substitution returned exit 2 on every real run and the ERR trap aborted the install at the cache prompt even when the cache was found)
+
+`SCRIPT_VERSION` stays at the era checkpoint; era row added to the script header VERSION-HISTORY, index row added below the 2.9.62 index row, this section added as the newest section.
+
+`[LOCAL-CACHE]`/`[LOCAL-CACHE-ROOT]`/`[LOCAL-CACHE-DEPTH]` feed the read loop from a process substitution:
+
+```
+done < <(ls -1dt /run/media/*/xbps-cachedir-* /run/media/*/*/xbps-cachedir-* /xbps-cachedir-* 2>/dev/null)
+```
+
+`ls` exits **2** on a missing operand. A glob that matches nothing stays **literal** (no `nullglob`), so whenever any of the three globs fails to match — which is the normal case on any given layout: e.g. `/xbps-cachedir-*` never exists except on a seeded persist stick — `ls` returns 2 even while successfully listing a sibling that DID match. The stderr was already silenced (`2>/dev/null`), which hid the message but not the status.
+
+The shell's `set -eE` (line 549) arms an ERR trap (`trap cleanup_on_failure ERR`, line 1429); errtrace propagates that trap into the `$( ... )` command substitution at the call site:
+
+```
+AUTO_LOCAL_CACHE=$(_local_cache_detect || true)
+```
+
+The `|| true` guards the CALL — it cannot protect a failure that fires while `_local_cache_detect` is still running inside the subshell. So on every matching run the install printed the correctly detected cache path, then aborted at the cache prompt:
+
+```
+!! Install failed (exit 2). Failure trace logged to /tmp/void-installer-journal.log. Attempting best-effort unwind of /mnt...
+  Auto-detected cache on an attached medium: /run/media/anon/<uuid>/xbps-cachedir-x86_64
+-- Use a local package cache? [y/N] or type an absolute path: !! Unwind attempted. Re-check 'mount | grep /mnt' before re-running.
+!! Crash post-mortem saved to /run/media/anon/void-installer-crash-...
+```
+
+with the journal's fatal line:
+
+```
+Exit code       : 2
+Failing command : ls -1dt /run/media/*/xbps-cachedir-* /run/media/*/*/xbps-cachedir-* /xbps-cachedir-* 2> /dev/null
+```
+
+Fix: `|| true` on the `ls` itself so the process substitution can never carry a non-zero status; the read loop simply consumes whatever matched:
+
+```
+done < <(ls -1dt /run/media/*/xbps-cachedir-* /run/media/*/*/xbps-cachedir-* /xbps-cachedir-* 2>/dev/null || true)
+```
+
+This is exactly the form `Void_Linux_Live/voidlive-build-persist.sh _cache_detect()` already used (`... || true`) on both of its `ls` lines — the installer's detector was the lone divergence, so the fork stays in lockstep with no further change.
+
+Validation: the crash was reproduced live as root against the repo script (identical result to the target's desktop copy: `rc=2`, same trace); after the `|| true` the root run sails past detection to the cache prompt and the install proceeds normally. `bash -n` clean.
 
 ## Beta-v2.9.59 — `[LOCAL-CACHE]` (optional reuse of a pre-seeded XBPS package cache on an attached medium — live sync, bootstrap, and every chroot install fetch from disk with the mirror as fallback)
 

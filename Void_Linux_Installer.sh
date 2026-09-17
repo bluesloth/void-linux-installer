@@ -707,6 +707,14 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #                     now also probes /run/media/*/*/xbps-cachedir-* — the real-world udisks "-<uuid>" mount
 #                     — alongside the one-level layout and the live-root seed; depth-1+2 write into system
 #                     dirs in orders of the token newest-touched = first wins rule remains.
+#     Beta-v2.9.63   [LOCAL-CACHE-ERR] — the detect pipe fed by <(ls -1dt <globs> 2>/dev/null) can exit 2: when
+#                     ANY of the three globs matches nothing it is left LITERAL and ls reports it as a
+#                     missing operand, so a detecting run that still FOUND the cache returns 2 anyway. Under
+#                     the script's set -eE + trap ERR, that status fired cleanup_on_failure INSIDE the
+#                     $( _local_cache_detect || true ) subshell and crashed every run at the cache prompt
+#                     ("Install failed (exit 2)" / failing command: the ls glob), even though the cache was
+#                     found and printed. Add `|| true` inside the process substitution so a no-match glob can
+#                     never propagate a non-zero status (matches the Void_Linux_Live _cache_detect form).
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -1478,6 +1486,16 @@ fi
 # probes /run/media/*/*/xbps-cachedir-*; depth-1, depth-2 and the live-root
 # seed share the same "newest-touched, writable, arch-matching, real .xbps"
 # first-wins rule.
+# AI (Big Pickle) FIX — Beta-v2.9.63 [LOCAL-CACHE-ERR]: the process substitution
+# <(ls -1dt <globs> 2>/dev/null) fed to the read loop can return exit 2 — an
+# unmatched glob stays LITERAL, so ls reports "cannot access ...: No such file
+# or directory" even when a sibling glob matched and was listed. Under
+# set -eE (errtrace) the ERR trap fires on that status INSIDE the
+# $( _local_cache_detect || true ) command substitution, running cleanup_on_failure
+# mid-detection: the install aborts at the cache prompt with "Install failed
+# (exit 2) / failing command: ls ...xbps-cachedir-*" although the cache was
+# found. `|| true` on the ls keeps its status 0 — the while-read loop consumes
+# whatever matched, exactly like the Void_Linux_Live _cache_detect() twin.
 _local_cache_detect() {
     _lc_arch="$(uname -m)"
     while IFS= read -r _lc_dir; do
@@ -1491,7 +1509,7 @@ _local_cache_detect() {
         [ -n "$(find "$_lc_dir" -maxdepth 1 -name '*.xbps' -print -quit 2>/dev/null)" ] || continue
         printf '%s\n' "$_lc_dir"
         return 0
-    done < <(ls -1dt /run/media/*/xbps-cachedir-* /run/media/*/*/xbps-cachedir-* /xbps-cachedir-* 2>/dev/null)
+    done < <(ls -1dt /run/media/*/xbps-cachedir-* /run/media/*/*/xbps-cachedir-* /xbps-cachedir-* 2>/dev/null || true)
     return 1
 }
 unset _lc_arch _lc_dir 2>/dev/null || true
