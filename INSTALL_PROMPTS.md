@@ -207,6 +207,31 @@
     - `1` Podman (default)
     - `2` Docker
 - **`[*]` Install virtualization (qemu/libvirt/virt-manager + br0 bridge)? [y/N]**
+- **Install and enable the OpenSSH server (sshd)? [y/N]** (`[SSH-SERVER]`,
+  Beta-v2.9.23) — default OFF (no network-facing daemons by default). If `y`,
+  the following are asked:
+  - **OpenSSH server port (default 22)** — must be an integer 1-65535, reprompts
+    until valid
+  - **Allow password authentication over SSH? [Y/n]** — default `y`
+  - **Allow root to log in over SSH (public-key only)? [Y/n]** — default `y`
+    (maps to `prohibit-password`); `n` → `no`
+- **SSH keys** (`[SSH-KEYS]`, Beta-v2.9.23) — three independently-toggleable
+  steps, each default `n`:
+  - **Import an existing SSH private key from removable media? [y/N]** → if `y`,
+    browse for the PRIVATE key file (a `.pub` file is rejected with a notice);
+    a sibling `.pub` next to it is imported alongside.
+  - **Generate a fresh ed25519 SSH keypair? [y/N]** → if `y`:
+    - **SSH key comment** (default `<user>@<hostname>`) — Enter to keep
+    - **Protect the key with a passphrase? [Y/n]** — if `y`, passphrase entered
+      twice hidden, must be non-empty and match
+  - **Export a backup copy of the SSH keypair to removable media? [y/N]** → if
+    `y` and a key exists (imported or generated), browse for a destination
+    directory and writes `id_ed25519-backup{, .pub}` (0600). Declining
+    import+generate means there is no key to export.
+  - No key material is ever persisted to install-config / limine-env / resume
+    state / chroot_env — only public facts (flattening `Beta-v2.9.54
+    [SSH-KEYGEN-STALE]`: keygen always clears any stale stage key first so the
+    prompt stream stays aligned).
 - **Master subvolume gates (`[SUBVOL-GATES]`, Beta-v2.9.0)** — asked once, after
   every install choice above is finalized:
   - **For software you ARE installing, give each its own isolated subvolume? [Y/n/i]**
