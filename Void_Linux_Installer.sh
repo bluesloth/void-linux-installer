@@ -731,6 +731,29 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #                     byte-matching the @usercache branch. Proven on <host> (carved ENCRYPT /home, KDE,
 #                     Beta-v2.9.13); the fix was applied live to the installed box (chown -R 1000:1000 +
 #                     chmod 700 restored ksycoca + firefox with no other changes).
+#     Beta-v2.9.66   [MULTI-FS-FS-EVAL] — the three mkfs/mount/fstab region loops resolved each carved
+#                     region's filesystem with `eval "_rr_fs=\${REGION_${_rr}_FS:-btrfs}"` using the RAW
+#                     lowercase REGION_PARTITIONED token, so `home` read the never-existent `REGION_home_FS`
+#                     (bash vars are case-sensitive) and EVERY carved region silently fell back to btrfs —
+#                     the v2.9.48 [DISK-BUDGET] `^^` fold fixed the SIZE evals but MISSED the _FS evals.
+#                     `games` broke even that contract: its choice lives in `REGION_GAMES` (no `_FS`).
+#                     Proven live (<host>, carved ENCRYPT /home + /home/<user>/Games): the prompt + install-config
+#                     recorded home=ext4 games=ext4 while the run-log mkfs, /etc/fstab and blkid all show
+#                     btrfs. Fix: `_region_fs_of` helper (uppercases the token, special-cases `games`;
+#                     near `_region_carved`) feeds all three loops; the installed void-subvol-tool's runtime
+#                     `region_fs()` gets the same fold + games case + quote-strip so the carved-region guard
+#                     actually fires. Also removed a stutter that double-printed the microcode pkg in the
+#                     [DOCS-LOG] CPU= line.
+#     Beta-v2.9.67   [KEYMAP-CMDLINE] — the ENCRYPT branch baked the [KEYMAP] initrd parameter as a BARE
+#                     `rd.vconsole.keymap=<k>` line appended to /etc/dracut.conf.d/90-system.conf, but dracut
+#                     SOURCES every conf file with bash — a dotted bare assignment is not valid shell, so bash
+#                     executed the line as a command and EVERY dracut run logged `rd.vconsole.keymap=us:
+#                     command not found` (3x per install, once per kernel image). Worse, the parameter was
+#                     therefore NEVER baked into the initramfs: the [KEYMAP] feature (Beta-v2.6.9) silently
+#                     did nothing and the early LUKS passphrase prompt kept the kernel's built-in US map.
+#                     Fix: emit `kernel_cmdline="rd.vconsole.keymap=<k>"` — the dracut-native form
+#                     (man dracut.conf: "only sets initrd parameters"), which is shell-valid AND actually
+#                     lands the parameter (covers both bootloaders via the shared 90-system.conf).
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -4335,6 +4358,27 @@ _region_carved() { # $1=region name; returns 0 when carved onto its own partitio
         *)        return 1 ;;
     esac
 }
+# AI (Big Pickle) FIX — Beta-v2.9.66 [MULTI-FS-FS-EVAL]: resolve a carved
+# region's filesystem from its LOWERCASE REGION_PARTITIONED token. The three
+# mkfs/mount/fstab sites all used `eval "_rr_fs=\${REGION_${_rr}_FS:-btrfs}"`
+# with the raw token, so `home` read the never-existent `REGION_home_FS`
+# (bash variable names are case-sensitive) and EVERY carved region silently
+# fell back to `btrfs` — the v2.9.48 [DISK-BUDGET] `^^` fold fixed the SIZE
+# evals but missed the _FS evals. `games` additionally stores its choice in
+# `REGION_GAMES` (no `_FS` suffix), so even a uppercased `REGION_GAMES_FS`
+# would still be empty — the one region whose variable name breaks the
+# REGION_<NAME>_FS contract. Observed live (2026-09-17, carved ENCRYPT
+# /home + /home/<user>/Games): prompt/install-config recorded home=ext4
+# games=ext4 while the run-log mkfs + fstab + blkid all show btrfs.
+_region_fs_of() { # $1 = lowercase region token (home|var|cache|srv|opt|games)
+    local _rfv
+    if [ "$1" = "games" ]; then
+        _rfv="REGION_GAMES"
+    else
+        _rfv="REGION_${1^^}_FS"
+    fi
+    printf '%s' "${!_rfv:-btrfs}"
+}
 if [ -n "${REGION_PARTITIONED:-}" ]; then
     for _rg in $REGION_PARTITIONED; do
         case "$_rg" in
@@ -5640,7 +5684,7 @@ if [ "$RESUME" != "1" ]; then
     if [ -n "${REGION_PARTITIONED:-}" ]; then
         for _rr in $REGION_PARTITIONED; do
             eval "_rr_dev=\${REGION_PART_${_rr}:-}"
-            eval "_rr_fs=\${REGION_${_rr}_FS:-btrfs}"
+            _rr_fs="$(_region_fs_of "$_rr")"
             [ -n "$_rr_dev" ] || { echo "FATAL: REGION_PART_${_rr} unset — region device was never resolved." >&2; exit 1; }
             [ -e "$_rr_dev" ] || { echo "FATAL: region device ${_rr_dev} for '${_rr}' does not exist (partscan?)." >&2; exit 1; }
             echo "==> Formatting region '${_rr}' (${_rr_fs}) on ${_rr_dev}"
@@ -6086,7 +6130,7 @@ fi
 if [ -n "${REGION_PARTITIONED:-}" ]; then
     for _rr in $REGION_PARTITIONED; do
         eval "_rr_dev=\${REGION_PART_${_rr}:-}"
-        eval "_rr_fs=\${REGION_${_rr}_FS:-btrfs}"
+        _rr_fs="$(_region_fs_of "$_rr")"
         [ -n "$_rr_dev" ] || { echo "FATAL: REGION_PART_${_rr} unset at region-mount time." >&2; exit 1; }
         case "$_rr" in
             home)  _rr_mp="/mnt/home" ; _rr_leaf="home" ;;
@@ -6211,7 +6255,7 @@ fi
 if [ -n "${REGION_PARTITIONED:-}" ]; then
     for _rr in $REGION_PARTITIONED; do
         eval "_rr_dev=\${REGION_PART_${_rr}:-}"
-        eval "_rr_fs=\${REGION_${_rr}_FS:-btrfs}"
+        _rr_fs="$(_region_fs_of "$_rr")"
         eval "_rr_uuid=\${REGION_UUID_${_rr}:-}"
         if [ -z "$_rr_uuid" ]; then
             _rr_uuid=$(blkid -s UUID -o value "$_rr_dev")
@@ -9020,7 +9064,7 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
         # (re-derived in-chroot from /proc/cpuinfo — same hardware as the live
         # probe) + the microcode package the installer chose for it.
         _doc_cpu="$(grep -m1 vendor_id /proc/cpuinfo 2>/dev/null | awk '{print $3}')"
-        echo "CPU=${_doc_cpu:-<unknown>} (microcode: ${MICROCODE_PKG:-none})${MICROCODE_PKG:-}"
+        echo "CPU=${_doc_cpu:-<unknown>} (microcode: ${MICROCODE_PKG:-none})"
         unset _doc_cpu
         # AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: one pointer
         # line for the Homebrew (Linuxbrew) channel. The prefix itself is
@@ -10317,8 +10361,13 @@ cmd_check() {
 # cache/srv/opt own themselves, games owns nothing (a plain dir).
 # ---------------------------------------------------------------------------
 region_fs() { # $1=region name -> the fs it was carved to (default btrfs)
-    local _v
-    _v=$(sed -n "s/^REGION_${1}_FS=//p" /etc/void-installer/install-config 2>/dev/null | tail -1)
+    local _v _rfv
+    if [ "$1" = "games" ]; then
+        _rfv="REGION_GAMES"
+    else
+        _rfv="REGION_${1^^}_FS"
+    fi
+    _v=$(sed -n "s/^${_rfv}=//p" /etc/void-installer/install-config 2>/dev/null | tail -1 | tr -d '"')
     [ -n "$_v" ] || _v="btrfs"
     echo "$_v"
 }
@@ -11042,8 +11091,17 @@ if [ "$ENCRYPT" = "yes" ]; then
     # passphrase prompt (before root/console is up) maps keys exactly like the
     # install console. Without this the pre-unlock prompt uses the kernel's
     # built-in US map even when the passphrase was typed under a different one.
+    # (AI (Big Pickle) FIX — Beta-v2.9.67 [KEYMAP-CMDLINE]: this was written as
+    # a BARE `rd.vconsole.keymap=<k>` line, but dracut SOURCES every file under
+    # dracut.conf.d with bash — a dotted bare assignment is not valid shell, so
+    # bash executed the line as a command and every dracut run logged
+    # `rd.vconsole.keymap=us: command not found` (3x per install, once per
+    # kernel image). Worse, the parameter was therefore NEVER baked into the
+    # initramfs — the [KEYMAP] feature silently did nothing. The dracut-native
+    # form is `kernel_cmdline="..."` (man dracut.conf: "only sets initrd
+    # parameters"), which is shell-valid and actually lands the param.)
     echo 'add_dracutmodules+=" i18n "' >> /etc/dracut.conf.d/90-system.conf
-    echo "rd.vconsole.keymap=${KEYMAP_LIVE:-us}" >> /etc/dracut.conf.d/90-system.conf
+    echo "kernel_cmdline=\"rd.vconsole.keymap=${KEYMAP_LIVE:-us}\"" >> /etc/dracut.conf.d/90-system.conf
 fi
 
 # AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: when YubiKey unlock is

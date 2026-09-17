@@ -121,6 +121,8 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.63** | `[LOCAL-CACHE-ERR]` — the detector's process substitution `<(ls -1dt <globs> 2>/dev/null)` exits **2** whenever any glob matches nothing: the unmatched glob stays LITERAL, so `ls` reports it as a missing operand even when a sibling glob matched AND was listed — every real run (cache present or not) kills the install at the cache prompt. Under `set -eE` + `trap ERR` the non-zero status fires `cleanup_on_failure` **inside** the `$( _local_cache_detect || true )` subshell (the `|| true` guards only the call site), producing "!! Install failed (exit 2)" with `Failing command: ls ... xbps-cachedir-*` and a best-effort /mnt unwind although detect itself returned the cache path successfully. Reproduced live as root on both the target's desktop copy and the repo. Fix: `|| true` on the `ls` inside the process substitution — its status can no longer propagate — so the read loop just consumes whatever matched, exactly mirroring the `Void_Linux_Live` `_cache_detect()` form (that file already carried `|| true`, this was the lone divergence). `bash -n` clean; post-fix root run reaches the (now promptable) cache step | Beta-v2.9.62 below |
 | **Beta-v2.9.64** | `[PARTSCAN-HOST-COPY]` — dracut's udev-rule program scan (`_inst_rule_programs`, dracut-functions.sh) resolves each `RUN=` path against the BUILD HOST root, never the module dir. The 98void-inner-partscan udev rule references `/usr/bin/void-inner-partscan.sh`, a path that at dracut time exists only as `$moddir/void-inner-partscan.sh`, so EVERY initramfs build logged `Skipping program /usr/bin/void-inner-partscan.sh using in udev rule 10-void-inner-partscan.rules as it cannot be found`. Purely cosmetic on the image (module-setup's `inst_script` embeds the helper regardless — lsinitrd proves all bits present) but noisy on every kernel install, and it recurs on the installed system's kernel updates too. Fix: the installer now also copies the helper to the target's `/usr/bin/void-inner-partscan.sh` (0755) as part of the module-write step, so the scan resolves it and embeds it via `inst_binary` — warning gone, plus a directly-inspectable copy lives on the installed system. The `$moddir` copy and `inst_script` are unchanged (the image's source of truth). Applied live to the running install's chroot (02:36) so its next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean | Beta-v2.9.63 below |
 | **Beta-v2.9.65** | `[HOME-CACHE-CHOWN]` — on a carved-`/home` `[MULTI-FS]` install (`REGION_PARTITIONED` contains `home`) the ONLY `~/.cache` chown in the script lives inside the non-carved `@usercache` branch, so the **root**:root 0755 `~/.cache` created by the browser-subvol prep (`mkdir -p "/home/${TARGET_USER}/.cache"`) was left un-chowned on every carve-home install. A root-owned `~/.cache` silently breaks the whole graphical desktop on first boot: `ksycoca` cannot create/lock its DB (`Couldn't lock ".../ksycoca6_...=.lock"` → empty KDE app launcher + blank panel), the AppStream runner cache refuses to write, mesa shader cache (`.cache/mesa_shader_cache`) is disabled, and firefox dies on `~/.cache/mozilla` with "Permission denied" (the script's own browser-provision comment documents firefox's cache path there). Proven on real hardware (<host>, carved ENCRYPT `/home`, KDE/SDDM, SCRIPT_VERSION Beta-v2.9.13): the FIRST boot's `~/.local/share/sddm/wayland-session.log` was wall-to-wall `Permission denied`/`Couldn't lock` on `~/.cache` with the session otherwise fine. Fix: the carved-home branch now `chown`s `~/.cache` to `$TARGET_USER` and `chmod 700` — byte-matching the `@usercache` branch — applied live on the installed box (chown + chmod restored ksycoca and firefox with zero other changes, verified by a <user> chroot write probe). `bash -n` clean | Beta-v2.9.64 below |
+| **Beta-v2.9.66** | `[MULTI-FS-FS-EVAL]` — the three mkfs/mount/fstab region loops resolved each carved region's filesystem with `eval "_rr_fs=\${REGION_${_rr}_FS:-btrfs}"` using the RAW lowercase `REGION_PARTITIONED` token, so `home` read the never-existent `REGION_home_FS` (bash variable names are case-sensitive) and **every** carved region silently fell back to `btrfs` — the v2.9.48 `[DISK-BUDGET]` `^^` fold fixed the SIZE evals but MISSED the three `_FS` evals. `games` broke even that contract: its choice lives in `REGION_GAMES` (no `_FS` suffix), so an uppercased `REGION_GAMES_FS` would still read empty. Proven live on <host> (carved ENCRYPT `/home` + `/home/<user>/Games`, both requested as ext4): the prompt + install-config recorded `home=ext4 games=ext4` while `installer-run.log` mkfs, `/etc/fstab`, and `blkid` all show **btrfs**. Fix: `_region_fs_of` helper (`_region_fs_of "$_rr"`, near `_region_carved`) uppercases the token and special-cases `games`, and feeds all three loops; the installed `void-subvol-tool.sh`'s runtime `region_fs()` gets the same fold + `games` special-case + quote-strip so its carved-region guard actually fires on a carved box. Also removed a `[DOCS-LOG]` stutter that double-printed the microcode package in the `CPU=` line (`...: linux-firmware-amd)linux-firmware-amd`). `bash -n` clean | Beta-v2.9.65 below |
+| **Beta-v2.9.67** | `[KEYMAP-CMDLINE]` — the `[ENCRYPT]` branch baked the `[KEYMAP]` (Beta-v2.6.9) initrd parameter as a BARE `rd.vconsole.keymap=<k>` line appended to `/etc/dracut.conf.d/90-system.conf`, but dracut **sources** every conf file with bash — a dotted bare assignment is not valid shell, so bash EXECUTED the line as a command and every dracut run logged `rd.vconsole.keymap=us: command not found` (3× per install — one per kernel image — plus 3× on this observed install's `xbps-reconfigure` regen). Worse, the parameter was therefore NEVER baked into the initramfs, so the keymap feature silently did nothing and the early-boot LUKS passphrase prompt kept the kernel's built-in US map. Fix: emit `kernel_cmdline="rd.vconsole.keymap=<k>"` — the dracut-native form (`man dracut.conf`: "this command only sets initrd parameters"), shell-valid AND actually lands the parameter. Shared `90-system.conf` → covers both bootloaders. `bash -n` clean | Beta-v2.9.66 below |
 
 ---
 
@@ -788,6 +790,79 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.67 — `[KEYMAP-CMDLINE]` (every dracut run logged `rd.vconsole.keymap=us: command not found` — and the keymap param was never actually baked into the initramfs)
+
+`SCRIPT_VERSION` stays at the era checkpoint (Beta-v2.9.13); era row added to the script header VERSION-HISTORY (`# Beta-v2.9.67   [KEYMAP-CMDLINE]`), index row added above; this section added as the newest section.
+
+### The bug
+
+Observed live on <host> during the install (2026-09-17), before each of the three kernel dracut runs:
+
+```
+/etc/dracut.conf.d/90-system.conf: line 6: rd.vconsole.keymap=us: command not found
+```
+
+The ENCRYPT branch (`if [ "$ENCRYPT" = "yes" ]`) appended the keymap as a BARE dotted line:
+
+```sh
+echo "rd.vconsole.keymap=${KEYMAP_LIVE:-us}" >> /etc/dracut.conf.d/90-system.conf
+```
+
+Dracut **sources** every file under `dracut.conf.d/` with bash, and `rd.vconsole.keymap=us` is not valid shell (variable names cannot contain dots), so bash treats the whole line as a command name and executes it → `command not found` on stdout, printed once per dracut invocation. The 3× repetition in one install corresponds to the three kernel images (6.12.109 / 6.18.52 / 7.2.6) rebuilt during the final reconfigure loop.
+
+The silent second half of the bug: because the line was never a valid directive, dracut never applied the keymap parameter at all. The `[KEYMAP]` feature (Beta-v2.6.9) — whose whole point is that the early-boot LUKS passphrase prompt (before console/keymap daemons are up) maps keys like the install console — had been shipping without effect, so the prompt kept the kernel's built-in US map on non-US installs.
+
+### The fix
+
+```sh
+echo "kernel_cmdline=\"rd.vconsole.keymap=${KEYMAP_LIVE:-us}\"" >> /etc/dracut.conf.d/90-system.conf
+```
+
+`kernel_cmdline="parameters"` is the dracut-native, shell-valid directive (per `man dracut.conf`: "Specify default kernel command line parameters. Despite its name, this command only sets initrd parameters." — with `rd.`-prefixed parameters landing at the exact pre-root stage dracut's `i18n` module needs). It is written through the same shared `90-system.conf`, so the fix covers the GRUB branch and the Limine branch identically.
+
+### Applied / validation
+
+- Repo: `Void_Linux_Installer.sh:11094` now emits the `kernel_cmdline=` form. `bash -n` + `Debug/check-heredocs.sh` clean (this is an *append* against a live-generated file, not a quoted heredoc, so the heredoc gate is unaffected).
+- Host <host> (optionally): `/etc/dracut.conf.d/90-system.conf` line 6 changed from the bare line to `kernel_cmdline="rd.vconsole.keymap=..."` using the keymap pinned in `/etc/rc.conf`; the three initramfs images regenerated with `dracut --force` so the parameter actually lands.
+- The `command not found` noise disappears from the next dracut run (dracut now parses a valid directive instead of sourcing garbage).
+
+## Beta-v2.9.66 — `[MULTI-FS-FS-EVAL]` (every carved region was mkfs'd as btrfs regardless of the chosen filesystem: the `_FS` evals missed the case-fold the `_SIZE` evals got in v2.9.48, and `games`' choice lives in `REGION_GAMES` with no `_FS` suffix)
+
+`SCRIPT_VERSION` stays at the era checkpoint (Beta-v2.9.13); era row added to the script header VERSION-HISTORY (`# Beta-v2.9.66   [MULTI-FS-FS-EVAL]`), index row added above; this section added as the newest section.
+
+### The bug
+
+A carved-`[MULTI-FS]` install that chose a non-btrfs filesystem for a data region got btrfs silently on disk. Proven live on <host> (carved ENCRYPT `/home` + `/home/<user>/Games):
+
+- the region prompt and `install-config` recorded the request: `REGION_HOME_FS="ext4"`, `REGION_GAMES="ext4"` (and the run-log prompt line `home=ext4 games=ext4`);
+- but the actual layout landed as btrfs for **both** regions: `installer-run.log` `MULTI-FS-RUNLOG: mkfs 'home' (btrfs)` / `mkfs 'games' (btrfs)`, `/etc/fstab` maps both mountpoints to btrfs subvolume trees, and `blkid /dev/mapper/void{1,2,3}` reports `TYPE="btrfs"` on all three.
+
+### Why it happened
+
+The three region loops (mkfs, mount, fstab) resolved the filesystem with the raw, lowercase `REGION_PARTITIONED` token:
+
+```sh
+eval "_rr_fs=\${REGION_${_rr}_FS:-btrfs}"     # _rr=home -> REGION_home_FS
+```
+
+The config variables are uppercase (`REGION_HOME_FS`, set by the prompt FOLD), and bash variable names are case-sensitive — so `REGION_home_FS` never exists and the `:-btrfs` default swallowed the choice at all three sites. The v2.9.48 `[DISK-BUDGET]` fix that introduced the region-size/fs evals folded case with `${_rr^^}` for the `_SIZE` reads but left the three `_FS` reads unfixed. `games` is a second, independent failure: its filesystem choice is stored in `REGION_GAMES` (no `_FS` suffix at all), so even the corrected `${_rr^^}` fold would read the non-existent `REGION_GAMES_FS`.
+
+The shipped `void-subvol-tool.sh` (`/root/tools`) had the same bug class: its runtime `region_fs()` sed'd `^REGION_${1}_FS=` with the lowercase token against `install-config` (which stores uppercase keys), so it returned `btrfs` on every carved box and its carved-region guard never fired.
+
+### The fix
+
+- New helper `_region_fs_of()`, placed right after `_region_carved()`: uppercases the token (`REGION_${1^^}_FS`) and special-cases `games` → `REGION_GAMES`.
+- All three loops now use `_rr_fs="$(_region_fs_of "$_rr")"`.
+- `void-subvol-tool.sh` `region_fs()`: same fold + `games` special-case + `tr -d '"'` on the config value (install-config writes `REGION_HOME_FS="ext4"` quoted).
+- `[DOCS-LOG]` `CPU=` line: dropped the trailing `${MICROCODE_PKG:-}` that appended the microcode package name a second time (`CPU=AuthenticAMD (microcode: linux-firmware-amd)linux-firmware-amd` now reads `CPU=AuthenticAMD (microcode: linux-firmware-amd)`).
+
+### Applied / validation
+
+- The installed box was NOT corrected on disk — this era is a **script** fix for the next re-install (the installed layout is btrfs on btrfs: technically sane, just not what was chosen; a re-install with this fix yields the requested ext4 regions).
+- Reproduced the failure mode pre-fix with `set -x`: `eval '_rr_fs=${REGION_home_FS:-btrfs}'` evaluates to `btrfs` while `REGION_HOME_FS=ext4` — and `eval '_rr_fs=${REGION_games_FS:-btrfs}'` also yields `btrfs` even though `REGION_GAMES=ext4`.
+- Post-fix trace of the same lines resolves `ext4` for both `home` and `games`.
+- `bash -n` clean on the installer; the edited `void-subvol-tool.sh` body validated with `Debug/check-heredocs.sh`.
 
 ## Beta-v2.9.65 — `[HOME-CACHE-CHOWN]` (a carved-`/home` `[MULTI-FS]` install left `~/.cache` root-owned → ksycoca/firefox "Permission denied" → empty KDE panel on first boot)
 
