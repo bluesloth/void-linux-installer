@@ -6737,8 +6737,11 @@ install_cosmic() {
     # Sync the (freshly added) COSMIC repo index; this is what imports/trusts
     # the repo's signing key, matching the maintainer's documented setup.
     # AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: the COSMIC sync also
-    # honors the cache (repodata refresh + the -Sy index write land in the cache
-    # dir), so the third-party packages reuse it exactly like the main-line ones.
+    # honors the cache, so the third-party packages reuse it exactly like the
+    # main-line ones. (Correction, verified empirically in the Beta-v2.9.65 era:
+    # under xbps 0.60 the -Sy index write lands in the chroot's /var/db/xbps/<url>,
+    # never in the -c cache dir — the cache contributes PAYLOAD reuse; it must
+    # stay writable so mirror-fallback downloads land in it.)
     if ! xbps-install "${_xbps_cache[@]}" -Sy; then
         echo "FATAL: could not sync/trust the third-party COSMIC repository (${_cosmic_repo})." >&2
         echo "       If it is a missing-signing-key prompt, re-check the repo; install aborted cleanly." >&2
