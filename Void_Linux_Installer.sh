@@ -754,6 +754,18 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #                     Fix: emit `kernel_cmdline="rd.vconsole.keymap=<k>"` — the dracut-native form
 #                     (man dracut.conf: "only sets initrd parameters"), which is shell-valid AND actually
 #                     lands the parameter (covers both bootloaders via the shared 90-system.conf).
+#     Beta-v2.9.68   [PARTUUID-NODEPS]/[INSTALL-CONFIG-BACKENDS]/[INSTALL-CONFIG-SSHKEY]/[FLATPAK-DNS-LATE]
+#                     — four post-install-review fixes. (1) `lsblk -no PARTUUID "$dev"` DESCENDS into
+#                     children, so under ENCRYPT+regions (PART_SYS = the LUKS container) it captured the
+#                     inner void1/2/3 PARTUUIDs too and wrote a malformed multi-line SYSPREFIX_BTRFS into
+#                     limine-env/chroot_env (`--nodeps` now pins the named partition). (2) install-config
+#                     never recorded INSTALL_STEAM/DOCKER/PODMAN_* or the PROVISION_*_SUBVOL rows, so a
+#                     box with steam+podman installed and @containers mounted had no config row to
+#                     explain it. (3) SSH_KEY_COMMENT/SSH_KEY_PROTECTED were exported from their prompt
+#                     defaults unconditionally, so install-config advertised a key even when none was
+#                     imported/generated — now gated on the real ~/.ssh deposit (SSH_KEY_PRESENT). (4)
+#                     the flatpak NM dispatcher armed only on up/vpn-up; when the first `up` beat DNS it
+#                     left the queue unstamped with no retry, so it now also arms on connectivity-change.
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -6208,8 +6220,16 @@ EFI_UUID=$(blkid -s UUID -o value "$PART_EFI")
 # subvolume resolution at all, it never got that far. Switched to
 # `guid(<GUID>)`, which needs no disk-enumeration-order assumption at all
 # (Open Item #5d is now moot for this reason, not just resolved).
-ESP_PARTUUID=$(lsblk -no PARTUUID "$PART_EFI")
-BTRFS_PARTUUID=$(lsblk -no PARTUUID "$PART_SYS")
+# AI (Big Pickle) FIX — Beta-v2.9.68 [PARTUUID-NODEPS]: `lsblk` DESCENDS into
+# children by default, so with ENCRYPT+regions (PART_SYS = the LUKS container
+# /dev/nvme0n1p2, whose dm children are the inner GPT partitions void1/2/3)
+# `lsblk -no PARTUUID "$PART_SYS"` captured FOUR PARTUUIDs — one per line — and
+# SYSPREFIX_BTRFS became a malformed multi-line `guid(\n...\n)` value in
+# limine-env + chroot_env. SYSPREFIX_ESP happened to stay single-valued only
+# because the ESP vfat partition has no children, so the boot-critical value was
+# safe by luck. `--nodeps` makes both capture exactly the named partition.
+ESP_PARTUUID=$(lsblk -no PARTUUID --nodeps "$PART_EFI")
+BTRFS_PARTUUID=$(lsblk -no PARTUUID --nodeps "$PART_SYS")
 SYSPREFIX_ESP="guid(${ESP_PARTUUID})"
 SYSPREFIX_BTRFS="guid(${BTRFS_PARTUUID})"
 
@@ -8109,8 +8129,15 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
 # every Flatpak app queued at install time (one app ID per line in the queue
 # file). Stamp file prevents re-runs; stamp is written ONLY when ALL queued
 # installs succeed, so a transient network failure leaves the queue live.
+# AI (Big Pickle) FIX — Beta-v2.9.68 [FLATPAK-DNS-LATE]: the `up` event can fire
+# BEFORE NM finishes its connectivity check / DNS is resolvable (observed live:
+# the first `up` at boot logged "Could not resolve hostname" for summary.idx,
+# left no stamp, and the queue then never retried because `up` does not fire
+# again on a stable link). Also arm on `connectivity-change`, which NM emits when
+# its connectivity state transitions (e.g. LIMITED/NONE -> FULL once DNS works);
+# the `.done` guard keeps a successful first run from doing anything twice.
 case "$2" in
-    up|vpn-up) ;;
+    up|vpn-up|connectivity-change) ;;
     *) exit 0 ;;
 esac
 command -v flatpak >/dev/null 2>&1 || exit 0
@@ -8896,6 +8923,22 @@ chmod 644 /etc/void-installer/limine-env
 # choices (limine-env, the resume-state file, or the account provisioning
 # already stores whatever secrets the system actually needs at runtime).
 mkdir -p /etc/void-installer
+# AI (Big Pickle) FIX — Beta-v2.9.68 [INSTALL-CONFIG-SSHKEY]: `SSH_KEY_COMMENT`/
+# `SSH_KEY_PROTECTED` are initialized to their prompt defaults BEFORE the
+# [SSH-KEYS] prompts and exported unconditionally, so a run that imported AND
+# generated nothing still wrote those two rows — a false positive that read as
+# if a key existed. Derive presence from the actual deposit (done earlier this
+# stage into ~/.ssh) and emit the comment/protection rows ONLY when present.
+_ssh_key_present="no"
+if [ -f "/home/${TARGET_USER}/.ssh/id_ed25519" ] || [ -f "/home/${TARGET_USER}/.ssh/imported" ]; then
+    _ssh_key_present="yes"
+fi
+if [ "$_ssh_key_present" = "yes" ]; then
+    _ssh_key_rows="SSH_KEY_COMMENT=\"${SSH_KEY_COMMENT:-<unset>}\"
+SSH_KEY_PROTECTED=\"${SSH_KEY_PROTECTED:-<unset>}\""
+else
+    _ssh_key_rows="# (no SSH key imported or generated — comment/protection rows omitted)"
+fi
 cat > /etc/void-installer/install-config << INNER_EOF
 # Void Linux Installer — install-time configuration for THIS machine.
 # Written by Void_Linux_Installer.sh (v${SCRIPT_VERSION}) at install time.
@@ -8951,8 +8994,8 @@ INSTALL_SSH_SERVER="${INSTALL_SSH_SERVER:-false}"
 SSH_PORT="${SSH_PORT:-<unset>}"
 SSH_PASSWORD_AUTH="${SSH_PASSWORD_AUTH:-<unset>}"
 SSH_ROOT_LOGIN="${SSH_ROOT_LOGIN:-<unset>}"
-SSH_KEY_COMMENT="${SSH_KEY_COMMENT:-<unset>}"
-SSH_KEY_PROTECTED="${SSH_KEY_PROTECTED:-<unset>}"
+SSH_KEY_PRESENT="${_ssh_key_present}"
+${_ssh_key_rows}
 # AI (Big Pickle) ADDITION — Beta-v2.9.25 [HARDWARE-REVIEW]/[NVIDIA-GATE]:
 # hardware facts are public as-built data; the driver decision is recorded
 # too (probe results persist for future use, e.g. the Steam/gaming TODO).
@@ -8991,6 +9034,19 @@ INSTALL_WINE="${INSTALL_WINE:-false}"
 INSTALL_GAMEMODE="${INSTALL_GAMEMODE:-false}"
 INSTALL_ANY_GAME="${INSTALL_ANY_GAME:-false}"
 PROVISION_GAME_SUBVOL="${PROVISION_GAME_SUBVOL:-false}"
+# AI (Big Pickle) FIX — Beta-v2.9.68 [INSTALL-CONFIG-BACKENDS]: record the Steam
+# client + the container backend decisions. These were never emitted, so the
+# as-built config could not explain why steam/podman/docker were present (a
+# fresh install had steam + podman installed and @containers mounted with no
+# row for any of them). PROVISION_* rows name the subvols the [SUBVOL-GATES]
+# resolver actually created (@containers / @containers-user / @docker).
+INSTALL_STEAM="${INSTALL_STEAM:-false}"
+INSTALL_DOCKER="${INSTALL_DOCKER:-false}"
+INSTALL_PODMAN_ROOTLESS="${INSTALL_PODMAN_ROOTLESS:-false}"
+INSTALL_PODMAN_ROOTFUL="${INSTALL_PODMAN_ROOTFUL:-false}"
+PROVISION_DOCKER_SUBVOL="${PROVISION_DOCKER_SUBVOL:-false}"
+PROVISION_PODMAN_SUBVOL="${PROVISION_PODMAN_SUBVOL:-false}"
+PROVISION_PODMAN_ROOTLESS_SUBVOL="${PROVISION_PODMAN_ROOTLESS_SUBVOL:-false}"
 # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: as-built record of every
 # data-region decision (fs per location + carved sizes + the derived carve
 # list). Sizes/fs strings are public config, secret-free. REGION_PARTITIONED
