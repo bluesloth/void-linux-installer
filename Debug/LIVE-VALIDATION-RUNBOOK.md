@@ -116,11 +116,6 @@ script; KDE/SDDM, limine, `CRYPT_NAME=void`).
   `modprobe.blacklist=tee` fragment has never been exercised on a box.
 - Headless boot-to-console (`DESKTOP_ENV=none`, DM none) + no dangling
   `/etc/sv/none`.
-- Beta-v2.9.69 `[FLATPAK-NM-DISPATCH-LOCK]` flock — repo-pending real-
-  hardware proof: `<host>` proved `up` re-fires on DHCP renews / link flaps
-  (five pre-lock drains piled in ~30 min), so the next real install's
-  first-boot network burst is exactly the trigger the flock exists to
-  collapse.
 
 ---
 
@@ -135,3 +130,4 @@ from the dev box)_
 | C | — | not run (open) |
 | D | 2026-09-17 | **PROVEN** — <host> carved ENCRYPT: `void1` ext4 → `/home`, `void2` ext4 → `/home/<user>/Games` (mkfs/mount/fstab + `_region_fs_of` end-to-end) |
 | E | 2026-09-17 | **PROVEN** — <host> ENCRYPT+regions boot-to-desktop (inner GPT via `98void-inner-partscan`, regions mounted, keymap baked) |
+| [FLATPAK-NM-DISPATCH-LOCK] flock | 2026-09-17 | **PROVEN** — fresh <host> first boot: exactly ONE `flatpak install` drain holding `fd 9` on `/var/lock/flatpak-firstboot.lock` (`lsof`); no burst pile-up (fluxed: 14:57 live), `.done` stamps when brave/heroic/bottles all succeed |
