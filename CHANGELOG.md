@@ -120,6 +120,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.62** | `[LOCAL-CACHE-DEPTH]` — the `[LOCAL-CACHE]`/`[LOCAL-CACHE-ROOT]` `/run/media` glob probed only `/run/media/*/xbps-cachedir-*` (**one** level), but udisks mounts an unlabeled data stick at `/run/media/<user>/<uuid>` (**two** levels) — precisely the "cache on a separate data stick next to the VOID_LIVE stick" layout this feature was built to serve — so auto-detect silently missed it on every such box and the prompt fell back to typing the absolute path. The detect glob list now also probes `/run/media/*/*/xbps-cachedir-*`; depth-1, depth-2 and the live-root seed all share the same newest-touched, writable, arch-matching, real-`.xbps` first-wins rule. Proven against the <host> layout: `/run/media/<user>/<uuid>/xbps-cachedir-x86_64` now auto-detects as root | Beta-v2.9.61 below |
 | **Beta-v2.9.63** | `[LOCAL-CACHE-ERR]` — the detector's process substitution `<(ls -1dt <globs> 2>/dev/null)` exits **2** whenever any glob matches nothing: the unmatched glob stays LITERAL, so `ls` reports it as a missing operand even when a sibling glob matched AND was listed — every real run (cache present or not) kills the install at the cache prompt. Under `set -eE` + `trap ERR` the non-zero status fires `cleanup_on_failure` **inside** the `$( _local_cache_detect || true )` subshell (the `|| true` guards only the call site), producing "!! Install failed (exit 2)" with `Failing command: ls ... xbps-cachedir-*` and a best-effort /mnt unwind although detect itself returned the cache path successfully. Reproduced live as root on both the target's desktop copy and the repo. Fix: `|| true` on the `ls` inside the process substitution — its status can no longer propagate — so the read loop just consumes whatever matched, exactly mirroring the `Void_Linux_Live` `_cache_detect()` form (that file already carried `|| true`, this was the lone divergence). `bash -n` clean; post-fix root run reaches the (now promptable) cache step | Beta-v2.9.62 below |
 | **Beta-v2.9.64** | `[PARTSCAN-HOST-COPY]` — dracut's udev-rule program scan (`_inst_rule_programs`, dracut-functions.sh) resolves each `RUN=` path against the BUILD HOST root, never the module dir. The 98void-inner-partscan udev rule references `/usr/bin/void-inner-partscan.sh`, a path that at dracut time exists only as `$moddir/void-inner-partscan.sh`, so EVERY initramfs build logged `Skipping program /usr/bin/void-inner-partscan.sh using in udev rule 10-void-inner-partscan.rules as it cannot be found`. Purely cosmetic on the image (module-setup's `inst_script` embeds the helper regardless — lsinitrd proves all bits present) but noisy on every kernel install, and it recurs on the installed system's kernel updates too. Fix: the installer now also copies the helper to the target's `/usr/bin/void-inner-partscan.sh` (0755) as part of the module-write step, so the scan resolves it and embeds it via `inst_binary` — warning gone, plus a directly-inspectable copy lives on the installed system. The `$moddir` copy and `inst_script` are unchanged (the image's source of truth). Applied live to the running install's chroot (02:36) so its next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean | Beta-v2.9.63 below |
+| **Beta-v2.9.65** | `[HOME-CACHE-CHOWN]` — on a carved-`/home` `[MULTI-FS]` install (`REGION_PARTITIONED` contains `home`) the ONLY `~/.cache` chown in the script lives inside the non-carved `@usercache` branch, so the **root**:root 0755 `~/.cache` created by the browser-subvol prep (`mkdir -p "/home/${TARGET_USER}/.cache"`) was left un-chowned on every carve-home install. A root-owned `~/.cache` silently breaks the whole graphical desktop on first boot: `ksycoca` cannot create/lock its DB (`Couldn't lock ".../ksycoca6_...=.lock"` → empty KDE app launcher + blank panel), the AppStream runner cache refuses to write, mesa shader cache (`.cache/mesa_shader_cache`) is disabled, and firefox dies on `~/.cache/mozilla` with "Permission denied" (the script's own browser-provision comment documents firefox's cache path there). Proven on real hardware (<host>, carved ENCRYPT `/home`, KDE/SDDM, SCRIPT_VERSION Beta-v2.9.13): the FIRST boot's `~/.local/share/sddm/wayland-session.log` was wall-to-wall `Permission denied`/`Couldn't lock` on `~/.cache` with the session otherwise fine. Fix: the carved-home branch now `chown`s `~/.cache` to `$TARGET_USER` and `chmod 700` — byte-matching the `@usercache` branch — applied live on the installed box (chown + chmod restored ksycoca and firefox with zero other changes, verified by a <user> chroot write probe). `bash -n` clean | Beta-v2.9.64 below |
 
 ---
 
@@ -787,6 +788,67 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.65 — `[HOME-CACHE-CHOWN]` (a carved-`/home` `[MULTI-FS]` install left `~/.cache` root-owned → ksycoca/firefox "Permission denied" → empty KDE panel on first boot)
+
+`SCRIPT_VERSION` stays at the era checkpoint (Beta-v2.9.13); era row added to the script header VERSION-HISTORY (`# Beta-v2.9.65   [HOME-CACHE-CHOWN]`), index row added above; this section added as the newest section.
+
+### The bug
+
+First real boot of a KDE/SDDM install on <host> landed in a broken desktop: **empty panel, no app launcher, "no access to any apps"**, and `firefox` in a Konsole immediately printed a *permission* error. SDDM and the Wayland Plasma session themselves were fine (`sddm.log` shows `Session started true`, PAM auth of `<user>` successful), but `~/.local/share/sddm/wayland-session.log` was wall-to-wall with:
+
+```
+kf.service.sycoca: No ksycoca database available! Tried running kbuildsycoca6 ?
+kf.service.sycoca: Couldn't lock "/home/<user>/.cache/ksycoca6_en_+rzsmuzUkovv9hYHxjKa8bZYZvY=.lock"
+Could not find factory with id 1 in sycoca database, you must run kbuildsycoca first! Creating a fake stream to not crash.
+Failed to create /home/<user>/.cache/mesa_shader_cache for shader cache (Permission denied)---disabling.
+org.kde.plasma.runner.appstream: ... Cache location '/home/<user>/.cache/appstream' is not writable.
+kde.plasmashell: requesting unexisting screen available rect -1
+```
+
+Every line traces to one fact: **`/home/<user>/.cache` was `root:root` 0755**. The desktop user could not create it (ksycoca DB → no launchable apps / empty launcher), the AppStream runner, the mesa shader cache, and (per the installer's own browser-provision comment, line ~5859 "and its CACHE under ~/.cache/mozilla/firefox") firefox's cache — hence the "Permission denied" on `firefox`.
+
+### Why it happened
+
+Two `[MULTI-FS]` (Beta-v2.9.38) branches diverge:
+
+```sh
+mkdir -p "/home/${TARGET_USER}/.cache"        # browser-subvol prep — runs as root
+
+case " ${REGION_PARTITIONED:-} " in
+    *" home "*)   # carved /home
+        echo "MULTI-FS: home region carved — skipping @usercache fstab/mount (~/.cache lives on the home partition)."
+        ;;        # <-- out of the way: ~/.cache STAYS root:root 0755
+    *)
+        echo "UUID=${BTRFS_UUID} ... subvol=@usercache ..." >> /etc/fstab
+        chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.cache"
+        mount "/home/${TARGET_USER}/.cache"
+        chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.cache"
+        chmod 700 "/home/${TARGET_USER}/.cache"
+        ;;
+esac
+```
+
+The **only** `~/.cache` chown in the script lives in the non-carved `@usercache` arm, so every carve-home install shipped a root-owned `~/.cache`. The `[HOME-SELF-CHOWN]` (Beta-v2.9.58) fix covered `/home/$TARGET_USER` itself, and the adopt-own pass covered `.cache`'s *subdirectory* pattern in the non-carved layout — but the carved branch had no matching chown for the top-level dir the browser prep created as root.
+
+### The fix
+
+The carved-home arm now chowns and hardens the directory exactly like the `@usercache` arm:
+
+```sh
+chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.cache"
+chmod 700 "/home/${TARGET_USER}/.cache"
+```
+
+(no fstab/mount — `~/.cache` lives directly on the carved home partition). `chmod 700` matches the `@usercache` branch's security posture and the systemd-created default.
+
+### Applied live / validation
+
+- Installed box (<host>): `chown -R 1000:1000 /home/<user>/.cache && chmod 700 /home/<user>/.cache` — verified by a chroot probe as `<user>`: `mkdir -p ~/.cache/mozilla/firefox` now succeeds (the exact path firefox needs on first run).
+- The empty `~/.cache/mozilla/firefox` created during that probe was left in place (harmless; firefox uses the tree).
+- KDE re-login rebuilds ksycoca fresh (nothing was ever written to it, so there is no stale DB to clear).
+- `bash -n` clean on the installer; script HEAD era is now Beta-v2.9.65.
+- Secondary finding from the same box: `~/Documents/VOID_INSTALL.txt` (the `[DOCS-LOG]` Beta-v2.6.2 per-machine record) is ABSENT on this install even though `/etc/void-installer/install-config`, the archived installer, `limine-env`, and `installer-run.log` all exist. Unresolved in this era — recorded for the next session (`[DOCS-LOG-MISSING-RECORD]`).
 
 ## Beta-v2.9.59 — `[LOCAL-CACHE]` (optional reuse of a pre-seeded XBPS package cache on an attached medium — live sync, bootstrap, and every chroot install fetch from disk with the mirror as fallback)
 

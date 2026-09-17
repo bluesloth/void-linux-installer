@@ -722,6 +722,15 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #                     inst_script embeds it regardless). The installer now also materializes the helper at
 #                     the target's /usr/bin so the scan resolves it, the dinfo disappears on kernel updates,
 #                     and a debuggable copy stays on the installed system.
+#     Beta-v2.9.65   [HOME-CACHE-CHOWN] — on a carved-home [MULTI-FS] install the browser-subvol prep's
+#                     `mkdir -p ~/.cache` (root :root 0755) was never chowned, because the ONLY ~/.cache
+#                     chown in the script lives in the @usercache branch; a root-owned ~/.cache silently
+#                     blanked the graphical desktop on first boot — ksycoca/AppStream/mesa all hit
+#                     "Permission denied" on ~/.cache (empty KDE app launcher + panel) and firefox died on
+#                     ~/.cache/mozilla. The carved branch now chowns ~/.cache to $TARGET_USER + chmod 700,
+#                     byte-matching the @usercache branch. Proven on <host> (carved ENCRYPT /home, KDE,
+#                     Beta-v2.9.13); the fix was applied live to the installed box (chown -R 1000:1000 +
+#                     chmod 700 restored ksycoca + firefox with no other changes).
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -8559,6 +8568,20 @@ fi
 case " ${REGION_PARTITIONED:-} " in
     *" home "*)
         echo "MULTI-FS: home region carved — skipping @usercache fstab/mount (~/.cache lives on the home partition)."
+        # AI (Big Pickle) FIX — Beta-v2.9.65 [HOME-CACHE-CHOWN]: the ONLY ~/.cache
+        # chown in the script lives in the @usercache branch right below, so on a
+        # carved-home install the root-created ~/.cache from the browser-subvol
+        # prep (mkdir -p "/home/${TARGET_USER}/.cache" above) stayed root:root
+        # 0755 forever. A root-owned ~/.cache silently breaks the whole graphical
+        # desktop on first boot: ksycoca cannot create/lock its DB (empty KDE app
+        # launcher, blank panel), the AppStream runner cache refuses to write,
+        # mesa shader cache is disabled, and firefox dies on ~/.cache/mozilla with
+        # "Permission denied". Proven on real hardware (<host>, carved ENCRYPT
+        # /home, KDE, Beta-v2.9.13) — chowning the dir + chmod 700 (the exact
+        # @usercache branch line) restored ksycoca + firefox with zero other
+        # changes.
+        chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.cache"
+        chmod 700 "/home/${TARGET_USER}/.cache"
         ;;
     *)
         echo "UUID=${BTRFS_UUID} /home/${TARGET_USER}/.cache btrfs noatime,compress=zstd:1,subvol=@usercache,noauto 0 0" >> /etc/fstab
