@@ -775,6 +775,18 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #                     (up/vpn-up/connectivity-change back-to-back) collapse to one running drain, the
 #                     losers bail and re-arm on the next network event, and a completed run still
 #                     leaves the .done stamp (flock is released automatically on exit).
+#     Beta-v2.9.70   [ELOGIND-NO-STRAY-KILL] — the cosmic-greeter /etc/sv/cosmic-greeter/run
+#                     "stray elogind PID sweep" (kill any pgrep'd elogind/elogind-daemon whose
+#                     pid differs from /var/service/elogind/supervise/pid) is REMOVED. Proven on
+#                     <host> that on a live box Void's elogind is a single daemonized
+#                     `elogind-daemon` reparented to PID 1 (pgrep -x 'elogind' matches nothing;
+#                     pgrep -x 'elogind-daemon' returns exactly the serving daemon), so the
+#                     supervise/pid exception never equals it and the sweep killed the LIVE
+#                     logind — seat/session/run-user vanish -> desktop hang (the observed
+#                     "you killed an elogind pid" incident). elogind is single-instance by
+#                     design (a duplicate cannot bind org.freedesktop.login1), so no killable
+#                     stray exists; `sv check elogind` is the only gate the greeter run script
+#                     needs (runit restarts a dead one itself).
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -11782,13 +11794,18 @@ sv check dbus >/dev/null || exit 1
 sv check cosmic-greeter-daemon >/dev/null || exit 1
 # pam_elogind.so (cosmic-greeter's PAM file) needs a running logind to
 # register the session; without this greetd starts but logins fail.
-if [ -d /var/service/elogind ]; then
-    sv check elogind >/dev/null
-    elogind_pid=$(cat /var/service/elogind/supervise/pid 2>/dev/null)
-    for pid in $(pgrep -x 'elogind'; pgrep -x 'elogind-daemon'); do
-        [ "$pid" = "$elogind_pid" ] || kill "$pid"
-    done
-fi
+# Beta-v2.9.70 [ELOGIND-NO-STRAY-KILL]: the old "stray elogind PID sweep"
+# (kill any pgrep'd elogind/elogind-daemon whose pid != supervise/pid) is
+# REMOVED — proven on <host> that it kills the LIVE daemon. Void's elogind
+# runs as a single daemonized `elogind-daemon` reparented to PID 1
+# (pgrep -x 'elogind' matched NOTHING; pgrep -x 'elogind-daemon' returned
+# exactly the serving daemon, ppid 1, argv0 elogind-daemon), so
+# supervise/pid — the runsv child that already exited — never equals it,
+# and the sweep killed the serving logind: seat/session/run-user vanished
+# -> live desktop hang. elogind is single-instance by design (a duplicate
+# cannot bind org.freedesktop.login1), so no killable stray exists; runit
+# restarts a dead one itself, and `sv check elogind` below is the single
+# authoritative gate.
 sv check elogind >/dev/null || exit 1
 exec greetd -c /etc/greetd/cosmic-greeter.toml
 INNER_EOF

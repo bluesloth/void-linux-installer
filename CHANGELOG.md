@@ -125,6 +125,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.67** | `[KEYMAP-CMDLINE]` — the `[ENCRYPT]` branch baked the `[KEYMAP]` (Beta-v2.6.9) initrd parameter as a BARE `rd.vconsole.keymap=<k>` line appended to `/etc/dracut.conf.d/90-system.conf`, but dracut **sources** every conf file with bash — a dotted bare assignment is not valid shell, so bash EXECUTED the line as a command and every dracut run logged `rd.vconsole.keymap=us: command not found` (3× per install — one per kernel image — plus 3× on this observed install's `xbps-reconfigure` regen). Worse, the parameter was therefore NEVER baked into the initramfs, so the keymap feature silently did nothing and the early-boot LUKS passphrase prompt kept the kernel's built-in US map. Fix: emit `kernel_cmdline="rd.vconsole.keymap=<k>"` — the dracut-native form (`man dracut.conf`: "this command only sets initrd parameters"), shell-valid AND actually lands the parameter. Shared `90-system.conf` → covers both bootloaders. `bash -n` clean | Beta-v2.9.66 below |
 | **Beta-v2.9.68** | `[PARTUUID-NODEPS]`/`[INSTALL-CONFIG-BACKENDS]`/`[INSTALL-CONFIG-SSHKEY]`/`[FLATPAK-DNS-LATE]` — four fixes from reviewing a fresh carved-ENCRYPT install against the script. (1) `lsblk -no PARTUUID "$dev"` **descends into children**, so with `ENCRYPT`+regions (`PART_SYS` = the LUKS container) `BTRFS_PARTUUID` captured the inner `void1/2/3` PARTUUIDs too and wrote a malformed multi-line `SYSPREFIX_BTRFS` into `limine-env`/`chroot_env` (`SYSPREFIX_ESP` stayed safe only because the ESP vfat partition has no children); `--nodeps` now pins the named partition. (2) `install-config` never recorded `INSTALL_STEAM`/`INSTALL_DOCKER`/`INSTALL_PODMAN_*` or the `PROVISION_*_SUBVOL` rows — a fresh box with steam + podman installed and `@containers` mounted had no config row to explain any of it. (3) `SSH_KEY_COMMENT`/`SSH_KEY_PROTECTED` were initialized to their prompt defaults and exported **unconditionally**, so `install-config` advertised key facts even when no key was imported/generated (observed: `~/.ssh` absent); now gated on the real deposit via `SSH_KEY_PRESENT` and the comment/protection rows are omitted when no key exists. (4) the flatpak NM dispatcher armed only on `up`/`vpn-up`; when the first `up` beat DNS (`Could not resolve hostname`) it left the queue unstamped with no retry, so it now also arms on `connectivity-change`. `bash -n` clean, `check-heredocs.sh` ALL CLEAN | Beta-v2.9.67 below |
 | **Beta-v2.9.69** | `[FLATPAK-NM-DISPATCH-LOCK]` — the Beta-v2.9.68 premise that "`up` does not fire again on a stable link" is FALSE: on the SAME `<host>` box, five pre-lock dispatcher firings in ~30 minutes piled up five concurrent `flatpak install` processes racing the same OSTree repo (the observed live mess: Brave + Heroic + Bottles stranded, a fresh drain spawned on every `up`/DHCP renew, none completing on a ~120 KB/s shared link). Fix: the dispatcher wraps the drain in an exclusive flock (`exec 9>/var/lock/flatpak-firstboot.lock ; flock -n 9 || exit 0`) so a burst of `up`/`vpn-up`/`connectivity-change` collapses to ONE running drain; the losers bail and re-arm on the next network event, and a completed run still leaves the `.done` stamp (the lock auto-releases on exit, so a crashed drain never wedges it). The stranded queue was live-drained on `<host>` (Brave/Heroic/Bottles) and the running box's dispatcher was refreshed to the 2.9.68 form + a `.bak-20260917`. `bash -n` clean, `check-heredocs.sh` ALL CLEAN | Beta-v2.9.69 below |
+| **Beta-v2.9.70** | `[ELOGIND-NO-STRAY-KILL]` — the cosmic-greeter `/etc/sv/cosmic-greeter/run` "stray elogind PID sweep" (kill any `pgrep`'d `elogind`/`elogind-daemon` whose pid differs from `supervise/pid`) killed the LIVE logind. Proven on <host> that Void's elogind runs as a single daemonized `elogind-daemon` reparented to PID 1 — `pgrep -x 'elogind'` matches NOTHING, `pgrep -x 'elogind-daemon'` returns exactly the serving daemon, and `supervise/pid` is the already-exited runsv child, so the guard's exception never matched and `kill` fired on the serving daemon → seat/session/run-user vanish → live desktop hang (the "you killed an elogind pid" incident). The sweep is REMOVED: elogind is single-instance by design (a duplicate cannot bind `org.freedesktop.login1`), so no killable stray exists and `sv check elogind` is the only gate the greeter run script needs (runit restarts a dead daemon itself). `bash -n` clean, `check-heredocs.sh` ALL CLEAN | Beta-v2.9.70 below |
 
 ---
 
@@ -792,6 +793,51 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.70 — `[ELOGIND-NO-STRAY-KILL]` (the cosmic-greeter "stray elogind PID sweep" killed the LIVE logind — removed, `sv check elogind` is the only gate)
+
+`SCRIPT_VERSION` stays at the era checkpoint (Beta-v2.9.13); era row added to the script header VERSION-HISTORY (`# Beta-v2.9.70   [ELOGIND-NO-STRAY-KILL]`), index row added above; this section added as the newest section.
+
+### Context — the sweep's premise, and how it killed the serving daemon
+
+The cosmic-greeter `/etc/sv/cosmic-greeter/run` heredoc shipped a "stray elogind PID sweep" that was meant to clear a leftover `elogind` so `pam_elogind.so` would register a fresh session for greetd:
+
+```sh
+if [ -d /var/service/elogind ]; then
+    sv check elogind >/dev/null
+    elogind_pid=$(cat /var/service/elogind/supervise/pid 2>/dev/null)
+    for pid in $(pgrep -x 'elogind'; pgrep -x 'elogind-daemon'); do
+        [ "$pid" = "$elogind_pid" ] || kill "$pid"
+    done
+fi
+sv check elogind >/dev/null || exit 1
+```
+
+The guard's exception pid (`supervise/pid`) is the pid runit spawned. On a live Void box elogind **daemonizes**: the serving process is a single `elogind-daemon` reparented to PID 1 — observed directly on `<host>`:
+
+- `pgrep -x 'elogind'` → **no match** (`comm` is `elogind-daemon`, not `elogind`).
+- `pgrep -x 'elogind-daemon'` → **exactly one pid** = the serving daemon (PID 2688, PPID 1, `argv0` literally `elogind-daemon` per `/proc/2688/cmdline`/`exe`).
+- `runsv`'s live child set contained only the vlogger (`ps --ppid` of runsv showed one child), so `supervise/pid` by construction differs from the daemon pid.
+
+Result: whenever the sweep ran on a box whose elogind had daemonized, the guard's `[ "$pid" = "$elogind_pid" ]` **never matched**, and the sweep `kill`ed the LIVE serving logind. Killing elogind while a graphical session holds it drops the seat/session registration, the `org.freedesktop.login1` name and the `/run/user/<uid>` tree — the session/desktop hangs immediately. That is exactly the observed "you killed an elogind pid" live-crash incident the user remembers, and the same kill block existed re-runnable in the era's `Debug/Cosmic-Greeter/fix-cosmic-greeter{2,5}.sh` on-box scripts. On the healthy KDE box the sweep is dormant (no cosmic-greeter service is installed there), which is why the reinstall boots clean.
+
+A second latent failure made it strictly worse: if `supervise/pid` could not be read (first-boot `/var/service` dangling per the AGENTS invariant, permission, race), `elogind_pid` is empty and the guard fails open — every `pgrep`'d pid gets `kill`ed.
+
+### Why the sweep can simply be removed (no behavior loss)
+
+- elogind is **single-instance by design**: a duplicate daemon cannot bind `org.freedesktop.login1`/the elogind socket while the serving one holds it, so a "killable stray" effectively cannot exist.
+- If the supervised elogind dies, **runit restarts it**; the greeter run script already exits the service via `sv check elogind >/dev/null || exit 1` while runsvdir is up.
+- The `[ -d /var/service/elogind ]` guard wrapped ONLY the kill block; the unconditional `sv check elogind || exit 1` after it already defined the no-elogind behavior (greeter service exits) — so removing the whole `if` block is behavior-preserving on every box except that the live-daemon kill is gone.
+
+The heredoc now ends the elogind handling at the single authoritative gate:
+
+```sh
+sv check elogind >/dev/null || exit 1
+```
+
+### Validation
+
+`bash -n` clean; `Debug/check-heredocs.sh` ALL CLEAN (the edited cosmic-greeter run-script heredoc included). Live re-proof on a real cosmic-greeter (COSMIC) install is pending — the current `<host>` box is KDE/SDDM and never exercised this heredoc; the change is deliberately conservative (removal of a kill, gate preserved). See the validation backlog.
 
 ## Beta-v2.9.69 — `[FLATPAK-NM-DISPATCH-LOCK]` (the 2.9.68 "up does not re-fire" premise was false — the dispatcher now serializes the drain with an exclusive flock)
 
