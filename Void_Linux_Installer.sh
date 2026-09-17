@@ -766,6 +766,15 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #                     imported/generated — now gated on the real ~/.ssh deposit (SSH_KEY_PRESENT). (4)
 #                     the flatpak NM dispatcher armed only on up/vpn-up; when the first `up` beat DNS it
 #                     left the queue unstamped with no retry, so it now also arms on connectivity-change.
+#     Beta-v2.9.69   [FLATPAK-NM-DISPATCH-LOCK] — the Beta-v2.9.68 premise that "`up` does not fire
+#                     again on a stable link" is FALSE (observed live on <host>: five pre-lock
+#                     dispatcher firings in ~30 min piled five concurrent `flatpak install` processes
+#                     racing the same OSTree repo, none completing on a ~120KB/s link). The dispatcher
+#                     now serializes the drain behind an exclusive flock
+#                     (`exec 9>/var/lock/flatpak-firstboot.lock ; flock -n 9 || exit 0`): burst events
+#                     (up/vpn-up/connectivity-change back-to-back) collapse to one running drain, the
+#                     losers bail and re-arm on the next network event, and a completed run still
+#                     leaves the .done stamp (flock is released automatically on exit).
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -8125,23 +8134,32 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
 #!/bin/sh
 # AI (Big Pickle) ADDITION — Beta-v2.9.34 [FLATPAK-NM-DISPATCH] +
 # [FLATPAK-NM-DISPATCH-STAMP] (Beta-v2.9.46)
-# NetworkManager dispatcher: on first up/vpn-up with a default route, install
-# every Flatpak app queued at install time (one app ID per line in the queue
-# file). Stamp file prevents re-runs; stamp is written ONLY when ALL queued
-# installs succeed, so a transient network failure leaves the queue live.
+# NetworkManager dispatcher: on a network-state event with a default route,
+# install every Flatpak app queued at install time (one app ID per line in
+# the queue file). The stamp file prevents re-runs; the stamp is written ONLY
+# when ALL queued installs succeed, so a transient failure leaves the queue
+# live for the next event.
 # AI (Big Pickle) FIX — Beta-v2.9.68 [FLATPAK-DNS-LATE]: the `up` event can fire
 # BEFORE NM finishes its connectivity check / DNS is resolvable (observed live:
-# the first `up` at boot logged "Could not resolve hostname" for summary.idx,
-# left no stamp, and the queue then never retried because `up` does not fire
-# again on a stable link). Also arm on `connectivity-change`, which NM emits when
-# its connectivity state transitions (e.g. LIMITED/NONE -> FULL once DNS works);
-# the `.done` guard keeps a successful first run from doing anything twice.
+# the first `up` at boot logged "Could not resolve hostname" for summary.idx).
+# Also arm on `connectivity-change`, which NM emits when connectivity
+# transitions (e.g. LIMITED/NONE -> FULL once DNS works).
+# AI (Big Pickle) FIX — Beta-v2.9.69 [FLATPAK-NM-DISPATCH-LOCK]: the events
+# above can arrive back-to-back AND `up` re-fires on DHCP renews / link flaps
+# (observed live on <host>: five pre-lock firings in ~30 min piled five
+# concurrent `flatpak install` processes racing the same OSTree repo, none
+# completing). The exclusive flock below serializes the drain: the first
+# firing wins the lock and runs; the rest bail out and re-arm on whichever
+# network event comes next (a completed run leaves the .done stamp anyway;
+# flock releases automatically on exit, so a crashed drain never wedges it).
 case "$2" in
     up|vpn-up|connectivity-change) ;;
     *) exit 0 ;;
 esac
 command -v flatpak >/dev/null 2>&1 || exit 0
 [ -f /var/log/flatpak-firstboot.done ] && exit 0
+exec 9>/var/lock/flatpak-firstboot.lock
+flock -n 9 || exit 0
 # Need a default route (internet reachable) for flathub to resolve
 ip route show default >/dev/null 2>&1 || exit 0
 _fp_queue="/home/__TARGET_USER__/.config/void-installer/flatpak-install-on-first-boot.txt"
