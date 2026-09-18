@@ -797,6 +797,17 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #                     prompt, nothing 32-bit ships unless the user opts into Steam at install
 #                     time. All new names added to PKG_PREFLIGHT (a validation-only list that
 #                     installs nothing by itself).
+#     Beta-v2.9.72   [GAME-VULKAN] — a fresh install ships only virtio_icd-ish Vulkan ICDs,
+#                     so every real GPU returns VK_ERROR_INCOMPATIBLE_DRIVER (-9) when a game
+#                     stack probes Vulkan (proven live: right after the [STEAM-32BIT] GLX fix,
+#                     Steam's Vulkan topology probe still failed -9 and 32-bit game libs had
+#                     no radeonsi ICD). The [INSTALL-APPS] block now installs the DETECTED GPU
+#                     family's Mesa Vulkan driver (mesa-vulkan-radeon|intel|nouveau, 64-bit +
+#                     -32bit each) whenever INSTALL_ANY_GAME=true (Steam ∨ Lutris ∨ Heroic ∨
+#                     Bottles) — gated on the live-box probe (HAS_AMD_GPU / HAS_INTEL_GPU /
+#                     HAS_NVIDIA_GPU), no new prompt; NVIDIA's proprietary driver ships its
+#                     own ICD, so nouveau is only pulled when the user declined INSTALL_NVIDIA.
+#                     All six names added to PKG_PREFLIGHT.
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -5433,6 +5444,12 @@ lxqt
 lxqt-policykit
 make
 mesa-dri-32bit
+mesa-vulkan-intel
+mesa-vulkan-intel-32bit
+mesa-vulkan-nouveau
+mesa-vulkan-nouveau-32bit
+mesa-vulkan-radeon
+mesa-vulkan-radeon-32bit
 mate
 mate-media
 mate-terminal
@@ -8135,6 +8152,27 @@ fi
 [ "$INSTALL_LUTRIS" = "true" ] && install_pkgs lutris
 [ "$INSTALL_WINE" = "true" ] && install_pkgs wine
 [ "$INSTALL_GAMEMODE" = "true" ] && install_pkgs gamemode libgamemode-32bit
+# AI (Big Pickle) ADDITION — Beta-v2.9.72 [GAME-VULKAN]: a fresh install ships
+# only the virtual-GPU virtio_icd as its Vulkan ICD, so any real AMD/Intel
+# hardware returns VK_ERROR_INCOMPATIBLE_DRIVER (-9) when Steam/Lutris/Wine
+# probe the GPU — immediately after the [STEAM-32BIT] GLX fix, the same class
+# of "32-bit game can't start" (proven live: Steam's Vulkan topology query
+# failed with -9 and 32-bit game libs had no radeonsi ICD to load). Install
+# the DETECTED GPU family's Mesa Vulkan driver (64-bit + 32-bit) whenever ANY
+# game launcher is selected (INSTALL_ANY_GAME = Steam ∨ Lutris ∨ Heroic ∨
+# Bottles) — gated on the live-box hardware probe (HAS_AMD_GPU / HAS_INTEL_GPU
+# / HAS_NVIDIA_GPU, Stage-1 [HARDWARE-REVIEW]), NOT on a new prompt, and only
+# for the family actually present (installing radeon on Intel hardware
+# reproduces -9 in reverse). NVIDIA: the proprietary driver (INSTALL_NVIDIA)
+# ships its own ICD, so mesa-vulkan-nouveau is only pulled when the user
+# declined it.
+if [ "$INSTALL_ANY_GAME" = "true" ]; then
+    [ "$HAS_AMD_GPU" = "yes" ] && install_pkgs mesa-vulkan-radeon mesa-vulkan-radeon-32bit
+    [ "$HAS_INTEL_GPU" = "yes" ] && install_pkgs mesa-vulkan-intel mesa-vulkan-intel-32bit
+    if [ "$HAS_NVIDIA_GPU" = "yes" ] && [ "$INSTALL_NVIDIA" != "true" ]; then
+        install_pkgs mesa-vulkan-nouveau mesa-vulkan-nouveau-32bit
+    fi
+fi
 # AI (Big Pickle) ADDITION — Beta-v2.8.4 [INSTALL-VBOX]: VirtualBox is now a
 # real installable option (previously pre-create-only). The -ose package is
 # in the nonfree repo (already added above); -ose-dkms builds the kernel

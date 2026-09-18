@@ -127,6 +127,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.69** | `[FLATPAK-NM-DISPATCH-LOCK]` — the Beta-v2.9.68 premise that "`up` does not fire again on a stable link" is FALSE: on the SAME `<host>` box, five pre-lock dispatcher firings in ~30 minutes piled up five concurrent `flatpak install` processes racing the same OSTree repo (the observed live mess: Brave + Heroic + Bottles stranded, a fresh drain spawned on every `up`/DHCP renew, none completing on a ~120 KB/s shared link). Fix: the dispatcher wraps the drain in an exclusive flock (`exec 9>/var/lock/flatpak-firstboot.lock ; flock -n 9 || exit 0`) so a burst of `up`/`vpn-up`/`connectivity-change` collapses to ONE running drain; the losers bail and re-arm on the next network event, and a completed run still leaves the `.done` stamp (the lock auto-releases on exit, so a crashed drain never wedges it). The stranded queue was live-drained on `<host>` (Brave/Heroic/Bottles) and the running box's dispatcher was refreshed to the 2.9.68 form + a `.bak-20260917`. `bash -n` clean, `check-heredocs.sh` ALL CLEAN | Beta-v2.9.69 below |
 | **Beta-v2.9.70** | `[ELOGIND-NO-STRAY-KILL]` — the cosmic-greeter `/etc/sv/cosmic-greeter/run` "stray elogind PID sweep" (kill any `pgrep`'d `elogind`/`elogind-daemon` whose pid differs from `supervise/pid`) killed the LIVE logind. Proven on <host> that Void's elogind runs as a single daemonized `elogind-daemon` reparented to PID 1 — `pgrep -x 'elogind'` matches NOTHING, `pgrep -x 'elogind-daemon'` returns exactly the serving daemon, and `supervise/pid` is the already-exited runsv child, so the guard's exception never matched and `kill` fired on the serving daemon → seat/session/run-user vanish → live desktop hang (the "you killed an elogind pid" incident). The sweep is REMOVED: elogind is single-instance by design (a duplicate cannot bind `org.freedesktop.login1`), so no killable stray exists and `sv check elogind` is the only gate the greeter run script needs (runit restarts a dead daemon itself). `bash -n` clean, `check-heredocs.sh` ALL CLEAN | Beta-v2.9.70 below |
 | **Beta-v2.9.71** | `[STEAM-32BIT]` — Void's `steam` package is a client bootstrap with NO 32-bit runtime dependencies, so every fresh install that chose Steam hit "missing 32-Bit libraries libGL.so.1 & libdrm.so.2" on first launch (observed on the round-3 KDE box; `libglvnd-32bit`/`libdrm-32bit` were in the multilib repo but never installed). The `[INSTALL-APPS]` Steam branch now pulls the canonical Steam multilib runtime set (`libgcc/libstdc++/libglvnd/mesa-dri/libdrm` + the `libX*`/`libxcb`/`freetype`/`fontconfig`/`libpulseaudio`/`alsa-plugins-pulseaudio` `-32bit` libs) together with `steam`, gated STRICTLY on `INSTALL_STEAM=true` — no new prompt and nothing 32-bit ships unless the user opts into Steam at install time (`INSTALL_STEAM` stays lean-default OFF). The same names are added to `PKG_PREFLIGHT` (a stage-1 validation-only list that installs nothing by itself). `bash -n` clean, `check-pkg-preflight.sh` clean | Beta-v2.9.71 below |
+| **Beta-v2.9.72** | `[GAME-VULKAN]` — the 2.9.71 fix cleared the 32-bit GL/GLX layer, but on the same round-3 KDE box Steam then still failed: the fresh install shipped only the virtual-GPU `virtio_icd` as its Vulkan ICD, so on the AMD APU every Vulkan probe returned `VK_ERROR_INCOMPATIBLE_DRIVER` (`-9`) — the Steam topology query and any 32-bit game that loads `libvulkan.so.1` had no radeonsi ICD to reach. The `[INSTALL-APPS]` block now installs the DETECTED GPU family's Mesa Vulkan driver (`mesa-vulkan-radeon`/`mesa-vulkan-intel`/`mesa-vulkan-nouveau`, each 64-bit + `-32bit`) whenever `INSTALL_ANY_GAME=true` (Steam ∨ Lutris ∨ Heroic ∨ Bottles, the existing compound gate), gated on the live-box probe (`HAS_AMD_GPU`/`HAS_INTEL_GPU`/`HAS_NVIDIA_GPU`) — the profiler carries no new prompt, installs that chose a launcher on an NVIDIA box that also accepted `INSTALL_NVIDIA` get the driver's own proprietary ICD (no nouveau), and hybrids multi-family. A no-game box still ships zero extra graphics payload. All six names added to `PKG_PREFLIGHT`. `bash -n` clean, `check-pkg-preflight.sh` clean | Beta-v2.9.72 below |
 
 ---
 
@@ -794,6 +795,48 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.72 — `[GAME-VULKAN]` (a fresh install had no real Vulkan ICD for the detected GPU; now the game gate installs the right Mesa Vulkan driver, 64-bit + 32-bit)
+
+`SCRIPT_VERSION` stays at the era checkpoint (Beta-v2.9.13); era row added to the script header VERSION-HISTORY (`# Beta-v2.9.72   [GAME-VULKAN]`), index row added above; this section added as the newest section.
+
+### Context — the wrong Vulkan ICD on a fresh install
+
+After the `[STEAM-32BIT]` fix (Beta-v2.9.71), relaunching Steam on the round-3 KDE box got further but still died: the client reached its graphics init and the Vulkan GPU-topology probe returned `-9` (`VK_ERROR_INCOMPATIBLE_DRIVER`). Probing the box showed why — `/usr/share/vulkan/icd.d/` contained only:
+
+```sh
+virtio_icd.i686.json      # virtual-GPU driver shipped by vulkan-loader /
+virtio_icd.x86_64.json    # mesa's DRI+Gallium metapackage, NOT a real-GPU ICD
+```
+
+and `/usr/lib32/vulkan/icd.d/` was empty. The virtualization-only `virtio_icd` is the only ICD a stock install ships, because nothing in the base DE path depends on a vendor Vulkan driver: `mesa`/`mesa-dri` (64-bit) give OpenGL, and the vendor *Vulkan* drivers (`mesa-vulkan-radeon`, `mesa-vulkan-intel`, `mesa-vulkan-nouveau`) are separate packages Void does not install by default. So on any real AMD/Intel hardware the first Vulkan call from any game stack — Steam's topology query, a 32-bit game's `libvulkan.so.1`, DXVK/VKD3D under Proton/Wine — hit the virtual-GPU ICD, which cannot enumerate a real device, and failed `-9`. The box smoke-tested this: installing `mesa-vulkan-radeon mesa-vulkan-radeon-32bit` (plus the 32-bit Gallium/DRI stack) and relaunching Steam was clean (Steam launched, no assert, no crash upload).
+
+### The fix
+
+A new `[GAME-VULKAN]` block in `[INSTALL-APPS]` installs the **detected** GPU family's Mesa Vulkan driver (64-bit + `-32bit` each) whenever `INSTALL_ANY_GAME` is true:
+
+```sh
+# [GAME-VULKAN] (Beta-v2.9.72): a fresh install ships only virtio_icd, so any
+# real GPU returns VK_ERROR_INCOMPATIBLE_DRIVER (-9) when a game stack probes
+# Vulkan. Install the DETECTED family's Mesa Vulkan driver (64+32bit) whenever
+# ANY game launcher is selected, gated on the live-box probe — no new prompt.
+if [ "$INSTALL_ANY_GAME" = "true" ]; then
+    [ "$HAS_AMD_GPU" = "yes" ] && install_pkgs mesa-vulkan-radeon mesa-vulkan-radeon-32bit
+    [ "$HAS_INTEL_GPU" = "yes" ] && install_pkgs mesa-vulkan-intel mesa-vulkan-intel-32bit
+    if [ "$HAS_NVIDIA_GPU" = "yes" ] && [ "$INSTALL_NVIDIA" != "true" ]; then
+        install_pkgs mesa-vulkan-nouveau mesa-vulkan-nouveau-32bit
+    fi
+fi
+```
+
+### Gating — general game install ∨ GPU detection, no new prompt
+
+- **Gate is `INSTALL_ANY_GAME`** (the existing compound flag: Steam ∨ Lutris ∨ Heroic ∨ Bottles, computed in Stage 1), **not** Steam alone. Vulkan is the shared rendering path for every launcher — Steam-native, Lutris/Wine, and the Flatpak-delivered Heroic/Bottles all call the same `libvulkan.so.1` — so a Lutris-only install needs the ICD exactly as much as a Steam-only one.
+- **Which ICD is GPU-detection gated**, reusing the Stage-1 `[HARDWARE-REVIEW]` probe that already exports `HAS_AMD_GPU`/`HAS_INTEL_GPU`/`HAS_NVIDIA_GPU` into the chroot: AMD → `mesa-vulkan-radeon`(+`-32bit`), Intel → `mesa-vulkan-intel`(+`-32bit`), NVIDIA-with-proprietary (`INSTALL_NVIDIA=true`) → the driver ships its own ICD so nothing extra is pulled, NVIDIA-without → `mesa-vulkan-nouveau`(+`-32bit`). Installing radeon on Intel hardware would reproduce `-9` in reverse, which is why this is hardware-gated and not a standing list. A box with no detected GPU (headless/server) ships no Vulkan payload.
+- **`mesa-dri-32bit` (the Steam GLX fix) stays Steam-gated** — it is the 32-bit *OpenGL* DRI the 32-bit Steam client UI needs via GLX; the game-install gate only adds the *Vulkan* ICDs. No new prompt, `INSTALL_ANY_GAME` users who picked a launcher get drivers; a no-game box gets nothing.
+- The six names (`mesa-vulkan-radeon`, `mesa-vulkan-radeon-32bit`, `mesa-vulkan-intel`, `mesa-vulkan-intel-32bit`, `mesa-vulkan-nouveau`, `mesa-vulkan-nouveau-32bit`) are added to `PKG_PREFLIGHT` — stage-1 **validation only**, they never install anything by themselves.
+
+`bash -n` clean; `Debug/check-pkg-preflight.sh` clean.
 
 ## Beta-v2.9.71 — `[STEAM-32BIT]` (the Steam branch pulled the client bootstrap only; now it also installs the canonical 32-bit runtime set, gated strictly on the Steam choice)
 
