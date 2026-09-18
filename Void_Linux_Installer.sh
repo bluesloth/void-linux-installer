@@ -787,6 +787,16 @@ SCRIPT_VERSION="Beta-v2.9.13"
 #                     design (a duplicate cannot bind org.freedesktop.login1), so no killable
 #                     stray exists; `sv check elogind` is the only gate the greeter run script
 #                     needs (runit restarts a dead one itself).
+#     Beta-v2.9.71   [STEAM-32BIT] — a fresh Steam install only saw the client bootstrap and
+#                     hit "missing 32-Bit libraries libGL.so.1 & libdrm.so.2" on first launch,
+#                     because Void's `steam` package ships NO 32-bit runtime deps and the
+#                     installer's `install_pkgs steam` alone left the multilib GL stack absent.
+#                     The Steam branch now also installs the canonical 32-bit runtime set
+#                     (libgcc/libstdc++/libglvnd/mesa-dri/libdrm plus the X11/xcb/fontconfig/
+#                     pulseaudio -32bit libs), gated STRICTLY on INSTALL_STEAM=true — no new
+#                     prompt, nothing 32-bit ships unless the user opts into Steam at install
+#                     time. All new names added to PKG_PREFLIGHT (a validation-only list that
+#                     installs nothing by itself).
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -5327,6 +5337,7 @@ PKG_PREFLIGHT="
 accountsservice
 acpid
 alsa-pipewire
+alsa-plugins-pulseaudio-32bit
 alsa-ucm-conf
 alsa-utils
 ark
@@ -5358,6 +5369,8 @@ file
 firefox
 fish-shell
 flatpak
+fontconfig-32bit
+freetype-32bit
 fuse
 fuse3
 fuse-overlayfs
@@ -5382,10 +5395,26 @@ kde-baseapps
 kde-plasma
 kio-admin
 kpartx
+libdrm-32bit
 libgamemode-32bit
+libgcc-32bit
+libglvnd-32bit
 libjack-pipewire
+libpulseaudio-32bit
 libspa-bluetooth
+libstdc++-32bit
 libvirt
+libX11-32bit
+libxcb-32bit
+libXcursor-32bit
+libXext-32bit
+libXfixes-32bit
+libXi-32bit
+libXinerama-32bit
+libXrandr-32bit
+libXrender-32bit
+libXss-32bit
+libXxf86vm-32bit
 lightdm
 lightdm-gtk-greeter
 lightdm-slick-greeter
@@ -5403,6 +5432,7 @@ lutris
 lxqt
 lxqt-policykit
 make
+mesa-dri-32bit
 mate
 mate-media
 mate-terminal
@@ -8084,8 +8114,17 @@ fi
 # are now real installable options (previously pre-create-only toggles). Steam
 # needs the multilib/nonfree repos already added above; thunderbird is a
 # plain GUI client. Both are lean-default OFF.
+# AI (Big Pickle) ADDITION — Beta-v2.9.71 [STEAM-32BIT]: Void's `steam` package
+# is a client bootstrap with NO 32-bit runtime dependencies, so a fresh
+# install that only ran `install_pkgs steam` always hit "missing 32-Bit
+# libraries libGL.so.1 & libdrm.so.2" on first launch. Pull the canonical
+# Steam multilib runtime set (libgcc/libstdc++/libglvnd/mesa-dri/libdrm plus
+# the X11/xcb/fontconfig/pulseaudio -32bit libs) together with steam, STRICTLY
+# under the INSTALL_STEAM gate only — no new prompt, and nothing 32-bit ships
+# unless the user actually opts into Steam at install time (INSTALL_STEAM
+# stays lean-default OFF).
 [ "$INSTALL_THUNDERBIRD" = "true" ] && install_pkgs thunderbird
-[ "$INSTALL_STEAM" = "true" ] && install_pkgs steam
+[ "$INSTALL_STEAM" = "true" ] && install_pkgs steam libgcc-32bit libstdc++-32bit libglvnd-32bit mesa-dri-32bit libdrm-32bit libX11-32bit libXext-32bit libXfixes-32bit libXrandr-32bit libXcursor-32bit libXi-32bit libXrender-32bit libXinerama-32bit libXxf86vm-32bit libxcb-32bit freetype-32bit fontconfig-32bit libpulseaudio-32bit alsa-plugins-pulseaudio-32bit
 # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-LAUNCHERS]: game-launcher
 # installs mirroring the umbrella prompts. Lutris is in Void main (xbps);
 # Wine (system, multilib) is the raw-CLI/shared-runtime toggle a launcher

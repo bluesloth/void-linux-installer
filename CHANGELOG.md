@@ -126,6 +126,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.68** | `[PARTUUID-NODEPS]`/`[INSTALL-CONFIG-BACKENDS]`/`[INSTALL-CONFIG-SSHKEY]`/`[FLATPAK-DNS-LATE]` — four fixes from reviewing a fresh carved-ENCRYPT install against the script. (1) `lsblk -no PARTUUID "$dev"` **descends into children**, so with `ENCRYPT`+regions (`PART_SYS` = the LUKS container) `BTRFS_PARTUUID` captured the inner `void1/2/3` PARTUUIDs too and wrote a malformed multi-line `SYSPREFIX_BTRFS` into `limine-env`/`chroot_env` (`SYSPREFIX_ESP` stayed safe only because the ESP vfat partition has no children); `--nodeps` now pins the named partition. (2) `install-config` never recorded `INSTALL_STEAM`/`INSTALL_DOCKER`/`INSTALL_PODMAN_*` or the `PROVISION_*_SUBVOL` rows — a fresh box with steam + podman installed and `@containers` mounted had no config row to explain any of it. (3) `SSH_KEY_COMMENT`/`SSH_KEY_PROTECTED` were initialized to their prompt defaults and exported **unconditionally**, so `install-config` advertised key facts even when no key was imported/generated (observed: `~/.ssh` absent); now gated on the real deposit via `SSH_KEY_PRESENT` and the comment/protection rows are omitted when no key exists. (4) the flatpak NM dispatcher armed only on `up`/`vpn-up`; when the first `up` beat DNS (`Could not resolve hostname`) it left the queue unstamped with no retry, so it now also arms on `connectivity-change`. `bash -n` clean, `check-heredocs.sh` ALL CLEAN | Beta-v2.9.67 below |
 | **Beta-v2.9.69** | `[FLATPAK-NM-DISPATCH-LOCK]` — the Beta-v2.9.68 premise that "`up` does not fire again on a stable link" is FALSE: on the SAME `<host>` box, five pre-lock dispatcher firings in ~30 minutes piled up five concurrent `flatpak install` processes racing the same OSTree repo (the observed live mess: Brave + Heroic + Bottles stranded, a fresh drain spawned on every `up`/DHCP renew, none completing on a ~120 KB/s shared link). Fix: the dispatcher wraps the drain in an exclusive flock (`exec 9>/var/lock/flatpak-firstboot.lock ; flock -n 9 || exit 0`) so a burst of `up`/`vpn-up`/`connectivity-change` collapses to ONE running drain; the losers bail and re-arm on the next network event, and a completed run still leaves the `.done` stamp (the lock auto-releases on exit, so a crashed drain never wedges it). The stranded queue was live-drained on `<host>` (Brave/Heroic/Bottles) and the running box's dispatcher was refreshed to the 2.9.68 form + a `.bak-20260917`. `bash -n` clean, `check-heredocs.sh` ALL CLEAN | Beta-v2.9.69 below |
 | **Beta-v2.9.70** | `[ELOGIND-NO-STRAY-KILL]` — the cosmic-greeter `/etc/sv/cosmic-greeter/run` "stray elogind PID sweep" (kill any `pgrep`'d `elogind`/`elogind-daemon` whose pid differs from `supervise/pid`) killed the LIVE logind. Proven on <host> that Void's elogind runs as a single daemonized `elogind-daemon` reparented to PID 1 — `pgrep -x 'elogind'` matches NOTHING, `pgrep -x 'elogind-daemon'` returns exactly the serving daemon, and `supervise/pid` is the already-exited runsv child, so the guard's exception never matched and `kill` fired on the serving daemon → seat/session/run-user vanish → live desktop hang (the "you killed an elogind pid" incident). The sweep is REMOVED: elogind is single-instance by design (a duplicate cannot bind `org.freedesktop.login1`), so no killable stray exists and `sv check elogind` is the only gate the greeter run script needs (runit restarts a dead daemon itself). `bash -n` clean, `check-heredocs.sh` ALL CLEAN | Beta-v2.9.70 below |
+| **Beta-v2.9.71** | `[STEAM-32BIT]` — Void's `steam` package is a client bootstrap with NO 32-bit runtime dependencies, so every fresh install that chose Steam hit "missing 32-Bit libraries libGL.so.1 & libdrm.so.2" on first launch (observed on the round-3 KDE box; `libglvnd-32bit`/`libdrm-32bit` were in the multilib repo but never installed). The `[INSTALL-APPS]` Steam branch now pulls the canonical Steam multilib runtime set (`libgcc/libstdc++/libglvnd/mesa-dri/libdrm` + the `libX*`/`libxcb`/`freetype`/`fontconfig`/`libpulseaudio`/`alsa-plugins-pulseaudio` `-32bit` libs) together with `steam`, gated STRICTLY on `INSTALL_STEAM=true` — no new prompt and nothing 32-bit ships unless the user opts into Steam at install time (`INSTALL_STEAM` stays lean-default OFF). The same names are added to `PKG_PREFLIGHT` (a stage-1 validation-only list that installs nothing by itself). `bash -n` clean, `check-pkg-preflight.sh` clean | Beta-v2.9.71 below |
 
 ---
 
@@ -793,6 +794,33 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.71 — `[STEAM-32BIT]` (the Steam branch pulled the client bootstrap only; now it also installs the canonical 32-bit runtime set, gated strictly on the Steam choice)
+
+`SCRIPT_VERSION` stays at the era checkpoint (Beta-v2.9.13); era row added to the script header VERSION-HISTORY (`# Beta-v2.9.71   [STEAM-32BIT]`), index row added above; this section added as the newest section.
+
+### Context — why a fresh Steam install always missed `libGL.so.1`/`libdrm.so.2`
+
+Void's `steam` package (nonfree) is a **client bootstrap** — its `run_depends` are downloader/display plumbing (zenity, curl, dbus, freetype, fontconfig, gdk-pixbuf, tar, bash…), **none** of the 32-bit OS libraries. The Steam client is a 32-bit binary, and the GL/DRI pair (`libGL.so.1`, `libdrm.so.2`) is deliberately taken from the **host** — so the very first launch on a fresh install always reported "You are missing the following 32-Bit libraries … libGL.so.1 & libdrm.so.2". Proven on the round-3 KDE box: `libglvnd-32bit`/`libdrm-32bit` existed in the multilib repo (which the installer enables at line 5471) but were never installed; installing them (which auto-pulled `libX11-32bit`/`libxcb-32bit`/`libXau-32bit`/`libXdmcp-32bit`/`libpciaccess-32bit`) cleared the error, and the packaged `steamdeps` checker then reported the runtime satisfied.
+
+### The fix
+
+The `[INSTALL-APPS]` Steam branch now installs the Steam multilib runtime set **together with** `steam` in one `install_pkgs` call:
+
+```sh
+[ "$INSTALL_STEAM" = "true" ] && install_pkgs steam libgcc-32bit libstdc++-32bit \
+    libglvnd-32bit mesa-dri-32bit libdrm-32bit libX11-32bit libXext-32bit \
+    libXfixes-32bit libXrandr-32bit libXcursor-32bit libXi-32bit libXrender-32bit \
+    libXinerama-32bit libXxf86vm-32bit libxcb-32bit freetype-32bit \
+    fontconfig-32bit libpulseaudio-32bit alsa-plugins-pulseaudio-32bit
+```
+
+### Gating — Steam install only, nothing explicit
+
+- The set lives **only** inside the `[ "$INSTALL_STEAM" = "true" ]` branch. There is **no new prompt** and no unconditional install: `INSTALL_STEAM` stays lean-default OFF, so a box that never opts into Steam ships **zero** game 32-bit libraries.
+- The `PKG_PREFLIGHT` additions (`alsa-plugins-pulseaudio-32bit`, `fontconfig-32bit`, `freetype-32bit`, `libdrm-32bit`, `libgcc-32bit`, `libglvnd-32bit`, `libpulseaudio-32bit`, `libstdc++-32bit`, `libX11-32bit`, `libxcb-32bit`, `libXcursor-32bit`, `libXext-32bit`, `libXfixes-32bit`, `libXi-32bit`, `libXinerama-32bit`, `libXrandr-32bit`, `libXrender-32bit`, `libXss-32bit`, `libXxf86vm-32bit`, `mesa-dri-32bit`) are stage-1 **validation** names — the 2.9.40 pre-flight resolves them against the live union pool but installs nothing by itself, so they can never pull the 32-bit stack on their own.
+
+`bash -n` clean; `Debug/check-pkg-preflight.sh` clean (every new `install_pkgs` literal now covered).
 
 ## Beta-v2.9.70 — `[ELOGIND-NO-STRAY-KILL]` (the cosmic-greeter "stray elogind PID sweep" killed the LIVE logind — removed, `sv check elogind` is the only gate)
 
