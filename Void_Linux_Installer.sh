@@ -560,14 +560,14 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.13"
+SCRIPT_VERSION="Beta-v2.9.72"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
 # overflow; the minor never carries into the major unless the author makes an
 # explicit major bump. The lineage is split into named eras carrying their
 # own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x), so each era reads
-# monotonic and the current release (Beta-v2.9.13) always carries the highest
+# monotonic and the current release (Beta-v2.9.72) always carries the highest
 # numbering. See Debug/version-renumber-map.txt for the authoritative
 # OLD->NEW mapping recovered from the Debug/Old Versions/ artifacts.
 
