@@ -560,7 +560,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.78"
+SCRIPT_VERSION="Beta-v2.9.79"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -825,6 +825,28 @@ SCRIPT_VERSION="Beta-v2.9.78"
 #                     rewrites the file to the canonical cosmic-config form
 #                     with the layout taken UNQUOTED from the chroot's
 #                     /etc/rc.conf KEYMAP.
+#     Beta-v2.9.79   [XKB-CONFIG-CREATE] — the 2.9.75 [XKB-CONFIG-QUOTING]
+#                     repair was gated on `[ -f "$_xkb_conf" ]`, so it could
+#                     only REPAIR a corrupt xkb_config, never CREATE a missing
+#                     one. No package ships that file; only the
+#                     cosmic-desktop-full post-install hook creates it, and on
+#                     the <host> 2026-10-05 resumed install it did not complete,
+#                     so the file was ABSENT. That is fatal: cosmic-comp then
+#                     reports no xkb config -> cosmic-greeter
+#                     UserData.xkb_config_opt is None -> Common::update_user_data
+#                     skips the whole active_layouts fill (common.rs:203-208)
+#                     -> the keyboard-layout button indexes an empty vec at
+#                     greeter.rs:590 and the greeter PANICS ("index out of
+#                     bounds: the len is 0 but the index is 0") -> greetd loops
+#                     "greeter exited without creating a session" every ~1.6s
+#                     -> unbootable desktop, no login, no VT switch, plus a
+#                     65 MB cosmic-osk "Broken pipe" svlogd flood per boot.
+#                     The COSMIC DE branch now ENSURES the file (create when
+#                     missing, rewrite when the layout differs) instead of
+#                     depending on the packager's hook, and extracts KEYMAP
+#                     unquoted-or-quoted so a bare `KEYMAP=de` from the live
+#                     ISO no longer silently falls back to "us".
+#                     SCRIPT_VERSION bumped Beta-v2.9.78 -> Beta-v2.9.79.
 #     Beta-v2.9.78   [MULTI-FS-RESUME-HELPER] — `_region_fs_of()` and
 #                     `_region_carved()` were defined INSIDE the
 #                     "skipped-on-resume interactive configuration" block
@@ -8117,11 +8139,51 @@ elif [ "$DESKTOP_ENV" = "cosmic" ]; then
     # layout taken UNQUOTED from the chroot's /etc/rc.conf (already pinned to
     # the live console keymap by Beta-v2.6.9 [KEYMAP]). Overwriting is always
     # safe: this is exactly the content the hook intended to write.
-    _xkb_layout="$(sed -n 's/^[[:space:]]*KEYMAP="\([^"]*\)".*/\1/p' /etc/rc.conf 2>/dev/null | tail -1)"
-    [ -z "${_xkb_layout:-}" ] && _xkb_layout="us"
+    #
+    # AI (Big Pickle) FIX — Beta-v2.9.79 [XKB-CONFIG-CREATE]: the 2.9.75 repair
+    # was gated on `[ -f "$_xkb_conf" ]`, so it could only ever REPAIR a corrupt
+    # file — never CREATE a missing one. On the <host> 2026-10-05 install this
+    # file was ABSENT entirely, and that is fatal, not cosmetic: NO package ships
+    # it, only the cosmic-desktop-full post-install hook creates it, and that
+    # hook sits in the hook's `UPDATE="no"` arm and did not complete on that
+    # resumed install (witness: its other side effects were only partial —
+    # /etc/pipewire/pipewire.conf.d/10-wireplumber.conf present but
+    # 20-wireplumber-pulse.conf and /etc/xdg/autostart/pipewire.desktop absent).
+    # With the file missing, cosmic-comp reports no xkb config, so cosmic-
+    # greeter's UserData.xkb_config_opt is None and Common::update_user_data
+    # skips the ENTIRE active_layouts fill (cosmic-greeter src/common.rs:203-208,
+    # the vec is initialised empty at common.rs:118 and only ever cleared+filled
+    # inside that block). The keyboard-layout button then renders
+    # `self.common.active_layouts[self.common.current_keyboard_layout].name()`
+    # (src/greeter.rs:590) against that empty vec and the greeter PANICS:
+    #   index out of bounds: the len is 0 but the index is 0
+    # greetd then loops `check_children: greeter exited without creating a
+    # session` every ~1.6s forever: no login, no VT switch, and each corpse
+    # leaves cosmic-osk hot-spinning "Error trying to flush the wayland display:
+    # Broken pipe" (a 65 MB svlogd log in ~24 min on the affected boot). Proven
+    # on <host> 2026-10-05 (25 panics, 0 successful logins, wtmp empty).
+    #
+    # The repair therefore ENSURES the file: create it when missing, rewrite it
+    # when the layout differs, so it no longer depends on the packager's hook
+    # having run at all. The content is byte-for-byte what the (fixed) hook
+    # intends to write, so writing it unconditionally cannot be wrong.
+    #
+    # Also accept a BARE `KEYMAP=us`, not just the quoted `KEYMAP="us"`: the
+    # Void_Linux_Live builder writes rc.conf unquoted from two places, so a
+    # live-ISO install with a non-US keymap has `KEYMAP=de`. The old
+    # quoted-only sed silently yielded empty and fell back to "us" — installing
+    # the WRONG keyboard layout with no error anywhere. The extraction below is
+    # now the same quote-stripping + token-validation sed the fixed packager
+    # hook uses, and the `case` guard keeps a hostile/odd rc.conf value from
+    # ever being interpolated into the RON string.
+    _xkb_layout="$(sed -n 's/^[[:space:]]*KEYMAP=["]*\([^"[:space:]]*\)["]*[[:space:]]*\(#.*\)\{0,1\}$/\1/p' /etc/rc.conf 2>/dev/null | tail -1)"
+    case "${_xkb_layout:-}" in
+        ''|*[!a-zA-Z0-9_-]*) _xkb_layout="us" ;;
+    esac
     _xkb_conf="/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config"
-    if [ -f "$_xkb_conf" ] && ! grep -q "^layout: \"${_xkb_layout}\",\$" "$_xkb_conf"; then
-        echo "==> Repairing cosmic xkb_config (post-install hook quoting bug)"
+    if [ ! -f "$_xkb_conf" ] || ! grep -q "^layout: \"${_xkb_layout}\",\$" "$_xkb_conf" 2>/dev/null; then
+        echo "==> Ensuring cosmic xkb_config (layout: ${_xkb_layout})"
+        mkdir -p "$(dirname "$_xkb_conf")"
         cat > "$_xkb_conf" << XKB_EOF
 (
 rules: "",

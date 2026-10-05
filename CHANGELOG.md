@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.13** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.79** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -132,6 +132,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.74** | `[USB-AUTOMOUNT]` — a COSMIC install had no removable-media automounter: udisks2 was installed (as a cosmic-files dependency) but its D-Bus-only activation unit meant udisksd was never reliably running on runit, and there was no udiskie/gvfs in the COSMIC path (gvfs automount only covers the GNOME/KDE/Cinnamon/MATE/Xfce/LXQt branches). The COSMIC DE branch now installs `udiskie` and autostarts it via a session-readiness guard (`/usr/local/sbin/udiskie-guard`, mirroring the polkit-agent guard), and the installer writes + first-boot-links a supervised `/etc/sv/udisksd` service. `udiskie`/`udisks2` added to PKG_PREFLIGHT | Beta-v2.9.73 below |
 | **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 | **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
+| **Beta-v2.9.79** | `[XKB-CONFIG-CREATE]` — the Beta-v2.9.75 repair was gated on `[ -f "$_xkb_conf" ]`, so it could only REPAIR a corrupt `xkb_config`, never CREATE a missing one. No package ships that file; only the `cosmic-desktop-full` post-install hook creates it, inside its `UPDATE="no"` arm, and on the <host> 2026-10-05 resumed install it did not complete (its other side effects are only partial: `10-wireplumber.conf` present, `20-wireplumber-pulse.conf` and `/etc/xdg/autostart/pipewire.desktop` absent). The file was therefore ABSENT — which is fatal, not cosmetic: cosmic-comp reports no xkb config → cosmic-greeter `UserData.xkb_config_opt` is `None` → `Common::update_user_data` (`src/common.rs:203-208`, vec initialised empty at `:118`) skips the entire `active_layouts` fill → the keyboard-layout button indexes an empty vec at `src/greeter.rs:590` and the greeter **PANICS** (`index out of bounds: the len is 0 but the index is 0`). greetd then loops `check_children: greeter exited without creating a session` every ~1.6 s: 25 panics over 24 min across three boots, `pam_authenticate: AUTHTOK_ERR`, empty `wtmp` (no login ever succeeded), no VT switch, and a 65 MB / 946,952-line `cosmic-greeter-session.log` from ~945,960 `cosmic-osk` "Broken pipe" lines. Stage 3 still reported `Install COMPLETED successfully`, and the archived script's sha256 matched repo HEAD — the installer was not at fault for reporting success, the failure is entirely at first boot. The COSMIC DE branch now ENSURES the file (`[ ! -f … ] ||` + `mkdir -p` + write) instead of depending on the packager's hook, keeping the `grep` guard so an already-correct file stays a no-op. `KEYMAP` extraction also accepts a **bare** `KEYMAP=de` (what `Void_Linux_Live` writes) as well as `KEYMAP="de"`, via the same quote-stripping sed the fixed hook uses — the old quoted-only pattern silently fell back to `us`, installing the wrong keyboard layout — plus a `case` token guard so no hostile `rc.conf` value can be interpolated into the RON string. `bash -n` clean, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED, plus an 8-case standalone exercise of the ensure-logic | Beta-v2.9.78 below |
 | **Beta-v2.9.78** | `[MULTI-FS-RESUME-HELPER]` — a resumed (`-r`) install aborted in Stage 1 with `Failing command : _region_fs_of "$_rr"` and exit 127 (command not found). Root cause: `_region_fs_of()` and `_region_carved()` were defined at the top of the BETA-v2.9.66 `[SUBVOL-GATES]` resolver, which sits INSIDE the `if [ "$RESUME" != "1" ]` interactive-config block — a skipped block on a resumed run — while their call sites (region mount block at old-line ~6277, fstab loop at ~6410, mkfs loop at ~5831, subvol-list builders at ~5984/6013/6202+) are outside. Fresh installs never noticed because the definitions ran before any call site; resumed runs died the first time the region loop reached `_rr_fs="$(_region_fs_of "$_rr")"`. Definitions now sit at unconditional top level above the resume guard. `bash -n` clean, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT | Beta-v2.9.77 below |
 | **Beta-v2.9.77** | `[COSMIC-TRUST-ANCHOR-TTY]` — the Beta-v2.9.76 trust-anchor gate aborted EVERY COSMIC install: it refused to run unless stdin was a tty (`[ ! -t 0 ]`), but Stage 2 feeds the chroot via `chroot /mnt /bin/bash << 'CHROOT_EOF'`, so stdin is always the heredoc text and the gate always fired ("session has no terminal" at the key-confirmation step, even on a fully interactive run). The gate now probes the real terminal (`[ -r /dev/tty ] && [ -w /dev/tty ]` — /dev is bind-mounted into the chroot and the chroot's controlling tty is the operator's terminal) and routes the key-import prompt to it (`xbps-install -Sy < /dev/tty`). Verified live 2026-10-05: the COSMIC repo now serves exactly the pinned key (DER SHA-256 `83ffd154…d2e7b` matches `_cosmic_key_expected`), so the anchor check passes once the operator confirms the prompt. `bash -n` clean, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT | Beta-v2.9.76 below |
 
@@ -802,6 +803,101 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.79 — `[XKB-CONFIG-CREATE]` (the 2.9.75 repair was gated on `[ -f … ]`, so it could only fix a *corrupt* `xkb_config`, never create a *missing* one — and a missing one makes the greeter panic and the desktop unbootable)
+
+`SCRIPT_VERSION` bumped to `Beta-v2.9.79`; era row added to the script header VERSION-HISTORY;
+index row added above; this section added as the newest detail section.
+
+### Context
+
+This is the **third** layer of the cosmic-greeter saga, and the only one that is fatal rather than
+merely ugly. The two documented predecessors were (1) the username dispatch (`_cosmicgreeter` vs
+the magic `cosmic-greeter` string) making the binary take the `locker` branch and map no window,
+and (2) the `cosmic-desktop-full` hook writing `layout: ""us"",` into `xkb_config`, which
+Beta-v2.9.75 fixed. This layer is different in kind:
+
+On the fresh <host> install of 2026-10-05 (installer run 20:09→22:16, `SCRIPT_VERSION` Beta-v2.9.78,
+archived script sha256 `624e8d35…` == repo HEAD, so the target provably ran current source), Stage 3
+reported `Install COMPLETED successfully`. The **first boot was unusable**:
+
+- greetd logged `check_children: greeter exited without creating a session` every ~1.6 s for 24
+  minutes (three boots: 22:56, 23:14, 23:20), with `pam_authenticate: AUTHTOK_ERR` on both later
+  attempts and an **empty `wtmp`** — no login ever succeeded.
+- `/var/log/cosmic-greeter-session.log` was **65 MB / 946,952 lines**, ~945,960 of them
+  `Error trying to flush the wayland display: Broken pipe` from `cosmic-osk` hot-spinning after
+  each corpse's display died — an unbounded `svlogd` flood amplifying the restart loop.
+- 25 × `The application panicked (crashed). / Message: index out of bounds: the len is 0 but the
+  index is 0 / Location: src/greeter.rs:590`.
+
+Root cause chain (each link verified, not inferred):
+
+1. **No package ships `xkb_config`.** It exists only because the `cosmic-desktop-full` xbps
+   post-install hook creates it (`void-packages-1.9/srcpkgs/cosmic-desktop-full/INSTALL:64-72`).
+   On the target, `/usr/share/cosmic/com.system76.CosmicComp/v1/` held **only `input_touchpad`** —
+   `xkb_config` was absent entirely.
+2. **The hook did not complete.** Its other side effects are only partial:
+   `/etc/pipewire/pipewire.conf.d/10-wireplumber.conf` exists, but `20-wireplumber-pulse.conf` and
+   `/etc/xdg/autostart/pipewire.desktop` do not. The xkb arm also sits inside the hook's
+   `if [ "$UPDATE" = "no" ]` arm, which is skipped on any update/reinstall — this was a resumed
+   install.
+3. **Beta-v2.9.75 could not help.** Its repair was gated on `if [ -f "$_xkb_conf" ] && …`, so with
+   the file missing the guard was false and the repair **silently no-op'd**. The fix for "corrupt"
+   never covered "absent".
+4. **Absent → empty layout list → panic.** With no `xkb_config`, cosmic-comp reports no xkb config,
+   so cosmic-greeter's `UserData.xkb_config_opt` is `None`. `Common::update_user_data`
+   (`src/common.rs:203-208`) only clears+refills `active_layouts` inside
+   `if let Some(keyboard_layouts) = … && let Some(xkb_config) = …`, and the vec is initialised
+   empty at `common.rs:118` — so it stays empty. The keyboard-layout button renders
+   `self.common.active_layouts[self.common.current_keyboard_layout].name()` (`src/greeter.rs:590`;
+   `:607` in the vendored 1.9 tree, and the same unguarded index exists at `src/locker.rs:424`),
+   which is `[0]` into that empty vec.
+
+So the greeter takes a **Rust panic on its first frame that draws the layout button** — which is
+every frame, because the list is permanently empty. It is not a config warning; it is a hard abort
+of the login UI on every restart.
+
+Note the `Failed to apply user display config` warnings that precede each panic are **red herrings**:
+they come from the `Randr` handler at `src/greeter.rs:1891`, which calls `exec_randr` and merely
+warns when no saved layout list matches (exactly 2 per crash). Likewise the daemon's
+`failed to read wallpaper "/var/cache/systemd/home/<user>/login-background"` is a systemd-homed path
+that does not exist under runit — noisy, harmless.
+
+A separate, **non-fatal** cosmetic defect was observed and deliberately NOT touched:
+`/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron` is byte-identical (sha256
+`1c9da7a5…`) to the preserved `cosmic-greeter-incident-20261005/outputs.ron.bad` and is **invalid
+RON** (`config: {` where RON requires `(`) — cosmic-comp 1.9 wrote a file it cannot itself re-read.
+It only produces the benign `Randr` warning above, and deleting it just regenerates it.
+
+### Fix
+
+- The COSMIC DE branch now **ENSURES** the file instead of repairing it:
+  `if [ ! -f "$_xkb_conf" ] || ! grep -q …` → `mkdir -p` + write. It no longer depends on the
+  packager's hook having run at all. The content is byte-for-byte what the (already fixed) hook
+  intends to write, so writing it unconditionally cannot be wrong, and the `grep` guard still makes
+  a correct file a no-op.
+- `KEYMAP` extraction now accepts a **bare** `KEYMAP=de` as well as `KEYMAP="de"`, using the same
+  quote-stripping + trailing-comment-tolerant sed the fixed packager hook uses. The old
+  quoted-only pattern (`KEYMAP="\([^"]*\)"`) yielded empty on the bare form that
+  `Void_Linux_Live` writes from two places (`installer.sh` and `dracut/vmklive/locale.sh`), so a
+  non-US live-ISO install silently installed the **`us`** layout with no error anywhere — a latent
+  wrong-keyboard-layout bug in its own right.
+- A `case` token guard (`''|*[!a-zA-Z0-9_-]*)` → `us`) keeps any hostile or malformed `rc.conf`
+  value from being interpolated into the RON string.
+
+### Live on-box fix
+
+The already-installed target was repaired in place from the live environment (btrfs `@` remounted
+rw, file created, `sync`, remounted ro — btrfs `device stats` all zero beforehand):
+`/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config`, 104 bytes, `layout: "us"`, derived from
+the target's `KEYMAP="us"`. Awaiting the boot that proves it.
+
+### Gates
+
+`bash -n` clean; `Debug/check-heredocs.sh` ALL CLEAN (72 heredocs); `Debug/check-defaults.sh` ALL
+CONSISTENT; `Debug/check-pkg-preflight.sh` ALL COVERED (164 preflight packages, 170 literals). The
+new ensure-logic was additionally exercised standalone over 8 cases — quoted/bare/commented-out/
+hostile `KEYMAP`, missing file, corrupt file, and already-correct file (the last correctly a no-op).
 
 ## Beta-v2.9.78 — `[MULTI-FS-RESUME-HELPER]` (`_region_fs_of`/`_region_carved` were defined inside the skipped-on-resume config block, so a `-r` run hit `command not found` when the region-mount loop ran)
 
