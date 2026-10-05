@@ -560,7 +560,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.76"
+SCRIPT_VERSION="Beta-v2.9.77"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -825,6 +825,16 @@ SCRIPT_VERSION="Beta-v2.9.76"
 #                     rewrites the file to the canonical cosmic-config form
 #                     with the layout taken UNQUOTED from the chroot's
 #                     /etc/rc.conf KEYMAP.
+#     Beta-v2.9.77   [COSMIC-TRUST-ANCHOR-TTY] — the 2.9.76 trust-anchor
+#                     gate probed stdin with [ ! -t 0 ], but Stage 2 chroots
+#                     feed the script via `chroot /mnt /bin/bash << 'CHROOT_EOF'`,
+#                     so stdin is always the heredoc and the gate aborted EVERY
+#                     COSMIC install before xbps could prompt. The gate now
+#                     probes the real terminal (/dev/tty, bind-mounted with /dev)
+#                     and xbps-install's key-import prompt reads from /dev/tty.
+#                     Verified live: the COSMIC repo now serves exactly the
+#                     pinned key (DER SHA-256 matches _cosmic_key_expected), so
+#                     the anchor check passes once the operator confirms.
 #     Beta-v2.9.76   [COSMIC-TRUST-ANCHOR] — the COSMIC repo sync passed -y,
 #                     which xbps documents as "assume yes to ALL questions",
 #                     including the repo signing-key import. The trust anchor
@@ -6983,11 +6993,16 @@ f0da25a2877ccd5cba89e27fc744867914fd26031368a88f746f0f8096450d4d"
     # under xbps 0.60 the -Sy index write lands in the chroot's /var/db/xbps/<url>,
     # never in the -c cache dir — the cache contributes PAYLOAD reuse; it must
     # stay writable so mirror-fallback downloads land in it.)
-    if [ ! -t 0 ]; then
+    # Stage 2 feeds this chroot via `chroot /mnt /bin/bash << 'CHROOT_EOF'`,
+    # so stdin is the heredoc itself, NEVER the operator's terminal — gating on
+    # `[ -t 0 ]` here would abort EVERY COSMIC install (Beta-v2.9.77 fix).
+    # Probe the real terminal (/dev/tty, bind-mounted in with /dev) and route
+    # xbps's key-import prompt to it instead.
+    if ! { [ -r /dev/tty ] && [ -w /dev/tty ]; }; then
         echo "FATAL: the COSMIC repo sync needs to confirm its signing key, but this" >&2
         echo "       session has no terminal. Re-run interactively, or pre-seed the" >&2
         echo "       key into /var/db/xbps/keys/ yourself." >&2
-        echo "       Expected: SHA256 83ffd154d1dee504ea384a0c31b12e072d5884f7f75eb950e30ace852d7d2e7b" >&2
+        echo "       Expected: SHA256 ${_cosmic_key_expected}" >&2
         echo "       Repo docs / audit: ${_cosmic_audit}" >&2
         exit 1
     fi
@@ -6995,7 +7010,7 @@ f0da25a2877ccd5cba89e27fc744867914fd26031368a88f746f0f8096450d4d"
     echo "    Pinned fingerprint:"
     echo "      SHA256 ${_cosmic_key_expected}"
     echo "    Decline and abort if xbps shows anything different."
-    if ! xbps-install "${_xbps_cache[@]}" -Sy; then
+    if ! xbps-install "${_xbps_cache[@]}" -Sy < /dev/tty; then
         echo "FATAL: could not sync/trust the third-party COSMIC repository (${_cosmic_repo})." >&2
         echo "       If you declined the signing-key prompt, that is the expected" >&2
         echo "       outcome; the install aborted cleanly and nothing was changed." >&2
