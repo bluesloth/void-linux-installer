@@ -130,6 +130,8 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.72** | `[GAME-VULKAN]` — the 2.9.71 fix cleared the 32-bit GL/GLX layer, but on the same round-3 KDE box Steam then still failed: the fresh install shipped only the virtual-GPU `virtio_icd` as its Vulkan ICD, so on the AMD APU every Vulkan probe returned `VK_ERROR_INCOMPATIBLE_DRIVER` (`-9`) — the Steam topology query and any 32-bit game that loads `libvulkan.so.1` had no radeonsi ICD to reach. The `[INSTALL-APPS]` block now installs the DETECTED GPU family's Mesa Vulkan driver (`mesa-vulkan-radeon`/`mesa-vulkan-intel`/`mesa-vulkan-nouveau`, each 64-bit + `-32bit`) whenever `INSTALL_ANY_GAME=true` (Steam ∨ Lutris ∨ Heroic ∨ Bottles, the existing compound gate), gated on the live-box probe (`HAS_AMD_GPU`/`HAS_INTEL_GPU`/`HAS_NVIDIA_GPU`) — the profiler carries no new prompt, installs that chose a launcher on an NVIDIA box that also accepted `INSTALL_NVIDIA` get the driver's own proprietary ICD (no nouveau), and hybrids multi-family. A no-game box still ships zero extra graphics payload. All six names added to `PKG_PREFLIGHT`. `bash -n` clean, `check-pkg-preflight.sh` clean | Beta-v2.9.72 below |
 | **Beta-v2.9.73** | `[ELOGIND-RUN-SELFHEAL]` — Void's shipped elogind still self-daemonizes (double-fork, reparent to PID 1, write /run/elogind.pid), but the packaged `/etc/sv/elogind/run` `exec`s it without `-D`, so runsv's supervised child exits immediately and runsv respawns ~1x/sec forever — kernel ring buffer ~82% `elogind is already running as PID <n>` on a fresh elogind install (found 2026-10-04 on the fresh non-encrypted COSMIC <host>). The installer now ships `/root/tools/elogind.run.fixed` (wait-on-pidfile run script; never signals the live daemon) + `/root/tools/re-fix-elogind-run.sh`, applies the fix at install time when SESSION_STACK=elogind, and re-applies it from /etc/rc.local on every boot since elogind package upgrades overwrite the package-owned run script. Validated across a reboot: `sv status`=run, `sv check`=ok, spam frozen, one early-boot line only | Beta-v2.9.72 below |
 | **Beta-v2.9.74** | `[USB-AUTOMOUNT]` — a COSMIC install had no removable-media automounter: udisks2 was installed (as a cosmic-files dependency) but its D-Bus-only activation unit meant udisksd was never reliably running on runit, and there was no udiskie/gvfs in the COSMIC path (gvfs automount only covers the GNOME/KDE/Cinnamon/MATE/Xfce/LXQt branches). The COSMIC DE branch now installs `udiskie` and autostarts it via a session-readiness guard (`/usr/local/sbin/udiskie-guard`, mirroring the polkit-agent guard), and the installer writes + first-boot-links a supervised `/etc/sv/udisksd` service. `udiskie`/`udisks2` added to PKG_PREFLIGHT | Beta-v2.9.73 below |
+| **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
+
 | **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 
 ---
@@ -798,6 +800,87 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.76 — `[COSMIC-TRUST-ANCHOR]` (the COSMIC repo sync auto-accepted the third-party signing key, so a substituted anchor was trusted silently)
+
+`SCRIPT_VERSION` bumped to `Beta-v2.9.76`; era row added to the script header VERSION-HISTORY
+(`# Beta-v2.9.76   [COSMIC-TRUST-ANCHOR]`); index row added above; this section added as the
+newest section.
+
+### Context
+
+`install_cosmic()` synced the third-party repository with:
+
+    xbps-install "${_xbps_cache[@]}" -Sy
+
+`-y` is xbps's "assume yes to ALL questions". That includes the prompt that imports and trusts
+a repository's signing key. The consequence is not a cosmetic one: the entire security property
+of a pinned anchor is that the key is an *input the operator confirms*, not an *output the
+served repo dictates*. With `-y`, whatever key the repo presented was accepted automatically,
+and the operator never saw a fingerprint — so a substituted key, a hostile mirror, or a
+hijacked CDN would have been trusted without a word.
+
+### The fix
+
+Two independent layers, because either alone is insufficient.
+
+**Layer 1 — make the trust decision visible.** `-y` is removed from that sync, the expected
+fingerprint is printed for comparison, and a `[ ! -t 0 ]` guard refuses an unattended run up
+front with an actionable message rather than hanging on a prompt nobody can answer or silently
+auto-accepting. (The `-y` on the later `xbps-install -y "$@"` that actually installs the COSMIC
+packages is unrelated and deliberately unchanged.)
+
+**Layer 2 — make it machine-checkable.** A prompt still trusts whatever a human reads, and a
+human who types `Y` at a substituted key has trusted it. So the fingerprint is pinned as a
+constant in the installer and checked after the sync:
+
+1. the pinned key **must be present** in `/var/db/xbps/keys`, and
+2. **no key outside** `{pinned, two stock Void keys}` may be present.
+
+Both conditions are required. Condition 1 rejects a repo presenting a different key; condition 2
+rejects a stale anchor from a previous repo or an injected third key. Condition 2 is an
+*allowlist*, not "nothing else is allowed" — a provisioned Void system already trusts both stock
+Void keys, so the stricter reading would abort every legitimate install. (That was not a
+hypothetical: the first draft rejected everything unexpected and testing against a real Void
+masterdir keyring showed exactly that failure.)
+
+The pin is deliberately **not** read from the repository being verified. A fingerprint fetched
+from the served index only proves the index is self-consistent — and an attacker who controls
+the repo would serve their own key right alongside it. The pin lives in the installer, which is
+the party actually making the trust decision.
+
+### Implementation notes worth keeping
+
+`cosmic_key_fingerprint()` extracts a key's real fingerprint from an xbps key plist. Three
+things each produce a *wrong but plausible* hash instead of an error, so all three are handled:
+
+- the plist's base64 blob decodes to **PEM text, not DER**; hashing the decoded bytes directly
+  yields `777f5d17...`, which is not the fingerprint xbps means. Re-encode to DER first.
+- `openssl dgst` on an **empty stream** returns `e3b0c442...` (the SHA-256 of the empty string),
+  so a malformed blob otherwise reads as a genuine fingerprint. The key is parsed with
+  `openssl rsa -pubin -noout` before it is hashed.
+- capturing DER in a **shell variable strips its NUL bytes**, corrupting the bytes and yielding
+  yet another bogus hash. Stream into `dgst` instead.
+
+Unreadable keyring entries now fail **closed** rather than being skipped — a key we cannot parse
+is a key we cannot vouch for. The keyring *filename* is likewise not trusted: a stock Void key
+stored under the pinned fingerprint's filename is still rejected, because the comparison is on
+key content.
+
+On placement: the check reads `/var/db/xbps/keys` from inside the `chroot /mnt` block that
+`install_cosmic()` is defined in, so it inspects the *target's* keyring — the one xbps will
+actually verify these packages against. That is the keyring that matters, and it is not the same
+as the live environment's: the installer copies the host keyring into the target at bootstrap
+and the COSMIC key is imported into it during the sync.
+
+### Known consequence
+
+The third-party repository has not yet been republished under the new key, so the live index
+still serves the superseded one. **Until that upload lands, `install_cosmic()` aborts** on the
+pin check. This is fail-closed and intended — no wrong key is trusted — but the COSMIC install
+cannot complete in the meantime.
+
+---
 
 ## Beta-v2.9.75 — `[XKB-CONFIG-QUOTING]` (the `cosmic-desktop-full` post-install hook wrote invalid RON into cosmic-comp's `xkb_config`, crash-looping the cosmic-greeter into a grey, blinking login screen)
 

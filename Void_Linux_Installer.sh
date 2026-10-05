@@ -560,7 +560,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.75"
+SCRIPT_VERSION="Beta-v2.9.76"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -825,6 +825,31 @@ SCRIPT_VERSION="Beta-v2.9.75"
 #                     rewrites the file to the canonical cosmic-config form
 #                     with the layout taken UNQUOTED from the chroot's
 #                     /etc/rc.conf KEYMAP.
+#     Beta-v2.9.76   [COSMIC-TRUST-ANCHOR] — the COSMIC repo sync passed -y,
+#                     which xbps documents as "assume yes to ALL questions",
+#                     including the repo signing-key import. The trust anchor
+#                     was auto-accepted and no operator ever saw a
+#                     fingerprint, so a substituted key was trusted silently.
+#                     -y is now absent from that sync (the -y on the later
+#                     package install is unrelated and stays), the expected
+#                     fingerprint is printed, and an unattended run refuses up
+#                     front instead of hanging or auto-accepting.
+#                     Prompting alone is not enforcement — an operator who
+#                     types 'Y' at a prompt showing a substituted key still
+#                     trusts it — so the fingerprint is now PINNED IN THIS
+#                     SCRIPT and verified machine-readably after the sync:
+#                     the pinned key must be present in /var/db/xbps/keys, and
+#                     no key outside {pinned, two stock Void keys} may be.
+#                     That second rule is an allowlist, not "nothing else":
+#                     a provisioned Void system already trusts both stock keys,
+#                     so rejecting them would abort every legitimate install.
+#                     The pin is deliberately not read from the repo being
+#                     verified — a fingerprint taken from the served index only
+#                     proves the index is self-consistent. Unreadable keyring
+#                     entries now fail closed instead of being skipped.
+#                     CONSEQUENCE: until the repo is republished under the new
+#                     key this check ABORTS, because the live index still
+#                     serves the old one. Fail-closed by design.
 #     Beta-v2.9.73   [ELOGIND-RUN-SELFHEAL] — Void's elogind daemonizes
 #                     itself, so the stock /etc/sv/elogind/run `exec`s a child
 #                     that exits immediately and runsv respawns ~1x/sec forever
@@ -6876,10 +6901,48 @@ install_pkgs() {
 # The repo's signing key is whatever the maintainer publishes with the repo
 # (fetched/trusted by xbps on first sync, exactly as the maintainer's own
 # documented setup does); audit link: https://github.com/REDACTED/void-packages
+# Read a key's real fingerprint out of an xbps key plist and echo it.
+# The blob decodes to PEM TEXT (not DER) -- hashing the base64-decoded bytes
+# directly yields 777f5d17..., which is NOT the fingerprint xbps means. Always
+# re-encode to DER first. These plists also put the blob and </data> on one
+# line, so the closing tag must be substituted away; deleting that line instead
+# silently drops the whole key.
+cosmic_key_fingerprint() {
+    local _b
+    _b=$(sed -n '/<key>public-key<\/key>/,/<\/data>/p' "$1" 2>/dev/null \
+         | tail -n +2 \
+         | sed -e 's/.*<data>//' -e 's|</data>||' -e 's/[[:space:]]//g')
+    [ -n "$_b" ] || return 1
+    # Validate that this really IS an RSA public key BEFORE hashing it. Two traps
+    # here, both of which silently produce a wrong-but-plausible fingerprint:
+    #   * a malformed blob makes `openssl rsa` fail and emit nothing, while
+    #     `openssl dgst` still reports e3b0c442... (SHA-256 of the empty string);
+    #   * capturing the DER in a shell variable strips its NULL bytes, which
+    #     corrupts the bytes and yields yet another bogus hash.
+    # So parse with -noout first, then stream straight into dgst.
+    printf '%s' "$_b" | base64 -d 2>/dev/null | openssl rsa -pubin -noout 2>/dev/null || return 1
+    printf '%s' "$_b" | base64 -d 2>/dev/null \
+        | openssl rsa -pubin -outform DER 2>/dev/null \
+        | openssl dgst -sha256 2>/dev/null | sed 's/.*= *//'
+}
+
 install_cosmic() {
     _cosmic_repo="https://bluesloth.github.io/void-cosmic-repo/"
     _cosmic_repodata="https://bluesloth.github.io/void-cosmic-repo/x86_64-repodata"
     _cosmic_audit="https://github.com/bluesloth/void-cosmic-repo"
+    # The trust anchor is PINNED here, in the installer, and is deliberately not
+    # read from the repo being verified. A fingerprint fetched from the served
+    # index only proves the index is self-consistent -- an attacker controlling
+    # the repo would serve their own key alongside it, which is precisely the
+    # substitution this constant exists to reject.
+    _cosmic_keyring="/var/db/xbps/keys"
+    _cosmic_key_expected="83ffd154d1dee504ea384a0c31b12e072d5884f7f75eb950e30ace852d7d2e7b"
+    # Stock Void keys that legitimately occupy this keyring on a real install.
+    # Extracted from a real Void masterdir, not from void-packages/common/repo-keys
+    # alone. Without this allowlist the check below aborts every legitimate
+    # install, because a provisioned system already trusts these two.
+    _cosmic_key_stock="05473705de6456ebfdda5bd4f18155cba80bd83fca1b120cf41099693c69187b
+f0da25a2877ccd5cba89e27fc744867914fd26031368a88f746f0f8096450d4d"
 
     if ! curl -fsSL --max-time 30 -o /dev/null "$_cosmic_repodata" 2>/dev/null; then
         echo "FATAL: the third-party COSMIC repository (${_cosmic_repo}) is not reachable right now." >&2
@@ -6895,20 +6958,113 @@ install_cosmic() {
         echo "repository=${_cosmic_repo}" > /etc/xbps.d/59-cosmic.conf
     fi
 
-    # Sync the (freshly added) COSMIC repo index; this is what imports/trusts
-    # the repo's signing key, matching the maintainer's documented setup.
+    # Sync the (freshly added) COSMIC repo index. This is the step that imports
+    # and trusts the repo's signing key.
+    #
+    # TRUST ANCHOR (2026-10-05): -y is DELIBERATELY ABSENT on this sync.
+    # xbps-install's -y means "assume yes to ALL questions", which includes
+    # "Do you want to import this public key?" — so passing it made the anchor
+    # auto-accepted with NO human ever seeing the fingerprint. That is exactly
+    # the property a pinned trust anchor is supposed to remove: the key must be
+    # an input the operator confirms, not an output the served repo dictates.
+    # Without -y, xbps prints the fingerprint and waits, and the operator decides.
+    #
+    # Expected fingerprint (the repo's own key, 4096-bit RSA):
+    #   SHA256 83ffd154d1dee504ea384a0c31b12e072d5884f7f75eb950e30ace852d7d2e7b
+    # If xbps prints anything else, DO NOT accept it — that is not our key.
+    #
+    # Unattended runs: without a tty there is nobody to answer the prompt, so we
+    # refuse up front with an actionable message rather than hanging forever or
+    # silently auto-accepting.
+    #
     # AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: the COSMIC sync also
     # honors the cache, so the third-party packages reuse it exactly like the
     # main-line ones. (Correction, verified empirically in the Beta-v2.9.65 era:
     # under xbps 0.60 the -Sy index write lands in the chroot's /var/db/xbps/<url>,
     # never in the -c cache dir — the cache contributes PAYLOAD reuse; it must
     # stay writable so mirror-fallback downloads land in it.)
-    if ! xbps-install "${_xbps_cache[@]}" -Sy; then
-        echo "FATAL: could not sync/trust the third-party COSMIC repository (${_cosmic_repo})." >&2
-        echo "       If it is a missing-signing-key prompt, re-check the repo; install aborted cleanly." >&2
+    if [ ! -t 0 ]; then
+        echo "FATAL: the COSMIC repo sync needs to confirm its signing key, but this" >&2
+        echo "       session has no terminal. Re-run interactively, or pre-seed the" >&2
+        echo "       key into /var/db/xbps/keys/ yourself." >&2
+        echo "       Expected: SHA256 83ffd154d1dee504ea384a0c31b12e072d5884f7f75eb950e30ace852d7d2e7b" >&2
         echo "       Repo docs / audit: ${_cosmic_audit}" >&2
         exit 1
     fi
+    echo "==> Confirming the COSMIC repository signing key when prompted."
+    echo "    Pinned fingerprint:"
+    echo "      SHA256 ${_cosmic_key_expected}"
+    echo "    Decline and abort if xbps shows anything different."
+    if ! xbps-install "${_xbps_cache[@]}" -Sy; then
+        echo "FATAL: could not sync/trust the third-party COSMIC repository (${_cosmic_repo})." >&2
+        echo "       If you declined the signing-key prompt, that is the expected" >&2
+        echo "       outcome; the install aborted cleanly and nothing was changed." >&2
+        echo "       Repo docs / audit: ${_cosmic_audit}" >&2
+        exit 1
+    fi
+
+    # The prompt above only moves trust from the operator to a human eyeball. An
+    # operator who types 'Y' at a prompt showing a substituted key still trusts
+    # the attacker, so confirm the anchor MACHINE-CHECKABLY here, after the sync.
+    #
+    # Two conditions, both required:
+    #   1. the pinned COSMIC key IS present, and
+    #   2. no key outside {pinned, two stock Void keys} is present.
+    # Condition 2 is an allowlist, NOT "nothing else allowed": a provisioned Void
+    # system already trusts the two stock keys, so rejecting them would abort
+    # every legitimate install. Condition 2 exists to catch a stale anchor from a
+    # previous repo or an injected third key -- neither of which belongs here.
+    _cosmic_fp_ok=0
+    _cosmic_fp_bad=""
+    _cosmic_fp_seen=""
+    if [ -d "$_cosmic_keyring" ]; then
+        for _cosmic_k in "$_cosmic_keyring"/*.plist; do
+            [ -e "$_cosmic_k" ] || continue
+            _cosmic_fp="$(cosmic_key_fingerprint "$_cosmic_k")"
+            if [ -z "$_cosmic_fp" ]; then
+                # Fail CLOSED. A keyring entry we cannot parse is a key we cannot
+                # vouch for, and silently skipping it would let an attacker hide a
+                # malformed key here undetected. Note libxbps only supports RSA
+                # public keys, so "unparseable" means genuinely not-an-RSA-key.
+                _cosmic_fp_bad="${_cosmic_fp_bad} UNREADABLE(${_cosmic_k##*/})"
+                _cosmic_fp_seen="${_cosmic_fp_seen} UNREADABLE(${_cosmic_k##*/})"
+                continue
+            fi
+            if [ "$_cosmic_fp" = "$_cosmic_key_expected" ]; then
+                _cosmic_fp_ok=1
+                _cosmic_fp_seen="${_cosmic_fp_seen} ${_cosmic_fp}(pinned)"
+            elif printf '%s\n' "$_cosmic_key_stock" | grep -qx "$_cosmic_fp"; then
+                _cosmic_fp_seen="${_cosmic_fp_seen} ${_cosmic_fp}(stock-void)"
+            else
+                _cosmic_fp_bad="${_cosmic_fp_bad} ${_cosmic_fp}"
+                _cosmic_fp_seen="${_cosmic_fp_seen} ${_cosmic_fp}(UNEXPECTED)"
+            fi
+        done
+    fi
+
+    if [ "$_cosmic_fp_ok" -ne 1 ] || [ -n "$_cosmic_fp_bad" ]; then
+        echo "FATAL: COSMIC repository trust anchor does not match this installer." >&2
+        if [ "$_cosmic_fp_ok" -ne 1 ]; then
+            echo "       Pinned key ABSENT from ${_cosmic_keyring}:" >&2
+            echo "         expected SHA256 ${_cosmic_key_expected}" >&2
+            echo "       Either the sync did not import it, or the repo is presenting a" >&2
+            echo "       DIFFERENT key. If you are offline or mid-key-rotation, say so" >&2
+            echo "       before overriding this." >&2
+        fi
+        if [ -n "$_cosmic_fp_bad" ]; then
+            echo "       UNEXPECTED key(s) present in ${_cosmic_keyring}:" >&2
+            for _cosmic_b in $_cosmic_fp_bad; do
+                echo "         ${_cosmic_b}" >&2
+            done
+            echo "       Refusing to continue: a key you did not expect is trusted for" >&2
+            echo "       these packages. Remove it and re-run, or investigate before" >&2
+            echo "       trusting anything from this repo." >&2
+        fi
+        echo "       Keys seen:${_cosmic_fp_seen:- (none)}" >&2
+        echo "       Repo docs / audit: ${_cosmic_audit}" >&2
+        exit 1
+    fi
+    echo "==> COSMIC trust anchor verified: SHA256 ${_cosmic_key_expected}"
 
     if ! xbps-install "${_xbps_cache[@]}" -y "$@"; then
         echo "FATAL: xbps-install failed for COSMIC package(s): $*" >&2
