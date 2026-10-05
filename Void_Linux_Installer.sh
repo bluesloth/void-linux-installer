@@ -560,7 +560,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.77"
+SCRIPT_VERSION="Beta-v2.9.78"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -825,6 +825,19 @@ SCRIPT_VERSION="Beta-v2.9.77"
 #                     rewrites the file to the canonical cosmic-config form
 #                     with the layout taken UNQUOTED from the chroot's
 #                     /etc/rc.conf KEYMAP.
+#     Beta-v2.9.78   [MULTI-FS-RESUME-HELPER] — `_region_fs_of()` and
+#                     `_region_carved()` were defined INSIDE the
+#                     "skipped-on-resume interactive configuration" block
+#                     (the `if [ "$RESUME" != "1" ]` section around
+#                     old line ~4377-4522), but the region-mount / fstab
+#                     loops that call them do NOT run inside that block —
+#                     they run on every path including resume. On a `-r`
+#                     resume the helpers were therefore undefined and the
+#                     mount loop died with `_region_fs_of`: command not
+#                     found (exit 127 from the `$(...)`). Definitions moved
+#                     to unconditional top-level scope (above the RESUME
+#                     guard). `bash -n` clean, check-heredocs ALL CLEAN,
+#                     check-defaults ALL CONSISTENT.
 #     Beta-v2.9.77   [COSMIC-TRUST-ANCHOR-TTY] — the 2.9.76 trust-anchor
 #                     gate probed stdin with [ ! -t 0 ], but Stage 2 chroots
 #                     feed the script via `chroot /mnt /bin/bash << 'CHROOT_EOF'`,
@@ -1774,6 +1787,33 @@ read_password_twice() {
 #                  password is all that stands between a compromise and
 #                  root. Root's password prompt is skipped entirely for
 #                  this option since it's never going to be used.
+_region_carved() { # $1=region name; returns 0 when carved onto its own partition
+    case " ${REGION_PARTITIONED:-} " in
+        *" $1 "*) return 0 ;;
+        *)        return 1 ;;
+    esac
+}
+# AI (Big Pickle) FIX — Beta-v2.9.66 [MULTI-FS-FS-EVAL]: resolve a carved
+# region's filesystem from its LOWERCASE REGION_PARTITIONED token. The three
+# mkfs/mount/fstab sites all used `eval "_rr_fs=\${REGION_${_rr}_FS:-btrfs}"`
+# with the raw token, so `home` read the never-existent `REGION_home_FS`
+# (bash variable names are case-sensitive) and EVERY carved region silently
+# fell back to `btrfs` — the v2.9.48 [DISK-BUDGET] `^^` fold fixed the SIZE
+# evals but missed the _FS evals. `games` additionally stores its choice in
+# `REGION_GAMES` (no `_FS` suffix), so even a uppercased `REGION_GAMES_FS`
+# would still be empty — the one region whose variable name breaks the
+# REGION_<NAME>_FS contract. Observed live (2026-09-17, carved ENCRYPT
+# /home + /home/<user>/Games): prompt/install-config recorded home=ext4
+# games=ext4 while the run-log mkfs + fstab + blkid all show btrfs.
+_region_fs_of() { # $1 = lowercase region token (home|var|cache|srv|opt|games)
+    local _rfv
+    if [ "$1" = "games" ]; then
+        _rfv="REGION_GAMES"
+    else
+        _rfv="REGION_${1^^}_FS"
+    fi
+    printf '%s' "${!_rfv:-btrfs}"
+}
 
 # =============================================================================
 # AI (Big Pickle) CHANGE — Beta-v2.4.0 [RESUME]: The entire interactive
@@ -4468,33 +4508,6 @@ EOF
 # the carved home region); the @game per-launcher subvol lives under @home and
 # folds with the home region itself.
 # =============================================================================
-_region_carved() { # $1=region name; returns 0 when carved onto its own partition
-    case " ${REGION_PARTITIONED:-} " in
-        *" $1 "*) return 0 ;;
-        *)        return 1 ;;
-    esac
-}
-# AI (Big Pickle) FIX — Beta-v2.9.66 [MULTI-FS-FS-EVAL]: resolve a carved
-# region's filesystem from its LOWERCASE REGION_PARTITIONED token. The three
-# mkfs/mount/fstab sites all used `eval "_rr_fs=\${REGION_${_rr}_FS:-btrfs}"`
-# with the raw token, so `home` read the never-existent `REGION_home_FS`
-# (bash variable names are case-sensitive) and EVERY carved region silently
-# fell back to `btrfs` — the v2.9.48 [DISK-BUDGET] `^^` fold fixed the SIZE
-# evals but missed the _FS evals. `games` additionally stores its choice in
-# `REGION_GAMES` (no `_FS` suffix), so even a uppercased `REGION_GAMES_FS`
-# would still be empty — the one region whose variable name breaks the
-# REGION_<NAME>_FS contract. Observed live (2026-09-17, carved ENCRYPT
-# /home + /home/<user>/Games): prompt/install-config recorded home=ext4
-# games=ext4 while the run-log mkfs + fstab + blkid all show btrfs.
-_region_fs_of() { # $1 = lowercase region token (home|var|cache|srv|opt|games)
-    local _rfv
-    if [ "$1" = "games" ]; then
-        _rfv="REGION_GAMES"
-    else
-        _rfv="REGION_${1^^}_FS"
-    fi
-    printf '%s' "${!_rfv:-btrfs}"
-}
 if [ -n "${REGION_PARTITIONED:-}" ]; then
     for _rg in $REGION_PARTITIONED; do
         case "$_rg" in
