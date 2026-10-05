@@ -560,14 +560,14 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.72"
+SCRIPT_VERSION="Beta-v2.9.73"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
 # overflow; the minor never carries into the major unless the author makes an
 # explicit major bump. The lineage is split into named eras carrying their
 # own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x), so each era reads
-# monotonic and the current release (Beta-v2.9.72) always carries the highest
+# monotonic and the current release (Beta-v2.9.73) always carries the highest
 # numbering. See Debug/version-renumber-map.txt for the authoritative
 # OLD->NEW mapping recovered from the Debug/Old Versions/ artifacts.
 
@@ -808,6 +808,16 @@ SCRIPT_VERSION="Beta-v2.9.72"
 #                     HAS_NVIDIA_GPU), no new prompt; NVIDIA's proprietary driver ships its
 #                     own ICD, so nouveau is only pulled when the user declined INSTALL_NVIDIA.
 #                     All six names added to PKG_PREFLIGHT.
+#     Beta-v2.9.73   [ELOGIND-RUN-SELFHEAL] — Void's elogind daemonizes
+#                     itself, so the stock /etc/sv/elogind/run `exec`s a child
+#                     that exits immediately and runsv respawns ~1x/sec forever
+#                     (kernel-log flood of "elogind is already running").
+#                     Ships /root/tools/elogind.run.fixed (wait-on-pidfile run
+#                     script) + /root/tools/re-fix-elogind-run.sh, applies the
+#                     fix at install time (SESSION_STACK=elogind), and calls the
+#                     restorer from /etc/rc.local every boot (same pattern as
+#                     re-shadow-xbps.sh) since the elogind package owns the run
+#                     script and upgrades overwrite it.
 #
 # When bumping SCRIPT_VERSION, add a row to this table (and a CHANGELOG.md
 # entry) so the reconstruction stays complete for the next reader.
@@ -6848,9 +6858,9 @@ install_pkgs() {
 # (fetched/trusted by xbps on first sync, exactly as the maintainer's own
 # documented setup does); audit link: https://github.com/REDACTED/void-packages
 install_cosmic() {
-    _cosmic_repo="https://repo.REDACTED.de/repo/x86_64"
-    _cosmic_repodata="https://repo.REDACTED.de/repo/x86_64/x86_64-repodata"
-    _cosmic_audit="https://github.com/REDACTED/void-packages"
+    _cosmic_repo="https://bluesloth.github.io/void-cosmic-repo/"
+    _cosmic_repodata="https://bluesloth.github.io/void-cosmic-repo/x86_64-repodata"
+    _cosmic_audit="https://github.com/bluesloth/void-cosmic-repo"
 
     if ! curl -fsSL --max-time 30 -o /dev/null "$_cosmic_repodata" 2>/dev/null; then
         echo "FATAL: the third-party COSMIC repository (${_cosmic_repo}) is not reachable right now." >&2
@@ -6862,7 +6872,7 @@ install_cosmic() {
     fi
 
     mkdir -p /etc/xbps.d
-    if ! grep -q 'repo.REDACTED.de' /etc/xbps.d/59-cosmic.conf 2>/dev/null; then
+    if ! grep -q 'bluesloth.github.io' /etc/xbps.d/59-cosmic.conf 2>/dev/null; then
         echo "repository=${_cosmic_repo}" > /etc/xbps.d/59-cosmic.conf
     fi
 
@@ -10101,6 +10111,102 @@ echo "==> done. A normal 'sudo xbps-install -Su' now auto-snapshots again."
 INNER_EOF
 chmod 0755 /root/tools/re-shadow-xbps.sh
 
+# 2b) AI ADDITION — Beta-v2.9.73 [ELOGIND-RUN-SELFHEAL]: keep the elogind
+#     runit run-script fix in place across elogind package upgrades. Void's
+#     elogind daemonizes itself (double-fork, reparent to PID 1, write
+#     /run/elogind.pid); the STOCK /etc/sv/elogind/run `exec`s it, so runsv's
+#     supervised child exits at once and runsv respawns it ~1x/sec forever,
+#     flooding the kernel log with "elogind is already running as PID <n>".
+#     The fixed run script (below) stays alive and waits on the live daemon
+#     instead of respawning — it never signals the real daemon. Written once
+#     here and applied at install time when SESSION_STACK=elogind; afterwards
+#     the rc.local self-heal below re-applies it whenever an elogind upgrade
+#     reverts the file (same pattern as re-shadow-xbps.sh).
+cat > /root/tools/elogind.run.fixed << 'INNER_EOF'
+#!/bin/sh
+exec 2>&1
+# elogind doesn't work right if it starts before dbus
+sv check dbus >/dev/null || exit 1
+# [elogind-respawn-loop fix, 2026-10-04]
+# Void's elogind daemonizes itself (double-forks into the background,
+# reparents to PID 1, writes /run/elogind.pid). The stock run script
+# `exec`s it, so runsv's supervised child exits immediately and runsv
+# respawns it about once per second forever, flooding the kernel log with
+# "elogind is already running as PID <n>".
+#
+# If logind is ALREADY running, do NOT start another one (and never signal
+# the live one): just stay alive as runsv's child and wait for the real
+# daemon to exit. This stops the respawn loop without disturbing the live
+# session. The daemon reparents to PID 1 and runs in its own session, so a
+# runsv TERM to our process group cannot reach it.
+if _pid=$(cat /run/elogind.pid 2>/dev/null) && [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null; then
+    while kill -0 "$_pid" 2>/dev/null; do
+        sleep 10
+    done
+    exit 0
+fi
+# No running daemon: start it the stock way. It daemonizes and exits, so
+# runsv will see us exit once; the next respawn finds the pidfile and takes
+# the wait branch above.
+exec /usr/libexec/elogind/elogind.wrapper
+INNER_EOF
+chmod 0755 /root/tools/elogind.run.fixed
+
+cat > /root/tools/re-fix-elogind-run.sh << 'INNER_EOF'
+#!/bin/sh
+# =============================================================================
+# [ELOGIND-RUN-SELFHEAL] — keep /etc/sv/elogind/run patched across upgrades.
+#
+# Problem: Void's elogind daemonizes itself (double-forks, reparents to PID 1,
+# writes /run/elogind.pid). The STOCK /etc/sv/elogind/run `exec`s it, so runsv's
+# supervised child exits immediately and runsv respawns it ~1x/sec forever,
+# flooding the kernel log with "elogind is already running as PID <n>".
+#
+# Fix: a run script that, when logind is ALREADY running, stays alive and waits
+# for the daemon to exit (no kill, no restart) instead of respawning. The daemon
+# runs in its own session, so a runsv signal cannot reach it.
+#
+# The elogind xbps package OWNS /etc/sv/elogind/run, so any package upgrade
+# overwrites the fix. This script (invoked from /etc/rc.local each boot, the
+# same pattern as re-shadow-xbps.sh) restores the canonical fixed copy from
+# /root/tools/elogind.run.fixed, but ONLY when the on-disk run script does not
+# already match. Idempotent and safe at any time; never signals the live daemon
+# (a later `runsv` respawn picks up the file automatically).
+#
+# To revert: remove this script's rc.local call and restore the stock run
+# script (backup is /etc/sv/elogind/run.orig-20261004 and the USB bundle).
+# =============================================================================
+set -eu
+export PATH="/usr/bin:/usr/sbin:/bin:/sbin"
+
+FIXED="/root/tools/elogind.run.fixed"
+TARGET="/etc/sv/elogind/run"
+
+[ -f "$FIXED" ] || { echo "ERROR: $FIXED missing" >&2; exit 1; }
+[ -f "$TARGET" ] || { echo "ERROR: $TARGET missing" >&2; exit 1; }
+
+# Fast path: already fixed (compare bytes).
+if cmp -s "$FIXED" "$TARGET"; then
+    exit 0
+fi
+
+# The target is the stock (or otherwise different) script. Restore ours.
+# Use `install` to preserve mode 0755. Never touch the running daemon.
+install -m 0755 "$FIXED" "$TARGET"
+echo "elogind run script restored to fixed copy (was reverted, likely by upgrade)."
+INNER_EOF
+chmod 0755 /root/tools/re-fix-elogind-run.sh
+
+# Apply the fix IMMEDIATELY at install time (when the elogind session stack
+# was chosen): replace the stock run script with the fixed copy and keep the
+# stock one aside. No signal is sent to any daemon — elogind is not running
+# in the chroot at this point.
+if [ "${SESSION_STACK:-}" = "elogind" ] && [ -f /etc/sv/elogind/run ]; then
+    [ -e /etc/sv/elogind/run.orig ] || cp /etc/sv/elogind/run /etc/sv/elogind/run.orig
+    install -m 0755 /root/tools/elogind.run.fixed /etc/sv/elogind/run
+    echo "elogind run script replaced with fixed copy (stock kept at /etc/sv/elogind/run.orig)"
+fi
+
 # 3) limine-sync.sh — manual, on-demand Limine boot-menu resync. Normally the
 #    kernel hook and the snapper plugin regenerate the menu automatically; this
 #    exists for the admin to force a rebuild (e.g. after manually moving/cleaning
@@ -11941,6 +12047,19 @@ if [ -x /root/tools/re-shadow-xbps.sh ]; then
     { echo "=== void-reshadow: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
       /root/tools/re-shadow-xbps.sh || echo "WARNING: re-shadow failed."
     } >> /var/log/void-reshadow.log 2>&1
+fi
+
+# [ELOGIND-RUN-SELFHEAL] — Void's elogind daemonizes itself while the stock
+# runit run script `exec`s it, so runsv respawns it ~1x/sec and floods the
+# kernel log with "elogind is already running". /root/tools/elogind.run.fixed
+# is a run script that waits on the live daemon instead of respawning. The
+# elogind package OWNS /etc/sv/elogind/run, so an upgrade reverts the fix;
+# restore it on every boot (same pattern as re-shadow-xbps.sh). Idempotent,
+# never signals the live daemon. Logs to /var/log/void-elogind-selfheal.log.
+if [ "__SESSION_STACK__" = "elogind" ] && [ -x /root/tools/re-fix-elogind-run.sh ]; then
+    { echo "=== void-elogind-selfheal: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+      /root/tools/re-fix-elogind-run.sh || echo "WARNING: elogind run self-heal failed."
+    } >> /var/log/void-elogind-selfheal.log 2>&1
 fi
 
 if [ ! -f /var/log/firstboot.log ]; then
