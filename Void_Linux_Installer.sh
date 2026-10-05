@@ -560,7 +560,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.74"
+SCRIPT_VERSION="Beta-v2.9.75"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -815,6 +815,16 @@ SCRIPT_VERSION="Beta-v2.9.74"
 #                     installs udiskie and autostarts it through a session-
 #                     readiness guard; /etc/sv/udisksd is created and linked
 #                     at first boot like any base service.
+#     Beta-v2.9.75   [XKB-CONFIG-QUOTING] — the cosmic-desktop-full xbps
+#                     post-install hook corrupts
+#                     /usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config
+#                     to `layout: ""us"",` (quotes kept from KEYMAP="us"
+#                     via cut+sed), invalid RON -> cosmic-comp config parse
+#                     fails -> cosmic-greeter-daemon crash-loop -> grey
+#                     blinking login screen. The COSMIC DE branch now
+#                     rewrites the file to the canonical cosmic-config form
+#                     with the layout taken UNQUOTED from the chroot's
+#                     /etc/rc.conf KEYMAP.
 #     Beta-v2.9.73   [ELOGIND-RUN-SELFHEAL] — Void's elogind daemonizes
 #                     itself, so the stock /etc/sv/elogind/run `exec`s a child
 #                     that exits immediately and runsv respawns ~1x/sec forever
@@ -7911,6 +7921,36 @@ elif [ "$DESKTOP_ENV" = "cosmic" ]; then
     # the independent browser toggles — both may be selected separately, so
     # only the metapackage is installed here.
     install_cosmic cosmic-desktop-full
+    # AI (Big Pickle) FIX — Beta-v2.9.75 [XKB-CONFIG-QUOTING]: the
+    # cosmic-desktop-full xbps post-install hook (srcpkgs/cosmic-desktop-full/INSTALL)
+    # does `layout=$(grep KEYMAP= /etc/rc.conf | cut -d= -f2)` — which keeps
+    # the value's surrounding quotes (`"us"`) — then `sed -i "s/us/$layout/"`
+    # on /usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config, producing
+    # `layout: ""us"",`. That is invalid RON, so cosmic-comp config load fails
+    # with ExpectedComma @ line 4 col 11 -> cosmic-greeter-daemon/compositor
+    # crash-loop -> grey blinking login screen (proven on <host> 2026-10-05).
+    # Rewrite the file to the canonical form cosmic-config expects, with the
+    # layout taken UNQUOTED from the chroot's /etc/rc.conf (already pinned to
+    # the live console keymap by Beta-v2.6.9 [KEYMAP]). Overwriting is always
+    # safe: this is exactly the content the hook intended to write.
+    _xkb_layout="$(sed -n 's/^[[:space:]]*KEYMAP="\([^"]*\)".*/\1/p' /etc/rc.conf 2>/dev/null | tail -1)"
+    [ -z "${_xkb_layout:-}" ] && _xkb_layout="us"
+    _xkb_conf="/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config"
+    if [ -f "$_xkb_conf" ] && ! grep -q "^layout: \"${_xkb_layout}\",\$" "$_xkb_conf"; then
+        echo "==> Repairing cosmic xkb_config (post-install hook quoting bug)"
+        cat > "$_xkb_conf" << XKB_EOF
+(
+rules: "",
+model: "",
+layout: "${_xkb_layout}",
+variant: "",
+options: None,
+repeat_delay: 600,
+repeat_rate: 25,
+)
+XKB_EOF
+    fi
+    unset _xkb_layout _xkb_conf
 elif [ "$DESKTOP_ENV" = "kde" ]; then
     install_pkgs kde-plasma kde-baseapps ark kio-admin
 fi

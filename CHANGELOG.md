@@ -130,6 +130,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.72** | `[GAME-VULKAN]` — the 2.9.71 fix cleared the 32-bit GL/GLX layer, but on the same round-3 KDE box Steam then still failed: the fresh install shipped only the virtual-GPU `virtio_icd` as its Vulkan ICD, so on the AMD APU every Vulkan probe returned `VK_ERROR_INCOMPATIBLE_DRIVER` (`-9`) — the Steam topology query and any 32-bit game that loads `libvulkan.so.1` had no radeonsi ICD to reach. The `[INSTALL-APPS]` block now installs the DETECTED GPU family's Mesa Vulkan driver (`mesa-vulkan-radeon`/`mesa-vulkan-intel`/`mesa-vulkan-nouveau`, each 64-bit + `-32bit`) whenever `INSTALL_ANY_GAME=true` (Steam ∨ Lutris ∨ Heroic ∨ Bottles, the existing compound gate), gated on the live-box probe (`HAS_AMD_GPU`/`HAS_INTEL_GPU`/`HAS_NVIDIA_GPU`) — the profiler carries no new prompt, installs that chose a launcher on an NVIDIA box that also accepted `INSTALL_NVIDIA` get the driver's own proprietary ICD (no nouveau), and hybrids multi-family. A no-game box still ships zero extra graphics payload. All six names added to `PKG_PREFLIGHT`. `bash -n` clean, `check-pkg-preflight.sh` clean | Beta-v2.9.72 below |
 | **Beta-v2.9.73** | `[ELOGIND-RUN-SELFHEAL]` — Void's shipped elogind still self-daemonizes (double-fork, reparent to PID 1, write /run/elogind.pid), but the packaged `/etc/sv/elogind/run` `exec`s it without `-D`, so runsv's supervised child exits immediately and runsv respawns ~1x/sec forever — kernel ring buffer ~82% `elogind is already running as PID <n>` on a fresh elogind install (found 2026-10-04 on the fresh non-encrypted COSMIC <host>). The installer now ships `/root/tools/elogind.run.fixed` (wait-on-pidfile run script; never signals the live daemon) + `/root/tools/re-fix-elogind-run.sh`, applies the fix at install time when SESSION_STACK=elogind, and re-applies it from /etc/rc.local on every boot since elogind package upgrades overwrite the package-owned run script. Validated across a reboot: `sv status`=run, `sv check`=ok, spam frozen, one early-boot line only | Beta-v2.9.72 below |
 | **Beta-v2.9.74** | `[USB-AUTOMOUNT]` — a COSMIC install had no removable-media automounter: udisks2 was installed (as a cosmic-files dependency) but its D-Bus-only activation unit meant udisksd was never reliably running on runit, and there was no udiskie/gvfs in the COSMIC path (gvfs automount only covers the GNOME/KDE/Cinnamon/MATE/Xfce/LXQt branches). The COSMIC DE branch now installs `udiskie` and autostarts it via a session-readiness guard (`/usr/local/sbin/udiskie-guard`, mirroring the polkit-agent guard), and the installer writes + first-boot-links a supervised `/etc/sv/udisksd` service. `udiskie`/`udisks2` added to PKG_PREFLIGHT | Beta-v2.9.73 below |
+| **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 
 ---
 
@@ -797,6 +798,52 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.75 — `[XKB-CONFIG-QUOTING]` (the `cosmic-desktop-full` post-install hook wrote invalid RON into cosmic-comp's `xkb_config`, crash-looping the cosmic-greeter into a grey, blinking login screen)
+
+`SCRIPT_VERSION` bumped to `Beta-v2.9.75`; era row added to the script header VERSION-HISTORY (`# Beta-v2.9.75   [XKB-CONFIG-QUOTING]`), index row added above; this section added as the newest section.
+
+### Context
+
+After the `Beta-v2.9.70` SDDM/cosmic-greeter double-DM conflict was resolved (remove the `sddm` runsvdir link, `DISPLAY_MANAGER="cosmic-greeter"`), the next boot on <host> still showed a grey, blinking screen with `Ctrl+Alt+F2`..`F6` not reaching a login. The greeter stack was crash-looping:
+
+- `cosmic-greeter-daemon/current`: `errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11 ...)]` every ~2s, then `check_children: greeter exited without creating a session`.
+- `cosmic-greeter-session.log`: `Error trying to flush the wayland display: Broken pipe` flood, `Unable to become drm master, assuming unprivileged mode`.
+
+### The fix
+
+Culprit: `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config`, corrupted by the `cosmic-desktop-full` xbps post-install hook (`void-packages-1.2/srcpkgs/cosmic-desktop-full/INSTALL`):
+
+```sh
+layout=$(grep 'KEYMAP=' /etc/rc.conf | cut -d= -f2)   # -> "us"  (quotes kept)
+cat >> .../xkb_config <<EOF
+(
+...
+layout: "us",
+...
+)
+EOF
+sed -i "s/us/$layout/" .../xkb_config                 # -> layout: ""us"",
+```
+
+`layout: ""us"",` is not valid RON, which is exactly the `ExpectedComma @ line 4, col 11` the daemon reported. The hook runs only on a FRESH install (`UPDATE=no`), so a one-shot repair of the file is durable — but the bug still ships, so it is fixed in the installer too:
+
+- The COSMIC DE branch now rewrites `xkb_config` to the canonical cosmic-config form after `install_cosmic cosmic-desktop-full`, taking the layout UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP` (already pinned to the live console keymap by `Beta-v2.6.9 [KEYMAP]`) and defaulting to `us`.
+- The rewrite is skipped when the file already carries that exact `layout:` line, so a correct hook run stays a no-op. It is idempotent (single `cat >`, never an append).
+
+The packaging source was fixed in the same pass (all three `void-packages*/srcpkgs/cosmic-desktop-full/INSTALL` trees: quotes stripped via `sed -n`, `us` fallback for any value that is not a plain layout token, layout interpolated into the heredoc instead of `sed`-substituted afterwards, `cat >` instead of `cat >>`); template `revision` bumped `_2` → `_3`.
+
+### Validation
+
+- Reproduction: the ORIGINAL hook, run against `KEYMAP="us"`, emits `layout: ""us"",` — byte-identical to the corruption preserved in `Projects/Void_Linux_Projects/xkb_config-corruption-20261005/xkb_config.corrupted-reconstruction`.
+- The PATCHED hook passes 16/16 fixtures (`KEYMAP="us"`, `"de"`, `"gb"`, missing, unquoted, commented, empty, and a `KEYMAP="us", "ru"` injection attempt) under BOTH `bash` and `dash` — the packaged hook runs under `/bin/sh`, so POSIX-only constructs are used. Each case also asserts a single tuple block after two runs (the `cat >` idempotency).
+- For `KEYMAP="us"` the produced file is byte-identical to the canonical form applied by hand on <host> 2026-10-05.
+- Package rebuild: `cosmic-desktop-full-1.9.0_3` rebuilt with the chroot's `xbps-create` 0.60.7. The pipeline was validated by first rebuilding `1.9.0_2` from the UNPATCHED hook — `props.plist`, `INSTALL` and `files.plist` all came out byte-identical to the published signed package — then the fixed `_3` differs from it ONLY in the two version strings and the hook region, with no executable `sed -i "s/us/$layout/"` line left.
+- Live on <host>: the greeter presented a login and `<user>` reached the COSMIC desktop; `cosmic-greeter-daemon/current` shows ZERO config errors for the post-fix boot (last error timestamp is the pre-fix boot).
+
+### Note — template/published dependency drift (unrelated to this fix, not changed here)
+
+The current `void-packages-1.9` template `depends=` lists two packages the published `cosmic-desktop-full-1.9.0_2` does NOT depend on: `cosmic-launcher` and `xdg-desktop-portal-cosmic`. The verification artifact above was deliberately built with the PUBLISHED `_2` dependency set so the revision bump isolates the hook fix; the next real `xbps-src` build from the template will additionally pull those two. Decided separately, not folded into this fix.
 
 ## Beta-v2.9.74 — `[USB-AUTOMOUNT]` (COSMIC installs had no removable-media automounter: no udisksd runit service, no udiskie — now shipped and autostarted)
 
