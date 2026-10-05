@@ -560,14 +560,14 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.73"
+SCRIPT_VERSION="Beta-v2.9.74"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
 # overflow; the minor never carries into the major unless the author makes an
 # explicit major bump. The lineage is split into named eras carrying their
 # own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x), so each era reads
-# monotonic and the current release (Beta-v2.9.73) always carries the highest
+# monotonic and the current release (Beta-v2.9.74) always carries the highest
 # numbering. See Debug/version-renumber-map.txt for the authoritative
 # OLD->NEW mapping recovered from the Debug/Old Versions/ artifacts.
 
@@ -808,6 +808,13 @@ SCRIPT_VERSION="Beta-v2.9.73"
 #                     HAS_NVIDIA_GPU), no new prompt; NVIDIA's proprietary driver ships its
 #                     own ICD, so nouveau is only pulled when the user declined INSTALL_NVIDIA.
 #                     All six names added to PKG_PREFLIGHT.
+#     Beta-v2.9.74   [USB-AUTOMOUNT] — COSMIC selection previously shipped
+#                     no removable-media automounter: no udisksd service was
+#                     linked (Void's udisks2 ships only a D-Bus activation
+#                     unit) and udiskie was absent. The COSMIC DE branch now
+#                     installs udiskie and autostarts it through a session-
+#                     readiness guard; /etc/sv/udisksd is created and linked
+#                     at first boot like any base service.
 #     Beta-v2.9.73   [ELOGIND-RUN-SELFHEAL] — Void's elogind daemonizes
 #                     itself, so the stock /etc/sv/elogind/run `exec`s a child
 #                     that exits immediately and runsv respawns ~1x/sec forever
@@ -5408,6 +5415,8 @@ greetd
 grub-btrfs
 grub-btrfs-runit
 grub-x86_64-efi
+udiskie
+udisks2
 gvfs
 inotify-tools
 intel-ucode
@@ -8065,6 +8074,45 @@ INNER_EOF
             echo "WARNING: polkit-gnome agent binary not found — COSMIC privilege prompts will hang." >&2
         fi
         unset _pg_auth_bin _pg_cand
+        # AI (Big Pickle) ADDITION — Beta-v2.9.74 [USB-AUTOMOUNT]: COSMIC has
+        # no built-in removable-media automounter and this installer's other
+        # DE branches get one via gvfs (Xfce/LXQt) or the FM itself
+        # (GNOME/KDE/Cinnamon/MATE). Install udiskie (udisks2 front-end that
+        # mounts/unmounts removable media on plug/unplug) and autostart it
+        # with the session, behind a readiness guard mirroring the polkit
+        # agent's: cosmic-session honors XDG autostart but launches entries
+        # before the Wayland socket + session bus are stable, so a bare
+        # `Exec=udiskie` can die on the first fire and never respawn.
+        install_pkgs udiskie
+        cat > /usr/local/sbin/udiskie-guard << 'UDG_EOF'
+#!/bin/sh
+set -u
+# [USB-AUTOMOUNT] wait for a compositor-backed session before udiskie starts
+_wl_sock="${XDG_RUNTIME_DIR:-/run/user/0}/${WAYLAND_DISPLAY:-wayland-1}"
+_ready=0
+while [ "$_ready" -eq 0 ]; do
+    [ -S "$_wl_sock" ] || { sleep 1; continue; }
+    dbus-send --session --dest=org.freedesktop.DBus --type=method_call \
+        --print-reply / org.freedesktop.DBus.ListNames >/dev/null 2>&1 || \
+        { sleep 1; continue; }
+    _ready=1
+done
+while :; do
+    udiskie || { sleep 2; continue; }
+    sleep 2
+done
+UDG_EOF
+        chmod 0755 /usr/local/sbin/udiskie-guard
+        cat > /etc/xdg/autostart/udiskie.desktop << 'INNER_EOF'
+[Desktop Entry]
+Name=udiskie
+Comment=Removable media automounter
+Exec=/usr/local/sbin/udiskie-guard
+Terminal=false
+Type=Application
+Categories=
+NoDisplay=true
+INNER_EOF
         ;;
 esac
 # AI (Big Pickle) CHANGE — Beta-v2.9.17 [DEVICE-PROFILE]: the everyday
@@ -12019,6 +12067,24 @@ INNER_EOF
     echo "         both the greetd-hosted cosmic-greeter and cosmic-greeter-daemon services." >&2
 fi
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.74 [USB-AUTOMOUNT]: a supervised udisks2
+# service. Void's udisks2 package ships only a D-Bus activation unit, so on a
+# runit box udisksd was never started reliably (removable media only mounted
+# via an explicit cosmic-files click). udiskie (installed by [COSMIC] DE
+# branch) plus this service gives plug-and-mount.
+mkdir -p /etc/sv/udisksd/log /var/log/udisksd
+cat > /etc/sv/udisksd/run << 'INNER_EOF'
+#!/bin/sh
+exec 2>&1
+exec /usr/libexec/udisks2/udisksd
+INNER_EOF
+chmod 0755 /etc/sv/udisksd/run
+cat > /etc/sv/udisksd/log/run << 'INNER_EOF'
+#!/bin/sh
+exec svlogd -tt /var/log/udisksd
+INNER_EOF
+chmod 0755 /etc/sv/udisksd/log/run
+
 cat > /etc/rc.local << 'INNER_EOF'
 #!/bin/sh
 # shellcheck disable=SC2050  # __TOKEN__ placeholders (__BOOTLOADER__ ...) are sed-substituted to real values after generation
@@ -12140,6 +12206,11 @@ if [ ! -f /var/log/firstboot.log ]; then
     [ "__SESSION_STACK__" = "elogind" ] && \
         ln -sfn /etc/sv/elogind /etc/runit/runsvdir/default/elogind
     ln -sfn /etc/sv/polkitd /etc/runit/runsvdir/default/polkitd
+    # AI (Big Pickle) ADDITION — Beta-v2.9.74 [USB-AUTOMOUNT]: Void's udisks2
+    # package ships only the D-Bus activation unit (no /etc/sv entry), so on a
+    # runit box nothing was reliably supervising udisksd. The installer now
+    # writes /etc/sv/udisksd (below) and links it like any other base service.
+    ln -sfn /etc/sv/udisksd /etc/runit/runsvdir/default/udisksd
     # AI (Big Pickle) ADDITION — Beta-v2.4.0 [SWAP]: enable the zramen (zram) runit
     # service on first boot when the chosen backend uses zram (zram or both).
     [ "__SWAP_BACKEND__" = "zram" ] || [ "__SWAP_BACKEND__" = "both" ] && \
