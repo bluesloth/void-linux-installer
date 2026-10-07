@@ -560,7 +560,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.80"
+SCRIPT_VERSION="Beta-v2.9.81"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -825,6 +825,21 @@ SCRIPT_VERSION="Beta-v2.9.80"
 #                     rewrites the file to the canonical cosmic-config form
 #                     with the layout taken UNQUOTED from the chroot's
 #                     /etc/rc.conf KEYMAP.
+#     Beta-v2.9.81   [SSH-KEYGEN-NONINTERACTIVE] — the generate-key branch
+#                     built the -N flag as ${SSH_KEY_PASSPHRASE:+-N ...}, so
+#                     answering "n" at "Protect the key with a passphrase?"
+#                     omitted -N ENTIRELY. Omitting -N does not mean "no
+#                     passphrase", it means "prompt me" — so ssh-keygen still
+#                     asked "Enter passphrase for "…/id_ed25519" (empty for no
+#                     passphrase)" (and fired ksshaskpass wherever SSH_ASKPASS
+#                     is set) after the operator had already said no. That
+#                     stray read is also a stream hazard of the 2.9.54
+#                     [SSH-KEYGEN-STALE] class: the next answer-stream line is
+#                     consumed as the passphrase, desyncing the export prompt.
+#                     -N is now ALWAYS passed, with "" for the unprotected
+#                     case — `-N ""` is ssh-keygen's documented "no
+#                     passphrase, do not ask" form. SCRIPT_VERSION bumped
+#                     Beta-v2.9.80 -> Beta-v2.9.81.
 #     Beta-v2.9.80   [MIRROR-SKEW-GUARD] — upstream Void mirror rotation can
 #                     transiently desync: the repodata index still lists an
 #                     OLD package version whose files the pool has just
@@ -4347,8 +4362,16 @@ if [ "$GENERATE_SSH_KEY" = "true" ]; then
         SSH_KEY_PASSPHRASE=""
     fi
     unset _ssh_key_pass_1 _ssh_key_pass_2
-    # shellcheck disable=SC2086  # empty passphrase expands to zero args (no -N/-P flags)
-    ssh-keygen -q -t ed25519 -C "$SSH_KEY_COMMENT" ${SSH_KEY_PASSPHRASE:+-N "$SSH_KEY_PASSPHRASE"} \
+    # AI (Big Pickle) FIX — Beta-v2.9.81 [SSH-KEYGEN-NONINTERACTIVE]: -N is now
+    # ALWAYS passed. The former ${SSH_KEY_PASSPHRASE:+-N ...} expansion omitted
+    # -N when the operator answered "n" at "Protect the key with a passphrase?"
+    # — but omitting -N means "prompt me", NOT "no passphrase", so ssh-keygen
+    # still asked for one (and fired ksshaskpass wherever SSH_ASKPASS is set)
+    # after the operator had already said no. That stray read is the same
+    # answer-stream hazard 2.9.54 fixed for the overwrite prompt: whatever the
+    # operator types next is swallowed as the passphrase and the export prompt
+    # desyncs. `-N ""` is ssh-keygen's documented "no passphrase, do not ask".
+    ssh-keygen -q -t ed25519 -C "$SSH_KEY_COMMENT" -N "${SSH_KEY_PASSPHRASE}" \
         -f "$SSH_KEYGEN_DIR/id_ed25519"
     SSH_KEY_PASSPHRASE=""
     unset SSH_KEY_PASSPHRASE _ssh_key_input
