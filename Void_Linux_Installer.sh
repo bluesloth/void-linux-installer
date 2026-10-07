@@ -236,10 +236,12 @@
 #     Plasma (default, primary tested path), Cinnamon via cinnamon-all,
 #     GNOME via the full `gnome` metapackage, Xfce via `xfce4`, MATE via
 #     `mate`, LXQt via `lxqt`, or COSMIC — which is NOT in the official
-#     repos and is installed from a community repo (maintained by REDACTED
-#     REDACTED), a third-party signing-trust choice made at the user's
-#     own risk with runtime repo verification and a graceful abort if it is
-#     unavailable. VERIFIED against Void's docs and real user reports: Void
+#     repos and is installed from the community repo
+#     https://bluesloth.github.io/void-cosmic-repo/ (audit:
+#     https://github.com/bluesloth/void-cosmic-repo), a third-party
+#     signing-trust choice made at the user's own risk with a signing key
+#     PINNED in the installer, runtime repo verification and a graceful abort
+#     if it is unavailable. VERIFIED against Void's docs and real user reports: Void
 #     lists Wayland sessions for GNOME/KDE Plasma only — the GTK/Qt desktops
 #     (Cinnamon/Xfce/MATE/LXQt) are X11 on Void today.
 #     AI (Big Pickle) FIX — Beta-v2.9.9 [MATE-TERMINAL]/[MATE-AUDIO]/
@@ -560,7 +562,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.82"
+SCRIPT_VERSION="Beta-v2.9.83"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -825,6 +827,27 @@ SCRIPT_VERSION="Beta-v2.9.82"
 #                     rewrites the file to the canonical cosmic-config form
 #                     with the layout taken UNQUOTED from the chroot's
 #                     /etc/rc.conf KEYMAP.
+#     Beta-v2.9.83   [COSMIC-REPO-ATTRIBUTION] — the DE menu (option 7), the
+#                     ARCHITECTURE SUMMARY and install_cosmic()'s own header
+#                     comment all named REDACTED REDACTED's REDACTED repo
+#                     (github.com/REDACTED/void-packages / repo.REDACTED.de)
+#                     as the COSMIC source, but the URL this installer has
+#                     actually added since Beta-v2.9.73 is
+#                     https://bluesloth.github.io/void-cosmic-repo/ (audit:
+#                     github.com/bluesloth/void-cosmic-repo) — signed and
+#                     published by the companion Void_Cosmic_Repo packager
+#                     project, whose templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC.
+#                     So the warning told the operator to audit a DIFFERENT
+#                     repo than the one being trusted, one comment still
+#                     claimed github.io "serves a web page, not an xbps
+#                     index" (the reverse of what is true today), and another
+#                     still called the key "whatever the maintainer publishes"
+#                     (superseded by 2.9.76's pin). Menu + comments now name
+#                     the real repo, its audit link, its lineage and the pin;
+#                     pre-2.9.73 CHANGELOG entries stay as history. Text-only:
+#                     `_cosmic_repo`, `_cosmic_audit`, the pin and every code
+#                     path are untouched.
+#                     SCRIPT_VERSION bumped Beta-v2.9.82 -> Beta-v2.9.83.
 #     Beta-v2.9.82   [COSMIC-KEY-AUTOIMPORT] — the COSMIC repo sync still
 #                     stopped at "Do you want to import this public key?
 #                     [Y/n]" even though the desktop menu already discloses
@@ -3424,9 +3447,12 @@ echo "     graphical live-medium flavor."
 echo "  ${C_BOLD}5)${C_RST} MATE (X11) — classic GNOME 2-style GTK desktop."
 echo "  ${C_BOLD}6)${C_RST} LXQt (X11) — lightweight Qt desktop."
 echo "  ${C_BOLD}7)${C_RST} ${C_RED}COSMIC (third-party repo)${C_RST} — the System76 desktop. NOT in the"
-echo "     official Void repositories: installed from a community repo maintained"
-echo "     by REDACTED REDACTED (GitHub REDACTED / Codeberg REDACTED),"
-echo "     https://github.com/REDACTED/void-packages. It is a third-party"
+echo "     official Void repositories: installed from the community repo at"
+echo "     https://bluesloth.github.io/void-cosmic-repo/ (audit:"
+echo "     https://github.com/bluesloth/void-cosmic-repo), whose COSMIC 1.9"
+echo "     templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC"
+echo "     void-packages packaging. Its signing key is PINNED in this installer"
+echo "     and machine-verified after every sync. It is a third-party"
 echo "     signing-trust choice made at your own risk — audit the repo before"
 echo "     installing. The repo URL is verified reachable at runtime; if it is"
 echo "     unavailable the install aborts cleanly rather than failing mid-way."
@@ -5500,7 +5526,7 @@ fi
 # covered here. Repository/network hiccups DEGRADE to a WARN + skip (never a
 # false FATAL): a live -Sy refresh failure says nothing about whether a name
 # exists, so it must not abort the install. COSMIC third-party packages
-# (repo.REDACTED.de / install_cosmic) are deliberately NOT probed here — they
+# (bluesloth.github.io / install_cosmic) are deliberately NOT probed here — they
 # resolve from the third-party repo, not the official union pool. Placed
 # AFTER the --dry-run exit block and BEFORE the destructive partition boundary,
 # per invariant #17: the block must never move after sgdisk.
@@ -7076,22 +7102,30 @@ install_pkgs() {
 }
 
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [COSMIC]: COSMIC is NOT in the official
-# Void repositories. It installs from a community repo maintained by REDACTED
-# REDACTED (GitHub REDACTED / Codeberg REDACTED), pinned here to the
-# CURRENT domain the maintainer documents (repo.REDACTED.de). Because this is a
-# third-party signing-trust choice, this helper deliberately NEVER goes
-# through install_pkgs() (which overrides -R with only the three official
-# mirrors and would silently fail to reach the COSMIC repo). Instead it:
-#   1. verifies the COSMIC repo is actually reachable at runtime (the
-#      documented old github.io URL is now stale — it serves a web page, not
-#      an xbps index), aborting gracefully with install instructions + the
-#      audit link rather than failing mid-install;
-#   2. drops the maintainer's documented repo config into /etc/xbps.d/;
-#   3. trusts + syncs it and installs the requested COSMIC package(s) via a
-#      dedicated xbps-install.
-# The repo's signing key is whatever the maintainer publishes with the repo
-# (fetched/trusted by xbps on first sync, exactly as the maintainer's own
-# documented setup does); audit link: https://github.com/REDACTED/void-packages
+# Void repositories. It installs from the community repo at
+# https://bluesloth.github.io/void-cosmic-repo/ (audit:
+# https://github.com/bluesloth/void-cosmic-repo) — a repo this project signs
+# and publishes itself, whose COSMIC 1.9 templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC
+# REDACTED's (GitHub REDACTED / Codeberg REDACTED) void-packages packaging.
+# The older attribution this comment used to carry (maintainer's own
+# repo.REDACTED.de) applied until Beta-v2.9.73 [ELOGIND-RUN-SELFHEAL] repointed
+# the URL; CHANGELOG entries written before that still describe the REDACTED era
+# and are historical. Because this is a third-party signing-trust choice, this
+# helper deliberately NEVER goes through install_pkgs() (which overrides -R
+# with only the three official mirrors and would silently fail to reach the
+# COSMIC repo). Instead it:
+#   1. verifies the COSMIC repo is actually reachable at runtime, aborting
+#      gracefully with install instructions + the audit link rather than
+#      failing mid-install;
+#   2. drops the repo config into /etc/xbps.d/;
+#   3. syncs it and installs the requested COSMIC package(s) via a dedicated
+#      xbps-install — answering xbps's signing-key question itself
+#      (Beta-v2.9.82 [COSMIC-KEY-AUTOIMPORT]).
+# The signing key is never taken on trust from that sync: Beta-v2.9.76
+# [COSMIC-TRUST-ANCHOR] pins it IN this installer (DER SHA-256
+# _cosmic_key_expected, not read from the served index) and the machine check
+# below aborts unless the keyring holds exactly that key plus the two stock
+# Void keys.
 # Read a key's real fingerprint out of an xbps key plist and echo it.
 # The blob decodes to PEM TEXT (not DER) -- hashing the base64-decoded bytes
 # directly yields 777f5d17..., which is NOT the fingerprint xbps means. Always
