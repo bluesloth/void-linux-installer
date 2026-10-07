@@ -560,7 +560,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.81"
+SCRIPT_VERSION="Beta-v2.9.82"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -825,6 +825,22 @@ SCRIPT_VERSION="Beta-v2.9.81"
 #                     rewrites the file to the canonical cosmic-config form
 #                     with the layout taken UNQUOTED from the chroot's
 #                     /etc/rc.conf KEYMAP.
+#     Beta-v2.9.82   [COSMIC-KEY-AUTOIMPORT] — the COSMIC repo sync still
+#                     stopped at "Do you want to import this public key?
+#                     [Y/n]" even though the desktop menu already discloses
+#                     COSMIC as a third-party repo ("a signing-trust choice
+#                     made at your own risk") and Beta-v2.9.76 already PINNED
+#                     the key and machine-verifies it immediately after the
+#                     sync. Re-verified 2026-10-07 on xbps 0.60.7 that -y
+#                     never covered this question (-S and -Sy both stop at
+#                     [Y/n]), so the prompt is now answered by the installer
+#                     on a PIPE of its own (`printf 'y\n' | xbps-install ...
+#                     -Sy`), and 2.9.77's /dev/tty gate — which existed only
+#                     to feed that answer and refused every unattended /
+#                     headless COSMIC install — is gone. Trust is unchanged:
+#                     the pinned-fingerprint + allowlist check below still
+#                     aborts on any key that is not ours, prompt or no prompt.
+#                     SCRIPT_VERSION bumped Beta-v2.9.81 -> Beta-v2.9.82.
 #     Beta-v2.9.81   [SSH-KEYGEN-NONINTERACTIVE] — the generate-key branch
 #                     built the -N flag as ${SSH_KEY_PASSPHRASE:+-N ...}, so
 #                     answering "n" at "Protect the key with a passphrase?"
@@ -7134,23 +7150,34 @@ f0da25a2877ccd5cba89e27fc744867914fd26031368a88f746f0f8096450d4d"
     fi
 
     # Sync the (freshly added) COSMIC repo index. This is the step that imports
-    # and trusts the repo's signing key.
+    # the repo's signing key.
     #
-    # TRUST ANCHOR (2026-10-05): -y is DELIBERATELY ABSENT on this sync.
-    # xbps-install's -y means "assume yes to ALL questions", which includes
-    # "Do you want to import this public key?" — so passing it made the anchor
-    # auto-accepted with NO human ever seeing the fingerprint. That is exactly
-    # the property a pinned trust anchor is supposed to remove: the key must be
-    # an input the operator confirms, not an output the served repo dictates.
-    # Without -y, xbps prints the fingerprint and waits, and the operator decides.
+    # TRUST ANCHOR — AI (Big Pickle) CHANGE — Beta-v2.9.82
+    # [COSMIC-KEY-AUTOIMPORT]: the "Do you want to import this public key?"
+    # question is answered by the installer now, not by the operator.
     #
-    # Expected fingerprint (the repo's own key, 4096-bit RSA):
+    # Why it ever reached the operator: Beta-v2.9.76 dropped -y from this sync
+    # so xbps would print the fingerprint and wait for a human. Re-verified
+    # 2026-10-07 on xbps 0.60.7 that -y never covered this question to begin
+    # with — bare `-S` and `-Sy` both stop at [Y/n] — so the flag was never
+    # what enforced anything, and Beta-v2.9.77's /dev/tty gate existed only to
+    # feed that answer (its side effect: every unattended / headless COSMIC
+    # install refused to run at all).
+    #
+    # What enforces the anchor is the MACHINE check below: the key is PINNED
+    # here (DER SHA-256, deliberately not read from the served index) and the
+    # sync only proceeds if the keyring holds exactly that key plus at most the
+    # two stock Void keys. An operator who typed Y at a prompt showing a
+    # substituted key would have trusted the attacker anyway — the prompt was
+    # friction, not security. Auto-answering changes no outcome: a key that is
+    # not ours still aborts through the same code path, prompt or no prompt.
+    #
+    # Informed consent is taken at the desktop-selection warning instead
+    # (COSMIC is disclosed there as a third-party repo, "a signing-trust choice
+    # made at your own risk — audit the repo before installing"), and the
+    # expected fingerprint is still printed here for the log:
     #   SHA256 83ffd154d1dee504ea384a0c31b12e072d5884f7f75eb950e30ace852d7d2e7b
-    # If xbps prints anything else, DO NOT accept it — that is not our key.
-    #
-    # Unattended runs: without a tty there is nobody to answer the prompt, so we
-    # refuse up front with an actionable message rather than hanging forever or
-    # silently auto-accepting.
+    # If xbps reports anything else, that is not our key — see the check below.
     #
     # AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: the COSMIC sync also
     # honors the cache, so the third-party packages reuse it exactly like the
@@ -7158,34 +7185,30 @@ f0da25a2877ccd5cba89e27fc744867914fd26031368a88f746f0f8096450d4d"
     # under xbps 0.60 the -Sy index write lands in the chroot's /var/db/xbps/<url>,
     # never in the -c cache dir — the cache contributes PAYLOAD reuse; it must
     # stay writable so mirror-fallback downloads land in it.)
-    # Stage 2 feeds this chroot via `chroot /mnt /bin/bash << 'CHROOT_EOF'`,
-    # so stdin is the heredoc itself, NEVER the operator's terminal — gating on
-    # `[ -t 0 ]` here would abort EVERY COSMIC install (Beta-v2.9.77 fix).
-    # Probe the real terminal (/dev/tty, bind-mounted in with /dev) and route
-    # xbps's key-import prompt to it instead.
-    if ! { [ -r /dev/tty ] && [ -w /dev/tty ]; }; then
-        echo "FATAL: the COSMIC repo sync needs to confirm its signing key, but this" >&2
-        echo "       session has no terminal. Re-run interactively, or pre-seed the" >&2
-        echo "       key into /var/db/xbps/keys/ yourself." >&2
-        echo "       Expected: SHA256 ${_cosmic_key_expected}" >&2
-        echo "       Repo docs / audit: ${_cosmic_audit}" >&2
-        exit 1
-    fi
-    echo "==> Confirming the COSMIC repository signing key when prompted."
-    echo "    Pinned fingerprint:"
+    #
+    # The answer is fed on a PIPE belonging to this command, never on the
+    # chroot's own stdin (Stage 2 feeds this script through
+    # `chroot /mnt /bin/bash << 'CHROOT_EOF'`, so stdin IS the heredoc — that
+    # is what Beta-v2.9.77's `[ -t 0 ]` gate was working around) and never on
+    # /dev/tty (unattended runs have none, which is why the 2.9.77 gate
+    # refused them). One `printf 'y\n'` and done: a second question would then
+    # see EOF and fail loudly, and `yes` would fail this pipeline under
+    # `pipefail` (SIGPIPE) even after a successful sync.
+    echo "==> Importing the COSMIC repository signing key (auto-answered; verified against the pin right after)."
+    echo "    Expected fingerprint:"
     echo "      SHA256 ${_cosmic_key_expected}"
-    echo "    Decline and abort if xbps shows anything different."
-    if ! xbps-install "${_xbps_cache[@]}" -Sy < /dev/tty; then
+    if ! printf 'y\n' | xbps-install "${_xbps_cache[@]}" -Sy; then
         echo "FATAL: could not sync/trust the third-party COSMIC repository (${_cosmic_repo})." >&2
-        echo "       If you declined the signing-key prompt, that is the expected" >&2
-        echo "       outcome; the install aborted cleanly and nothing was changed." >&2
+        echo "       xbps refused the repository signing key, so the install aborted" >&2
+        echo "       cleanly and nothing was changed." >&2
         echo "       Repo docs / audit: ${_cosmic_audit}" >&2
         exit 1
     fi
 
-    # The prompt above only moves trust from the operator to a human eyeball. An
-    # operator who types 'Y' at a prompt showing a substituted key still trusts
-    # the attacker, so confirm the anchor MACHINE-CHECKABLY here, after the sync.
+    # Answering that question does NOT establish trust — it only removes a
+    # prompt nobody needed to be asked. An operator who types 'Y' at a prompt
+    # showing a substituted key still trusts the attacker, so confirm the
+    # anchor MACHINE-CHECKABLY here, after the sync.
     #
     # Two conditions, both required:
     #   1. the pinned COSMIC key IS present, and

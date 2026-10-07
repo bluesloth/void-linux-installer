@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.81** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.82** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -132,6 +132,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.74** | `[USB-AUTOMOUNT]` — a COSMIC install had no removable-media automounter: udisks2 was installed (as a cosmic-files dependency) but its D-Bus-only activation unit meant udisksd was never reliably running on runit, and there was no udiskie/gvfs in the COSMIC path (gvfs automount only covers the GNOME/KDE/Cinnamon/MATE/Xfce/LXQt branches). The COSMIC DE branch now installs `udiskie` and autostarts it via a session-readiness guard (`/usr/local/sbin/udiskie-guard`, mirroring the polkit-agent guard), and the installer writes + first-boot-links a supervised `/etc/sv/udisksd` service. `udiskie`/`udisks2` added to PKG_PREFLIGHT | Beta-v2.9.73 below |
 | **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 | **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
+| **Beta-v2.9.82** | `[COSMIC-KEY-AUTOIMPORT]` — the COSMIC repo sync still stopped at `Do you want to import this public key? [Y/n]` even though the desktop menu already discloses COSMIC as a third-party repo ("a signing-trust choice made at your own risk — audit the repo before installing") and Beta-v2.9.76 already pins the key and machine-verifies it right after the sync. Re-verified 2026-10-07 on xbps 0.60.7 that `-y` never covered this question in the first place — bare `-S` and `-Sy` both stop at `[Y/n]` — so Beta-v2.9.76's "-y made the anchor auto-accepted" mechanism was wrong, and what 2.9.76/2.9.77 actually built was an interactive confirmation layered on top of a check that never needed one. The prompt is now answered by the installer itself on a **pipe of its own** (`printf 'y\n' \| xbps-install … -Sy`), which is neither the chroot's stdin (Stage 2 feeds the script via `chroot /mnt /bin/bash << 'CHROOT_EOF'`, so stdin IS the heredoc — 2.9.77's original abort) nor `/dev/tty` (unattended runs have none — 2.9.77's second abort, which refused every headless COSMIC install outright); that `/dev/tty` gate is removed with it, so unattended COSMIC installs now run. **Trust is unchanged:** the pinned-fingerprint + allowlist machine check below the sync still aborts unless the keyring holds exactly the pinned key plus at most the two stock Void keys, so a substituted key fails through the same code path — auto-answering removed friction, not enforcement, and an operator typing `Y` at a substituted-key prompt would have trusted the attacker anyway. Proven live 2026-10-07 against the real repo: fresh throwaway keyring, auto-answer imports the key non-interactively, and the shipped `cosmic_key_fingerprint()` reproduced the pinned `83ffd154…d2e7b` from what got imported. `printf 'y\n'` (not `yes`) is deliberate: one answer, then EOF fails loudly, and `yes` would fail the pipeline under `pipefail` via SIGPIPE even after a successful sync. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED, packager-side 13-case trust-anchor suite re-extracted and green | Beta-v2.9.81 below |
 | **Beta-v2.9.81** | `[SSH-KEYGEN-NONINTERACTIVE]` — the generate-key branch built `-N` as `${SSH_KEY_PASSPHRASE:+-N ...}`, so answering `n` at "Protect the key with a passphrase?" **omitted `-N` entirely** — and omitting `-N` means "prompt me", not "no passphrase". ssh-keygen therefore still asked `Enter passphrase for "…/id_ed25519" (empty for no passphrase)` (and fired `ksshaskpass` wherever `SSH_ASKPASS` is set) after the operator had already declined, and the read that answers it can swallow the next answer-stream line — the same desync class `[SSH-KEYGEN-STALE]` (2.9.54) fixed for the `Overwrite (y/n)?` prompt. `-N` is now ALWAYS passed, with `""` for the unprotected case (`-N ""` is ssh-keygen's documented "no passphrase, do not ask" form); the now-dead `SC2086` disable that justified the old zero-arg expansion was dropped with it. Reported live 2026-10-07. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.80 below |
 | **Beta-v2.9.80** | `[MIRROR-SKEW-GUARD]` — upstream Void mirror rotation desync: the index lists an old version whose pool files were just rotated away (`runc` 1.5.1_1→1.5.2_1, 2026-10-07); every official tier indexed 1.5.1_1 while the pool carried only 1.5.2_1, so the 3-mirror fallback failed identically and `install_pkgs podman` FATALed mid-transaction (404 on the `.sig`). Three-layer fix: (1) all three mirror rotations gain tertiary region fallbacks (`REPO_EXTRA1` repo-de / `REPO_EXTRA2` tuna) that rotate on their own schedule, threaded through state-file persist + `/mnt/tmp/chroot_env.sh`; (2) `install_pkgs()` captures its transcript and classifies the `failed to download <pkg> ' signature from <repo>: Not Found` error, retrying the full rotation with 15/30/45 s backoff (3 rounds) before FATAL — non-skew failures fail immediately exactly as before; (3) Stage-1 `[PKG-PREFLIGHT]` adds a per-mirror `-M` memory-sync consistency probe on the enabled container/bootstrap closure (base-system always; + runc/podman when `INSTALL_PODMAN`; + docker when `INSTALL_DOCKER`), promoting the first consistent mirror to `REPO_PRIMARY` pre-write and WARN+continuing when all are torn (never a pre-write FATAL for a transient; absent `curl` skips the probe, preserving `[PREREQ-CURL]`). `bash -n`, `check-heredocs.sh` (the `install_pkgs` edit is inside `CHROOT_EOF`), `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.79 below |
 | **Beta-v2.9.79** | `[XKB-CONFIG-CREATE]` — the Beta-v2.9.75 repair was gated on `[ -f "$_xkb_conf" ]`, so it could only REPAIR a corrupt `xkb_config`, never CREATE a missing one. No package ships that file; only the `cosmic-desktop-full` post-install hook creates it, inside its `UPDATE="no"` arm, and on the <host> 2026-10-05 resumed install it did not complete (its other side effects are only partial: `10-wireplumber.conf` present, `20-wireplumber-pulse.conf` and `/etc/xdg/autostart/pipewire.desktop` absent). The file was therefore ABSENT — which is fatal, not cosmetic: cosmic-comp reports no xkb config → cosmic-greeter `UserData.xkb_config_opt` is `None` → `Common::update_user_data` (`src/common.rs:203-208`, vec initialised empty at `:118`) skips the entire `active_layouts` fill → the keyboard-layout button indexes an empty vec at `src/greeter.rs:590` and the greeter **PANICS** (`index out of bounds: the len is 0 but the index is 0`). greetd then loops `check_children: greeter exited without creating a session` every ~1.6 s: 25 panics over 24 min across three boots, `pam_authenticate: AUTHTOK_ERR`, empty `wtmp` (no login ever succeeded), no VT switch, and a 65 MB / 946,952-line `cosmic-greeter-session.log` from ~945,960 `cosmic-osk` "Broken pipe" lines. Stage 3 still reported `Install COMPLETED successfully`, and the archived script's sha256 matched repo HEAD — the installer was not at fault for reporting success, the failure is entirely at first boot. The COSMIC DE branch now ENSURES the file (`[ ! -f … ] ||` + `mkdir -p` + write) instead of depending on the packager's hook, keeping the `grep` guard so an already-correct file stays a no-op. `KEYMAP` extraction also accepts a **bare** `KEYMAP=de` (what `Void_Linux_Live` writes) as well as `KEYMAP="de"`, via the same quote-stripping sed the fixed hook uses — the old quoted-only pattern silently fell back to `us`, installing the wrong keyboard layout — plus a `case` token guard so no hostile `rc.conf` value can be interpolated into the RON string. `bash -n` clean, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED, plus an 8-case standalone exercise of the ensure-logic | Beta-v2.9.78 below |
@@ -805,6 +806,86 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.82 — `[COSMIC-KEY-AUTOIMPORT]` (the COSMIC repo signing-key prompt is answered by the installer now — the pin check, not the prompt, was always the trust decision)
+
+`SCRIPT_VERSION` bumped to `Beta-v2.9.82`; era row added to the script header
+VERSION-HISTORY; index row added above; this section added as the newest detail
+section.
+
+### Context
+
+Choosing COSMIC as the DE still stopped the flow with an interactive question:
+
+```
+==> Confirming the COSMIC repository signing key when prompted.
+    Pinned fingerprint:
+      SHA256 83ffd154d1dee504ea384a0c31b12e072d5884f7f75eb950e30ace852d7d2e7b
+    Decline and abort if xbps shows anything different.
+`https://bluesloth.github.io/void-cosmic-repo/' repository has been RSA signed by "bluesloth <bluesloth@users.noreply.github.com>"
+Fingerprint: cc:ca:ec:11:69:c9:c9:00:65:1e:93:de:15:02:01:83
+Do you want to import this public key? [Y/n]
+```
+
+Reported 2026-10-07: the desktop menu has already disclosed COSMIC as a
+third-party repo — "a signing-trust choice made at your own risk — audit the
+repo before installing" — and Beta-v2.9.76 already pins the key and verifies
+it machine-readably, so the extra `Y/n` asks the operator to re-confirm
+something that has been decided twice over.
+
+### Why the prompt was never the thing doing the work
+
+Beta-v2.9.76's premise was that `-y` ("assume yes to ALL questions")
+auto-accepted the key import, so removing `-y` would put the fingerprint in
+front of a human. Re-tested 2026-10-07 on xbps 0.60.7 with a throwaway
+`xbps-install -r <root>`:
+
+* without `-y` (`xbps-install -S …`) → `Do you want to import this public key? [Y/n]`
+* with `-y` (`xbps-install -Sy …`) → **the same prompt**
+
+`-y` never covered the question. The prompt shows up whenever stdin can answer
+it, which is why 2.9.77's `/dev/tty` routing "fixed" the interactive case and
+why, with `/dev/tty` gone (unattended / headless runs), the import instead
+failed outright — that gate refused every headless COSMIC install rather than
+degrading gracefully.
+
+What 2.9.76 *did* build, and what actually decides trust, is the check below
+the sync: the key's DER SHA-256 is pinned in the installer (not read from the
+served index), and the install aborts unless the keyring contains exactly that
+key plus at most the two stock Void keys. An operator typing `Y` at a prompt
+showing a substituted key would have trusted the attacker anyway — so the
+prompt was friction layered on top of the real enforcement.
+
+### The change
+
+The sync is now `printf 'y\n' | xbps-install "${_xbps_cache[@]}" -Sy`, and the
+2.9.77 `/dev/tty` gate (and its "session has no terminal" FATAL) is gone with
+it. Three details are deliberate:
+
+* **a pipe of the installer's own**, never the chroot's stdin — Stage 2 runs
+  this block inside `chroot /mnt /bin/bash << 'CHROOT_EOF'`, so stdin *is* the
+  heredoc (the original 2.9.76 abort), and never `/dev/tty` either, which is
+  what made unattended runs impossible;
+* **`printf 'y\n'`, not `yes`** — one answer, then EOF: a second question fails
+  loudly instead of being answered blindly, and `yes` would kill the pipeline
+  with SIGPIPE after a successful sync, which `set -o pipefail` reports as
+  failure;
+* **the machine check is untouched** — auto-answering changes no outcome for a
+  bad key (same abort path), it only removes a prompt nobody needed to be asked.
+
+Consequence worth noting: unattended/headless COSMIC installs now work, which
+2.9.77 explicitly prevented.
+
+Validation: live against the real repo in a fresh throwaway keyring — the
+auto-answer imports the key non-interactively (rc=0), and the *shipped*
+`cosmic_key_fingerprint()` run on what was imported reproduces the pin
+`83ffd154d1dee504ea384a0c31b12e072d5884f7f75eb950e30ace852d7d2e7b`. Gates:
+`bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT,
+`check-pkg-preflight.sh` ALL COVERED. The packager-side suite that re-extracts
+this check from the installer on every run (`Void_Cosmic_Repo/
+xkb_config-fix-20261005/test-trust-anchor-cases.sh`, 13 accept/abort cases) was
+updated to anchor on the check's own `_cosmic_fp_ok=0` line instead of the
+prose comment it used to key on, and stays green.
 
 ## Beta-v2.9.81 — `[SSH-KEYGEN-NONINTERACTIVE]` (answering "n" at the passphrase prompt still made ssh-keygen ask for one — omitting `-N` means "prompt me", not "no passphrase")
 
