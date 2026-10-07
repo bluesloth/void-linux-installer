@@ -560,7 +560,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.79"
+SCRIPT_VERSION="Beta-v2.9.80"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -825,6 +825,26 @@ SCRIPT_VERSION="Beta-v2.9.79"
 #                     rewrites the file to the canonical cosmic-config form
 #                     with the layout taken UNQUOTED from the chroot's
 #                     /etc/rc.conf KEYMAP.
+#     Beta-v2.9.80   [MIRROR-SKEW-GUARD] — upstream Void mirror rotation can
+#                     transiently desync: the repodata index still lists an
+#                     OLD package version whose files the pool has just
+#                     rotated away (2026-10-07: `runc` 1.5.1_1 -> 1.5.2_1;
+#                     every official tier indexed 1.5.1_1 while the pool
+#                     carried only 1.5.2_1, so the 3-mirror fallback failed
+#                     identically — xbps resolved 1.5.1_1 and 404'd its
+#                     .sig mid-transaction -> FATAL podman). Fix, 3 layers:
+#                     (1) all three mirror rotations gain tertiary region
+#                     fallbacks (repo-de, tuna) that rotate on their own
+#                     schedule; (2) install_pkgs() detects the "failed to
+#                     download <pkg> signature ... Not Found" class and
+#                     retries the full rotation with 15/30/45s backoff
+#                     before FATAL (non-skew failures still FAIL fast);
+#                     (3) Stage-1 PKG-PREFLIGHT gains a per-mirror -M
+#                     memory-sync consistency probe that promotes the first
+#                     consistent mirror to REPO_PRIMARY pre-write, and
+#                     WARN+continues when all are torn (never a pre-write
+#                     FATAL for a transient). SCRIPT_VERSION bumped
+#                     Beta-v2.9.79 -> Beta-v2.9.80.
 #     Beta-v2.9.79   [XKB-CONFIG-CREATE] — the 2.9.75 [XKB-CONFIG-QUOTING]
 #                     repair was gated on `[ -f "$_xkb_conf" ]`, so it could
 #                     only REPAIR a corrupt xkb_config, never CREATE a missing
@@ -5154,6 +5174,14 @@ _disk_budget_check() {
 REPO_PRIMARY="${REPO_PRIMARY:-https://mirrors.summithq.com/voidlinux/current}"
 REPO_BACKUP1="${REPO_BACKUP1:-https://repo-fastly.voidlinux.org/current}"
 REPO_BACKUP2="${REPO_BACKUP2:-https://repo-default.voidlinux.org/current}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.80 [MIRROR-SKEW-GUARD]: tertiary
+# fallbacks beyond the two global backups. The global tiers all ride the same
+# upstream repodata, so an index-vs-pool rotation desync (signature 404 — see
+# runc 1.5.1_1 -> 1.5.2_1, 2026-10-07) fails all three identically; region
+# mirrors rotate on their own schedule and usually stay consistent through it.
+# Only touched on the failure path — a healthy install never contacts them.
+REPO_EXTRA1="${REPO_EXTRA1:-https://repo-de.voidlinux.org/current}"
+REPO_EXTRA2="${REPO_EXTRA2:-https://mirrors.tuna.tsinghua.edu.cn/voidlinux/current}"
 
 LIVECD_SYNC_OK=0
 # AI (Big Pickle) ADDITION — Beta-v2.5.4 [YUBIKEY]: when YubiKey hmac-sha1
@@ -5172,7 +5200,7 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "==> [DRY-RUN] Skipping live-CD package sync (would install gptfdisk/parted/kpartx/btrfs-progs/openssl${YK_LIVE_PKGS} into the live env)."
     LIVECD_SYNC_OK=1
 else
-for REPO_ATTEMPT in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2"; do
+for REPO_ATTEMPT in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2" "$REPO_EXTRA1" "$REPO_EXTRA2"; do
     echo "==> Attempting live-CD package sync against repository: ${REPO_ATTEMPT}"
     # AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: point the live sync
     # at the local cache when enabled; the -Syu repodata refresh + any missing
@@ -5188,7 +5216,7 @@ done
 fi
 
 if [ "$LIVECD_SYNC_OK" -ne 1 ]; then
-    echo "FATAL: live-CD package sync failed against all configured repositories (primary + both backups)." >&2
+    echo "FATAL: live-CD package sync failed against all configured repositories (primary + both backups + region extras)." >&2
     exit 1
 fi
 
@@ -5317,7 +5345,7 @@ DEVICE_PROFILE PROFILE_TLP PROFILE_BT PROFILE_PRELOAD \
                REGION_HOME_FS REGION_VAR_FS REGION_CACHE_FS REGION_SRV_FS REGION_OPT_FS REGION_GAMES \
                REGION_HOME_SIZE REGION_VAR_SIZE REGION_CACHE_SIZE REGION_SRV_SIZE REGION_OPT_SIZE REGION_GAMES_SIZE \
                REGION_PARTITIONED \
-               REPO_PRIMARY REPO_BACKUP1 REPO_BACKUP2 \
+               REPO_PRIMARY REPO_BACKUP1 REPO_BACKUP2 REPO_EXTRA1 REPO_EXTRA2 \
                LOCAL_CACHE_REUSE LOCAL_CACHE_DIR \
 DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
 INSTALL_FLATPAK INSTALL_BREW INSTALL_FIREFOX INSTALL_CHROMIUM \
@@ -5664,6 +5692,58 @@ else
         echo "  ALL ${_pre_total} preflight packages resolve in the live union pool."
         jl "PKG-PREFLIGHT: ALL COVERED (${_pre_total} packages)"
     fi
+fi
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.80 [MIRROR-SKEW-PREFLIGHT]: per-mirror
+# index-vs-pool consistency probe. PKG-PREFLIGHT above proves the NAMES exist
+# in the union pool; it cannot see that a mirror's repodata still resolves an
+# OLD version whose files the pool just rotated away (runc 1.5.1_1 -> 1.5.2_1,
+# 2026-10-07: index listed 1.5.1_1 while the pool only carried 1.5.2_1 -> xbps
+# 404'd the .sig mid-transaction). Probe the enabled container/bootstrap
+# closure per mirror with a FRESH memory-sync resolution (-M — never the stale
+# on-disk repodata; live-verified disk queries return the old version even
+# after -Sy), then HTTP-HEAD the resolved package's .sig file. A 404 while the
+# name resolves = torn; the first consistent mirror is promoted to REPO_PRIMARY
+# so Stage 2's install_pkgs starts on a healthy mirror. If every mirror is torn
+# the install CONTINUES with a WARN — never a pre-write FATAL for a transient
+# (the mirror heals; install_pkgs' bounded retry rides it out). curl is
+# deliberately optional (Void Live ISOs may lack it, see [PREREQ-CURL]):
+# absent curl degrades the probe to a skip, exactly like the -Sy degradation.
+if command -v curl >/dev/null 2>&1; then
+    _pre_probe="base-system"
+    [ "$INSTALL_PODMAN" = "true" ] && _pre_probe="$_pre_probe runc podman"
+    [ "$INSTALL_DOCKER" = "true" ] && _pre_probe="$_pre_probe docker"
+    _pre_pick=""
+    for _pre_m in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2" "$REPO_EXTRA1" "$REPO_EXTRA2"; do
+        case " $_pre_pick " in *" $_pre_m "*) continue ;; esac   # dedupe repeats
+        _pre_torn=""
+        for _pre_p in $_pre_probe; do
+            _pre_v=$(xbps-query -M -R --repository="$_pre_m" --property=pkgver "$_pre_p" 2>/dev/null | tail -1)
+            if [ -z "$_pre_v" ]; then
+                _pre_torn="${_pre_torn}${_pre_torn:+ }unresolvable:$_pre_p"
+                continue
+            fi
+            _pre_code=$(curl -sIL -o /dev/null -w '%{http_code}' --max-time 15 "$_pre_m/${_pre_v}.x86_64.xbps.sig")
+            if [ "$_pre_code" != "200" ]; then
+                _pre_torn="${_pre_torn}${_pre_torn:+ }${_pre_p}(sig ${_pre_code})"
+            fi
+        done
+        if [ -z "$_pre_torn" ]; then
+            _pre_pick="$_pre_m"
+            break
+        fi
+        echo "  WARN [MIRROR-SKEW-PREFLIGHT]: mirror ${_pre_m} is mid-rotation for: ${_pre_torn} — skipping it." >&2
+        jl "MIRROR-SKEW-PREFLIGHT: torn mirror: ${_pre_m} (${_pre_torn})"
+    done
+    if [ -n "$_pre_pick" ] && [ "$_pre_pick" != "$REPO_PRIMARY" ]; then
+        echo "==> [MIRROR-SKEW-PREFLIGHT] promoting consistent mirror to REPO_PRIMARY: ${_pre_pick}"
+        REPO_PRIMARY="$_pre_pick"
+        jl "MIRROR-SKEW-PREFLIGHT: promoted REPO_PRIMARY -> ${_pre_pick}"
+    elif [ -z "$_pre_pick" ]; then
+        echo "  WARN [MIRROR-SKEW-PREFLIGHT]: every configured mirror is torn for probe set '${_pre_probe}' — continuing; the bounded skew-retry will ride out the rotation inside install_pkgs." >&2
+        jl "MIRROR-SKEW-PREFLIGHT: all mirrors torn (probe: ${_pre_probe}); continuing"
+    fi
+    unset _pre_probe _pre_pick _pre_m _pre_torn _pre_p _pre_v _pre_code
 fi
 
 # AI (Big Pickle) CHANGE — Beta-v2.4.0 [RESUME]: The destructive partitioning and
@@ -6347,7 +6427,7 @@ mkdir -p /mnt/var/db/xbps/keys
 cp /var/db/xbps/keys/* /mnt/var/db/xbps/keys/
 
 BOOTSTRAP_OK=0
-for REPO_ATTEMPT in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2"; do
+for REPO_ATTEMPT in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2" "$REPO_EXTRA1" "$REPO_EXTRA2"; do
     echo "==> Attempting base-system bootstrap against repository: ${REPO_ATTEMPT}"
     # AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: same -c threading
     # into the base bootstrap; an empty ${LOCAL_CA} is the plain network path.
@@ -6361,7 +6441,7 @@ for REPO_ATTEMPT in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2"; do
 done
 
 if [ "$BOOTSTRAP_OK" -ne 1 ]; then
-    echo "FATAL: base-system bootstrap failed against all configured repositories (primary + both backups)." >&2
+    echo "FATAL: base-system bootstrap failed against all configured repositories (primary + both backups + region extras)." >&2
     exit 1
 fi
 
@@ -6590,6 +6670,8 @@ echo "export REPO_PRIMARY=\"$REPO_PRIMARY\"" >> /mnt/tmp/chroot_env.sh
 echo "export KEYMAP_LIVE=\"$KEYMAP_LIVE\"" >> /mnt/tmp/chroot_env.sh
 echo "export REPO_BACKUP1=\"$REPO_BACKUP1\"" >> /mnt/tmp/chroot_env.sh
 echo "export REPO_BACKUP2=\"$REPO_BACKUP2\"" >> /mnt/tmp/chroot_env.sh
+echo "export REPO_EXTRA1=\"$REPO_EXTRA1\"" >> /mnt/tmp/chroot_env.sh
+echo "export REPO_EXTRA2=\"$REPO_EXTRA2\"" >> /mnt/tmp/chroot_env.sh
 # AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: thread the cache choice
 # into the chroot. LOCAL_CACHE_DIR is REMAPPED here — /tmp/xbps-cache, the
 # /mnt/tmp/xbps-cache bind mount — so install_pkgs()/install_cosmic() hand xbps
@@ -6903,14 +6985,24 @@ fi
 
 # AI (Big Pickle) ADDITION — Beta-v2.4.1 [INSTALL-PKGS]: install from the first
 # mirror that succeeds, retrying the live-CD package sync across the primary +
-# both backup repositories.
+# both backup repositories (+ the Beta-v2.9.80 tertiary region fallbacks).
+# Beta-v2.9.80 [MIRROR-SKEW-GUARD]: every attempt's transcript is captured to a
+# temp file; when ALL mirrors fail, the failure is classified. The
+# "failed to download <pkg> ' signature from <repo>: Not Found" class is the
+# index-vs-pool rotation desync — transient, the mirror heals itself — so the
+# full rotation is retried up to 3 more times with 15/30/45s backoff before
+# FATAL. Any OTHER class (DNS/HTTP/repokey/never-exists) FAILS IMMEDIATELY —
+# retrying those adds latency without value.
 install_pkgs() {
     _ipkgs_ok=0
-    for _ipkgs_repo in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2"; do
+    _ipkgs_err=$(mktemp /tmp/ipkgs-transcript.XXXXXX)
+    _ipkgs_skew_round=0
+    while [ "$_ipkgs_ok" -ne 1 ] && [ "$_ipkgs_skew_round" -le 3 ]; do
+    for _ipkgs_repo in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2" "$REPO_EXTRA1" "$REPO_EXTRA2"; do
         # AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: ${_xbps_cache[@]}
         # is empty on a network-only run; when a /tmp/xbps-cache bind mount is
         # live, xbps takes present packages from it and falls back to the mirror.
-        if xbps-install -Suy -R "$_ipkgs_repo" "${_xbps_cache[@]}" "$@"; then
+        if xbps-install -Suy -R "$_ipkgs_repo" "${_xbps_cache[@]}" "$@" 2>&1 | tee "$_ipkgs_err"; then
             _ipkgs_ok=1
             break
         fi
@@ -6923,6 +7015,21 @@ install_pkgs() {
         xbps-install -Sy -R "$_ipkgs_repo" "${_xbps_cache[@]}" >/dev/null 2>&1 || true
         xbps-pkgdb -a >/dev/null 2>&1 || true
     done
+    if [ "$_ipkgs_ok" -eq 1 ]; then
+        break
+    fi
+    if grep -q "failed to download .*' signature from" "$_ipkgs_err"; then
+        _ipkgs_skew_round=$((_ipkgs_skew_round + 1))
+        if [ "$_ipkgs_skew_round" -le 3 ]; then
+            echo "==> [MIRROR-SKEW-GUARD] index-vs-pool rotation desync (signature 404 while the index resolves a version) — waiting $((_ipkgs_skew_round * 15))s for the mirror to heal, then retrying the full rotation (round ${_ipkgs_skew_round}/3)." >&2
+            sleep $((_ipkgs_skew_round * 15))
+        fi
+    else
+        break   # non-skew failure — do not retry; FATAL below
+    fi
+    done
+    rm -f "$_ipkgs_err"
+    unset _ipkgs_err _ipkgs_skew_round
     if [ "$_ipkgs_ok" -ne 1 ]; then
         echo "FATAL: package install failed against all configured repositories for: $*" >&2
         exit 1
