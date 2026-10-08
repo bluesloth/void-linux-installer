@@ -562,7 +562,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.84"
+SCRIPT_VERSION="Beta-v2.9.85"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -875,6 +875,34 @@ SCRIPT_VERSION="Beta-v2.9.84"
 #                     "never let the store pull flatpak past an explicit
 #                     opt-out without surfacing it" rule, enforced even when
 #                     nobody's prompt was involved.
+#     Beta-v2.9.85   [NIC-DETECT-USB] — the Stage-1 [NIC-DETECT] review's
+#                     USB fallback globbed /sys/devices/*/net/* — bash `*`
+#                     never crosses a `/`, so it only ever matched
+#                     /sys/devices/virtual/net/* (lo/br0/docker0/virbr0),
+#                     all of which fail the usb-subsystem test: dead code
+#                     that could never find a real USB network device (whose
+#                     net dir sits ~6 levels deep, e.g.
+#                     .../usb2/2-1/2-1.1/2-1.1:1.0/net/<iface>). A
+#                     physically-present-but-unplugged USB ethernet adapter
+#                     (the documented "cable optional" promise) was therefore
+#                     always reported "(none detected)" and recorded
+#                     BR0_NIC=<unset> — live on the round-10 box (ASIX
+#                     AX88179 in the machine, install-config says <unset>).
+#                     The INSTALL_VIRT late re-probe's fallback
+#                     (readlink -f device ~ *usb*) was correct, so the
+#                     br0-slave binding never suffered — but the two probe
+#                     sites could disagree. Both now call one shared
+#                     detect_wired_nic() helper (carrier-active physical
+#                     wired NIC first, then any physically-present USB
+#                     device, cable irrelevant), defined at unconditional
+#                     top level above the resume guard — 2.9.78's
+#                     _region_fs_of lesson. Protection sets merged: physical
+#                     `device` link + no `wireless` dir + name skip list
+#                     (the old carrier loop had NO physical check; the
+#                     re-probe gains the name skip, so a Bluetooth-USB netdev
+#                     can no longer qualify as a "USB NIC"). No prompt,
+#                     defaults or package surface changed.
+#                     SCRIPT_VERSION bumped Beta-v2.9.84 -> Beta-v2.9.85.
 #     Beta-v2.9.82   [COSMIC-KEY-AUTOIMPORT] — the COSMIC repo sync still
 #                     stopped at "Do you want to import this public key?
 #                     [Y/n]" even though the desktop menu already discloses
@@ -1939,6 +1967,59 @@ _region_fs_of() { # $1 = lowercase region token (home|var|cache|srv|opt|games)
     printf '%s' "${!_rfv:-btrfs}"
 }
 
+# AI (Big Pickle) FIX — Beta-v2.9.85 [NIC-DETECT-USB]: the ONE wired-NIC
+# probe both selection sites now share — the Stage-1 review's [NIC-DETECT]
+# (BR0_NIC record + the "Keep this interface?" prompt) and the INSTALL_VIRT
+# late re-probe (NET_INTERFACE_MATCH -> the br0-slave NM binding). The old
+# Stage-1 USB fallback globbed /sys/devices/*/net/* — bash `*` never crosses
+# a `/`, so it only ever matched /sys/devices/virtual/net/* (lo/br0/docker0/
+# virbr0), every one of which fails the usb-subsystem test: dead code that
+# could NEVER find hardware (a USB NIC's net dir sits ~6 levels deep, e.g.
+# /sys/devices/pci0000:00/.../usb2/2-1/2-1.1/2-1.1:1.0/net/<iface>). So a
+# present-but-unplugged USB adapter (the documented "cable optional"
+# promise) always read "(none detected)" + BR0_NIC=<unset> — the round-10
+# box shows exactly that with an ASIX AX88179 sitting in it. The re-probe's
+# fallback was the correct logic; it is pass 2 below, so the two sites can
+# never disagree again. Defined at unconditional top level above the resume
+# guard on purpose — 2.9.78's `_region_fs_of` lesson (both call sites live
+# inside RESUME-gated blocks). Callers MUST assign with
+# `$(detect_wired_nic || true)`: Stage-1 runs under set -eE + the ERR trap
+# and "nothing found" returns 1 (empty output is the not-found signal either
+# way).
+detect_wired_nic() {
+    local _dn_if _dn_name
+    # Pass 1 — a wired NIC with an ACTIVE LINK (physical, non-wireless only).
+    for _dn_if in /sys/class/net/*; do
+        [ -e "$_dn_if/device" ] || continue          # physical only — drops lo/br0/docker0/veth/...
+        [ -d "$_dn_if/wireless" ] && continue         # never a radio
+        _dn_name="${_dn_if##*/}"
+        case "$_dn_name" in
+            lo|ww*|wl*|bn*|bt*|dm-*) continue ;;      # non-wired by name (wwan/Bluetooth-net/dm-...)
+        esac
+        if [ "$(cat "$_dn_if/carrier" 2>/dev/null || echo 0)" = "1" ]; then
+            printf '%s\n' "$_dn_name"
+            return 0
+        fi
+    done
+    # Pass 2 — no link anywhere: accept a physically-PRESENT USB network
+    # device regardless of carrier (cable optional — the documented
+    # USB-ethernet / USB-tethered-phone promise). `|| :` keeps a dangling
+    # device symlink from tripping the Stage-1 ERR trap (verified live:
+    # a bare readlink failure in a substitution DOES fire it under -eE).
+    for _dn_if in /sys/class/net/*; do
+        [ -e "$_dn_if/device" ] || continue
+        [ -d "$_dn_if/wireless" ] && continue
+        _dn_name="${_dn_if##*/}"
+        case "$_dn_name" in
+            lo|ww*|wl*|bn*|bt*|dm-*) continue ;;
+        esac
+        case "$(readlink -f "$_dn_if/device" 2>/dev/null || :)" in
+            *usb*) printf '%s\n' "$_dn_name"; return 0 ;;
+        esac
+    done
+    return 1
+}
+
 # =============================================================================
 # AI (Big Pickle) CHANGE — Beta-v2.4.0 [RESUME]: The entire interactive
 # configuration block below is skipped on a resumed run (RESUME=1); all
@@ -2748,34 +2829,13 @@ _NIC_NAME=""
 if [ -n "$DEFAULT_NIC" ]; then
     _NIC_NAME="$DEFAULT_NIC"
 else
-    for _iface in /sys/class/net/*; do
-        [ -d "$_iface" ] || continue
-        _name="$(basename "$_iface")"
-        case "$_name" in
-            lo|ww*|wl*|bn*|bt*|dm-*) continue ;;
-        esac
-        _carrier="/sys/class/net/$_name/carrier"
-        if [ -f "$_carrier" ] && [ "$(cat "$_carrier" 2>/dev/null || echo 0)" = "1" ]; then
-            _NIC_NAME="$_name"
-            break
-        fi
-    done
-    unset _iface _name _carrier
-    if [ -z "$_NIC_NAME" ]; then
-        for _devpath in /sys/devices/*/net/*; do
-            [ -d "$_devpath" ] || continue
-            _name="$(basename "$_devpath")"
-            case "$_name" in
-                lo|ww*|wl*|bn*|bt*|dm-*) continue ;;
-            esac
-            _dev="$(dirname "$_devpath")"
-            if [ -d "$_dev/subsystem" ] && readlink "$_dev/subsystem" 2>/dev/null | grep -qi 'usb'; then
-                _NIC_NAME="$_name"
-                break
-            fi
-        done
-        unset _devpath _name _dev
-    fi
+    # AI (Big Pickle) FIX — Beta-v2.9.85 [NIC-DETECT-USB]: was two inline
+    # loops — the carrier loop had no physical-device check, and the USB
+    # fallback's /sys/devices/*/net/* glob could never match real hardware
+    # (see detect_wired_nic above). One shared helper now, identical in
+    # behavior to the late re-probe's, so this review and the br0-slave
+    # binding can never disagree.
+    _NIC_NAME="$(detect_wired_nic || true)"
 fi
 if [ -n "$_NIC_NAME" ]; then
     echo "  Detected wired NIC : $_NIC_NAME (feeds the bridged VM network if you choose virtualization)"
@@ -4725,28 +4785,12 @@ fi
 # in the interrupted run and are restored from the state file.
 # =============================================================================
 if [ "$RESUME" != "1" ]; then
-DETECTED_NIC=""
-
-for _nic_candidate in /sys/class/net/*/; do
-    _nic_candidate="${_nic_candidate%/}"
-    [ -e "/sys/class/net/${_nic_candidate}/device" ] || continue
-    [ -d "/sys/class/net/${_nic_candidate}/wireless" ] && continue
-    if [ "$(cat "/sys/class/net/${_nic_candidate}/carrier" 2>/dev/null)" = "1" ]; then
-        DETECTED_NIC="$_nic_candidate"
-        break
-    fi
-done
-
-if [ -z "$DETECTED_NIC" ]; then
-    for _nic_candidate in /sys/class/net/*/; do
-        _nic_candidate="${_nic_candidate%/}"
-        [ -e "/sys/class/net/${_nic_candidate}/device" ] || continue
-        [ -d "/sys/class/net/${_nic_candidate}/wireless" ] && continue
-        case "$(readlink -f "/sys/class/net/${_nic_candidate}/device" 2>/dev/null)" in
-            *usb*) DETECTED_NIC="$_nic_candidate"; break ;;
-        esac
-    done
-fi
+# AI (Big Pickle) FIX — Beta-v2.9.85 [NIC-DETECT-USB]: was two inline loops
+# (already-correct logic; the helper adds only the name-skip list, so a
+# Bluetooth-USB netdev can no longer qualify as a "USB NIC") — both probe
+# sites now run detect_wired_nic(), so the review's BR0_NIC and this
+# NET_INTERFACE_MATCH answer can never disagree.
+DETECTED_NIC="$(detect_wired_nic || true)"
 
 if [ -n "$DETECTED_NIC" ]; then
     export NET_INTERFACE_MATCH="$DETECTED_NIC"
