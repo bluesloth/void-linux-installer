@@ -108,3 +108,28 @@
   confirm a real polkit dialog then (the earlier `timeout 4` test-run
   already proved the binary runs clean indefinitely given session env, so
   the guard's only job is correct timing/respawn).
+
+## cosmic-store pulls flatpak if installed — DISCUSS install toggle (2026-10-06)
+- `cosmic-store` (1.9.0, bluesloth repo) runtime-depends on `flatpak` —
+  verified with `xbps-query -R cosmic-store` (`run_depends: flatpak`) — so
+  **installing cosmic-store** auto-installs the flatpak package even when the
+  prompt `INSTALL_FLATPAK` was declined (the Stage-2 flatpak gate — the
+  `if [ "$INSTALL_FLATPAK" = "true" ]; then install_pkgs flatpak fuse fuse3`
+  block in the package-install section — is gated on the prompt, but xbps
+  auto-resolves the store's dependency regardless). No file/pkg conflict —
+  same Void repo package, nothing pinned — purely a scope/behavior surprise
+  for opt-outs.
+- **NOT A LIVE BUG TODAY:** the script never installs `cosmic-store` — zero
+  references in `Void_Linux_Installer.sh` / `CHANGELOG.md` / `Debug/`, and it
+  is absent from the installed package inventory of the 2026-10-07
+  Beta-v2.9.83 fresh install. This item only matters if/in when the store is
+  installed explicitly or added to a meta.
+- NOTE: `cosmic-store` is deliberately **NOT in `cosmic-desktop-full`'s
+  depends** (`_7`, 47 deps — re-verified: 0 matches) — same conclusion.
+- OPEN ITEM: add an explicit user toggle (e.g. `INSTALL_COSMIC_STORE`) that
+  keeps `cosmic-store` optional and documents its flatpak pull, or document
+  the auto-install on the FLATPAK prompt. Do NOT let the store pull flatpak
+  past an explicit opt-out without surfacing it.
+- Line references deliberately omitted (they rot on every version bump — an
+  earlier draft said "line 8415", already wrong by 2.9.83); find the gate by
+  the `install_pkgs flatpak fuse fuse3` literal instead.
