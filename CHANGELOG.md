@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.83** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.84** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -132,6 +132,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.74** | `[USB-AUTOMOUNT]` — a COSMIC install had no removable-media automounter: udisks2 was installed (as a cosmic-files dependency) but its D-Bus-only activation unit meant udisksd was never reliably running on runit, and there was no udiskie/gvfs in the COSMIC path (gvfs automount only covers the GNOME/KDE/Cinnamon/MATE/Xfce/LXQt branches). The COSMIC DE branch now installs `udiskie` and autostarts it via a session-readiness guard (`/usr/local/sbin/udiskie-guard`, mirroring the polkit-agent guard), and the installer writes + first-boot-links a supervised `/etc/sv/udisksd` service. `udiskie`/`udisks2` added to PKG_PREFLIGHT | Beta-v2.9.73 below |
 | **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 | **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
+| **Beta-v2.9.84** | `[COSMIC-STORE]`/`[FLATPAK-PULL-DETECT]` — `cosmic-store` (the bluesloth COSMIC app store) hard run-depends on `flatpak`, but the installer never installed it, so the prompt gate intentionally preconditioned `INSTALL_FLATPAK` — an opt-out of Flatpak had no store to drag it back in. Two layers: (1) a real opt-in prompt `INSTALL_COSMIC_STORE` (default NO), offered ONLY when `INSTALL_FLATPAK=true` (any desktop — the store is a Flathub GUI), threaded through resume-state/chroot_env/install-config, and installed DE-independently at the flatpak-gated deliveries site via `install_cosmic()` with a Stage-2 flatpak re-check mirroring the Brave rule — a stale resume state carrying store=yes && flatpak=no WARNs and skips, never pulling flatpak in; (2) a Stage-2 `[FLATPAK-PULL-DETECT]` safety net: if flatpak is DECLINED but shows up installed anyway (a future metapackage rev or a manual install), the install warns loudly and records `FLATPAK_PULLED_BY="<reverse deps>"` (from `xbps-query -X flatpak`) in `install-config` — the "never let the store pull flatpak past an explicit opt-out without surfacing it" rule, enforced even when no prompt was involved. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.83 below |
 | **Beta-v2.9.83** | `[COSMIC-REPO-ATTRIBUTION]` — the COSMIC disclosure named the wrong repo: the DE menu (option 7), the ARCHITECTURE SUMMARY and `install_cosmic()`'s own header comment all pointed the operator at REDACTED REDACTED's REDACTED packaging (`github.com/REDACTED/void-packages`, `repo.REDACTED.de`) as the source being trusted — but the URL the installer has actually added since Beta-v2.9.73 is `https://bluesloth.github.io/void-cosmic-repo/` (audit `github.com/bluesloth/void-cosmic-repo`), signed and published by the companion `Void_Cosmic_Repo` packager project from templates built from scratch, tracking upstream System76 / Pop!_OS COSMIC. A third-party trust warning is only useful if the name and link in it are the ones you actually audit, so this mattered: it named a repo the installer never contacted, while two comments still carried claims that had since inverted or been superseded — "the documented old github.io URL is now stale — it serves a web page, not an xbps index" (github.io now serves a working `x86_64-repodata`; it is `repo.REDACTED.de` that went unused) and "the repo's signing key is whatever the maintainer publishes with the repo" (superseded by the Beta-v2.9.76 pin). Menu + comments now carry the real repo URL, its audit link, its lineage and the pinned-key statement; CHANGELOG entries written before 2.9.73 stay as history. Text-only: `_cosmic_repo`, `_cosmic_audit`, `_cosmic_key_expected` and every code path unchanged. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.82 below |
 | **Beta-v2.9.82** | `[COSMIC-KEY-AUTOIMPORT]` — the COSMIC repo sync still stopped at `Do you want to import this public key? [Y/n]` even though the desktop menu already discloses COSMIC as a third-party repo ("a signing-trust choice made at your own risk — audit the repo before installing") and Beta-v2.9.76 already pins the key and machine-verifies it right after the sync. Re-verified 2026-10-07 on xbps 0.60.7 that `-y` never covered this question in the first place — bare `-S` and `-Sy` both stop at `[Y/n]` — so Beta-v2.9.76's "-y made the anchor auto-accepted" mechanism was wrong, and what 2.9.76/2.9.77 actually built was an interactive confirmation layered on top of a check that never needed one. The prompt is now answered by the installer itself on a **pipe of its own** (`printf 'y\n' \| xbps-install … -Sy`), which is neither the chroot's stdin (Stage 2 feeds the script via `chroot /mnt /bin/bash << 'CHROOT_EOF'`, so stdin IS the heredoc — 2.9.77's original abort) nor `/dev/tty` (unattended runs have none — 2.9.77's second abort, which refused every headless COSMIC install outright); that `/dev/tty` gate is removed with it, so unattended COSMIC installs now run. **Trust is unchanged:** the pinned-fingerprint + allowlist machine check below the sync still aborts unless the keyring holds exactly the pinned key plus at most the two stock Void keys, so a substituted key fails through the same code path — auto-answering removed friction, not enforcement, and an operator typing `Y` at a substituted-key prompt would have trusted the attacker anyway. Proven live 2026-10-07 against the real repo: fresh throwaway keyring, auto-answer imports the key non-interactively, and the shipped `cosmic_key_fingerprint()` reproduced the pinned `83ffd154…d2e7b` from what got imported. `printf 'y\n'` (not `yes`) is deliberate: one answer, then EOF fails loudly, and `yes` would fail the pipeline under `pipefail` via SIGPIPE even after a successful sync. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED, packager-side 13-case trust-anchor suite re-extracted and green | Beta-v2.9.81 below |
 | **Beta-v2.9.81** | `[SSH-KEYGEN-NONINTERACTIVE]` — the generate-key branch built `-N` as `${SSH_KEY_PASSPHRASE:+-N ...}`, so answering `n` at "Protect the key with a passphrase?" **omitted `-N` entirely** — and omitting `-N` means "prompt me", not "no passphrase". ssh-keygen therefore still asked `Enter passphrase for "…/id_ed25519" (empty for no passphrase)` (and fired `ksshaskpass` wherever `SSH_ASKPASS` is set) after the operator had already declined, and the read that answers it can swallow the next answer-stream line — the same desync class `[SSH-KEYGEN-STALE]` (2.9.54) fixed for the `Overwrite (y/n)?` prompt. `-N` is now ALWAYS passed, with `""` for the unprotected case (`-N ""` is ssh-keygen's documented "no passphrase, do not ask" form); the now-dead `SC2086` disable that justified the old zero-arg expansion was dropped with it. Reported live 2026-10-07. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.80 below |
@@ -807,6 +808,77 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.84 — `[COSMIC-STORE]`/`[FLATPAK-PULL-DETECT]` (cosmic-store becomes a real opt-in prompt that can never pull flatpak past a declined prompt — plus a safety net for the paths a toggle cannot govern)
+
+`SCRIPT_VERSION` bumped to `Beta-v2.9.84`; era row added to the script header
+VERSION-HISTORY; index row added above; this section added as the newest detail
+section.
+
+### What was wrong
+
+`cosmic-store-1.9.0_1` in the bluesloth COSMIC repo has a **hard
+`run_depends: flatpak`** — but the installer *never installed it*, so the Open
+Item in `TODO.md` was a landmine, not a live bug: the "Flatpak" prompt
+(`INSTALL_FLATPAK`) is an explicit on/off choice, and the moment anyone added
+the store (an `install_cosmic` call, a future `cosmic-desktop-full` revision,
+or a manual `xbps-install cosmic-store`) it would silently drag Flatpak back
+onto a system whose operator had explicitly declined it. xbps has no
+"explicit-only dependency" — a dep is a dep. The old line-ref in the TODO
+("line 8415") was already wrong by 2.9.83; the real gate is the
+`if [ "$INSTALL_FLATPAK" = "true" ]; then install_pkgs flatpak fuse fuse3`
+block in the package phase.
+
+### The fix — two layers
+
+**1. `[COSMIC-STORE]` — a real opt-in toggle, Brave-consistent.** New prompt
+`INSTALL_COSMIC_STORE` (default NO, `DEFAULT_COSMIC_STORE` wired into the
+`[PROMPT-DEFAULTS]` top block), offered **only when `INSTALL_FLATPAK=true`** —
+on ANY desktop, because the store is a Flathub GUI that runs under any DE, not
+a cosmic-only component. It follows the exact `[BRAVE-FLATPAK-GATE]` pattern:
+the Stage-1 prompt hides unless the Flatpak channel is on, and the Stage-2
+install site (DE-independent, sitting next to the other flatpak-gated
+deliveries) **re-checks `INSTALL_FLATPAK`** — a resume from an older state
+file that carried `store=yes && flatpak=no` gets a loud WARNING and a SKIP,
+never an xbps dependency pull past an explicit opt-out. The answer is threaded
+through the resume-state save list, `chroot_env.sh` (so the chroot sees it),
+the dry-run plan print, and the as-built `install-config` row; in-chroot the
+store installs via `install_cosmic cosmic-store` — the bluesloth repo,
+pinned-key trust-anchor verification, bare-`xbps-install` path (correctly
+outside `PKG_PREFLIGHT`, which only walks `install_pkgs` literals).
+
+**2. `[FLATPAK-PULL-DETECT]` — a Stage-2 safety net for the toggle's blind
+spots.** The toggle can't stop a *future metapackage revision* or a *manual*
+`xbps-install` from pulling flatpak into a run that declined it. So at the
+end of the chroot (right before `install-config` is written): if
+`INSTALL_FLATPAK != true` but flatpak is installed anyway, the install prints
+a loud WARNING with the reverse dependencies (`xbps-query -X flatpak` — who
+pulled it) and records `FLATPAK_PULLED_BY="<reverse deps>"` in the as-built
+config. Never FATAL — the decline is a preference and the detection exists to
+inform, not abort — which exactly matches the TODO Open Item's rule: *"Do NOT
+let the store pull flatpak past an explicit opt-out without surfacing it."*
+
+### Why the design was chosen this way
+
+- **Store ⇒ flatpak, never the reverse.** Flatpak without the store is a
+  perfectly good CLI channel (and this installer's first-boot Flatpak queue
+  already depends on that). Store without flatpak is broken UX (its Flathub
+  pages fail). So the coupling direction is one-way, enforced at the prompt
+  AND re-checked at the install site (both gates mirroring Brave).
+- **Why not doc-only:** the TODO's own failure mode was a *future* pull the
+  docs couldn't see.
+- **Why not install-time detection only:** detection catches surprises but
+  doesn't *offer* the store; the whole point was making it an option.
+- **`PKG_PREFLIGHT` deliberately unchanged:** the preflight and its drift-guard
+  only walk `install_pkgs` literals; cosmic packages are excluded from the
+  Stage-1 union-pool probe by design (third-party repo) and `install_cosmic`
+  is its own verified path, so `cosmic-store` correctly lives outside the
+  candidate list.
+
+Validation: `bash -n`, `check-heredocs.sh` ALL CLEAN (`[FLATPAK-PULL-DETECT]`
+lives inside `CHROOT_EOF`), `check-defaults.sh` ALL CONSISTENT
+(`DEFAULT_COSMIC_STORE` declared + wired), `check-pkg-preflight.sh` ALL
+COVERED, secret scrub clean (no credential material in any new line).
 
 ## Beta-v2.9.83 — `[COSMIC-REPO-ATTRIBUTION]` (the third-party-repo warning told the operator to audit a different repo than the one the installer actually trusts)
 

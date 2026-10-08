@@ -178,6 +178,11 @@
 
 - **`[*]` Install OctoXBPS (graphical package manager + update notifier)? [Y/n]**
 - **`[*]` Install Flatpak (+ Flathub)? [Y/n]**
+- **Install cosmic-store (COSMIC app store; Flatpak-only)? [y/N]** → only offered
+  when Flatpak was accepted (`INSTALL_FLATPAK=true`), on any desktop — the store
+  hard run-depends on `flatpak`, and the Stage-2 install re-checks the flag
+  (a stale resume state can't drag flatpak in past an opt-out). Default NO.
+  (Beta-v2.9.84 `[COSMIC-STORE]`.)
 - **Install Thunderbird (email client)? [y/N]** → if `y`: package installed, `@thunderbird` per-user subvol provisioned
 - **Install Steam (gaming client)? [y/N]** → if `y`: package installed (multilib), `@steam` per-user subvol provisioned
 - **`[*]` Set up web browsers now? (choose each one next) [y/N]** → gate; if `no`, all

@@ -562,7 +562,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.83"
+SCRIPT_VERSION="Beta-v2.9.84"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -848,6 +848,33 @@ SCRIPT_VERSION="Beta-v2.9.83"
 #                     `_cosmic_repo`, `_cosmic_audit`, the pin and every code
 #                     path are untouched.
 #                     SCRIPT_VERSION bumped Beta-v2.9.82 -> Beta-v2.9.83.
+#     Beta-v2.9.84   [COSMIC-STORE];[FLATPAK-PULL-DETECT] — cosmic-store
+#                     (the COSMIC app store, bluesloth repo) hard run-depends
+#                     on flatpak, but the installer never installed it and the
+#                     prompt gate INTENTIONALLY preconditioned INSTALL_FLATPAK
+#                     — an opt-out of Flatpak had no store to drag it back in.
+#                     Two layers, matching the decided design:
+#                     (1) [COSMIC-STORE] a real opt-in prompt
+#                     INSTALL_COSMIC_STORE (default NO), offered ONLY when
+#                     INSTALL_FLATPAK=true (any desktop — the store is a
+#                     Flathub GUI, not cosmic-only), resolved into a boolean,
+#                     threaded through resume-state, chroot_env and
+#                     install-config, and installed DE-independently at the
+#                     flatpak-gated deliveries site via install_cosmic()
+#                     (bluesloth repo, pinned-key path) with a Stage-2
+#                     flatpak re-check mirroring the Brave rule — store
+#                     implies flatpak is therefore structural; a stale resume
+#                     state carrying store=yes && flatpak=no WARNs and skips
+#                     instead of pulling flatpak in.
+#                     (2) [FLATPAK-PULL-DETECT] a Stage-2 safety net for the
+#                     paths the toggle cannot govern: if flatpak is DECLINED
+#                     but shows up installed anyway (a future metapackage rev
+#                     pulling it, or a manual install), the install warns
+#                     loudly and records FLATPAK_PULLED_BY="<reverse deps>"
+#                     (xbps-query -X flatpak) in install-config — the note's
+#                     "never let the store pull flatpak past an explicit
+#                     opt-out without surfacing it" rule, enforced even when
+#                     nobody's prompt was involved.
 #     Beta-v2.9.82   [COSMIC-KEY-AUTOIMPORT] — the COSMIC repo sync still
 #                     stopped at "Do you want to import this public key?
 #                     [Y/n]" even though the desktop menu already discloses
@@ -1042,6 +1069,7 @@ DEFAULT_HIBERNATION="${DEFAULT_HIBERNATION:-false}"   # enable suspend-to-disk? 
 DEFAULT_SNAPSHOT_AUDIO="${DEFAULT_SNAPSHOT_AUDIO:-false}"  # audio on snapshot boots? [y/N]
 DEFAULT_OCTOXBPS="${DEFAULT_OCTOXBPS:-false}"         # OctoXBPS GUI pkg mgr? [y/N]
 DEFAULT_FLATPAK="${DEFAULT_FLATPAK:-false}"           # Flatpak + Flathub? [y/N]
+DEFAULT_COSMIC_STORE="${DEFAULT_COSMIC_STORE:-false}"      # COSMIC app store (needs Flatpak)? [y/N]
 # AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: opt-in complement to
 # Flatpak — Homebrew (classic Linuxbrew) is the unsandboxed, user-owned
 # ~/.linuxbrew CLI/dev channel. Installs only the xbps runtime deps (git curl
@@ -3751,6 +3779,26 @@ case "$INSTALL_BREW_INPUT" in
 esac
 export INSTALL_BREW
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.84 [COSMIC-STORE]: opt-in COSMIC app
+# store. cosmic-store (bluesloth repo) hard run-depends on flatpak, so it
+# follows the SAME gate rule as Brave ([BRAVE-FLATPAK-GATE]): the prompt is
+# only shown when the Flatpak channel is on, and the Stage-2 install site
+# re-checks INSTALL_FLATPAK and refuses to install if a stale resume state
+# ever carried store=yes alongside flatpak=no — never a silent flatpak pull
+# past an explicit opt-out. Offered on ANY desktop, not just COSMIC (the store
+# is a Flathub GUI; it runs under any DE). Default NO.
+INSTALL_COSMIC_STORE="false"
+if [ "$INSTALL_FLATPAK" = "true" ]; then
+    ask "Install cosmic-store (COSMIC app store; Flatpak-only)? [y/N]: "
+    read -r INSTALL_COSMIC_STORE_INPUT
+    case "$INSTALL_COSMIC_STORE_INPUT" in
+        "") INSTALL_COSMIC_STORE="$DEFAULT_COSMIC_STORE" ;;
+        [yY]*) INSTALL_COSMIC_STORE="true" ;;
+        *) INSTALL_COSMIC_STORE="false" ;;
+    esac
+fi
+export INSTALL_COSMIC_STORE
+
 # AI (Big Pickle) ADDITION — Beta-v2.8.3 [INSTALL-APPS]: Thunderbird and Steam
 # become real install-time choices. Previously these only existed as
 # pre-create-only subvolume toggles (the installer never installed them). Both
@@ -5413,7 +5461,7 @@ DEVICE_PROFILE PROFILE_TLP PROFILE_BT PROFILE_PRELOAD \
                REPO_PRIMARY REPO_BACKUP1 REPO_BACKUP2 REPO_EXTRA1 REPO_EXTRA2 \
                LOCAL_CACHE_REUSE LOCAL_CACHE_DIR \
 DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
-INSTALL_FLATPAK INSTALL_BREW INSTALL_FIREFOX INSTALL_CHROMIUM \
+INSTALL_FLATPAK INSTALL_COSMIC_STORE INSTALL_BREW INSTALL_FIREFOX INSTALL_CHROMIUM \
                  INSTALL_VIVALDI INSTALL_FALKON INSTALL_BRAVE \
                  INSTALL_THUNDERBIRD INSTALL_STEAM INSTALL_VIRTUALBOX \
                  INSTALL_LUTRIS INSTALL_HEROIC INSTALL_BOTTLES INSTALL_WINE INSTALL_GAMEMODE INSTALL_ANY_GAME \
@@ -5486,7 +5534,7 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "  Encryption            : ${ENCRYPT:-no}${ENCRYPT:+$([ "$ENCRYPT" = "yes" ] && { [ "$YK_MODE" = "hmac-sha1" ] && echo " (LUKS2 full-disk + YubiKey hmac-sha1, fallback=$YK_FALLBACK)" || echo " (LUKS2 full-disk, passphrase at boot)"; } || true)}"
     echo "  Data regions (MULTI-FS): carved=['${REGION_PARTITIONED:-}'] home=${REGION_HOME_FS:-btrfs} var=${REGION_VAR_FS:-btrfs} cache=${REGION_CACHE_FS:-btrfs} srv=${REGION_SRV_FS:-btrfs} opt=${REGION_OPT_FS:-btrfs} games=${REGION_GAMES:-none}"
     echo "  Accounts model        : ${ACCOUNT_MODEL:-<unset>}"
-    echo "  App channels          : Flatpak=${INSTALL_FLATPAK:-no} Homebrew=${INSTALL_BREW:-no}"
+    echo "  App channels          : Flatpak=${INSTALL_FLATPAK:-no} cosmic-store=${INSTALL_COSMIC_STORE:-no} Homebrew=${INSTALL_BREW:-no}"
     echo "  Game launchers        : steam=${INSTALL_STEAM:-no} lutris=${INSTALL_LUTRIS:-no} heroic=${INSTALL_HEROIC:-no} bottles=${INSTALL_BOTTLES:-no} wine=${INSTALL_WINE:-no} gamemode=${INSTALL_GAMEMODE:-no}"
     echo "  Hardware              : GPU=${GPU_FAMILIES:-<none detected>} wireless=${WIFI_HW:-unknown}"
     echo "  NVIDIA driver         : ${INSTALL_NVIDIA:-auto}"
@@ -6749,6 +6797,7 @@ fi
 echo "export ENABLE_SNAPSHOT_AUDIO=\"$ENABLE_SNAPSHOT_AUDIO\"" >> /mnt/tmp/chroot_env.sh
 echo "export ACCOUNT_MODEL=\"$ACCOUNT_MODEL\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_FLATPAK=\"$INSTALL_FLATPAK\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_COSMIC_STORE=\"$INSTALL_COSMIC_STORE\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_BREW=\"$INSTALL_BREW\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_FIREFOX=\"$INSTALL_FIREFOX\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_CHROMIUM=\"$INSTALL_CHROMIUM\"" >> /mnt/tmp/chroot_env.sh
@@ -8313,6 +8362,9 @@ elif [ "$DESKTOP_ENV" = "cosmic" ]; then
     # handled by the independent DISPLAY_MANAGER choice above, and Firefox by
     # the independent browser toggles — both may be selected separately, so
     # only the metapackage is installed here.
+    # (cosmic-store is installed at its own DE-independent site next to the
+    # Brave/flatpak-gated deliveries — Beta-v2.9.84 [COSMIC-STORE] — so it is
+    # not bundled into this call.)
     install_cosmic cosmic-desktop-full
     # AI (Big Pickle) FIX — Beta-v2.9.75 [XKB-CONFIG-QUOTING]: the
     # cosmic-desktop-full xbps post-install hook (srcpkgs/cosmic-desktop-full/INSTALL)
@@ -8722,6 +8774,25 @@ if [ "$INSTALL_BRAVE" = "true" ]; then
         chown -R "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.config/void-installer"
     else
         echo "WARNING: Brave was selected but Flatpak was not — Brave has no official Void package, so it will NOT be installed. Install Flatpak later and run 'flatpak install flathub com.brave.Browser', or use another method of your choosing." >&2
+    fi
+fi
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.84 [COSMIC-STORE]: the store install
+# site. Lives HERE — DE-independent, next to the other flatpak-gated
+# deliveries — because cosmic-store is a flatpak-ecosystem GUI that runs under
+# any desktop, not just COSMIC. install_cosmic() (bluesloth repo, pinned-key
+# verification, bare `xbps-install` path excluded from PKG_PREFLIGHT) installs
+# it on ANY desktop when opted in. The flatpak re-check mirrors the Brave rule
+# exactly: the Stage-1 prompt only offers the store when INSTALL_FLATPAK=true,
+# so this second check is defense-in-depth for a resume from an older state
+# file that could carry store=yes alongside flatpak=no — then we WARN and
+# SKIP, never let xbps pull flatpak in past an explicit opt-out.
+if [ "$INSTALL_COSMIC_STORE" = "true" ]; then
+    if [ "$INSTALL_FLATPAK" = "true" ]; then
+        echo "==> cosmic-store has no official Void package — installed from the bluesloth COSMIC repo (Flatpak is already on per the channel choice)."
+        install_cosmic cosmic-store
+    else
+        echo "WARNING: cosmic-store was selected but Flatpak was not — the store hard run-depends on flatpak, so it will NOT be installed." >&2
     fi
 fi
 
@@ -9577,6 +9648,26 @@ SSH_KEY_PROTECTED=\"${SSH_KEY_PROTECTED:-<unset>}\""
 else
     _ssh_key_rows="# (no SSH key imported or generated — comment/protection rows omitted)"
 fi
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.84 [FLATPAK-PULL-DETECT]: safety net
+# for the toggle's blind spots. The [COSMIC-STORE] prompt only appears when
+# INSTALL_FLATPAK=true and its Stage-2 install site re-checks the flag (the
+# Brave rule) — but nothing can stop a FUTURE metapackage revision (or a
+# manual xbps-install) from pulling flatpak into a run where the operator
+# explicitly declined it at the prompt. When INSTALL_FLATPAK=false but flatpak
+# still ends up installed, this warns loudly and records WHO pulled it
+# (xbps-query -X flatpak = reverse dependencies) in the as-built install-config
+# — surfacing the opt-out violation instead of letting it pass silently. Never
+# FATAL: the operator's decline is a preference, and the detection exists to
+# inform, not abort.
+FLATPAK_PULLED_BY=""
+if [ "$INSTALL_FLATPAK" != "true" ] && xbps-query -p pkgver flatpak >/dev/null 2>&1; then
+    FLATPAK_PULLED_BY="$(xbps-query -X flatpak 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+    echo "WARNING: [FLATPAK-PULL-DETECT] Flatpak was declined at the prompt (INSTALL_FLATPAK=false) but IS installed on this system." >&2
+    echo "         Reverse dependencies (who pulled it): ${FLATPAK_PULLED_BY:-unknown}" >&2
+    echo "         This is recorded in /etc/void-installer/install-config as FLATPAK_PULLED_BY." >&2
+fi
+
 cat > /etc/void-installer/install-config << INNER_EOF
 # Void Linux Installer — install-time configuration for THIS machine.
 # Written by Void_Linux_Installer.sh (v${SCRIPT_VERSION}) at install time.
@@ -9655,6 +9746,13 @@ MICROCODE_DECIDED="${MICROCODE_DECIDED:-<unset>}"
 # Heroic/Bottles ship via that first-boot Flatpak queue, so INSTALL_FLATPAK is
 # the gate row that explains why (or why not) they're present. Public flags only.
 INSTALL_FLATPAK="${INSTALL_FLATPAK:-false}"
+INSTALL_COSMIC_STORE="${INSTALL_COSMIC_STORE:-false}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.84 [FLATPAK-PULL-DETECT]: when Flatpak
+# was DECLINED at the prompt (INSTALL_FLATPAK=false) but is installed anyway
+# (a future metapackage revision or a manual install pulled it), this row
+# records who pulled it (reverse deps via `xbps-query -X flatpak`). Empty when
+# Flatpak is absent or was accepted. Public facts only.
+FLATPAK_PULLED_BY="${FLATPAK_PULLED_BY:-}"
 INSTALL_BRAVE="${INSTALL_BRAVE:-false}"
 # AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: record the Homebrew
 # channel decision + its (separate, opt-in) subvolume isolation flag. Public

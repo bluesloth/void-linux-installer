@@ -109,7 +109,7 @@
   already proved the binary runs clean indefinitely given session env, so
   the guard's only job is correct timing/respawn).
 
-## cosmic-store pulls flatpak if installed — DISCUSS install toggle (2026-10-06)
+## cosmic-store pulls flatpak if installed — RESOLVED as INSTALL_COSMIC_STORE (Beta-v2.9.84)
 - `cosmic-store` (1.9.0, bluesloth repo) runtime-depends on `flatpak` —
   verified with `xbps-query -R cosmic-store` (`run_depends: flatpak`) — so
   **installing cosmic-store** auto-installs the flatpak package even when the
@@ -119,17 +119,21 @@
   auto-resolves the store's dependency regardless). No file/pkg conflict —
   same Void repo package, nothing pinned — purely a scope/behavior surprise
   for opt-outs.
-- **NOT A LIVE BUG TODAY:** the script never installs `cosmic-store` — zero
-  references in `Void_Linux_Installer.sh` / `CHANGELOG.md` / `Debug/`, and it
-  is absent from the installed package inventory of the 2026-10-07
-  Beta-v2.9.83 fresh install. This item only matters if/in when the store is
-  installed explicitly or added to a meta.
+- **SOLVED 2026-10-07 (Beta-v2.9.84, `[COSMIC-STORE]` + `[FLATPAK-PULL-DETECT]`):**
+  - New opt-in prompt `INSTALL_COSMIC_STORE` (default NO), offered ONLY when
+    `INSTALL_FLATPAK=true` (any desktop — the store is a Flathub GUI, not
+    cosmic-only); Stage-2 install re-checks `INSTALL_FLATPAK` and WARNs + skips
+    if a stale resume state carried store=yes && flatpak=no — mirroring the
+    Brave gate exactly, never a silent flatpak pull.
+  - Installed in-chroot as a second package in the same `install_cosmic()`
+    call as `cosmic-desktop-full` (same bluesloth repo, same pinned-key path).
+  - `[FLATPAK-PULL-DETECT]` Stage-2 safety net covers the toggle's blind
+    spots (a future `cosmic-desktop-full` revision or a manual
+    `xbps-install`): declined flatpak that still lands installed triggers a
+    loud WARNING + `FLATPAK_PULLED_BY="<reverse deps>"` row in install-config.
+  - Threaded through resume-state, chroot_env, dry-run plan, install-config.
 - NOTE: `cosmic-store` is deliberately **NOT in `cosmic-desktop-full`'s
-  depends** (`_7`, 47 deps — re-verified: 0 matches) — same conclusion.
-- OPEN ITEM: add an explicit user toggle (e.g. `INSTALL_COSMIC_STORE`) that
-  keeps `cosmic-store` optional and documents its flatpak pull, or document
-  the auto-install on the FLATPAK prompt. Do NOT let the store pull flatpak
-  past an explicit opt-out without surfacing it.
+  depends** (`_7`, 47 deps — re-verified: 0 matches) — unchanged conclusion.
 - Line references deliberately omitted (they rot on every version bump — an
   earlier draft said "line 8415", already wrong by 2.9.83); find the gate by
   the `install_pkgs flatpak fuse fuse3` literal instead.
