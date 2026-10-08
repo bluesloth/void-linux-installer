@@ -1271,6 +1271,22 @@ A separate, **non-fatal** cosmetic defect was observed and deliberately NOT touc
 RON** (`config: {` where RON requires `(`) — cosmic-comp 1.9 wrote a file it cannot itself re-read.
 It only produces the benign `Randr` warning above, and deleting it just regenerates it.
 
+> **CORRECTION (2026-10-08, upstream duplicate-search):** the claim in the paragraph above is
+> **wrong** — `outputs.ron` is valid RON. `OutputsConfig.config` is a
+> `HashMap<Vec<OutputInfo>, Vec<OutputConfig>>` (`cosmic-comp-config/src/output/comp.rs`), so
+> `config: { […]: […] }` is correct *map* syntax, not a struct needing `(`; the file is written
+> (`ron::ser::to_string_pretty`) and re-read (`ron::de::from_reader`) by the same cosmic-comp
+> binary (ron 0.11/0.12 in both Cargo.locks), and the exact failure string
+> `Failed to read output_config` has **zero** reports anywhere on GitHub. The round-6
+> `RonSpanned ExpectedComma line 4 col 11` error the incident README attributed to outputs.ron
+> came from `CosmicCompConfig::get_entry` reading the **`xkb_config`** cosmic-config file — the
+> position matches the corrupted `layout: ""us""` on line 4 exactly (empty string ends col 10,
+> stray `u` at col 11), i.e. the Beta-v2.9.75 bug, as that entry itself already stated ("a
+> byte-identical, VALID copy"); `Debug/Cosmic-Greeter/triage10-wayland-debug.md` likewise records
+> "outputs.ron well-formed". The benign `Randr` warning above is greeter-side `exec_randr`
+> ("no saved layout list matches" — the user's outputs.ron did not exist yet at that moment),
+> unrelated to parsing this file.
+
 ### Fix
 
 - The COSMIC DE branch now **ENSURES** the file instead of repairing it:
