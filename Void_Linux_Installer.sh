@@ -215,7 +215,10 @@
 #     the prompt; toggle defaults are literal true/false.
 #   - Virtualization: QEMU/KVM + libvirt on a custom `br0` bridge (built natively
 #     via NetworkManager connection profile tracking configurations at boot),
-#     NOT libvirt's default NAT `virbr0` (explicitly disabled on first boot — see rc.local).
+#     NOT libvirt's default NAT `virbr0` (disabled on first boot whenever the
+#     br0 NM profile was written — see rc.local; Beta-v2.9.86 [BR0-SKIP] keeps
+#     virbr0 ENABLED as the VM-networking fallback on machines with no wired
+#     NIC at all, where the whole br0 pair is skipped).
 #     AI (Big Pickle) FIX — Beta-v2.5.2 [NM-IFACE]: NM's `[connection]
 #     interface-name=` is a LITERAL device name, not a glob (only `[match]`
 #     globs). The NIC-detection fallback `NET_INTERFACE_MATCH="enp*"` is therefore
@@ -562,7 +565,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.85"
+SCRIPT_VERSION="Beta-v2.9.86"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -903,6 +906,36 @@ SCRIPT_VERSION="Beta-v2.9.85"
 #                     can no longer qualify as a "USB NIC"). No prompt,
 #                     defaults or package surface changed.
 #                     SCRIPT_VERSION bumped Beta-v2.9.84 -> Beta-v2.9.85.
+#     Beta-v2.9.86   [BR0-SKIP] — skip the whole br0 bridge when the machine
+#                     has NO physical wired NIC at all (pure-Wi-Fi/WWAN box).
+#                     INSTALL_VIRT used to write br0 + a role-matched
+#                     br0-slave unconditionally: on a wired-less machine the
+#                     bridge could never have a member (DHCP loop, dead
+#                     weight), the free-roaming slave would adopt whatever
+#                     USB NIC / tethering phone appeared later, and rc.local
+#                     STILL force-killed virbr0 on first boot — so the
+#                     "bridged" virt build landed with ZERO VM networking
+#                     (the round-10 topology: BR0_NIC=<unset>, enp*
+#                     placeholder, br0 with no member). The skip trigger is a
+#                     new has_wired_nic_hw() hardware-presence predicate
+#                     (physical `device` link + no `wireless` dir + name skip
+#                     list; carrier/USB irrelevant), NOT detect_wired_nic()'s
+#                     result — an unplugged built-in PCIe port still keeps
+#                     the role-matched slave, so a cable plugged in later
+#                     just works (2.9.85's helper stays the selector). An
+#                     EMPTY NET_INTERFACE_MATCH is the explicit skip signal,
+#                     already threaded through resume state + chroot_env: it
+#                     gates the Stage-2 profile pair, qemu's bridge.conf
+#                     allow, and a new install-config VIRT_BR0 row (created /
+#                     skipped / n/a). rc.local now tears down virbr0 only
+#                     when the br0 profile file exists (disk-state check, no
+#                     NM timing) — virbr0 stays ENABLED as the VM-networking
+#                     fallback, and [NFT-VIRT-GATE]'s virbr* forward accepts
+#                     already cover it firewall-side. NOTICEs at the virt
+#                     block, the re-probe and the write site announce the
+#                     outcome (auto-skip, no new prompt). No prompt,
+#                     DEFAULT_* or package surface changed.
+#                     SCRIPT_VERSION bumped Beta-v2.9.85 -> Beta-v2.9.86.
 #     Beta-v2.9.82   [COSMIC-KEY-AUTOIMPORT] — the COSMIC repo sync still
 #                     stopped at "Do you want to import this public key?
 #                     [Y/n]" even though the desktop menu already discloses
@@ -2016,6 +2049,32 @@ detect_wired_nic() {
         case "$(readlink -f "$_dn_if/device" 2>/dev/null || :)" in
             *usb*) printf '%s\n' "$_dn_name"; return 0 ;;
         esac
+    done
+    return 1
+}
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.86 [BR0-SKIP]: the hardware-presence
+# predicate behind the br0-skip decision — answers "is there ANY physical
+# wired netdev on this machine", carrier and USB irrelevant. detect_wired_nic
+# answers a different question ("which NIC should we USE right now": active
+# link first, then a present USB device); an unplugged built-in PCIe port
+# returns empty from it even though the hardware exists, so its result alone
+# must NOT drive the skip — that would kill the bridge on a cable-unplugged
+# desktop a later plug-in would fix via the role-matched br0-slave.
+# Protection set mirrors the helper's passes (physical `device` link, no
+# `wireless` dir, name skip list) minus the carrier/USB requirements.
+# CONDITION-ONLY under set -eE: returns 1 when absent — call from if/elif
+# only, never bare (the 2.9.85 ERR-trap rule).
+has_wired_nic_hw() {
+    local _hw_if _hw_name
+    for _hw_if in /sys/class/net/*; do
+        [ -e "$_hw_if/device" ] || continue          # physical only — drops lo/br0/docker0/veth/...
+        [ -d "$_hw_if/wireless" ] && continue         # never a radio
+        _hw_name="${_hw_if##*/}"
+        case "$_hw_name" in
+            lo|ww*|wl*|bn*|bt*|dm-*) continue ;;      # non-wired by name (same list as detect_wired_nic)
+        esac
+        return 0
     done
     return 1
 }
@@ -4773,6 +4832,10 @@ echo "just the device itself) — moving it to a different port later can"
 echo "change its detected name, and the bridge configuration written by"
 echo "this installer won't automatically follow that change."
 echo ""
+echo "If NO wired interface is found at all, the br0 bridge will be"
+echo "skipped entirely and libvirt's default NAT network (virbr0) left"
+echo "enabled instead — so your VMs still get working networking."
+echo ""
 echo "${C_YLW}${C_BOLD}  When ready, press Enter to continue.${C_RST}"
 read -r -p "Press Enter once ready to continue: " _
 # End of the skipped-on-resume interactive configuration block.
@@ -4794,9 +4857,27 @@ DETECTED_NIC="$(detect_wired_nic || true)"
 
 if [ -n "$DETECTED_NIC" ]; then
     export NET_INTERFACE_MATCH="$DETECTED_NIC"
-else
-    echo "WARNING: could not auto-detect a physical ethernet interface — falling back to 'enp*' (may not match any real device)." >&2
+elif has_wired_nic_hw; then
+    # AI (Big Pickle) CHANGE — Beta-v2.9.86 [BR0-SKIP]: a wired port EXISTS
+    # but has no active link right now (built-in PCIe, cable unplugged — not
+    # USB, or pass 2 would have found it). Keep the role-matched fallback
+    # slave exactly as before so plugging the cable in later still binds the
+    # bridge: this is the case the skip must NOT swallow.
+    echo "WARNING: a wired ethernet port is present but has no active link — falling back to role-matched 'enp*' so plugging a cable in later still binds the br0 slave." >&2
     export NET_INTERFACE_MATCH="enp*"
+else
+    # AI (Big Pickle) CHANGE — Beta-v2.9.86 [BR0-SKIP]: NO wired hardware at
+    # all (pure-Wi-Fi / WWAN-only box). An EMPTY NET_INTERFACE_MATCH is the
+    # explicit skip signal — it is already persisted to resume state and
+    # chroot_env, and Stage-2 writes neither br0 profile on it, while
+    # rc.local keeps virbr0 enabled as the VM-networking fallback.
+    export NET_INTERFACE_MATCH=""
+    if [ "$INSTALL_VIRT" = "true" ]; then
+        echo "NOTICE: no wired network interface found on this machine."
+        echo "        The br0 bridge will be SKIPPED; libvirt's default NAT"
+        echo "        network (virbr0) stays enabled so your VMs still get"
+        echo "        working networking out of the box."
+    fi
 fi
 
 fi
@@ -7730,7 +7811,10 @@ if [ "$ACCOUNT_MODEL" != "debian" ]; then
     chmod 440 /etc/sudoers.d/wheel
 fi
 
-if [ "$INSTALL_VIRT" = "true" ]; then
+# AI (Big Pickle) CHANGE — Beta-v2.9.86 [BR0-SKIP]: no br0 profile on a skip
+# → no allowlist entry for a bridge that will never exist (harmless either
+# way, but the artifacts should tell one consistent story).
+if [ "$INSTALL_VIRT" = "true" ] && [ -n "${NET_INTERFACE_MATCH:-}" ]; then
 mkdir -p /etc/qemu
 cat > /etc/qemu/bridge.conf << 'INNER_EOF'
 allow br0
@@ -9059,7 +9143,15 @@ ipv4.dhcp-iaid=mac
 ipv6.dhcp-duid=ll
 INNER_EOF
 
-if [ "$INSTALL_VIRT" = "true" ]; then
+# AI (Big Pickle) CHANGE — Beta-v2.9.86 [BR0-SKIP]: write the bridged pair
+# ONLY when the re-probe left a real answer. An EMPTY NET_INTERFACE_MATCH is
+# the explicit "no wired hardware at all — skip br0" signal (previously an
+# unconditional WARNING + "enp*" placeholder wrote a bridge that could never
+# have a member on a Wi-Fi-only box, while rc.local still killed virbr0 —
+# leaving virt with NO VM networking — and the role-matched slave stayed free
+# to adopt whatever USB NIC showed up later). The value round-trips through
+# resume state + chroot_env, so a resumed run keeps the same decision.
+if [ "$INSTALL_VIRT" = "true" ] && [ -n "${NET_INTERFACE_MATCH:-}" ]; then
 mkdir -p /etc/NetworkManager/system-connections
 
 cat > /etc/NetworkManager/system-connections/br0.nmconnection << 'INNER_EOF'
@@ -9104,6 +9196,11 @@ slave-type=bridge
 INNER_EOF
 unset _SLV_IFACE_LINE
 chmod 600 /etc/NetworkManager/system-connections/br0-slave.nmconnection
+elif [ "$INSTALL_VIRT" = "true" ]; then
+    # AI (Big Pickle) ADDITION — Beta-v2.9.86 [BR0-SKIP]: announce the skip at
+    # the actual write site too — a RESUMED run (whose re-probe NOTICE already
+    # printed in the interrupted run) still records the outcome in this log.
+    echo "NOTICE: [BR0-SKIP] no wired NIC — br0/br0-slave profiles skipped; virbr0 stays enabled as the VM-networking fallback."
 fi
 
 mkdir -p /etc/sysctl.d
@@ -9712,6 +9809,22 @@ if [ "$INSTALL_FLATPAK" != "true" ] && xbps-query -p pkgver flatpak >/dev/null 2
     echo "         This is recorded in /etc/void-installer/install-config as FLATPAK_PULLED_BY." >&2
 fi
 
+# AI (Big Pickle) ADDITION — Beta-v2.9.86 [BR0-SKIP]: as-built record of the
+# bridged-profile decision. Same condition as the Stage-2 profile gate, so the
+# row always matches what was actually written: "created" = the br0/br0-slave
+# pair exists; "skipped (no wired NIC; virbr0 kept)" = no physical wired NIC
+# at all (NET_INTERFACE_MATCH empty) — rc.local likewise suppressed the
+# virbr0 teardown, so virbr0 is the live VM-network path; "n/a" = no
+# virtualization chosen. Public fact only, per this file's secret-free rule.
+VIRT_BR0="n/a"
+if [ "$INSTALL_VIRT" = "true" ]; then
+    if [ -n "${NET_INTERFACE_MATCH:-}" ]; then
+        VIRT_BR0="created"
+    else
+        VIRT_BR0="skipped (no wired NIC; virbr0 kept)"
+    fi
+fi
+
 cat > /etc/void-installer/install-config << INNER_EOF
 # Void Linux Installer — install-time configuration for THIS machine.
 # Written by Void_Linux_Installer.sh (v${SCRIPT_VERSION}) at install time.
@@ -9783,6 +9896,9 @@ INSTALL_NVIDIA="${INSTALL_NVIDIA:-<unset>}"
 # NIC that feeds the bridged VM network are public as-built facts recorded here
 # alongside the other hardware review data.
 BR0_NIC="${BR0_NIC:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.86 [BR0-SKIP]: created / skipped /
+# n/a — computed just above this heredoc; mirrors the Stage-2 profile gate.
+VIRT_BR0="${VIRT_BR0:-n/a}"
 MICROCODE_PKG="${MICROCODE_PKG:-<unset>}"
 MICROCODE_DECIDED="${MICROCODE_DECIDED:-<unset>}"
 # AI (Big Pickle) ADDITION — Beta-v2.9.46 [INSTALL-CONFIG-FLATPAK]: record the
@@ -12843,7 +12959,15 @@ if [ ! -f /var/log/firstboot.log ]; then
     # wait below used to run unconditionally; on a non-virt install
     # /run/libvirt/libvirt-sock never appears, so every first boot burned a
     # full 15 seconds sleeping through this loop before rc.local moved on.
-    if [ "__INSTALL_VIRT__" = "true" ]; then
+    # AI (Big Pickle) CHANGE — Beta-v2.9.86 [BR0-SKIP]: the teardown now also
+    # requires the br0 NM profile to actually EXIST. The file lands on disk at
+    # install time, so this is a pure disk-state check with no NM-timing
+    # dependency; on a machine with NO wired NIC the br0 pair was skipped and
+    # virbr0 must STAY enabled — it is the VM-networking fallback, so a virt
+    # install can never land with zero networking (the old unconditional kill
+    # did exactly that on a Wi-Fi-only topology). A resumed run reaches the
+    # same decision: the profile presence is decided in Stage-2 and survives.
+    if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connections/br0.nmconnection ]; then
         for i in $(seq 1 15); do
             if [ -S /run/libvirt/libvirt-sock ]; then
                 break

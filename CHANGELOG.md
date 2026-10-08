@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.85** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.86** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -132,6 +132,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.74** | `[USB-AUTOMOUNT]` — a COSMIC install had no removable-media automounter: udisks2 was installed (as a cosmic-files dependency) but its D-Bus-only activation unit meant udisksd was never reliably running on runit, and there was no udiskie/gvfs in the COSMIC path (gvfs automount only covers the GNOME/KDE/Cinnamon/MATE/Xfce/LXQt branches). The COSMIC DE branch now installs `udiskie` and autostarts it via a session-readiness guard (`/usr/local/sbin/udiskie-guard`, mirroring the polkit-agent guard), and the installer writes + first-boot-links a supervised `/etc/sv/udisksd` service. `udiskie`/`udisks2` added to PKG_PREFLIGHT | Beta-v2.9.73 below |
 | **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 | **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
+| **Beta-v2.9.86** | `[BR0-SKIP]` — a virt install on a machine with **no physical wired NIC at all** (pure-Wi-Fi/WWAN) no longer writes a dead `br0` + free-roaming role-matched `br0-slave` and then force-kills virbr0 on first boot — that combination left the "bridged" build with **zero VM networking** while the slave sat ready to adopt whatever USB NIC / tethering phone appeared later (the round-10 topology: `BR0_NIC="<unset>"`, `enp*` placeholder, `br0` with no member). The skip trigger is a new `has_wired_nic_hw()` hardware-presence predicate (physical `device` link + no `wireless` dir + name skip list; carrier/USB irrelevant) rather than `detect_wired_nic()`'s result — a cable-unplugged built-in port therefore keeps the role-matched slave (plugging in later still works) while a wired-less box skips; an EMPTY `NET_INTERFACE_MATCH` is the explicit skip signal, already threaded through resume-state + chroot_env, and it gates the Stage-2 profile pair, qemu's `bridge.conf` allow, and a new `install-config` `VIRT_BR0` row (created / skipped / n/a); rc.local tears virbr0 down only when the `br0.nmconnection` file exists (disk-state check, no NM timing), so virbr0 stays **enabled** as the VM-networking fallback — `[NFT-VIRT-GATE]`'s `virbr*` forward accepts already cover it firewall-side. NOTICEs at the virt block, the re-probe and the write site; auto-skip, no new prompt/defaults/packages. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.85 below |
 | **Beta-v2.9.85** | `[NIC-DETECT-USB]` — the Stage-1 `[NIC-DETECT]` review's USB fallback globbed `/sys/devices/*/net/*` — bash `*` never crosses a `/`, so it only ever matched `/sys/devices/virtual/net/*` (lo/br0/docker0/virbr0), every one of which fails the usb-subsystem test: **dead code that could never detect real hardware** (a USB NIC's `net` dir sits ~6 levels deep, e.g. `…/usb2/2-1/2-1.1/2-1.1:1.0/net/<iface>`). A physically-present-but-unplugged USB ethernet adapter — the documented "cable optional" promise — therefore always read `(none detected …)` and was recorded `BR0_NIC="<unset>"`: live on the round-10 box (ASIX AX88179 present, `install-config` says `<unset>`). The INSTALL_VIRT late re-probe's fallback (`readlink -f device` ~ `*usb*`) was correct, so the `br0-slave` binding itself never suffered — but the two probe sites could disagree (and the review's carrier loop had no physical-device check at all). Both sites now call one shared `detect_wired_nic()` helper — carrier-active physical wired NIC first, then any physically-present USB device regardless of carrier — defined at unconditional top level above the resume guard (2.9.78's `_region_fs_of` lesson), with the protection sets merged (`device` link + no `wireless` dir + name skip list: the re-probe gains the name skip, so a Bluetooth-USB netdev can no longer qualify as a "USB NIC"). No prompt/defaults/package surface changed. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.84 below |
 | **Beta-v2.9.84** | `[COSMIC-STORE]`/`[FLATPAK-PULL-DETECT]` — `cosmic-store` (the bluesloth COSMIC app store) hard run-depends on `flatpak`, but the installer never installed it, so the prompt gate intentionally preconditioned `INSTALL_FLATPAK` — an opt-out of Flatpak had no store to drag it back in. Two layers: (1) a real opt-in prompt `INSTALL_COSMIC_STORE` (default NO), offered ONLY when `INSTALL_FLATPAK=true` (any desktop — the store is a Flathub GUI), threaded through resume-state/chroot_env/install-config, and installed DE-independently at the flatpak-gated deliveries site via `install_cosmic()` with a Stage-2 flatpak re-check mirroring the Brave rule — a stale resume state carrying store=yes && flatpak=no WARNs and skips, never pulling flatpak in; (2) a Stage-2 `[FLATPAK-PULL-DETECT]` safety net: if flatpak is DECLINED but shows up installed anyway (a future metapackage rev or a manual install), the install warns loudly and records `FLATPAK_PULLED_BY="<reverse deps>"` (from `xbps-query -X flatpak`) in `install-config` — the "never let the store pull flatpak past an explicit opt-out without surfacing it" rule, enforced even when no prompt was involved. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.83 below |
 | **Beta-v2.9.83** | `[COSMIC-REPO-ATTRIBUTION]` — the COSMIC disclosure named the wrong repo: the DE menu (option 7), the ARCHITECTURE SUMMARY and `install_cosmic()`'s own header comment all pointed the operator at REDACTED REDACTED's REDACTED packaging (`github.com/REDACTED/void-packages`, `repo.REDACTED.de`) as the source being trusted — but the URL the installer has actually added since Beta-v2.9.73 is `https://bluesloth.github.io/void-cosmic-repo/` (audit `github.com/bluesloth/void-cosmic-repo`), signed and published by the companion `Void_Cosmic_Repo` packager project from templates built from scratch, tracking upstream System76 / Pop!_OS COSMIC. A third-party trust warning is only useful if the name and link in it are the ones you actually audit, so this mattered: it named a repo the installer never contacted, while two comments still carried claims that had since inverted or been superseded — "the documented old github.io URL is now stale — it serves a web page, not an xbps index" (github.io now serves a working `x86_64-repodata`; it is `repo.REDACTED.de` that went unused) and "the repo's signing key is whatever the maintainer publishes with the repo" (superseded by the Beta-v2.9.76 pin). Menu + comments now carry the real repo URL, its audit link, its lineage and the pinned-key statement; CHANGELOG entries written before 2.9.73 stay as history. Text-only: `_cosmic_repo`, `_cosmic_audit`, `_cosmic_key_expected` and every code path unchanged. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.82 below |
@@ -809,6 +810,106 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.86 — `[BR0-SKIP]` (a virt install on a wired-less machine no longer builds a dead br0 and kills virbr0 — the bridge is skipped and virbr0 becomes the VM-networking fallback)
+
+`SCRIPT_VERSION` bumped to `Beta-v2.9.86`; era row added to the script header
+VERSION-HISTORY; index row added above; this section added as the newest
+detail section. No prompt/defaults/package surface changed, so
+INSTALL_PROMPTS.md is untouched and both prompt/package gates have no new
+inputs.
+
+### What was wrong
+
+`INSTALL_VIRT` gated the bridged networking on itself and nothing else. The
+Stage-2 block always wrote `br0.nmconnection` + `br0-slave.nmconnection`;
+whenever detection fell back to the `enp*` placeholder the slave's
+`interface-name=` was omitted (role-matched: "any free ethernet device");
+and first-boot rc.local unconditionally ran `virsh net-destroy default` +
+`virsh net-autostart default --disable`. On a machine with no wired NIC at
+all — the round-10 box's topology, Wi-Fi only — that produced a specific
+triple failure:
+
+1. a bridge that could never have a member (DHCP loops, dead weight;
+   `BR0_NIC="<unset>"`, `NET_INTERFACE_MATCH="enp*"` recorded);
+2. a role-matched slave free to adopt ANY ethernet device that appeared
+   later — a USB NIC bought for another purpose, a tethering phone — into
+   `br0` behind the user's back;
+3. and, because virbr0 was killed anyway, **zero VM networking at all**,
+   while the as-built record claimed "bridged br0".
+
+### The fix — hardware-presence trigger, explicit skip, virbr0 fallback
+
+1. **`has_wired_nic_hw()`** — a new predicate at unconditional top level
+   next to `detect_wired_nic()` (2.9.78 placement rule): physical `device`
+   link + no `wireless` dir + the shared name-skip list, carrier and USB
+   irrelevant. It answers "is there wired hardware"; `detect_wired_nic()`
+   keeps answering "which NIC should we use".
+2. **The late re-probe is now three-way.** Detected name → concrete
+   binding (unchanged). Hardware present but no link → WARNING + the
+   `enp*` role-matched fallback (unchanged — this is the cable-unplugged
+   PCIe case the skip must NOT swallow). No hardware at all → an EMPTY
+   `NET_INTERFACE_MATCH` as the explicit skip signal + a NOTICE. Empty
+   needs no new state variable: it already round-trips through the
+   resume-state persist list and `chroot_env.sh`.
+3. **Stage-2** writes the pair only when `INSTALL_VIRT=true && -n
+   NET_INTERFACE_MATCH`, with an else-NOTICE at the write site so a
+   resumed run still records the outcome; qemu's `bridge.conf` `allow br0`
+   gets the same gate.
+4. **rc.local** tears virbr0 down only when
+   `/etc/NetworkManager/system-connections/br0.nmconnection` exists. Skip
+   → virbr0 stays enabled → VMs get NAT networking out of the box;
+   `[NFT-VIRT-GATE]` already emits `virbr*` forward accepts whenever
+   `INSTALL_VIRT=true`, so the fallback is firewall-clean with no nft
+   change and no new forward rules on the br0 path.
+5. **install-config** gains a `VIRT_BR0` row (`created` /
+   `skipped (no wired NIC; virbr0 kept)` / `n/a`) computed with the same
+   condition as the profile gate, so the as-built record always matches
+   what was actually written.
+
+### Why the design was chosen this way
+
+- **Hardware presence, not "detection empty".** After 2.9.85 an empty
+  `detect_wired_nic()` result means either "no wired hardware" or
+  "built-in port, no cable" (pass 1 needs carrier; pass 2 needs a USB
+  path). Skipping on the former is right; skipping on the latter would
+  break the plug-a-cable-later path the role-matched slave exists for.
+- **virbr0 as fallback, not victim.** The strict alternative — skip br0
+  and still kill virbr0 — delivers a virt install with no networking at
+  all. Keeping the default NAT network only where br0 is impossible
+  preserves the "prefer br0" architecture stance everywhere it applies:
+  machines WITH a wired NIC behave byte-identically to 2.9.85.
+- **The skip signal is an empty value, not a new flag.** `NET_INTERFACE_MATCH`
+  is already persisted and consumed by exactly the two things that should
+  skip (the profile pair, the qemu allowlist), threading `-r` resumes with
+  zero new state surface — verified by the gate matrix: empty → skip,
+  `enp*` → role-matched write, concrete name → literal write, non-virt →
+  skip.
+- **Auto-skip, no prompt.** With no wired hardware there is one sensible
+  outcome; the NOTICE sets expectations before the Enter pause and reports
+  the result after. (A "create br0 anyway for a later NIC?" prompt was
+  considered and rejected — it would add a `DEFAULT_*` knob for a case
+  with one right answer; the manual path stays open post-install.)
+- **rc.local checks the profile FILE, not the live link.** rc.local runs
+  in runit stage 2 around/BEFORE NetworkManager brings bridges up, so an
+  `ip link show br0` check would race NM: on a legitimate br0 install it
+  could find no bridge yet and wrongly leave virbr0 enabled. The profile
+  file is written at install time and never changes underneath rc.local —
+  a pure disk-state decision with no timing dependency.
+
+Validation: `bash -n` clean; `check-heredocs.sh` 72 heredocs ALL CLEAN
+(STAGE-2-CHROOT 6173 lines, rc.local 192 lines); `check-defaults.sh` ALL
+CONSISTENT (73 defaults, none added); `check-pkg-preflight.sh` ALL COVERED
+(164 preflight packages). Live exercise on the round-10 box under `set -eE`
++ a stub ERR trap with the REAL extracted functions: the predicate trace
+counts only `enp3s0f3u1u1` (physical, non-wireless) and excludes
+`wlo1`/`lo`/`br0`/`docker0`/`virbr0`; `detect_wired_nic` → `enp3s0f3u1u1`
+(branch 1); forced-empty detection + real predicate → branch 2 (role-matched
+fallback) trap-free; not-found stubs → branch 3 with the NOTICE and
+`NET_INTERFACE_MATCH=''` trap-free; the real predicate body's return-1
+fall-through (empty-world glob) is trap-free in condition context; all four
+Stage-2 gate combinations correct. Version-ritual grep: only deliberate
+historical 2.9.85 references remain; secret scrub clean.
 
 ## Beta-v2.9.85 — `[NIC-DETECT-USB]` (the review's USB-ethernet fallback was dead code — both wired-NIC probes now share one helper)
 
