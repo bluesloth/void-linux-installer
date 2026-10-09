@@ -3596,7 +3596,7 @@ echo "  ${C_BOLD}6)${C_RST} LXQt (X11) — lightweight Qt desktop."
 echo "  ${C_BOLD}7)${C_RST} ${C_RED}COSMIC (third-party repo)${C_RST} — the System76 desktop. NOT in the"
 echo "     official Void repositories: installed from the community repo at"
 echo "     https://bluesloth.github.io/void-cosmic-repo/ (audit:"
-echo "     https://github.com/bluesloth/void-cosmic-repo), whose COSMIC 1.9"
+echo "     https://github.com/bluesloth/void-cosmic-repo), whose COSMIC 1.10"
 echo "     templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC"
 echo "     void-packages packaging. Its signing key is PINNED in this installer"
 echo "     and machine-verified after every sync. It is a third-party"
@@ -7279,7 +7279,7 @@ install_pkgs() {
 # Void repositories. It installs from the community repo at
 # https://bluesloth.github.io/void-cosmic-repo/ (audit:
 # https://github.com/bluesloth/void-cosmic-repo) — a repo this project signs
-# and publishes itself, whose COSMIC 1.9 templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC
+# and publishes itself, whose COSMIC 1.10 templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC
 # REDACTED's (GitHub REDACTED / Codeberg REDACTED) void-packages packaging.
 # The older attribution this comment used to carry (maintainer's own
 # repo.REDACTED.de) applied until Beta-v2.9.73 [ELOGIND-RUN-SELFHEAL] repointed
