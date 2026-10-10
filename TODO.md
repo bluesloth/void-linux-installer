@@ -8,6 +8,35 @@
   UNPROVEN on a real boot. Verify on the next install with DM=cosmic-greeter;
   fall back to SDDM on a grey bounce.
 
+## OPEN — DISCUSSION: installer version-control topology (three repos, zero remotes)
+- Verified 2026-10-10: three installer repos exist on this USB, **none with a
+  remote** (`git remote -v` is empty on all three):
+  (a) the root workspace repo — `main` — session docs only (AGENTS.md,
+      HANDOFF-*, opencode.json, per `.gitignore` `/*`; HEAD `b4cf08e`);
+  (b) `repo/` — `history-split-doc` — the actual project (script, CHANGELOG,
+      TODO, README, Debug), clean at HEAD `0d3215d`;
+  (c) `Void_Linux_LineageAnchor_v2.9.13/` — `main` — anchor-era snapshot whose
+      **committed `Void_Linux_Installer.sh` is 424 deletions / 5610 insertions
+      behind its own working tree** (the 2026-10-10 swap to the newest build;
+      documented in SWAP-NOTE + `.bak`, not committed).
+- Discussion points:
+  1. **Single point of failure.** Every commit lives only on this removable
+     USB (b1ade0f … 0d3215d, b4cf08e, 44ffdb3). Same risk class as the Cosmic
+     signing-key warning. Option: give `repo/` (or the root repo) an `origin`
+     — mirror how void-cosmic-repo is published.
+  2. **No canonical repo.** Three scopes, three branch names
+     (`main`/`history-split-doc`/`main`). Before ever publishing the installer
+     to GitHub, pick one source of truth; the `history-split-doc` name implies
+     a planned history split that was never materialised.
+  3. **LineageAnchor's uncommitted swap.** Commit the swap (keeping `.bak`
+     untracked as the baseline record), or keep old HEAD + SWAP-NOTE as the
+     only record? Do NOT `git add -A && git commit` there blindly.
+  4. **Root-repo guardrail.** `.gitignore` `/*` keeps `repo/` + LineageAnchor
+     out of the root repo; if that ignore is ever removed, a root `git add -A`
+     would ingest the nested repos as gitlinks — be deliberate.
+- Status: user declined action for now (2026-10-10) — retained as a discussion
+  point for a future session. Cross-ref: AGENTS.md → Next Move (d).
+
 ## >>> RESOLVED — COSMIC grey-screen root cause + fix (2026-09-06, Beta-v2.9.12) <<<
 - **ROOT CAUSE (closed):** cosmic-greeter's `src/main.rs` dispatches on the
   **current username**: only `"cosmic-greeter" => greeter::main()` (the greetd
