@@ -1,5 +1,13 @@
 # TODO / Open Items
 
+## OPEN — cosmic-greeter 1.10 DM: runtime elogind-session verification
+- **Authoritative entry lives in `AGENTS.md` → "Validation backlog"**
+  (kept there so this TODO does not diverge from the work-state doc).
+  Short form: the COSMIC 1.10 `cosmic-greeter` DM is packaged +
+  signature-verified (2026-10-10) but its elogind session recognition is
+  UNPROVEN on a real boot. Verify on the next install with DM=cosmic-greeter;
+  fall back to SDDM on a grey bounce.
+
 ## >>> RESOLVED — COSMIC grey-screen root cause + fix (2026-09-06, Beta-v2.9.12) <<<
 - **ROOT CAUSE (closed):** cosmic-greeter's `src/main.rs` dispatches on the
   **current username**: only `"cosmic-greeter" => greeter::main()` (the greetd
