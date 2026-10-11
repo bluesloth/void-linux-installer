@@ -565,7 +565,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.87"
+SCRIPT_VERSION="Beta-v2.9.88"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1587,7 +1587,7 @@ esp_size_choose() {
 # =============================================================================
 browse_pick() { # browse_pick <mode> <what-label>
     local _bp_mode="${1:-file}" _bp_label="${2:-file}"
-    local _bp_start _bp_ok=0 _bp_src="" _bp_ext="" _bp_i
+    local _bp_start _bp_ok=0 _bp_src="" _bp_ext="" _bp_i _bp_alias=""
     local -a _bp_items=()
     if [ -d /run/media ]; then
         _bp_start="/run/media"
@@ -1638,11 +1638,19 @@ browse_pick() { # browse_pick <mode> <what-label>
             _bp_src=""
             break
         fi
-        if [ "$_bp_src" = ".." ]; then
+        # AI (Big Pickle) FIX — Beta-v2.9.88 [BROWSE-ALIAS-ESC]: the browser's
+        # control words (`..`, `m`, `drives`, `!`, `ok`) are shell-metacharacter-
+        # shaped, and on the zsh live-prompt a user may type them escaped
+        # (`\..`, `\!`, `\ok` — observed live as "ok displayed as \ok", which
+        # was then rejected as a bad file). Peel ONE leading backslash for
+        # ALIAS matching only; absolute/relative/number paths are still taken
+        # exactly as typed, so no real path can be mangled.
+        _bp_alias="${_bp_src#\\}"
+        if [ "$_bp_alias" = ".." ]; then
             _bp_start="$(dirname "$_bp_start")"
             continue
         fi
-        if [ "$_bp_src" = "m" ] || [ "$_bp_src" = "drives" ]; then
+        if [ "$_bp_alias" = "m" ] || [ "$_bp_alias" = "drives" ]; then
             if [ -d /run/media ]; then
                 _bp_start="/run/media"
             else
@@ -1652,7 +1660,7 @@ browse_pick() { # browse_pick <mode> <what-label>
         fi
         # Beta-v2.9.50 [BROWSE-DIR-ACCEPT]: in dir mode, `!`/`ok` confirms the
         # CURRENT directory (the only way a destination dir could be returned).
-        if [ "$_bp_mode" = "dir" ] && { [ "$_bp_src" = "!" ] || [ "$_bp_src" = "ok" ]; }; then
+        if [ "$_bp_mode" = "dir" ] && { [ "$_bp_alias" = "!" ] || [ "$_bp_alias" = "ok" ]; }; then
             _bp_src="$_bp_start"
             _bp_ok=1
             continue
@@ -4528,12 +4536,65 @@ if [ "$IMPORT_SSH_KEY" = "true" ]; then
             echo "  Skipping import — feed me the private key file instead." >&2
             IMPORT_SSH_KEY="false"
         else
-            cp -f "$_imported_key" "${SSH_IMPORT_DIR}/imported"
-            echo "  Imported private key staged → ${SSH_IMPORT_DIR}/imported"
-            _imported_key_pub="${_imported_key}.pub"
-            if [ -f "$_imported_key_pub" ]; then
-                cp -f "$_imported_key_pub" "${SSH_IMPORT_DIR}/imported.pub"
-                echo "  Imported public key sibling staged → ${SSH_IMPORT_DIR}/imported.pub"
+            # AI (Big Pickle) FIX — Beta-v2.9.88 [SSH-IMPORT-VALIDATE]: a picked
+            # file was previously copied blind (any file, valid key or not) and
+            # its .pub was only staged if a literal `${file}.pub` sibling existed
+            # next to it. The import is now verified with `ssh-keygen -y` BEFORE
+            # it is trusted:
+            #   * an UNENCRYPTED key is read and a fresh .pub derived from the
+            #     private key itself (guaranteed to match, comment included) —
+            #     the sibling file is no longer the only source;
+            #   * a PASSPHRASE-protected key asks for the passphrase once
+            #     (in-memory only, never stored) and is verified with it;
+            #   * anything `ssh-keygen` cannot read is rejected outright ("not a
+            #     usable SSH private key") instead of being staged silently.
+            # The fingerprint is printed for confirmation. No key material ever
+            # reaches install-config / limine-env / resume state (unchanged).
+            if ! command -v ssh-keygen >/dev/null 2>&1; then
+                echo "  WARNING: ssh-keygen is unavailable on this live medium — an imported key" >&2
+                echo "  can only be accepted when it can be verified. Skipping import." >&2
+                IMPORT_SSH_KEY="false"
+            else
+                cp -f "$_imported_key" "${SSH_IMPORT_DIR}/imported"
+                chmod 0600 "${SSH_IMPORT_DIR}/imported"
+                _imported_key_ok="no"
+                if ssh-keygen -y -P "" -f "${SSH_IMPORT_DIR}/imported" \
+                        > "${SSH_IMPORT_DIR}/imported.pub" 2>/dev/null; then
+                    # Unencrypted and valid — the derived .pub is authoritative.
+                    _imported_key_ok="yes"
+                else
+                    # Not readable with an empty passphrase: either passphrase-
+                    # protected, or not a key at all.
+                    if grep -q -- "-----BEGIN .*PRIVATE KEY-----" "${SSH_IMPORT_DIR}/imported"; then
+                        _imp_key_pass=""
+                        read -r -s -p "  Enter the passphrase for this imported key: " _imp_key_pass
+                        echo "" >&2
+                        if [ -n "$_imp_key_pass" ] && ssh-keygen -y -P "$_imp_key_pass" -f "${SSH_IMPORT_DIR}/imported" \
+                                > "${SSH_IMPORT_DIR}/imported.pub" 2>/dev/null; then
+                            _imported_key_ok="yes"
+                            echo "  (this key is passphrase-protected; it was verified with the passphrase you" >&2
+                            echo "   just entered — SSH will still prompt for it on first use, and the passphrase" >&2
+                            echo "   is never stored.)" >&2
+                        else
+                            echo "  ERROR: could not unlock '${_imported_key##*/}' with that passphrase — import skipped." >&2
+                        fi
+                    else
+                        echo "  ERROR: '${_imported_key##*/}' is not a usable SSH private key (ssh-keygen could not read it) — import skipped." >&2
+                    fi
+                    _imp_key_pass=""
+                fi
+                if [ "$_imported_key_ok" = "yes" ]; then
+                    chmod 0644 "${SSH_IMPORT_DIR}/imported.pub"
+                    echo "  Imported private key staged → ${SSH_IMPORT_DIR}/imported"
+                    echo "  Imported public key derived → ${SSH_IMPORT_DIR}/imported.pub"
+                    _imp_fp="$(ssh-keygen -lf "${SSH_IMPORT_DIR}/imported.pub" 2>/dev/null | sed 's/^[[:space:]]*//' || true)"
+                    echo "  Fingerprint: ${_imp_fp:-<unavailable>}"
+                    echo "  (compare with 'ssh-keygen -lf' on the source machine to confirm this is your key)"
+                else
+                    rm -f "${SSH_IMPORT_DIR}/imported" "${SSH_IMPORT_DIR}/imported.pub"
+                    IMPORT_SSH_KEY="false"
+                fi
+                unset _imported_key_ok _imp_fp
             fi
         fi
     else
@@ -4627,7 +4688,7 @@ if [ "$EXPORT_SSH_KEY" = "true" ]; then
         fi
     fi
 fi
-unset _imported_key _imported_key_pub _export_src _export_dst
+unset _imported_key _export_src _export_dst _imp_key_pass
 export IMPORT_SSH_KEY GENERATE_SSH_KEY EXPORT_SSH_KEY SSH_KEY_COMMENT SSH_KEY_PROTECTED
 
 # (The Docker / Podman-rootful / Virtualization system-datadir pre-create
@@ -4674,24 +4735,39 @@ echo "     now, so that if you install it manually later, its data lands on the"
 echo "     isolated subvolume from day one (no mixing back into @ / @home, and"
 echo "     no migration needed)."
 echo "  Answer 'i' to decide per app instead of one bulk answer."
-ask "For software you ARE installing, give each its own isolated subvolume? [Y/n/i]: "
-read -r SUBVOL_ISOLATE_INPUT
-case "$SUBVOL_ISOLATE_INPUT" in
-    "")  SUBVOL_ISOLATE_INSTALLED="$DEFAULT_SUBVOL_ISOLATE" ;;
-    [nN]) SUBVOL_ISOLATE_INSTALLED="no" ;;
-    [iI]) SUBVOL_ISOLATE_INSTALLED="individual" ;;
-    *) SUBVOL_ISOLATE_INSTALLED="yes" ;;
-esac
+# AI (Big Pickle) FIX — Beta-v2.9.88 [SUBVOL-GATE-VALIDATE]: the two master
+# gates used to map ANY unrecognized answer to the bulk default (Gate 1:
+# junk -> isolate ALL; Gate 2: junk -> precreate NONE), so one stray keystroke
+# (observed live: a lone period typed at the Gate-1 prompt) silently flipped
+# the isolation decision for every installed app. Answers are now validated:
+# blank (default) / y / n / i only — anything else is shown with a hint and
+# re-prompted. `i` still walks each app individually via _subvol_ask below.
+# This also normalizes the bare-Enter path: the DEFAULT_* knobs are booleans
+# (true/false), which Gate 1 previously stored verbatim into
+# SUBVOL_ISOLATE_INSTALLED ("true" != "yes"), silently diverting a default run
+# into the per-app walk; the helper now maps them to yes/no as documented.
+_subvol_master() { # $1 = prompt text, $2 = boolean default ("true"/"false")
+    local _a _def_out
+    case "$2" in
+        true|yes) _def_out="yes" ;;
+        *)        _def_out="no" ;;
+    esac
+    while true; do
+        ask "$1" >&2
+        read -r _a
+        case "$_a" in
+            "") echo "$_def_out"; return ;;
+            [yY]) echo "yes"; return ;;
+            [nN]) echo "no"; return ;;
+            [iI]) echo "individual"; return ;;
+            *) echo "  Unrecognized answer '${_a}' — Enter for the default, y/n = all/none, i = per-app." >&2 ;;
+        esac
+    done
+}
+SUBVOL_ISOLATE_INSTALLED="$(_subvol_master "For software you ARE installing, give each its own isolated subvolume? [Y/n/i]: " "$DEFAULT_SUBVOL_ISOLATE")"
 export SUBVOL_ISOLATE_INSTALLED
 
-ask "For software you did NOT install, pre-create an empty isolated subvolume for later manual use? [y/N/i]: "
-read -r SUBVOL_PRECREATE_INPUT
-case "$SUBVOL_PRECREATE_INPUT" in
-    "")  SUBVOL_PRECREATE="$DEFAULT_SUBVOL_PRECREATE" ;;
-    [yY]) SUBVOL_PRECREATE="yes" ;;
-    [iI]) SUBVOL_PRECREATE="individual" ;;
-    *) SUBVOL_PRECREATE="no" ;;
-esac
+SUBVOL_PRECREATE="$(_subvol_master "For software you did NOT install, pre-create an empty isolated subvolume for later manual use? [y/N/i]: " "$DEFAULT_SUBVOL_PRECREATE")"
 export SUBVOL_PRECREATE
 
 # --- Resolve each app's final "isolate?" decision into PROVISION_*_SUBVOL ---
@@ -4703,13 +4779,16 @@ export SUBVOL_PRECREATE
 # INSTALL_* var, and writes the resolved PROVISION_VAR. Rows whose software has
 _subvol_ask() { # $1=full prompt text, $2=default("true"/"false")
     local _a
-    ask "$1" >&2
-    read -r _a
-    case "$_a" in
-        [yY]*) echo "true" ;;
-        "")    echo "$2" ;;
-        *)     echo "false" ;;
-    esac
+    while true; do
+        ask "$1" >&2
+        read -r _a
+        case "$_a" in
+            [yY]*) echo "true"; return ;;
+            "")    echo "$2"; return ;;
+            [nN]*) echo "false"; return ;;
+            *)     echo "  Unrecognized answer — Enter for the default, y = yes, n = no." >&2 ;;
+        esac
+    done
 }
 
 # shellcheck disable=SC2016 # deliberate table of unexpanded var names
@@ -7638,7 +7717,42 @@ if [ -n "$(find /tmp/ssh-keygen -maxdepth 1 -type f 2>/dev/null -print -quit)" ]
             [ -f /tmp/ssh-import/imported.pub ] && cp -f /tmp/ssh-import/imported.pub "$_ssh_dir/imported.pub" && chmod 0644 "$_ssh_dir/imported.pub"
             echo "==> Imported key deposited → ${TARGET_USER}/.ssh/imported"
         fi
+        # AI (Big Pickle) FIX — Beta-v2.9.88 [SSH-USABLE]: a deposited key used
+        # to sit inert in ~/.ssh: ssh never picked up "imported" (non-standard
+        # name, no IdentityFile) and the public half was never trusted anywhere,
+        # so the "install my key" flow could not actually log into the fresh box.
+        # Two wiring steps make the installed key usable out of the box:
+        #   1. IdentityFile entries in ~/.ssh/config for whichever keys landed,
+        #      so ssh uses them without -i (append-only; a pre-existing config
+        #      is preserved);
+        #   2. the imported public key appended to ~/.ssh/authorized_keys, so
+        #      logging INTO this box with that key works from any client that
+        #      holds its private half.
+        _ssh_cfg_written="no"
+        if [ -f "$_ssh_dir/id_ed25519" ] || [ -f "$_ssh_dir/imported" ]; then
+            [ -f "$_ssh_dir/config" ] || : > "$_ssh_dir/config"
+            chmod 0600 "$_ssh_dir/config"
+            for _kname in id_ed25519 imported; do
+                [ -f "$_ssh_dir/$_kname" ] || continue
+                if ! grep -qE "^[[:space:]]*IdentityFile[[:space:]]+.*${_kname}([[:space:]]|$)" "$_ssh_dir/config"; then
+                    printf 'IdentityFile ~/.ssh/%s\n' "$_kname" >> "$_ssh_dir/config"
+                    _ssh_cfg_written="yes"
+                fi
+            done
+        fi
+        [ "$_ssh_cfg_written" = "yes" ] && echo "==> ~/.ssh/config IdentityFile(s) written for the installed key(s)"
+        if [ -f "$_ssh_dir/imported.pub" ]; then
+            touch "$_ssh_dir/authorized_keys"
+            chmod 0600 "$_ssh_dir/authorized_keys" 2>/dev/null || true
+            _imp_ak_line="$(cat "$_ssh_dir/imported.pub")"
+            if ! grep -qF -- "$_imp_ak_line" "$_ssh_dir/authorized_keys"; then
+                printf '%s\n' "$_imp_ak_line" >> "$_ssh_dir/authorized_keys"
+                echo "==> Imported public key added to ${TARGET_USER}/.ssh/authorized_keys (key login enabled)"
+            fi
+            unset _imp_ak_line
+        fi
         chown -R "${TARGET_USER}:${TARGET_USER}" "$_ssh_dir"
+        unset _ssh_cfg_written _kname
     else
         echo "WARNING: SSH keys staged but target account '${TARGET_USER:-<unset>}' missing — keys NOT deposited." >&2
     fi

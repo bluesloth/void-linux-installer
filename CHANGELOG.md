@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.87** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.88** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -132,6 +132,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.74** | `[USB-AUTOMOUNT]` — a COSMIC install had no removable-media automounter: udisks2 was installed (as a cosmic-files dependency) but its D-Bus-only activation unit meant udisksd was never reliably running on runit, and there was no udiskie/gvfs in the COSMIC path (gvfs automount only covers the GNOME/KDE/Cinnamon/MATE/Xfce/LXQt branches). The COSMIC DE branch now installs `udiskie` and autostarts it via a session-readiness guard (`/usr/local/sbin/udiskie-guard`, mirroring the polkit-agent guard), and the installer writes + first-boot-links a supervised `/etc/sv/udisksd` service. `udiskie`/`udisks2` added to PKG_PREFLIGHT | Beta-v2.9.73 below |
 | **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 | **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
+| **Beta-v2.9.88** | `[SSH-IMPORT-VALIDATE]`+`[SSH-USABLE]`+`[SUBVOL-GATE-VALIDATE]`+`[BROWSE-ALIAS-ESC]` — an imported SSH key is now verified **before** it is trusted: `ssh-keygen -y` reads unencrypted keys and derives a matching `.pub` from the private key itself (the `${file}.pub` sibling is no longer required), a passphrase-protected key is unlocked with a one-shot in-memory passphrase prompt and verified with it, and anything `ssh-keygen` cannot read is rejected with an ERROR instead of being staged silently; the fingerprint is shown for confirmation. The deposited key is now actually usable: `~/.ssh/config` gains the `IdentityFile` (append-only, existing config preserved) and the imported public key is appended to `~/.ssh/authorized_keys`, so key login to the fresh box works from any client holding the private half. The two bulk `[Y/n/i]` subvolume gates no longer silently bulk-default on unrecognized answers — a stray keystroke (observed live: a lone period at the Gate-1 prompt) previously flipped every app's isolation decision — and a bare Enter now resolves to the documented yes/no default instead of leaking the boolean knob into a per-app walk; the per-app `_subvol_ask` prompts re-ask on junk too. `browse_pick` control words (`..`/`m`/`drives`/`!`/`ok`) now also accept shell-escaped spellings (`\..`, `\!`, `\ok`) — the observed "ok shown as \ok" was a typed `\ok` rejected as a bad path. No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.87 below |
 | **Beta-v2.9.87** | `[COSMIC-REPO-MOVE]` — the COSMIC artifact repository is now served from the unified `Void_Linux_Cosmic` project (packaging templates + signed binary repo together): `_cosmic_repo`/`_cosmic_repodata`/`_cosmic_audit` point at `https://bluesloth.github.io/void-linux-cosmic/` (audit `github.com/bluesloth/void-linux-cosmic`), which serves the signed index from its repository root. The **pinned signing key is unchanged** (`83ffd154…d2e7b`), so the machine-checked trust anchor is identical — only the served location moved. Text-only: every code path, prompt, default and package surface unchanged. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.86 below |
 | **Beta-v2.9.86** | `[BR0-SKIP]` — a virt install on a machine with **no physical wired NIC at all** (pure-Wi-Fi/WWAN) no longer writes a dead `br0` + free-roaming role-matched `br0-slave` and then force-kills virbr0 on first boot — that combination left the "bridged" build with **zero VM networking** while the slave sat ready to adopt whatever USB NIC / tethering phone appeared later (the round-10 topology: `BR0_NIC="<unset>"`, `enp*` placeholder, `br0` with no member). The skip trigger is a new `has_wired_nic_hw()` hardware-presence predicate (physical `device` link + no `wireless` dir + name skip list; carrier/USB irrelevant) rather than `detect_wired_nic()`'s result — a cable-unplugged built-in port therefore keeps the role-matched slave (plugging in later still works) while a wired-less box skips; an EMPTY `NET_INTERFACE_MATCH` is the explicit skip signal, already threaded through resume-state + chroot_env, and it gates the Stage-2 profile pair, qemu's `bridge.conf` allow, and a new `install-config` `VIRT_BR0` row (created / skipped / n/a); rc.local tears virbr0 down only when the `br0.nmconnection` file exists (disk-state check, no NM timing), so virbr0 stays **enabled** as the VM-networking fallback — `[NFT-VIRT-GATE]`'s `virbr*` forward accepts already cover it firewall-side. NOTICEs at the virt block, the re-probe and the write site; auto-skip, no new prompt/defaults/packages. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.85 below |
 | **Beta-v2.9.85** | `[NIC-DETECT-USB]` — the Stage-1 `[NIC-DETECT]` review's USB fallback globbed `/sys/devices/*/net/*` — bash `*` never crosses a `/`, so it only ever matched `/sys/devices/virtual/net/*` (lo/br0/docker0/virbr0), every one of which fails the usb-subsystem test: **dead code that could never detect real hardware** (a USB NIC's `net` dir sits ~6 levels deep, e.g. `…/usb2/2-1/2-1.1/2-1.1:1.0/net/<iface>`). A physically-present-but-unplugged USB ethernet adapter — the documented "cable optional" promise — therefore always read `(none detected …)` and was recorded `BR0_NIC="<unset>"`: live on the round-10 box (ASIX AX88179 present, `install-config` says `<unset>`). The INSTALL_VIRT late re-probe's fallback (`readlink -f device` ~ `*usb*`) was correct, so the `br0-slave` binding itself never suffered — but the two probe sites could disagree (and the review's carrier loop had no physical-device check at all). Both sites now call one shared `detect_wired_nic()` helper — carrier-active physical wired NIC first, then any physically-present USB device regardless of carrier — defined at unconditional top level above the resume guard (2.9.78's `_region_fs_of` lesson), with the protection sets merged (`device` link + no `wireless` dir + name skip list: the re-probe gains the name skip, so a Bluetooth-USB netdev can no longer qualify as a "USB NIC"). No prompt/defaults/package surface changed. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.84 below |
@@ -811,6 +812,80 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.88 — `[SSH-IMPORT-VALIDATE]` + `[SSH-USABLE]` + `[SUBVOL-GATE-VALIDATE]` + `[BROWSE-ALIAS-ESC]` (imported SSH keys are verified and wired to be usable; the subvolume master gates reject junk instead of bulk-defaulting; the browse aliases accept escaped spellings)
+
+`SCRIPT_VERSION` bumped to Beta-v2.9.88. This is a code change (not text-only):
+the prompt *surface* is unchanged — no new top-level questions, defaults or
+package names — but the input handling is stricter and the SSH-key import is
+verified.
+
+### 1. `[SUBVOL-GATE-VALIDATE]` — the `[Y/n/i]` / `[y/N/i]` master gates no longer swallow junk
+
+A lone `.` typed at either gate (or any other unrecognized answer) previously
+fell through the `case` `*` branch: Gate 1 silently isolated **all** installed
+apps and Gate 2 silently pre-created **nothing**, with no warning — the exact
+"silent coercion" a transcript review flagged. Each gate now validates its
+answer: Enter (default) / `y` / `n` / `i` only, with a hint and a re-prompt on
+anything else. Two consequences of the rewrite, both fixes rather than
+regressions:
+
+- the bare-Enter path no longer leaks the boolean `DEFAULT_SUBVOL_ISOLATE`
+  (`true`) into `SUBVOL_ISOLATE_INSTALLED`, where `"true" != "yes"` used to
+  silently divert a default run into the per-app `_subvol_ask` walk rather than
+  the documented bulk default;
+- `_subvol_ask` (the per-app walker) also re-prompts on unrecognized answers
+  instead of treating any non-`y` input as an implicit decline.
+
+### 2. `[SSH-IMPORT-VALIDATE]` — imports are verified before they are trusted
+
+The picked file used to be `cp -f`'d into the stage blind: any file sailed
+through as a "key", and the `.pub` was only staged if a literal `${file}.pub`
+sibling existed at the source. The import flow now verifies with
+`ssh-keygen -y` *before* trust:
+
+- **unencrypted key** — `ssh-keygen -y -P ""` succeeds and a fresh `.pub` is
+  derived from the private key itself (guaranteed to match, comment included);
+  the source sibling is no longer the only way a public half exists;
+- **passphrase-protected key** (header matches `-----BEGIN .*PRIVATE KEY-----`)
+  — a one-shot `read -r -s` passphrase is accepted, used only to verify
+  (`ssh-keygen -y -P "$pass"`), then discarded in-memory; never stored, never
+  exported;
+- **not a key / wrong passphrase** — an ERROR names the file, the staged copy
+  is removed, and the import is skipped (`IMPORT_SSH_KEY=false`).
+
+After a successful verify the fingerprint (`ssh-keygen -lf`) is printed for the
+operator to compare against the source machine. The import is skipped with a
+warning if `ssh-keygen` is unavailable on the live medium.
+
+### 3. `[SSH-USABLE]` — a deposited key can now actually be used
+
+Before this change a deposited key sat inert: an imported `~/.ssh/imported` has
+a non-standard name with no `IdentityFile` anywhere, and the public half was
+never trusted, so the "install my key" flow could not log into the fresh box
+(or use the key as a client identity). The deposit step (inside the chroot,
+against the target `~/.ssh`) now:
+
+- writes `IdentityFile ~/.ssh/{key}` entries into `~/.ssh/config` for whichever
+  key(s) landed (`id_ed25519` and/or `imported`) — append-only, a pre-existing
+  config is preserved; perms 0600;
+- appends the imported public key to `~/.ssh/authorized_keys` (perms 0600), so
+  logging into the box with that key works from any client that holds its
+  private half.
+
+### 4. `[BROWSE-ALIAS-ESC]` — `\ok` is `ok`
+
+A user who typed the accept-the-current-directory control `ok` as `\ok` (an
+easy habit on the zsh live prompt, where `!` is a history-expansion
+metacharacter and people escape) saw the input echoed as `\ok` and then
+rejected with `File not found: \ok`. `browse_pick` now peels **one** leading
+backslash for ALIAS matching only (`\..` / `\m` / `\drives` / `\!` / `\ok`);
+absolute/relative paths and numbers are still matched exactly as typed.
+
+### Validation
+
+`bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT,
+`check-pkg-preflight.sh` ALL COVERED.
 
 ## Beta-v2.9.87 — `[COSMIC-REPO-MOVE]` (the COSMIC repo is now served from the unified Void_Linux_Cosmic project; the pinned key is unchanged)
 

@@ -223,8 +223,16 @@
 - **SSH keys** (`[SSH-KEYS]`, Beta-v2.9.23) — three independently-toggleable
   steps, each default `n`:
   - **Import an existing SSH private key from removable media? [y/N]** → if `y`,
-    browse for the PRIVATE key file (a `.pub` file is rejected with a notice);
-    a sibling `.pub` next to it is imported alongside.
+    browse for the PRIVATE key file (a `.pub` file is rejected with a notice).
+    The import is verified with `ssh-keygen -y` before it is trusted
+    (`[SSH-IMPORT-VALIDATE]` Beta-v2.9.88): an unencrypted key has its `.pub`
+    derived from the private key itself; a passphrase-protected key is unlocked
+    with a one-shot hidden passphrase (in-memory only, never stored) and
+    verified with it; anything `ssh-keygen` cannot read is rejected, and the
+    fingerprint is printed for comparison. On the target, the deposited key is
+    wired to be usable (`[SSH-USABLE]` Beta-v2.9.88): `~/.ssh/config` gains the
+    `IdentityFile` (append-only) and the imported public key is added to
+    `~/.ssh/authorized_keys`.
   - **Generate a fresh ed25519 SSH keypair? [y/N]** → if `y`:
     - **SSH key comment** (default `<user>@<hostname>`) — Enter to keep
     - **Protect the key with a passphrase? [Y/n]** — if `y`, passphrase entered
@@ -241,7 +249,9 @@
   every install choice above is finalized:
   - **For software you ARE installing, give each its own isolated subvolume? [Y/n/i]**
     (`SUBVOL_ISOLATE_INSTALLED`; default `Y`). `i` → walks each installed app
-    individually (each defaults to isolate `Y/n`).
+    individually (each defaults to isolate `Y/n`). Answers are validated
+    (`[SUBVOL-GATE-VALIDATE]` Beta-v2.9.88): anything other than Enter / `y` /
+    `n` / `i` is re-prompted — never silently bulk-defaulted.
   - **For software you did NOT install, pre-create an empty isolated subvolume for
     later manual use? [y/N/i]** (`SUBVOL_PRECREATE`; default `N`). `i` → walks
     each not-installed app individually (each defaults to pre-create `y/N`).
