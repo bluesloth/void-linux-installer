@@ -603,7 +603,7 @@ group, and the keypair line read
 
 ```
 /tmp/ssh-keygen/id_ed25519 already exists.
-Overwrite (y/n)?   Generated keypair → /tmp/ssh-keygen/id_ed25519{,.pub} (comment '<redacted>@<host>')
+Overwrite (y/n)?   Generated keypair → /tmp/ssh-keygen/id_ed25519{,.pub} (comment '<user>@<host>')
 -- Export a backup copy of the SSH keypair to removable media? [y/N]:
 ```
 
@@ -909,7 +909,7 @@ fallback) trap-free; not-found stubs → branch 3 with the NOTICE and
 `NET_INTERFACE_MATCH=''` trap-free; the real predicate body's return-1
 fall-through (empty-world glob) is trap-free in condition context; all four
 Stage-2 gate combinations correct. Version-ritual grep: only deliberate
-historical 2.9.85 references remain; secret scrub clean.
+historical 2.9.85 references remain.
 
 ## Beta-v2.9.85 — `[NIC-DETECT-USB]` (the review's USB-ethernet fallback was dead code — both wired-NIC probes now share one helper)
 
@@ -988,7 +988,7 @@ Validation: `bash -n`; `check-heredocs.sh` 72 heredocs ALL CLEAN;
 live exercise of the helper on the round-10 box under `set -eE` + a stub ERR
 trap — pass 2 returns `enp3s0f3u1u1` (ASIX AX88179, no cable) where the old
 glob returned only `/sys/devices/virtual/net/*`, and both the not-found path
-and every guard pattern run trap-free; secret scrub clean.
+and every guard pattern run trap-free.
 
 ## Beta-v2.9.84 — `[COSMIC-STORE]`/`[FLATPAK-PULL-DETECT]` (cosmic-store becomes a real opt-in prompt that can never pull flatpak past a declined prompt — plus a safety net for the paths a toggle cannot govern)
 
@@ -1059,7 +1059,7 @@ let the store pull flatpak past an explicit opt-out without surfacing it."*
 Validation: `bash -n`, `check-heredocs.sh` ALL CLEAN (`[FLATPAK-PULL-DETECT]`
 lives inside `CHROOT_EOF`), `check-defaults.sh` ALL CONSISTENT
 (`DEFAULT_COSMIC_STORE` declared + wired), `check-pkg-preflight.sh` ALL
-COVERED, secret scrub clean (no credential material in any new line).
+COVERED.
 
 ## Beta-v2.9.83 — `[COSMIC-REPO-ATTRIBUTION]` (the third-party-repo warning told the operator to audit a different repo than the one the installer actually trusts)
 
@@ -1112,7 +1112,7 @@ mention at the `system_accounts="_cosmicgreeter"` note stays because that *is*
 the template the account name came from.
 
 Validation: `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh`
-ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED, secret scrub clean.
+ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED.
 
 ## Beta-v2.9.82 — `[COSMIC-KEY-AUTOIMPORT]` (the COSMIC repo signing-key prompt is answered by the installer now — the pin check, not the prompt, was always the trust decision)
 
@@ -1725,7 +1725,7 @@ The fresh box had `steam` + `podman` installed and `@containers` mounted, yet `i
 
 ### 3. `[INSTALL-CONFIG-SSHKEY]` — SSH rows advertised a key that did not exist
 
-`SSH_KEY_COMMENT` and `SSH_KEY_PROTECTED` are set to their prompt defaults (`<user>@<hostname>` / `yes`) **before** the `[SSH-KEYS]` prompts and exported unconditionally, so `install-config` always wrote them — even on a run that imported and generated nothing. The reviewed install was exactly that: `~/.ssh` was absent, yet the config read `SSH_KEY_COMMENT="<redacted>@<host>" / SSH_KEY_PROTECTED="yes"`. Fix: derive `SSH_KEY_PRESENT` from the actual deposit (`~/.ssh/id_ed25519` or `~/.ssh/imported`) and emit the comment/protection rows only when present; otherwise a single truthful `SSH_KEY_PRESENT="no"` plus an explanatory comment.
+`SSH_KEY_COMMENT` and `SSH_KEY_PROTECTED` are set to their prompt defaults (`<user>@<hostname>` / `yes`) **before** the `[SSH-KEYS]` prompts and exported unconditionally, so `install-config` always wrote them — even on a run that imported and generated nothing. The reviewed install was exactly that: `~/.ssh` was absent, yet the config read `SSH_KEY_COMMENT="<user>@<host>" / SSH_KEY_PROTECTED="yes"`. Fix: derive `SSH_KEY_PRESENT` from the actual deposit (`~/.ssh/id_ed25519` or `~/.ssh/imported`) and emit the comment/protection rows only when present; otherwise a single truthful `SSH_KEY_PRESENT="no"` plus an explanatory comment.
 
 ### 4. `[FLATPAK-DNS-LATE]` — the first-boot flatpak queue could strand
 
