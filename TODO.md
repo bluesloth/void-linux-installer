@@ -42,7 +42,7 @@
   **current username**: only `"cosmic-greeter" => greeter::main()` (the greetd
   DM that draws the user list / login panel); anything else falls through to
   `locker::main()` (no main window; waits for an ext-session-lock event; maps
-  nothing). The REDACTED/void-packages template ships
+  nothing). The third-party packaging fork template ships
   `system_accounts="_cosmicgreeter"`, and the Beta-v2.9.10 recipe copied it, so
   greetd ran the binary under a non-matching user and the greeter silently took
   the locker branch → grey wallpaper + cursor, no login UI.

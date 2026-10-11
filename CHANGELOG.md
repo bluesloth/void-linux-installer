@@ -135,7 +135,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.86** | `[BR0-SKIP]` — a virt install on a machine with **no physical wired NIC at all** (pure-Wi-Fi/WWAN) no longer writes a dead `br0` + free-roaming role-matched `br0-slave` and then force-kills virbr0 on first boot — that combination left the "bridged" build with **zero VM networking** while the slave sat ready to adopt whatever USB NIC / tethering phone appeared later (the round-10 topology: `BR0_NIC="<unset>"`, `enp*` placeholder, `br0` with no member). The skip trigger is a new `has_wired_nic_hw()` hardware-presence predicate (physical `device` link + no `wireless` dir + name skip list; carrier/USB irrelevant) rather than `detect_wired_nic()`'s result — a cable-unplugged built-in port therefore keeps the role-matched slave (plugging in later still works) while a wired-less box skips; an EMPTY `NET_INTERFACE_MATCH` is the explicit skip signal, already threaded through resume-state + chroot_env, and it gates the Stage-2 profile pair, qemu's `bridge.conf` allow, and a new `install-config` `VIRT_BR0` row (created / skipped / n/a); rc.local tears virbr0 down only when the `br0.nmconnection` file exists (disk-state check, no NM timing), so virbr0 stays **enabled** as the VM-networking fallback — `[NFT-VIRT-GATE]`'s `virbr*` forward accepts already cover it firewall-side. NOTICEs at the virt block, the re-probe and the write site; auto-skip, no new prompt/defaults/packages. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.85 below |
 | **Beta-v2.9.85** | `[NIC-DETECT-USB]` — the Stage-1 `[NIC-DETECT]` review's USB fallback globbed `/sys/devices/*/net/*` — bash `*` never crosses a `/`, so it only ever matched `/sys/devices/virtual/net/*` (lo/br0/docker0/virbr0), every one of which fails the usb-subsystem test: **dead code that could never detect real hardware** (a USB NIC's `net` dir sits ~6 levels deep, e.g. `…/usb2/2-1/2-1.1/2-1.1:1.0/net/<iface>`). A physically-present-but-unplugged USB ethernet adapter — the documented "cable optional" promise — therefore always read `(none detected …)` and was recorded `BR0_NIC="<unset>"`: live on the round-10 box (ASIX AX88179 present, `install-config` says `<unset>`). The INSTALL_VIRT late re-probe's fallback (`readlink -f device` ~ `*usb*`) was correct, so the `br0-slave` binding itself never suffered — but the two probe sites could disagree (and the review's carrier loop had no physical-device check at all). Both sites now call one shared `detect_wired_nic()` helper — carrier-active physical wired NIC first, then any physically-present USB device regardless of carrier — defined at unconditional top level above the resume guard (2.9.78's `_region_fs_of` lesson), with the protection sets merged (`device` link + no `wireless` dir + name skip list: the re-probe gains the name skip, so a Bluetooth-USB netdev can no longer qualify as a "USB NIC"). No prompt/defaults/package surface changed. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.84 below |
 | **Beta-v2.9.84** | `[COSMIC-STORE]`/`[FLATPAK-PULL-DETECT]` — `cosmic-store` (the bluesloth COSMIC app store) hard run-depends on `flatpak`, but the installer never installed it, so the prompt gate intentionally preconditioned `INSTALL_FLATPAK` — an opt-out of Flatpak had no store to drag it back in. Two layers: (1) a real opt-in prompt `INSTALL_COSMIC_STORE` (default NO), offered ONLY when `INSTALL_FLATPAK=true` (any desktop — the store is a Flathub GUI), threaded through resume-state/chroot_env/install-config, and installed DE-independently at the flatpak-gated deliveries site via `install_cosmic()` with a Stage-2 flatpak re-check mirroring the Brave rule — a stale resume state carrying store=yes && flatpak=no WARNs and skips, never pulling flatpak in; (2) a Stage-2 `[FLATPAK-PULL-DETECT]` safety net: if flatpak is DECLINED but shows up installed anyway (a future metapackage rev or a manual install), the install warns loudly and records `FLATPAK_PULLED_BY="<reverse deps>"` (from `xbps-query -X flatpak`) in `install-config` — the "never let the store pull flatpak past an explicit opt-out without surfacing it" rule, enforced even when no prompt was involved. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.83 below |
-| **Beta-v2.9.83** | `[COSMIC-REPO-ATTRIBUTION]` — the COSMIC disclosure named the wrong repo: the DE menu (option 7), the ARCHITECTURE SUMMARY and `install_cosmic()`'s own header comment all pointed the operator at REDACTED REDACTED's REDACTED packaging (`github.com/REDACTED/void-packages`, `repo.REDACTED.de`) as the source being trusted — but the URL the installer has actually added since Beta-v2.9.73 is `https://bluesloth.github.io/void-cosmic-repo/` (audit `github.com/bluesloth/void-cosmic-repo`), signed and published by the companion `Void_Cosmic_Repo` packager project from templates built from scratch, tracking upstream System76 / Pop!_OS COSMIC. A third-party trust warning is only useful if the name and link in it are the ones you actually audit, so this mattered: it named a repo the installer never contacted, while two comments still carried claims that had since inverted or been superseded — "the documented old github.io URL is now stale — it serves a web page, not an xbps index" (github.io now serves a working `x86_64-repodata`; it is `repo.REDACTED.de` that went unused) and "the repo's signing key is whatever the maintainer publishes with the repo" (superseded by the Beta-v2.9.76 pin). Menu + comments now carry the real repo URL, its audit link, its lineage and the pinned-key statement; CHANGELOG entries written before 2.9.73 stay as history. Text-only: `_cosmic_repo`, `_cosmic_audit`, `_cosmic_key_expected` and every code path unchanged. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.82 below |
+| **Beta-v2.9.83** | `[COSMIC-REPO-ATTRIBUTION]` — the COSMIC disclosure named the wrong repo: the DE menu (option 7), the ARCHITECTURE SUMMARY and `install_cosmic()`'s own header comment all pointed the operator at a third-party packaging fork's packaging (a git host and package host we do not control) as the source being trusted — but the URL the installer has actually added since Beta-v2.9.73 is `https://bluesloth.github.io/void-cosmic-repo/` (audit `github.com/bluesloth/void-cosmic-repo`), signed and published by the companion `Void_Cosmic_Repo` packager project from templates built from scratch, tracking upstream System76 / Pop!_OS COSMIC. A third-party trust warning is only useful if the name and link in it are the ones you actually audit, so this mattered: it named a repo the installer never contacted, while two comments still carried claims that had since inverted or been superseded — "the documented old github.io URL is now stale — it serves a web page, not an xbps index" (github.io now serves a working `x86_64-repodata`; it is the upstream host that went unused) and "the repo's signing key is whatever the maintainer publishes with the repo" (superseded by the Beta-v2.9.76 pin). Menu + comments now carry the real repo URL, its audit link, its lineage and the pinned-key statement; CHANGELOG entries written before 2.9.73 stay as history. Text-only: `_cosmic_repo`, `_cosmic_audit`, `_cosmic_key_expected` and every code path unchanged. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.82 below |
 | **Beta-v2.9.82** | `[COSMIC-KEY-AUTOIMPORT]` — the COSMIC repo sync still stopped at `Do you want to import this public key? [Y/n]` even though the desktop menu already discloses COSMIC as a third-party repo ("a signing-trust choice made at your own risk — audit the repo before installing") and Beta-v2.9.76 already pins the key and machine-verifies it right after the sync. Re-verified 2026-10-07 on xbps 0.60.7 that `-y` never covered this question in the first place — bare `-S` and `-Sy` both stop at `[Y/n]` — so Beta-v2.9.76's "-y made the anchor auto-accepted" mechanism was wrong, and what 2.9.76/2.9.77 actually built was an interactive confirmation layered on top of a check that never needed one. The prompt is now answered by the installer itself on a **pipe of its own** (`printf 'y\n' \| xbps-install … -Sy`), which is neither the chroot's stdin (Stage 2 feeds the script via `chroot /mnt /bin/bash << 'CHROOT_EOF'`, so stdin IS the heredoc — 2.9.77's original abort) nor `/dev/tty` (unattended runs have none — 2.9.77's second abort, which refused every headless COSMIC install outright); that `/dev/tty` gate is removed with it, so unattended COSMIC installs now run. **Trust is unchanged:** the pinned-fingerprint + allowlist machine check below the sync still aborts unless the keyring holds exactly the pinned key plus at most the two stock Void keys, so a substituted key fails through the same code path — auto-answering removed friction, not enforcement, and an operator typing `Y` at a substituted-key prompt would have trusted the attacker anyway. Proven live 2026-10-07 against the real repo: fresh throwaway keyring, auto-answer imports the key non-interactively, and the shipped `cosmic_key_fingerprint()` reproduced the pinned `83ffd154…d2e7b` from what got imported. `printf 'y\n'` (not `yes`) is deliberate: one answer, then EOF fails loudly, and `yes` would fail the pipeline under `pipefail` via SIGPIPE even after a successful sync. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED, packager-side 13-case trust-anchor suite re-extracted and green | Beta-v2.9.81 below |
 | **Beta-v2.9.81** | `[SSH-KEYGEN-NONINTERACTIVE]` — the generate-key branch built `-N` as `${SSH_KEY_PASSPHRASE:+-N ...}`, so answering `n` at "Protect the key with a passphrase?" **omitted `-N` entirely** — and omitting `-N` means "prompt me", not "no passphrase". ssh-keygen therefore still asked `Enter passphrase for "…/id_ed25519" (empty for no passphrase)` (and fired `ksshaskpass` wherever `SSH_ASKPASS` is set) after the operator had already declined, and the read that answers it can swallow the next answer-stream line — the same desync class `[SSH-KEYGEN-STALE]` (2.9.54) fixed for the `Overwrite (y/n)?` prompt. `-N` is now ALWAYS passed, with `""` for the unprotected case (`-N ""` is ssh-keygen's documented "no passphrase, do not ask" form); the now-dead `SC2086` disable that justified the old zero-arg expansion was dropped with it. Reported live 2026-10-07. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.80 below |
 | **Beta-v2.9.80** | `[MIRROR-SKEW-GUARD]` — upstream Void mirror rotation desync: the index lists an old version whose pool files were just rotated away (`runc` 1.5.1_1→1.5.2_1, 2026-10-07); every official tier indexed 1.5.1_1 while the pool carried only 1.5.2_1, so the 3-mirror fallback failed identically and `install_pkgs podman` FATALed mid-transaction (404 on the `.sig`). Three-layer fix: (1) all three mirror rotations gain tertiary region fallbacks (`REPO_EXTRA1` repo-de / `REPO_EXTRA2` tuna) that rotate on their own schedule, threaded through state-file persist + `/mnt/tmp/chroot_env.sh`; (2) `install_pkgs()` captures its transcript and classifies the `failed to download <pkg> ' signature from <repo>: Not Found` error, retrying the full rotation with 15/30/45 s backoff (3 rounds) before FATAL — non-skew failures fail immediately exactly as before; (3) Stage-1 `[PKG-PREFLIGHT]` adds a per-mirror `-M` memory-sync consistency probe on the enabled container/bootstrap closure (base-system always; + runc/podman when `INSTALL_PODMAN`; + docker when `INSTALL_DOCKER`), promoting the first consistent mirror to `REPO_PRIMARY` pre-write and WARN+continuing when all are torn (never a pre-write FATAL for a transient; absent `curl` skips the probe, preserving `[PREREQ-CURL]`). `bash -n`, `check-heredocs.sh` (the `install_pkgs` edit is inside `CHROOT_EOF`), `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.79 below |
@@ -1070,8 +1070,8 @@ section.
 ### What was wrong
 
 COSMIC's disclosure — the red option-7 line in the desktop menu — said the
-desktop comes from "a community repo maintained by REDACTED REDACTED (GitHub
-REDACTED / Codeberg REDACTED), https://github.com/REDACTED/void-packages".
+desktop comes from "a third-party community repo maintained by an upstream
+packager (a packaging fork), published from that packager's git host".
 `install_cosmic()` has not touched that repo since **Beta-v2.9.73**
 (commit `d46e157`, 2026-10-04); what it actually writes into
 `/etc/xbps.d/59-cosmic.conf` is
@@ -1082,14 +1082,14 @@ audit   =https://github.com/bluesloth/void-cosmic-repo
 ```
 
 i.e. the repo the companion `Void_Cosmic_Repo` packager project signs and
-publishes (29+ COSMIC 1.9 packages, templates based on REDACTED's 1.2
+publishes (29+ COSMIC 1.9 packages, templates based on that upstream fork's 1.2
 packaging), whose key is the one pinned as `_cosmic_key_expected`.
 
 Two stale claims rode along in `install_cosmic()`'s own header comment:
 
 * *"the documented old github.io URL is now stale — it serves a web page, not
   an xbps index"* — exactly backwards today: github.io serves a working
-  `x86_64-repodata` (verified 2026-10-07), and it is `repo.REDACTED.de` that is
+  `x86_64-repodata` (verified 2026-10-07), and it is the upstream host that is
   no longer used;
 * *"the repo's signing key is whatever the maintainer publishes with the repo
   (fetched/trusted by xbps on first sync)"* — superseded by Beta-v2.9.76,
@@ -1099,7 +1099,7 @@ A warning whose name and link don't match what's being trusted is worse than
 no warning: it sends the audit to the wrong place. Corrected in three
 user/doc-facing spots — the DE menu, the ARCHITECTURE SUMMARY bullet, and the
 `install_cosmic()` header — plus the one PKG-PREFLIGHT comment that still said
-`repo.REDACTED.de`.
+the upstream host.
 
 ### What was deliberately NOT changed
 
@@ -1107,7 +1107,7 @@ Purely a naming/documentation fix: `_cosmic_repo`, `_cosmic_repodata`,
 `_cosmic_audit`, `_cosmic_key_expected`, the sync command, the pin check and
 every code path are byte-for-byte untouched, so behavior is identical to
 Beta-v2.9.82. CHANGELOG entries written before 2.9.73 still describe the
-REDACTED era and are left alone as history; the `REDACTED/void-packages`
+upstream era and are left alone as history; the `third-party packaging fork`
 mention at the `system_accounts="_cosmicgreeter"` note stays because that *is*
 the template the account name came from.
 
@@ -2406,8 +2406,8 @@ fresh Beta-v2.9.9 COSMIC install (cosmic-greeter DM, /home/<user>,
    instantly, dropping tty1 to agetty. Verified live: `runsv cosmic-greeter`
    was up but had **no child process**, greetd was installed but **never
    enabled**, and no `_cosmicgreeter` user existed (only the group).
-   The community repo (REDACTED/void-packages, the repo audited at
-   `repo.REDACTED.de`) deploys the greeter the intended way, so the installer now
+   The upstream community repo (a third-party packaging fork, audited at
+   its own host) deploys the greeter the intended way, so the installer now
    bakes the same stack deterministically (never depending on which repos-rev
    ships):
    - `/etc/greetd/cosmic-greeter.toml` — greetd config launching
@@ -4196,7 +4196,7 @@ username**:
 _                  => locker::main(),  // NO main window; waits for an ext-session-lock event, maps nothing
 ```
 
-The REDACTED/void-packages template ships `system_accounts="_cosmicgreeter"`,
+The third-party packaging fork template ships `system_accounts="_cosmicgreeter"`,
 and the Beta-v2.9.10 `[COSMIC-GREETER-DM]` recipe copied it — so greetd launched
 `cosmic-comp cosmic-greeter` under a user that is *not* `cosmic-greeter`, and
 the binary silently took the **locker** branch: no windows, no user list, just
@@ -6020,9 +6020,9 @@ not `insmod luks` (that module was locked too). First boot always hit
 - KDE Plasma (default, primary tested path), Cinnamon, GNOME, Xfce, MATE,
   LXQt, and **COSMIC**.
 - COSMIC is NOT in the official Void repos:
-  - `[COSMIC]` — installed from a community repo maintained by **REDACTED
-    REDACTED** (GitHub `REDACTED` / Codeberg `REDACTED`), pinned to the
-    current domain `https://repo.REDACTED.de/repo/x86_64`.
+  - `[COSMIC]` — installed from a third-party community repo maintained by an
+    upstream packager (a GitHub/Codeberg packaging fork), pinned to that
+    upstream host.
   - Third-party signing-trust choice; runtime repo verification with a
     graceful abort + audit link if unavailable.
   - `install_cosmic()` helper deliberately bypasses `install_pkgs()` (which

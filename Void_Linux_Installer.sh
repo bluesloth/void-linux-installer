@@ -832,8 +832,8 @@ SCRIPT_VERSION="Beta-v2.9.86"
 #                     /etc/rc.conf KEYMAP.
 #     Beta-v2.9.83   [COSMIC-REPO-ATTRIBUTION] — the DE menu (option 7), the
 #                     ARCHITECTURE SUMMARY and install_cosmic()'s own header
-#                     comment all named REDACTED REDACTED's REDACTED repo
-#                     (github.com/REDACTED/void-packages / repo.REDACTED.de)
+#                     comment all named a third-party packaging fork
+#                     (its own git host / its own package host)
 #                     as the COSMIC source, but the URL this installer has
 #                     actually added since Beta-v2.9.73 is
 #                     https://bluesloth.github.io/void-cosmic-repo/ (audit:
@@ -3597,8 +3597,8 @@ echo "  ${C_BOLD}7)${C_RST} ${C_RED}COSMIC (third-party repo)${C_RST} — the Sy
 echo "     official Void repositories: installed from the community repo at"
 echo "     https://bluesloth.github.io/void-cosmic-repo/ (audit:"
 echo "     https://github.com/bluesloth/void-cosmic-repo), whose COSMIC 1.10"
-echo "     templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC"
-echo "     void-packages packaging. Its signing key is PINNED in this installer"
+echo "     templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC."
+echo "     Its signing key is PINNED in this installer"
 echo "     and machine-verified after every sync. It is a third-party"
 echo "     signing-trust choice made at your own risk — audit the repo before"
 echo "     installing. The repo URL is verified reachable at runtime; if it is"
@@ -7279,11 +7279,10 @@ install_pkgs() {
 # Void repositories. It installs from the community repo at
 # https://bluesloth.github.io/void-cosmic-repo/ (audit:
 # https://github.com/bluesloth/void-cosmic-repo) — a repo this project signs
-# and publishes itself, whose COSMIC 1.10 templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC
-# REDACTED's (GitHub REDACTED / Codeberg REDACTED) void-packages packaging.
-# The older attribution this comment used to carry (maintainer's own
-# repo.REDACTED.de) applied until Beta-v2.9.73 [ELOGIND-RUN-SELFHEAL] repointed
-# the URL; CHANGELOG entries written before that still describe the REDACTED era
+# and publishes itself, whose COSMIC 1.10 templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC sources.
+# The older attribution this comment used to carry (the packager's own host)
+# applied until Beta-v2.9.73 [ELOGIND-RUN-SELFHEAL] repointed
+# the URL; CHANGELOG entries written before that still describe the upstream era
 # and are historical. Because this is a third-party signing-trust choice, this
 # helper deliberately NEVER goes through install_pkgs() (which overrides -R
 # with only the three official mirrors and would silently fail to reach the
@@ -8112,7 +8111,7 @@ elif [ "$DISPLAY_MANAGER" = "cosmic-greeter" ]; then
     # `"cosmic-greeter" => greeter::main()` (the greetd DM: user list, layer
     # surfaces, greetd IPC) vs `_ => locker::main()` (a locker that waits for
     # an ext-session-lock event and maps nothing — the dead grey screen).
-    # The REDACTED/void-packages template ships `system_accounts=
+    # The third-party packaging fork template ships `system_accounts=
     # "_cosmicgreeter"`, which is WRONG: it silently forces the locker branch
     # (verified live 2026-09-06 on `<host>` via WAYLAND_DEBUG: the client bound
     # xdg_wm_base/layer-shell/lock globals, created one wl_surface, then sat
