@@ -101,7 +101,7 @@ match u.name.as_str() {
 }
 ```
 
-`_cosmicgreeter` (the third-party packaging fork `system_accounts` value, which
+`_cosmicgreeter` (the community repo's `system_accounts` value, which
 Beta-v2.9.10 had copied) falls into the wildcard → **locker branch**. The
 single uncommitted `wl_surface`, the never-created role, the idle client, the
 `cosmic_greeter::locker` journald target, and the never-connected `GREETD_SOCK`

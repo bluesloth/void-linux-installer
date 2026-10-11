@@ -839,7 +839,7 @@ SCRIPT_VERSION="Beta-v2.9.87"
 #                     https://bluesloth.github.io/void-linux-cosmic/ (audit:
 #                     github.com/bluesloth/void-linux-cosmic) — signed and
 #                     published by the companion Void_Linux_Cosmic packager
-#                     project, whose templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC.
+#                     project, whose COSMIC templates are built from scratch.
 #                     So the warning told the operator to audit a DIFFERENT
 #                     repo than the one being trusted, one comment still
 #                     claimed github.io "serves a web page, not an xbps
@@ -3610,7 +3610,7 @@ echo "  ${C_BOLD}7)${C_RST} ${C_RED}COSMIC (third-party repo)${C_RST} — the Sy
 echo "     official Void repositories: installed from the community repo at"
 echo "     https://bluesloth.github.io/void-linux-cosmic/ (audit:"
 echo "     https://github.com/bluesloth/void-linux-cosmic), whose COSMIC 1.10"
-echo "     templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC."
+echo "     templates are built from scratch, tracking System76 / Pop!_OS COSMIC."
 echo "     Its signing key is PINNED in this installer"
 echo "     and machine-verified after every sync. It is a third-party"
 echo "     signing-trust choice made at your own risk — audit the repo before"
@@ -7292,10 +7292,11 @@ install_pkgs() {
 # Void repositories. It installs from the community repo at
 # https://bluesloth.github.io/void-linux-cosmic/ (audit:
 # https://github.com/bluesloth/void-linux-cosmic) — a repo this project signs
-# and publishes itself, whose COSMIC 1.10 templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC sources.
-# The older attribution this comment used to carry (the packager's own host)
-# applied until Beta-v2.9.73 [ELOGIND-RUN-SELFHEAL] repointed
-# the URL; CHANGELOG entries written before that still describe the upstream era
+# and publishes itself; its COSMIC 1.10 templates are built from scratch,
+# tracking upstream System76 / Pop!_OS COSMIC sources.
+# The older attribution this comment used to carry applied until
+# Beta-v2.9.73 [ELOGIND-RUN-SELFHEAL] repointed the URL; CHANGELOG entries
+# written before that still describe the earlier era
 # and are historical. Because this is a third-party signing-trust choice, this
 # helper deliberately NEVER goes through install_pkgs() (which overrides -R
 # with only the three official mirrors and would silently fail to reach the
@@ -8124,7 +8125,7 @@ elif [ "$DISPLAY_MANAGER" = "cosmic-greeter" ]; then
     # `"cosmic-greeter" => greeter::main()` (the greetd DM: user list, layer
     # surfaces, greetd IPC) vs `_ => locker::main()` (a locker that waits for
     # an ext-session-lock event and maps nothing — the dead grey screen).
-    # The third-party packaging fork template ships `system_accounts=
+    # The earlier community template shipped `system_accounts=
     # "_cosmicgreeter"`, which is WRONG: it silently forces the locker branch
     # (verified live 2026-09-06 on `<host>` via WAYLAND_DEBUG: the client bound
     # xdg_wm_base/layer-shell/lock globals, created one wl_surface, then sat
