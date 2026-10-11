@@ -23,7 +23,7 @@
   1. **Single point of failure.** Every commit lives only on this removable
      USB (b1ade0f … 0d3215d, b4cf08e, 44ffdb3). Same risk class as the Cosmic
      signing-key warning. Option: give `repo/` (or the root repo) an `origin`
-     — mirror how void-cosmic-repo is published.
+     — mirror how void-linux-cosmic is published.
   2. **No canonical repo.** Three scopes, three branch names
      (`main`/`history-split-doc`/`main`). Before ever publishing the installer
      to GitHub, pick one source of truth; the `history-split-doc` name implies

@@ -240,8 +240,8 @@
 #     GNOME via the full `gnome` metapackage, Xfce via `xfce4`, MATE via
 #     `mate`, LXQt via `lxqt`, or COSMIC — which is NOT in the official
 #     repos and is installed from the community repo
-#     https://bluesloth.github.io/void-cosmic-repo/ (audit:
-#     https://github.com/bluesloth/void-cosmic-repo), a third-party
+#     https://bluesloth.github.io/void-linux-cosmic/ (audit:
+#     https://github.com/bluesloth/void-linux-cosmic), a third-party
 #     signing-trust choice made at the user's own risk with a signing key
 #     PINNED in the installer, runtime repo verification and a graceful abort
 #     if it is unavailable. VERIFIED against Void's docs and real user reports: Void
@@ -565,7 +565,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.86"
+SCRIPT_VERSION="Beta-v2.9.87"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -836,9 +836,9 @@ SCRIPT_VERSION="Beta-v2.9.86"
 #                     (its own git host / its own package host)
 #                     as the COSMIC source, but the URL this installer has
 #                     actually added since Beta-v2.9.73 is
-#                     https://bluesloth.github.io/void-cosmic-repo/ (audit:
-#                     github.com/bluesloth/void-cosmic-repo) — signed and
-#                     published by the companion Void_Cosmic_Repo packager
+#                     https://bluesloth.github.io/void-linux-cosmic/ (audit:
+#                     github.com/bluesloth/void-linux-cosmic) — signed and
+#                     published by the companion Void_Linux_Cosmic packager
 #                     project, whose templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC.
 #                     So the warning told the operator to audit a DIFFERENT
 #                     repo than the one being trusted, one comment still
@@ -936,6 +936,19 @@ SCRIPT_VERSION="Beta-v2.9.86"
 #                     outcome (auto-skip, no new prompt). No prompt,
 #                     DEFAULT_* or package surface changed.
 #                     SCRIPT_VERSION bumped Beta-v2.9.85 -> Beta-v2.9.86.
+#     Beta-v2.9.87   [COSMIC-REPO-MOVE] — the COSMIC artifact repository is
+#                     now served from the unified Void_Linux_Cosmic project
+#                     (packaging templates + signed binary repo in one place):
+#                     _cosmic_repo/_cosmic_repodata/_cosmic_audit point at
+#                     https://bluesloth.github.io/void-linux-cosmic/ (audit:
+#                     https://github.com/bluesloth/void-linux-cosmic), served
+#                     from the repository root. The PINNED signing key
+#                     (_cosmic_key_expected = 83ffd154…) is UNCHANGED, so the
+#                     machine-checked trust anchor and its allowlist behave
+#                     exactly as before — only the served location moved.
+#                     Text-only: no code path, prompt, DEFAULT_* or package
+#                     surface changed.
+#                     SCRIPT_VERSION bumped Beta-v2.9.86 -> Beta-v2.9.87.
 #     Beta-v2.9.82   [COSMIC-KEY-AUTOIMPORT] — the COSMIC repo sync still
 #                     stopped at "Do you want to import this public key?
 #                     [Y/n]" even though the desktop menu already discloses
@@ -3595,8 +3608,8 @@ echo "  ${C_BOLD}5)${C_RST} MATE (X11) — classic GNOME 2-style GTK desktop."
 echo "  ${C_BOLD}6)${C_RST} LXQt (X11) — lightweight Qt desktop."
 echo "  ${C_BOLD}7)${C_RST} ${C_RED}COSMIC (third-party repo)${C_RST} — the System76 desktop. NOT in the"
 echo "     official Void repositories: installed from the community repo at"
-echo "     https://bluesloth.github.io/void-cosmic-repo/ (audit:"
-echo "     https://github.com/bluesloth/void-cosmic-repo), whose COSMIC 1.10"
+echo "     https://bluesloth.github.io/void-linux-cosmic/ (audit:"
+echo "     https://github.com/bluesloth/void-linux-cosmic), whose COSMIC 1.10"
 echo "     templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC."
 echo "     Its signing key is PINNED in this installer"
 echo "     and machine-verified after every sync. It is a third-party"
@@ -7277,8 +7290,8 @@ install_pkgs() {
 
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [COSMIC]: COSMIC is NOT in the official
 # Void repositories. It installs from the community repo at
-# https://bluesloth.github.io/void-cosmic-repo/ (audit:
-# https://github.com/bluesloth/void-cosmic-repo) — a repo this project signs
+# https://bluesloth.github.io/void-linux-cosmic/ (audit:
+# https://github.com/bluesloth/void-linux-cosmic) — a repo this project signs
 # and publishes itself, whose COSMIC 1.10 templates are built from scratch, tracking upstream System76 / Pop!_OS COSMIC sources.
 # The older attribution this comment used to carry (the packager's own host)
 # applied until Beta-v2.9.73 [ELOGIND-RUN-SELFHEAL] repointed
@@ -7325,9 +7338,9 @@ cosmic_key_fingerprint() {
 }
 
 install_cosmic() {
-    _cosmic_repo="https://bluesloth.github.io/void-cosmic-repo/"
-    _cosmic_repodata="https://bluesloth.github.io/void-cosmic-repo/x86_64-repodata"
-    _cosmic_audit="https://github.com/bluesloth/void-cosmic-repo"
+    _cosmic_repo="https://bluesloth.github.io/void-linux-cosmic/"
+    _cosmic_repodata="https://bluesloth.github.io/void-linux-cosmic/x86_64-repodata"
+    _cosmic_audit="https://github.com/bluesloth/void-linux-cosmic"
     # The trust anchor is PINNED here, in the installer, and is deliberately not
     # read from the repo being verified. A fingerprint fetched from the served
     # index only proves the index is self-consistent -- an attacker controlling
