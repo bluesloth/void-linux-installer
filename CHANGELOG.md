@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.91** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.92** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -132,6 +132,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.74** | `[USB-AUTOMOUNT]` — a COSMIC install had no removable-media automounter: udisks2 was installed (as a cosmic-files dependency) but its D-Bus-only activation unit meant udisksd was never reliably running on runit, and there was no udiskie/gvfs in the COSMIC path (gvfs automount only covers the GNOME/KDE/Cinnamon/MATE/Xfce/LXQt branches). The COSMIC DE branch now installs `udiskie` and autostarts it via a session-readiness guard (`/usr/local/sbin/udiskie-guard`, mirroring the polkit-agent guard), and the installer writes + first-boot-links a supervised `/etc/sv/udisksd` service. `udiskie`/`udisks2` added to PKG_PREFLIGHT | Beta-v2.9.73 below |
 | **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 | **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
+| **Beta-v2.9.92** | `[COSMIC-TOUCHPAD-RCLICK]` — new **opt-in COSMIC-only** prompt: "Configure COSMIC touchpad right-click (two-finger tap + corner-click)? [y/N]", default OFF. cosmic-settings ships `input_touchpad` with `click_method:Some(Clickfinger)` which on real hardware (AMD Ryzen x360 laptop) yields no usable right-click; the proven daily-driver fix is a per-user override with `click_method:Some(ButtonAreas)` (bottom-corner right-click; two-finger tap preserved via the shipped `button_map:Some(LeftRightMiddle)`). Stage-2 deposits the override **derived** from the in-tree shipped default (`sed` of only the `click_method` token — never a stale hardcoded struct), per-user only (greeter untouched), with a fallback canonical write if the shipped file/token is absent. Guard + chown follow the dotfile-deposit pattern. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.91 below |
 | **Beta-v2.9.91** | `[COSMIC-GREETER-DEFAULT]` — cosmic-greeter becomes the **recommended/default DM for the COSMIC DE** (was SDDM). The old preference traced to a maintainer report that the greeter could not recognize elogind sessions; real hardware (COSMIC 1.10 + cosmic-greeter) sessions cleanly under elogind and is the daily driver, so `RECOMMENDED_DM="cosmic-greeter"` for COSMIC, the DM prompt's Debug caveat is removed, and the Enter-default now follows `RECOMMENDED_DM` exactly as it already does for KDE/GNOME/etc. No package/prompt-index/default changed; pairing text + header comment updated. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.90 below |
 | **Beta-v2.9.90** | `[COSMIC-PPD]` — COSMIC's `cosmic-settings` hard-depends on `power-profiles-daemon` (D-Bus `net.hadess.PowerProfiles`), yet nothing ever linked its runit service, so the DE's powermode picker showed **"Backend not found"** while tlp (laptop profile) ran alongside as the second power manager — a documented PPD+tlp conflict. The Stage-1 resolution now derives `POWER_PPD=true` for EVERY COSMIC build and suppresses tlp on COSMIC laptops (`PROFILE_TLP=false` for the install + first-boot link sites); COSMIC builds install `power-profiles-daemon` (added to `PKG_PREFLIGHT`) and first-boot-link `/etc/sv/power-profiles-daemon`. Scope is COSMIC-only — all other DEs keep the existing tlp laptop behavior. Proven on the reference install (AMD Ryzen laptop): PPD drives `quiet/balanced/performance` through `amd_pstate` + the firmware `platform_profile`; tlp/tlp-rdw removed. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.89 below |
 | **Beta-v2.9.89** | `[SMART-BASELINE]` — smartmontools now ships on EVERY install regardless of DE / greeter / profile (added to the unconditional roll-up line), so a S.M.A.R.T. health baseline (`smartctl -a`) exists on day one — found when the first post-install audit box's healthy 1 TB NVMe could only be verified because the operator had added the package by hand. The `smartd` monitoring daemon stays unenabled by default (operator choice). New package on the always-on surface; no prompt/default changed; `smartmontools` also added to the stage-1 validation-only `PKG_PREFLIGHT` superset per the `[PKG-PREFLIGHT]` drift-guard rule. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.88 below |
@@ -815,6 +816,44 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.92 — `[COSMIC-TOUCHPAD-RCLICK]` (opt-in COSMIC touchpad right-click override)
+
+`SCRIPT_VERSION` bumped to Beta-v2.9.92. Adds a new **opt-in prompt, COSMIC
+builds only**, default OFF (lean posture — must be opted into, matching the
+other app/feature toggles):
+
+```
+Configure COSMIC touchpad right-click (two-finger tap + corner-click)? [y/N]:
+```
+
+Background: `cosmic-settings` ships `/usr/share/cosmic/.../v1/input_touchpad`
+with `click_method:Some(Clickfinger)` — verified via `xbps-query -o` that the
+package owns the file. On the reference install (AMD Ryzen x360 laptop)
+Clickfinger produced **no usable right-click**; the daily-driver fix is the
+per-user override `click_method:Some(ButtonAreas)`, which restores
+right-click via bottom-corner clicks while the two-finger-tap right-click is
+preserved by the same shipped `button_map:Some(LeftRightMiddle)`. The override
+is written **per-user** to
+`~/.config/cosmic/com.system76.CosmicComp/v1/input_touchpad` (the greeter's own
+touchpad behavior is intentionally out of scope — the tested fix was desktop
+sessions only).
+
+Stage-2 mechanics:
+- `DEFAULT_COSMIC_TOUCHPAD_RCLICK="false"` in the defaults block;
+  `INSTALL_COSMIC_TOUCHPAD_RCLICK` prompted only when `DESKTOP_ENV=cosmic`,
+  then carried through `chroot_env.sh` next to `POWER_PPD`.
+- The override is **derived** from the in-tree shipped default (`sed` replacing
+  only the `click_method:Some(Clickfinger)` token) so it always mirrors the
+  current schema — the `[XKB-CONFIG-CREATE]` lesson: never hardcode a struct
+  the package owns. If the shipped file or the Clickfinger token is absent, a
+  canonical known-good override is written instead (the same content proven on
+  the reference box) so the toggle never silently installs a broken/empty
+  config.
+- Runs inside the cosmic branch after the account exists; same presence guard,
+  `chmod 0644` + `chown TARGET_USER:TARGET_USER` as the dotfile deposits.
+`bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT,
+`check-pkg-preflight.sh` ALL COVERED.
 
 ## Beta-v2.9.91 — `[COSMIC-GREETER-DEFAULT]` (cosmic-greeter becomes the recommended/default DM for the COSMIC DE)
 

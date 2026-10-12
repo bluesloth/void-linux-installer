@@ -566,7 +566,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.91"
+SCRIPT_VERSION="Beta-v2.9.92"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -978,6 +978,21 @@ SCRIPT_VERSION="Beta-v2.9.91"
 #                     Debug caveat is removed, and the Enter-default follows
 #                     RECOMMENDED_DM as it already does for every other DE.
 #                     SCRIPT_VERSION bumped Beta-v2.9.90 -> Beta-v2.9.91.
+#     Beta-v2.9.92   [COSMIC-TOUCHPAD-RCLICK] — opt-in COSMIC-only touchpad
+#                     right-click fix. cosmic-settings ships input_touchpad
+#                     with click_method:Some(Clickfinger), which on real
+#                     hardware (AMD Ryzen x360 laptop) yields no usable
+#                     right-click; the daily-driver fix is a per-user override
+#                     with click_method:Some(ButtonAreas) (bottom-corner
+#                     right-click + two-finger tap preserved). NEW prompt
+#                     (COSMIC builds only, default OFF): "Configure COSMIC
+#                     touchpad right-click (two-finger tap + corner-click)?
+#                     [y/N]". Stage-2 deposits the override DERIVED from the
+#                     in-tree shipped default (sed of only the click_method
+#                     token — never a stale hardcoded struct), per-user only
+#                     (greeter untouched), guard + chown like the dotfile
+#                     deposits. SCRIPT_VERSION bumped Beta-v2.9.91
+#                     -> Beta-v2.9.92.
 #     Beta-v2.9.87   [COSMIC-REPO-MOVE] — the COSMIC artifact repository is
 #                     now served from the unified Void_Linux_Cosmic project
 #                     (packaging templates + signed binary repo in one place):
@@ -1186,6 +1201,7 @@ DEFAULT_SNAPSHOT_AUDIO="${DEFAULT_SNAPSHOT_AUDIO:-false}"  # audio on snapshot b
 DEFAULT_OCTOXBPS="${DEFAULT_OCTOXBPS:-false}"         # OctoXBPS GUI pkg mgr? [y/N]
 DEFAULT_FLATPAK="${DEFAULT_FLATPAK:-false}"           # Flatpak + Flathub? [y/N]
 DEFAULT_COSMIC_STORE="${DEFAULT_COSMIC_STORE:-false}"      # COSMIC app store (needs Flatpak)? [y/N]
+DEFAULT_COSMIC_TOUCHPAD_RCLICK="${DEFAULT_COSMIC_TOUCHPAD_RCLICK:-false}"  # COSMIC touchpad right-click fix (ButtonAreas)? [y/N]
 # AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: opt-in complement to
 # Flatpak — Homebrew (classic Linuxbrew) is the unsandboxed, user-owned
 # ~/.linuxbrew CLI/dev channel. Installs only the xbps runtime deps (git curl
@@ -3978,6 +3994,27 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
     esac
 fi
 export INSTALL_COSMIC_STORE
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.92 [COSMIC-TOUCHPAD-RCLICK]: opt-in
+# COSMIC-only touchpad right-click fix. cosmic-settings ships input_touchpad
+# with click_method:Some(Clickfinger), which on real hardware (AMD Ryzen x360
+# laptop) does NOT produce a usable right-click; switching the touchpad's
+# click_method to Some(ButtonAreas) (bottom-corner clicks; two-finger tap
+# right-click preserved via button_map:Some(LeftRightMiddle)) fixes it and has
+# been the daily-driver config on the reference box. Written as a PER-USER
+# override in ~/.config/cosmic/... — the greeter's own touchpad behavior is
+# out of scope. Default OFF (lean posture); only offered on COSMIC builds.
+INSTALL_COSMIC_TOUCHPAD_RCLICK="false"
+if [ "$DESKTOP_ENV" = "cosmic" ]; then
+    ask "Configure COSMIC touchpad right-click (two-finger tap + corner-click)? [y/N]: "
+    read -r INSTALL_COSMIC_TOUCHPAD_RCLICK_INPUT
+    case "$INSTALL_COSMIC_TOUCHPAD_RCLICK_INPUT" in
+        "") INSTALL_COSMIC_TOUCHPAD_RCLICK="$DEFAULT_COSMIC_TOUCHPAD_RCLICK" ;;
+        [yY]*) INSTALL_COSMIC_TOUCHPAD_RCLICK="true" ;;
+        *) INSTALL_COSMIC_TOUCHPAD_RCLICK="false" ;;
+    esac
+fi
+export INSTALL_COSMIC_TOUCHPAD_RCLICK
 
 # AI (Big Pickle) ADDITION — Beta-v2.8.3 [INSTALL-APPS]: Thunderbird and Steam
 # become real install-time choices. Previously these only existed as
@@ -7047,6 +7084,7 @@ echo "export PROFILE_TLP=\"$PROFILE_TLP\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROFILE_BT=\"$PROFILE_BT\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROFILE_PRELOAD=\"$PROFILE_PRELOAD\"" >> /mnt/tmp/chroot_env.sh
 echo "export POWER_PPD=\"$POWER_PPD\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_COSMIC_TOUCHPAD_RCLICK=\"$INSTALL_COSMIC_TOUCHPAD_RCLICK\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_USER=\"$TARGET_USER\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_FULL_NAME=\"$TARGET_FULL_NAME\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_HOSTNAME=\"$TARGET_HOSTNAME\"" >> /mnt/tmp/chroot_env.sh
@@ -8748,6 +8786,47 @@ repeat_rate: 25,
 XKB_EOF
     fi
     unset _xkb_layout _xkb_conf
+    # AI (Big Pickle) ADDITION — Beta-v2.9.92 [COSMIC-TOUCHPAD-RCLICK]: opt-in
+    # per-user COSMIC touchpad right-click override. cosmic-settings ships
+    # /usr/share/cosmic/.../v1/input_touchpad with click_method:Some(Clickfinger)
+    # (the file is owned by the cosmic-settings package, NOT created by a hook —
+    # verified via `xbps-query -o`): Clickfinger needs a physical two-finger
+    # click and on the reference hardware yielded no right-click at all.
+    # Overriding the user copy to Some(ButtonAreas) gives bottom-corner
+    # right-click while the two-finger tap stays right-click via the shipped
+    # button_map:Some(LeftRightMiddle). The override is DERIVED from the
+    # in-tree shipped default by rewriting ONLY the click_method token — when
+    # cosmic later evolves the RON schema, this still mirrors whatever the
+    # package currently ships instead of going stale (the [XKB-CONFIG-CREATE]
+    # lesson: never hardcode a struct that the package owns). Runs in the
+    # cosmic branch AFTER the account exists (same presence guard as the fish/
+    # zsh dotfile deposit), so owner/permissions are set right. Greeter (its
+    # own user) is intentionally untouched.
+    if [ "$INSTALL_COSMIC_TOUCHPAD_RCLICK" = "true" ]; then
+        if [ -n "$TARGET_USER" ] && id -u "$TARGET_USER" >/dev/null 2>&1; then
+            _tp_src="/usr/share/cosmic/com.system76.CosmicComp/v1/input_touchpad"
+            _tp_dir="/home/${TARGET_USER}/.config/cosmic/com.system76.CosmicComp/v1"
+            _tp_dst="${_tp_dir}/input_touchpad"
+            mkdir -p "$_tp_dir"
+            if [ -f "$_tp_src" ] && grep -q "click_method:Some(Clickfinger)" "$_tp_src"; then
+                sed 's/click_method:Some(Clickfinger)/click_method:Some(ButtonAreas)/' \
+                    "$_tp_src" > "$_tp_dst"
+            else
+                # Shipped source absent or already diverged (Clickfinger token gone) —
+                # fall back to the canonical proven override so the toggle never
+                # silently installs a broken/empty config.
+                cat > "$_tp_dst" << 'TP_EOF'
+(state:Enabled,click_method:Some(ButtonAreas),scroll_config:Some((method:Some(TwoFinger),natural_scroll:None,scroll_button:None,scroll_factor:None)),tap_config:Some((enabled:true,button_map:Some(LeftRightMiddle),drag:true,drag_lock:false)))
+TP_EOF
+            fi
+            chmod 0644 "$_tp_dst"
+            chown "${TARGET_USER}:${TARGET_USER}" "$_tp_dst"
+            echo "==> COSMIC touchpad right-click override written for ${TARGET_USER}"
+        else
+            echo "  WARNING: touchpad right-click requested, but target account does not exist yet — skipping." >&2
+        fi
+        unset _tp_src _tp_dir _tp_dst
+    fi
 elif [ "$DESKTOP_ENV" = "kde" ]; then
     install_pkgs kde-plasma kde-baseapps ark kio-admin
 fi

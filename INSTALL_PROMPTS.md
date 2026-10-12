@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Beta-v2.9.91**). It exists
+> `Void_Linux_Installer.sh` (current version: **Beta-v2.9.92**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -183,6 +183,15 @@
   hard run-depends on `flatpak`, and the Stage-2 install re-checks the flag
   (a stale resume state can't drag flatpak in past an opt-out). Default NO.
   (Beta-v2.9.84 `[COSMIC-STORE]`.)
+- **Configure COSMIC touchpad right-click (two-finger tap + corner-click)? [y/N]**
+  → only offered on COSMIC builds, default OFF (Beta-v2.9.92
+  `[COSMIC-TOUCHPAD-RCLICK]`). cosmic-settings ships `click_method:Some(Clickfinger)`
+  which yields no usable right-click on real hardware; if `y`, a per-user
+  override with `click_method:Some(ButtonAreas)` (bottom-corner right-click,
+  two-finger-tap preserved) is written to
+  `~/.config/cosmic/com.system76.CosmicComp/v1/input_touchpad`, derived from
+  the in-tree shipped default (only the `click_method` token changes). The
+  greeter's own touchpad is not touched.
 - **Install Thunderbird (email client)? [y/N]** → if `y`: package installed, `@thunderbird` per-user subvol provisioned
 - **Install Steam (gaming client)? [y/N]** → if `y`: package installed (multilib), `@steam` per-user subvol provisioned
 - **`[*]` Set up web browsers now? (choose each one next) [y/N]** → gate; if `no`, all
