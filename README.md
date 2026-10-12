@@ -8,7 +8,7 @@ recovery-first, snapshot-friendly system.
 
 | File | Description |
 |------|-------------|
-| `Void_Linux_Installer.sh` | Unified working installer (current version: **Beta-v2.9.90**). Run this. |
+| `Void_Linux_Installer.sh` | Unified working installer (current version: **Beta-v2.9.91**). Run this. |
 | `CHANGELOG.md` | Full lineage changelog using the `[VERSION-CARRY]` scheme: Alpha-v (manual step scripts), Beta-v (unified installer, current era). |
 
 ## Usage
@@ -51,7 +51,7 @@ neither the target nor the live medium.
   - Desktop: KDE Plasma (default), Cinnamon, GNOME, Xfce, MATE, LXQt, or
     COSMIC (community repo, third-party trust choice — use at own risk).
   - Display manager: SDDM, LightDM (GTK/Slick greeter), GDM, or
-    cosmic-greeter (COSMIC only; maintainer warns it is unreliable).
+    cosmic-greeter (COSMIC default).
   - Bootloader: **grub** (mature, grub-btrfs menu) or **limine** (experimental,
     static config via `void-limine-write-conf`, synced by a Void-native
     snapper plugin — now the sole snapshot-menu trigger). Limine now uses a

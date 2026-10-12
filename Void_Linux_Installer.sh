@@ -283,9 +283,10 @@
 #     `wayland`/`wayland-protocols` are still installed unconditionally
 #     for all options (cheap, harmless, future-proofing).
 #     Display manager (Beta-v2.4.0) is an independent choice, $DISPLAY_MANAGER:
-#     SDDM (default for KDE/LXQt/COSMIC), LightDM (Cinnamon/Xfce/MATE), GDM
-#     (GNOME), or cosmic-greeter (COSMIC's own greeter, offered only when
-#     COSMIC is chosen). Beta-v2.9.10 [COSMIC-GREETER-DM]: cosmic-greeter is
+#     SDDM (default for KDE/LXQt), LightDM (Cinnamon/Xfce/MATE), GDM
+#     (GNOME), or cosmic-greeter (COSMIC's own greeter; the default/recommended
+#     pairing for COSMIC since Beta-v2.9.91 [COSMIC-GREETER-DEFAULT]).
+#     Beta-v2.9.10 [COSMIC-GREETER-DM]: cosmic-greeter is
 #     NOT a standalone DM — its binary self-describes as "a libcosmic frontend
 #     for greetd which can be run inside of cosmic-comp", so the DM path now
 #     provisions it the way the community repo actually builds it: the
@@ -565,7 +566,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.90"
+SCRIPT_VERSION="Beta-v2.9.91"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -967,6 +968,16 @@ SCRIPT_VERSION="Beta-v2.9.90"
 #                     through amd_pstate + the firmware platform_profile;
 #                     tlp removed.
 #                     SCRIPT_VERSION bumped Beta-v2.9.89 -> Beta-v2.9.90.
+#     Beta-v2.9.91   [COSMIC-GREETER-DEFAULT] — cosmic-greeter becomes the
+#                     recommended/default DM for the COSMIC DE. The old guard
+#                     traced to a maintainer report that the greeter could not
+#                     recognize elogind sessions; on real hardware (AMD Ryzen
+#                     x360 laptop, COSMIC 1.10 + cosmic-greeter) it sessions
+#                     cleanly under elogind and is the daily driver, so the
+#                     pairing is bumped to recommended, the DM prompt's
+#                     Debug caveat is removed, and the Enter-default follows
+#                     RECOMMENDED_DM as it already does for every other DE.
+#                     SCRIPT_VERSION bumped Beta-v2.9.90 -> Beta-v2.9.91.
 #     Beta-v2.9.87   [COSMIC-REPO-MOVE] — the COSMIC artifact repository is
 #                     now served from the unified Void_Linux_Cosmic project
 #                     (packaging templates + signed binary repo in one place):
@@ -3689,7 +3700,7 @@ case "$DESKTOP_ENV" in
     gnome)    RECOMMENDED_DM="gdm" ;;
     cinnamon|mate) RECOMMENDED_DM="lightdm" ;;
     xfce)     RECOMMENDED_DM="lightdm" ;;
-    cosmic)   RECOMMENDED_DM="sddm" ;;  # COSMIC's maintainer recommends SDDM; cosmic-greeter is offered as a DM option below when COSMIC is chosen, but the author reports it does not work reliably (see the greeter/DM prompts).
+    cosmic)   RECOMMENDED_DM="cosmic-greeter" ;;  # AI (Big Pickle) UPDATE — Beta-v2.9.91 [COSMIC-GREETER-DEFAULT]: cosmic-greeter is now the recommended/default DM for the COSMIC DE. Original guard: the COSMIC maintainer once flagged the greeter as unreliable (elogind session recognition); on real hardware (AMD Ryzen x360 laptop, COSMIC 1.10 + cosmic-greeter) it sessions cleanly under elogind and is the box's daily driver, so the pairing is bumped to recommended and the Debug caveat removed from the prompt below.
     none)     RECOMMENDED_DM="none" ;;  # AI (Big Pickle) ADDITION — Beta-v2.9.48 [NO-DE]: a console-only box recommends the 'none' DM below; the user may still pick a DM to add a graphical login without a DE (e.g. to hand off to startx).
     *)        RECOMMENDED_DM="sddm" ;;
 esac
@@ -3719,9 +3730,7 @@ echo "     Cinnamon/Xfce/MATE/GTK desktops."
 echo "  ${C_BOLD}3)${C_RST} GDM — GNOME Display Manager; typically paired with GNOME."
 if [ "$DESKTOP_ENV" = "cosmic" ]; then
     echo "  ${C_BOLD}4)${C_RST} cosmic-greeter — COSMIC's own greeter (from the third-party COSMIC repo)."
-    echo "     ${C_RED}Debug caveat:${C_RST} the COSMIC maintainer reports this greeter does NOT"
-    echo "     currently work reliably (elogind doesn't recognize its session) and recommends"
-    echo "     SDDM instead. Selecting it is at your own risk and may need manual fixing."
+    echo "     The recommended/default pairing for COSMIC, tested on real hardware."
 fi
 # AI (Big Pickle) ADDITION — Beta-v2.9.48 [NO-DM]: the 'none' option installs
 # NO display manager at all — a console-login box. It is listed last (its own

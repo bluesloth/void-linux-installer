@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Beta-v2.9.90**). It exists
+> `Void_Linux_Installer.sh` (current version: **Beta-v2.9.91**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -158,10 +158,10 @@
   - `6` LXQt (X11)
   - `7` COSMIC (third-party repo)
 - **Display manager `[*]` (default per DE)** — options depend on the chosen desktop
-  - `1` SDDM — Qt-based (KDE/LXQt/COSMIC default)
+  - `1` SDDM — Qt-based (KDE/LXQt default)
   - `2` LightDM — GTK-family (Cinnamon/Xfce/MATE default)
   - `3` GDM — GNOME
-  - `4` cosmic-greeter — COSMIC only (offered when COSMIC chosen; maintainer warns it's unreliable)
+  - `4` cosmic-greeter — COSMIC only (COSMIC default since Beta-v2.9.91)
 - Only if `DISPLAY_MANAGER=lightdm`:
   - **Greeter `[*] [1/2] (default 1: GTK)`**
     - `1` GTK
