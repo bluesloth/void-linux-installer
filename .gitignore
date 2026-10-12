@@ -1,0 +1,14 @@
+# .gitignore for the public Void Linux Installer export.
+# Dated snapshot copies of the installer. Git history replaces the manual
+# dated-snapshot ritual, so these are not tracked.
+snapshots/
+# Generated from INSTALL_PROMPTS.md; regenerable — keep the .md source only.
+INSTALL_PROMPTS.pdf
+# Editor / OS noise
+*.swp
+*~
+.DS_Store
+# Local scratch / debug artifacts — never shipped.
+Debug/
+*.bak
+*.log
