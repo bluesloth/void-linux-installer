@@ -565,7 +565,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.89"
+SCRIPT_VERSION="Beta-v2.9.90"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -951,6 +951,22 @@ SCRIPT_VERSION="Beta-v2.9.89"
 #                     PKG_PREFLIGHT (the stage-1 validation-only superset
 #                     list) per the [PKG-PREFLIGHT] drift-guard rule.
 #                     SCRIPT_VERSION bumped Beta-v2.9.88 -> Beta-v2.9.89.
+#     Beta-v2.9.90   [COSMIC-PPD] — COSMIC's cosmic-settings hard-depends on
+#                     power-profiles-daemon (D-Bus net.hadess.PowerProfiles),
+#                     but the daemon never ran because nothing linked its
+#                     runit service, so the DE's powermode picker showed
+#                     "Backend not found" while tlp (laptop profile) managed
+#                     power behind its back — two competing power managers
+#                     is a documented conflict. The Stage-1 resolution now
+#                     derives POWER_PPD=true for EVERY COSMIC build and
+#                     suppresses tlp on COSMIC laptops (PROFILE_TLP=false);
+#                     cosmic builds install + first-boot-link PPD. Scope is
+#                     COSMIC-only — all other DEs keep the existing tlp
+#                     laptop behavior. Proven on the reference install (AMD
+#                     Ryzen laptop): PPD drives quiet/balanced/performance
+#                     through amd_pstate + the firmware platform_profile;
+#                     tlp removed.
+#                     SCRIPT_VERSION bumped Beta-v2.9.89 -> Beta-v2.9.90.
 #     Beta-v2.9.87   [COSMIC-REPO-MOVE] — the COSMIC artifact repository is
 #                     now served from the unified Void_Linux_Cosmic project
 #                     (packaging templates + signed binary repo in one place):
@@ -5940,6 +5956,7 @@ pluma
 podman
 polkit
 polkit-gnome
+power-profiles-daemon
 preload
 procps-ng
 qemu
@@ -6999,6 +7016,20 @@ chmod 600 /mnt/tmp/chroot_env.sh
 KEYMAP_LIVE=$(sed -n 's/^[[:space:]]*KEYMAP="\([^"]*\)".*/\1/p' /etc/rc.conf 2>/dev/null | tail -1)
 [ -z "${KEYMAP_LIVE:-}" ] && KEYMAP_LIVE="us"
 export KEYMAP_LIVE
+# AI (Big Pickle) ADDITION — Beta-v2.9.90 [COSMIC-PPD]: COSMIC's
+# cosmic-settings hard-depends on power-profiles-daemon (D-Bus
+# net.hadess.PowerProfiles), and running tlp + PPD together is a documented
+# conflict (both want CPU-scaling / platform-profile knobs). So on EVERY
+# COSMIC build the power backend is PPD instead of tlp — the powermode
+# picker gets its backend from day one and the box never fights itself.
+# Scope: COSMIC-only; every other DE keeps the existing tlp behavior.
+POWER_PPD="false"
+if [ "$DESKTOP_ENV" = "cosmic" ]; then
+    POWER_PPD="true"
+    [ "$PROFILE_TLP" = "true" ] && PROFILE_TLP="false"
+fi
+export POWER_PPD
+[ "$POWER_PPD" = "true" ] && echo "  NOTE: COSMIC uses power-profiles-daemon; tlp skipped (PPD+tlp conflict)."
 # shellcheck disable=SC2129  # per-line appends, grouped for readability
 echo "export BTRFS_UUID=\"$BTRFS_UUID\"" >> /mnt/tmp/chroot_env.sh
 echo "export KERNEL_PKGS=\"$KERNEL_PKGS\"" >> /mnt/tmp/chroot_env.sh
@@ -7006,6 +7037,7 @@ echo "export DEVICE_PROFILE=\"$DEVICE_PROFILE\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROFILE_TLP=\"$PROFILE_TLP\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROFILE_BT=\"$PROFILE_BT\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROFILE_PRELOAD=\"$PROFILE_PRELOAD\"" >> /mnt/tmp/chroot_env.sh
+echo "export POWER_PPD=\"$POWER_PPD\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_USER=\"$TARGET_USER\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_FULL_NAME=\"$TARGET_FULL_NAME\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_HOSTNAME=\"$TARGET_HOSTNAME\"" >> /mnt/tmp/chroot_env.sh
@@ -7314,7 +7346,7 @@ case "$DEVICE_PROFILE" in
         echo "CRITICAL: DEVICE_PROFILE is missing or invalid ('${DEVICE_PROFILE:-<unset>}') inside target environment. Aborting." >&2
         exit 1 ;;
 esac
-for _dpb in PROFILE_TLP PROFILE_BT PROFILE_PRELOAD; do
+for _dpb in PROFILE_TLP PROFILE_BT PROFILE_PRELOAD POWER_PPD; do
     v="${!_dpb:-}"
     [ "$v" = "true" ] || [ "$v" = "false" ] || {
         echo "CRITICAL: ${_dpb} is missing or invalid ('${v:-<unset>}') inside target environment. Aborting." >&2
@@ -8923,7 +8955,12 @@ esac
 # only because the operator added the package by hand after install).
 # smartd stays unenabled by default; enabling it remains an operator choice.
 install_pkgs xdg-user-dirs xdg-utils xtools rsync git curl wget make binutils inotify-tools fastfetch chrony cronie bridge-utils smartmontools
+# AI (Big Pickle) ADDITION — Beta-v2.9.90 [COSMIC-PPD]: COSMIC builds skip
+# tlp (PPD replaces it there — the Stage-1 [COSMIC-PPD] gate) and ship
+# power-profiles-daemon instead so cosmic-settings' powermode picker has its
+# net.hadess.PowerProfiles backend from day one.
 [ "$PROFILE_TLP" = "true" ] && install_pkgs tlp tlp-rdw
+[ "$POWER_PPD" = "true" ] && install_pkgs power-profiles-daemon
 [ "$PROFILE_BT" = "true" ] && install_pkgs bluez
 [ "$PROFILE_PRELOAD" = "true" ] && install_pkgs preload
 [ "$INSTALL_OCTOXBPS" = "true" ] && install_pkgs octoxbps
@@ -10004,6 +10041,7 @@ DEVICE_PROFILE="${DEVICE_PROFILE:-<unset>}"
 PROFILE_TLP="${PROFILE_TLP:-<unset>}"
 PROFILE_BT="${PROFILE_BT:-<unset>}"
 PROFILE_PRELOAD="${PROFILE_PRELOAD:-<unset>}"
+POWER_PPD="${POWER_PPD:-false}"  # [COSMIC-PPD] true = COSMIC build carries PPD (tlp skipped)
 # AI (Big Pickle) ADDITION — Beta-v2.7.1 [CRYPT-NAME]: record the encryption
 # choice + LUKS mapper name in the as-built config. Both are PUBLIC (no
 # passphrase — matches the secret-free rule for this file and limine-env).
@@ -13057,6 +13095,11 @@ if [ ! -f /var/log/firstboot.log ]; then
     # rendered empty and silently skipped the links.
     [ "__PROFILE_BT__" = "true" ] && ln -sfn /etc/sv/bluetoothd /etc/runit/runsvdir/default/bluetoothd
     [ "__PROFILE_TLP__" = "true" ] && ln -sfn /etc/sv/tlp /etc/runit/runsvdir/default/tlp
+    # AI (Big Pickle) ADDITION — Beta-v2.9.90 [COSMIC-PPD]: COSMIC builds
+    # link power-profiles-daemon (its runit service) so the net.hadess
+    # PowerProfiles D-Bus backend exists at first boot — the same
+    # sed-substituted placeholder trick as the PROFILE_* links above.
+    [ "__POWER_PPD__" = "true" ] && ln -sfn /etc/sv/power-profiles-daemon /etc/runit/runsvdir/default/power-profiles-daemon
     [ "__PROFILE_PRELOAD__" = "true" ] && ln -sfn /etc/sv/preload /etc/runit/runsvdir/default/preload
     if [ "__SESSION_STACK__" = "turnstile" ]; then
         ln -sfn /etc/sv/turnstiled /etc/runit/runsvdir/default/turnstiled
@@ -13192,6 +13235,7 @@ sed -i \
     -e "s/__REGION_PARTITIONED__/${REGION_PARTITIONED}/g" \
     -e "s/__PROFILE_BT__/${PROFILE_BT}/g" \
     -e "s/__PROFILE_TLP__/${PROFILE_TLP}/g" \
+    -e "s/__POWER_PPD__/${POWER_PPD}/g" \
     -e "s/__PROFILE_PRELOAD__/${PROFILE_PRELOAD}/g" \
     /etc/rc.local
 chmod +x /etc/rc.local
