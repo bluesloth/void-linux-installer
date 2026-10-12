@@ -565,7 +565,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.88"
+SCRIPT_VERSION="Beta-v2.9.89"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -936,6 +936,21 @@ SCRIPT_VERSION="Beta-v2.9.88"
 #                     outcome (auto-skip, no new prompt). No prompt,
 #                     DEFAULT_* or package surface changed.
 #                     SCRIPT_VERSION bumped Beta-v2.9.85 -> Beta-v2.9.86.
+#     Beta-v2.9.89   [SMART-BASELINE] — smartmontools now ships on EVERY
+#                     install regardless of DE / greeter / profile: the
+#                     unconditional roll-up line gains it, so a SMART health
+#                     baseline (`smartctl -a`) exists on day one and later
+#                     checks always have a known-good reference. Health
+#                     monitoring is baseline-concern, not a DE/greeter concern
+#                     (found: the audit box's 1 TB NVMe reported HEALTH
+#                     PASSED with 0 media-integrity errors only because the
+#                     operator had installed the package by hand). The smartd
+#                     daemon stays unenabled by default — an operator choice.
+#                     This ADDS a package to the always-on surface (code
+#                     change, not text-only): smartmontools also joins
+#                     PKG_PREFLIGHT (the stage-1 validation-only superset
+#                     list) per the [PKG-PREFLIGHT] drift-guard rule.
+#                     SCRIPT_VERSION bumped Beta-v2.9.88 -> Beta-v2.9.89.
 #     Beta-v2.9.87   [COSMIC-REPO-MOVE] — the COSMIC artifact repository is
 #                     now served from the unified Void_Linux_Cosmic project
 #                     (packaging templates + signed binary repo in one place):
@@ -5933,6 +5948,7 @@ runit-nftables
 sddm
 seatd
 slirp4netns
+smartmontools
 snapper
 sof-firmware
 steam
@@ -8899,7 +8915,14 @@ esac
 # roll-up line no longer ships tlp + bluez + preload unconditionally. Profile
 # booleans gate each: tlp (battery) only on laptop profiles, bluez only with
 # bluetooth, preload (adaptive readahead, CPU/IO wakeups) desktop/server-only.
-install_pkgs xdg-user-dirs xdg-utils xtools rsync git curl wget make binutils inotify-tools fastfetch chrony cronie bridge-utils
+# AI (Big Pickle) ADDITION — Beta-v2.9.89 [SMART-BASELINE]: smartmontools
+# ships on EVERY install regardless of DE / greeter / profile so a SMART
+# health baseline (smartctl -a) exists on day one — health monitoring is a
+# baseline concern, not a DE/greeter concern (motivation: the first audit
+# box's 1 TB NVMe, HEALTH PASSED / 0 media-integrity errors, was recorded
+# only because the operator added the package by hand after install).
+# smartd stays unenabled by default; enabling it remains an operator choice.
+install_pkgs xdg-user-dirs xdg-utils xtools rsync git curl wget make binutils inotify-tools fastfetch chrony cronie bridge-utils smartmontools
 [ "$PROFILE_TLP" = "true" ] && install_pkgs tlp tlp-rdw
 [ "$PROFILE_BT" = "true" ] && install_pkgs bluez
 [ "$PROFILE_PRELOAD" = "true" ] && install_pkgs preload
