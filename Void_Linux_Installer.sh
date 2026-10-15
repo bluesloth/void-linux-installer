@@ -566,7 +566,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.93"
+SCRIPT_VERSION="Beta-v2.9.94"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -993,6 +993,39 @@ SCRIPT_VERSION="Beta-v2.9.93"
 #                     (greeter untouched), guard + chown like the dotfile
 #                     deposits. SCRIPT_VERSION bumped Beta-v2.9.91
 #                     -> Beta-v2.9.92.
+#     Beta-v2.9.93   [OCTOXBPS-NOPASS-POLKIT] — when INSTALL_OCTOXBPS=true,
+#                     Stage 2 also deposits a polkit action + rules pair
+#                     (99-octoxbps-check-nopass.policy +
+#                     90-octoxbps-nopass.rules) that allows passwordless
+#                     repository sync (xbps-install -Sy / -Syy) for active,
+#                     local wheel users, suppressing the OctoXBPS notifier's
+#                     startup / network-reconnect password prompt;
+#                     install/update still authenticate normally. Backfilled
+#                     row — the release commit bumped SCRIPT_VERSION ahead of
+#                     its changelog/history entry.
+#                     SCRIPT_VERSION bumped Beta-v2.9.92 -> Beta-v2.9.93.
+#     Beta-v2.9.94   [BASELINE-SNAPSHOT-FIRSTBOOT] — the baseline snapper
+#                     snapshot is now created at the END of the one-shot
+#                     first-boot provisioning block in /etc/rc.local, right
+#                     after the runit service symlinks (display manager,
+#                     dbus, NetworkManager, polkitd, ...) are linked and just
+#                     before the /var/log/firstboot.log marker is written —
+#                     NOT at the end of the chroot install. The install-time
+#                     snapshot predated first boot, so it captured a
+#                     console-only @ (only the base agetty-tty* links): a
+#                     rollback or a snapshot-menu boot landed on a bare
+#                     agetty instead of the greeter, and could not self-heal
+#                     because firstboot.log survives on the separate @log
+#                     subvolume (never restored by an @ snapshot), so
+#                     rc.local skipped provisioning on the restored system.
+#                     The existing [ ! -f /var/log/firstboot.log ] guard
+#                     makes this exactly-once, so no self-deleting
+#                     script/cron is needed. The install-time create and the
+#                     41_snapshots-btrfs chmod -x/+x dance are removed;
+#                     grub-btrfsd (GRUB) / the Limine snapper plugin pick up
+#                     the first-boot snapshot. Install-success NEXT-STEPS text
+#                     updated.
+#                     SCRIPT_VERSION bumped Beta-v2.9.93 -> Beta-v2.9.94.
 #     Beta-v2.9.87   [COSMIC-REPO-MOVE] — the COSMIC artifact repository is
 #                     now served from the unified Void_Linux_Cosmic project
 #                     (packaging templates + signed binary repo in one place):
@@ -13335,6 +13368,33 @@ if [ ! -f /var/log/firstboot.log ]; then
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database -q
     fi
+
+    # AI (Big Pickle) CHANGE — Beta-v2.9.94 [BASELINE-SNAPSHOT-FIRSTBOOT]:
+    # the baseline snapshot is now taken HERE, at the end of the one-shot
+    # first-boot provisioning, NOT during the chroot install. Every runit
+    # service symlink created above (display manager, dbus, NetworkManager,
+    # polkitd, ...) is what actually starts the greeter/desktop, and the
+    # install-time snapshot predated first boot — so it captured a
+    # console-only @ (only the base packages' agetty-tty* links) and a
+    # rollback (or a snapshot-menu boot) dropped the operator at a bare
+    # agetty instead of the greeter. Worse, the rollback could not heal
+    # itself: /var/log/firstboot.log lives on the separate @log subvolume
+    # (never restored by an @ snapshot), so rc.local skipped this very block
+    # on the restored system and the missing DM link was never recreated.
+    # Snapshotting AFTER the links exist makes the baseline a fully-
+    # functional, rollback-ready clean-system image. The
+    # [ ! -f /var/log/firstboot.log ] guard above already makes this run
+    # exactly once, so no separate self-deleting script/cron is needed — the
+    # marker is written immediately below, after the snapshot. The initramfs
+    # frozen into this snapshot is the install-time one (the dracut regen
+    # loop ran before the chroot exited), which already has the
+    # snapshot-overlay module baked in.
+    if command -v snapper >/dev/null 2>&1 && [ -f /etc/snapper/configs/root ]; then
+        echo "==> Creating the baseline snapper snapshot (fully-provisioned system)..."
+        snapper --no-dbus -c root create --description "Baseline Automated System Installation" || \
+            echo "WARNING: baseline snapper snapshot failed — create one manually later with 'sudo snapper create -d \"Baseline Automated System Installation\"'." >&2
+    fi
+
     mkdir -p /var/log
     touch /var/log/firstboot.log
 fi
@@ -13592,27 +13652,28 @@ if [ "$BOOTLOADER" = "limine" ]; then
 /usr/local/sbin/void-limine-write-conf
 fi
 
-# AI (Claude, Sonnet 5, Medium) CHANGE: Baseline snapshot creation moved
-# here — it now runs after the dracut regen loop (and, for Limine, the
-# final ESP/limine.conf sync) directly above, so the initramfs frozen into
-# this snapshot already has the snapshot-overlay module baked in, same as
-# any timeline snapshot created afterward. For GRUB, grub-btrfs's own
-# grub.d hook (41_snapshots-btrfs) is disabled/re-enabled around the
-# create call: at the moment this runs there are still zero snapshots yet,
-# so the hook would otherwise do a pointless scan-of-nothing / risk a race
-# with snapper mid-create.
+# AI (Big Pickle) CHANGE — Beta-v2.9.94 [BASELINE-SNAPSHOT-FIRSTBOOT]: the
+# baseline snapper snapshot is NO LONGER created here. It was previously taken
+# at the end of the chroot install (after the dracut regen loop, so the
+# install-time initramfs was frozen in) — but at that point no service symlink
+# exists yet: the display manager, dbus, NetworkManager, polkitd, ... are all
+# linked by /etc/rc.local's first-boot block, which runs BEFORE runsvdir on the
+# first boot. The install-time snapshot therefore captured a console-only @,
+# so rolling back to it (or booting it from the GRUB/Limine snapshot menu)
+# landed on a bare agetty instead of the greeter, and it could not self-heal
+# (/var/log/firstboot.log survives on the separate @log subvolume, so
+# rc.local skipped provisioning on the restored system). The baseline is now
+# created at the end of that one-shot first-boot block (see the
+# [BASELINE-SNAPSHOT-FIRSTBOOT] block in /etc/rc.local above), after the links
+# exist — a fully-functional, rollback-ready clean-system image. For GRUB the
+# grub-btrfs grub.d hook (41_snapshots-btrfs) no longer needs the disable/
+# re-enable dance around the create (there is no create here anymore); the
+# first-boot snapshot is picked up by grub-btrfsd, and for Limine by the
+# 00-void-limine-snapper-sync plugin.
 if [ "$BOOTLOADER" = "grub" ]; then
-    [ -f /etc/grub.d/41_snapshots-btrfs ] && chmod -x /etc/grub.d/41_snapshots-btrfs
-fi
-snapper --no-dbus -c root create --description "Baseline Automated System Installation"
-if [ "$BOOTLOADER" = "grub" ]; then
-    [ -f /etc/grub.d/41_snapshots-btrfs ] && chmod +x /etc/grub.d/41_snapshots-btrfs
+    # No snapshot exists yet (the baseline is created on first boot), so a
+    # plain grub-mkconfig is safe with the 41_snapshots-btrfs hook enabled.
     grub-mkconfig -o /boot/grub/grub.cfg
-else
-    # Final limine.conf regeneration — picks up the baseline snapshot (and
-    # any snapshots snapper's own create-config bookkeeping may have
-    # produced) in the static /Snapshots submenu.
-    /usr/local/sbin/void-limine-write-conf
 fi
 CHROOT_EOF
 
@@ -13761,7 +13822,9 @@ else
     echo "${C_GRN}  3.${C_RST} GRUB is installed (with grub-btrfs snapshots). To update the menu:"
     echo "     ${C_BOLD}grub-mkconfig -o /boot/grub/grub.cfg${C_RST}"
 fi
-echo "${C_GRN}  4.${C_RST} A baseline snapper snapshot has already been created for the clean install."
+echo "${C_GRN}  4.${C_RST} A baseline snapper snapshot is taken on first boot, once the desktop"
+echo "     services are enabled — so it is a fully working, rollback-ready snapshot"
+echo "     of this clean install (not a pre-services console-only image)."
 echo "${C_GRN}  5.${C_RST} The exact choices + installer version that built this box are archived on it:"
 echo "     ${C_BOLD}/etc/void-installer/install-config${C_RST}  and  ${C_BOLD}/etc/void-installer/Void_Linux_Installer.sh${C_RST}"
 echo "     Quick record: ${C_BOLD}~/Documents/Void_Install.txt${C_RST} (installed user)"
