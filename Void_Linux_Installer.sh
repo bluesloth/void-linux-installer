@@ -566,7 +566,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.92"
+SCRIPT_VERSION="Beta-v2.9.93"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
