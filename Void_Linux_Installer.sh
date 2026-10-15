@@ -9053,6 +9053,54 @@ install_pkgs xdg-user-dirs xdg-utils xtools rsync git curl wget make binutils in
 [ "$PROFILE_PRELOAD" = "true" ] && install_pkgs preload
 [ "$INSTALL_OCTOXBPS" = "true" ] && install_pkgs octoxbps
 
+# AI (Big Pickle) ADDITION — OctoXBPS polkit: passwordless xbps sync for wheel users.
+# Policy file sets the default (auth_self = prompt for non-wheel users).
+# Rules file overrides to YES for active wheel users (hybrid & ubuntu account models).
+# Debian model users are not in wheel, so they fall back to auth_self (password prompt).
+if [ "$INSTALL_OCTOXBPS" = "true" ]; then
+mkdir -p /usr/share/polkit-1/actions /etc/polkit-1/rules.d
+cat > /usr/share/polkit-1/actions/99-octoxbps-check-nopass.policy << 'INNER_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<policyconfig>
+  <action id="org.freedesktop.policykit.pkexec.run-xbpsinstall-nopass-sy">
+    <description>Allow passwordless repository sync (-Sy) for OctoXBPS/local sessions</description>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-install</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">-Sy</annotate>
+  </action>
+  <action id="org.freedesktop.policykit.pkexec.run-xbpsinstall-nopass-syy">
+    <description>Allow passwordless forced repository sync (-Syy) for OctoXBPS/local sessions</description>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-install</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">-Syy</annotate>
+  </action>
+</policyconfig>
+INNER_EOF
+chmod 644 /usr/share/polkit-1/actions/99-octoxbps-check-nopass.policy
+# Only wheel users (hybrid & ubuntu models) get passwordless sync;
+# debian model users are not in wheel and fall back to the auth_self prompt.
+if [ "$ACCOUNT_MODEL" != "debian" ]; then
+cat > /etc/polkit-1/rules.d/90-octoxbps-nopass.rules << 'INNER_EOF'
+polkit.addRule(function(action, subject) {
+    if (action.id.indexOf("org.freedesktop.policykit.pkexec.run-xbpsinstall-nopass") === 0 &&
+        subject.isInGroup("wheel") &&
+        subject.active) {
+        return polkit.Result.YES;
+    }
+});
+INNER_EOF
+chmod 644 /etc/polkit-1/rules.d/90-octoxbps-nopass.rules
+fi
+fi
+
 if [ "$INSTALL_FLATPAK" = "true" ]; then
     install_pkgs flatpak fuse fuse3
     # AI (Big Pickle) ADDITION — Beta-v2.9.28 [APPIMAGE-FUSE]: installing
