@@ -280,8 +280,9 @@
   the following are asked:
   - **OpenSSH server port (default 22)** — must be an integer 1-65535, reprompts
     until valid
-  - **Allow password authentication over SSH? [Y/n]** — default `y`
-  - **Allow root to log in over SSH (public-key only)? [Y/n]** — default `y`
+  - **Allow password authentication over SSH? [y/N]** — default `n`
+  - **Allow root to log in over SSH (public-key only)? [y/N]** — default `n`
+    (a `y` answer sets `PermitRootLogin prohibit-password`, i.e. public-key-only root login)
     (maps to `prohibit-password`); `n` → `no`
 - **SSH keys** (`[SSH-KEYS]`, Beta-v2.9.23) — three independently-toggleable
   steps, each default `n`:
