@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Beta-v2.9.92"
+SCRIPT_VERSION="Beta-v2.9.93"
 
 
 
@@ -12,7 +12,6 @@ DEFAULT_XORG="${DEFAULT_XORG:-false}"
 DEFAULT_AUDIO="${DEFAULT_AUDIO:-false}"
 DEFAULT_SESSION_STACK="${DEFAULT_SESSION_STACK:-1}"
 DEFAULT_BOOTLOADER="${DEFAULT_BOOTLOADER:-1}"
-DEFAULT_LIMINE_NVRAM="${DEFAULT_LIMINE_NVRAM:-no}"
 DEFAULT_EFI_ESP_SIZE="${DEFAULT_EFI_ESP_SIZE:-1}"
 DEFAULT_KERNEL_MAINLINE="${DEFAULT_KERNEL_MAINLINE:-false}"
 DEFAULT_KERNEL_LTS="${DEFAULT_KERNEL_LTS:-true}"
@@ -57,8 +56,8 @@ DEFAULT_YK_TOUCH="${DEFAULT_YK_TOUCH:-yes}"
 DEFAULT_YK_FALLBACK="${DEFAULT_YK_FALLBACK:-yes}"
 DEFAULT_INSTALL_SSH_SERVER="${DEFAULT_INSTALL_SSH_SERVER:-false}"
 DEFAULT_SSH_PORT="${DEFAULT_SSH_PORT:-22}"
-DEFAULT_SSH_PASSWORD_AUTH="${DEFAULT_SSH_PASSWORD_AUTH:-no}"
-DEFAULT_SSH_ROOT_LOGIN="${DEFAULT_SSH_ROOT_LOGIN:-no}"
+DEFAULT_SSH_PASSWORD_AUTH="${DEFAULT_SSH_PASSWORD_AUTH:-yes}"
+DEFAULT_SSH_ROOT_LOGIN="${DEFAULT_SSH_ROOT_LOGIN:-prohibit-password}"
 DEFAULT_IMPORT_SSH_KEY="${DEFAULT_IMPORT_SSH_KEY:-false}"
 DEFAULT_GENERATE_SSH_KEY="${DEFAULT_GENERATE_SSH_KEY:-false}"
 DEFAULT_SSH_KEY_PROTECTED="${DEFAULT_SSH_KEY_PROTECTED:-yes}"
@@ -956,9 +955,7 @@ fi
  echo ""
  echo "${C_BOLD}${C_BLU}Choose bootloader${C_RST}  (default: Limine)"
  echo "  ${C_BOLD}1)${C_RST} ${C_GRN}Limine${C_RST} — newer, simpler, single-file UEFI bootloader with no"
- echo "     efibootmgr/NVRAM dependency (optional registration now available,"
- echo "     off by default: the removable/fallback boot path is always used)."
- echo "     Snapshot-boot menu support is a"
+ echo "     efibootmgr/NVRAM dependency. Snapshot-boot menu support is a"
  echo "     static config this script writes itself (with the snapper plugin"
  echo "     auto-regenerating it on every snapshot create/delete). Requires"
  echo "     a 4GiB+ EFI partition (ArchWiki's own recommendation for"
@@ -1329,27 +1326,7 @@ export INSTALL_WIFI_FW WIFI_IDS WIFI_CHIPS WIFI_FW_PKG
 
 LIMINE_WALLPAPER="none"
 LIMINE_WALLPAPER_STYLE="stretched"
-LIMINE_NVRAM="${DEFAULT_LIMINE_NVRAM}"
 if [ "$BOOTLOADER" = "limine" ]; then
-    echo ""
-    echo "${C_BOLD}${C_BLU}Limine NVRAM registration${C_RST}"
-    echo "  Register a UEFI NVRAM boot entry pointing at Limine's BOOTX64.EFI"
-    echo "  via efibootmgr? The default ('no') keeps the removable/fallback"
-    echo "  boot path only (current behaviour); 'yes' adds an explicit entry."
-    while true; do
-        case "${DEFAULT_LIMINE_NVRAM}" in
-            y|Y|yes|Yes) _nvram_default="Y";;
-            *) _nvram_default="N";;
-        esac
-        ask "${C_GRN}Register Limine NVRAM entry?${C_RST} [y/N] (default ${_nvram_default}): "
-        read -r LIMINE_NVRAM_INPUT
-        case "${LIMINE_NVRAM_INPUT:-$DEFAULT_LIMINE_NVRAM}" in
-            y|Y|yes|Yes) LIMINE_NVRAM="yes"; break ;;
-            n|N|no|No|"") LIMINE_NVRAM="no"; break ;;
-            *) echo "Please enter y or n." >&2 ;;
-        esac
-    done
-    unset _nvram_default
     echo ""
     echo "${C_BOLD}${C_BLU}Limine boot-screen background${C_RST}"
     echo "  Add a wallpaper to the Limine boot menu? (BMP/PNG/JPEG/QOI)"
@@ -1398,7 +1375,6 @@ if [ "$BOOTLOADER" = "limine" ]; then
 fi
 export LIMINE_WALLPAPER
 export LIMINE_WALLPAPER_STYLE
-export LIMINE_NVRAM
 
 ENCRYPT="no"
 ENCRYPT_PASSPHRASE=""
@@ -2242,8 +2218,8 @@ export INSTALL_VIRT
 
 INSTALL_SSH_SERVER="false"
 SSH_PORT="22"
-SSH_PASSWORD_AUTH="no"
-SSH_ROOT_LOGIN="no"
+SSH_PASSWORD_AUTH="yes"
+SSH_ROOT_LOGIN="prohibit-password"
 ask "Install and enable the OpenSSH server (sshd)? [y/N]: "
 read -r INSTALL_SSH_SERVER_INPUT
 case "$INSTALL_SSH_SERVER_INPUT" in
@@ -2261,16 +2237,15 @@ if [ "$INSTALL_SSH_SERVER" = "true" ]; then
         fi
         echo "  Please enter a valid port number (1-65535)." >&2
     done
-    ask "Allow password authentication over SSH? [y/N]: "
+    ask "Allow password authentication over SSH? [Y/n]: "
     read -r SSH_PASSWORD_AUTH_INPUT
     case "${SSH_PASSWORD_AUTH_INPUT:-$DEFAULT_SSH_PASSWORD_AUTH}" in
         ""|"$DEFAULT_SSH_PASSWORD_AUTH") SSH_PASSWORD_AUTH="$DEFAULT_SSH_PASSWORD_AUTH" ;;
         [yY]*) SSH_PASSWORD_AUTH="yes" ;;
         *) SSH_PASSWORD_AUTH="no" ;;
     esac
-    ask "Allow root to log in over SSH (public-key only)? [y/N]: "
+    ask "Allow root to log in over SSH (public-key only)? [Y/n]: "
     read -r SSH_ROOT_LOGIN_INPUT
-    # y/yes -> prohibit-password (public-key only); default N -> no root login.
     case "${SSH_ROOT_LOGIN_INPUT:-$DEFAULT_SSH_ROOT_LOGIN}" in
         ""|"$DEFAULT_SSH_ROOT_LOGIN") SSH_ROOT_LOGIN="$DEFAULT_SSH_ROOT_LOGIN" ;;
         [yY]*) SSH_ROOT_LOGIN="prohibit-password" ;;
@@ -3108,7 +3083,6 @@ if [ "$DRY_RUN" = "1" ]; then
     if [ "$BOOTLOADER" = "limine" ]; then
         echo "  Kernel access         : ${KERNEL_MODE:-<unset>} (Limine)"
         echo "  Wallpaper             : ${LIMINE_WALLPAPER:-none}${LIMINE_WALLPAPER_STYLE:+ (style=${LIMINE_WALLPAPER_STYLE})}"
-        echo "  Limine NVRAM entry    : ${LIMINE_NVRAM:-no}"
     fi
     if [ "$HAS_GRAPHICAL" = "yes" ]; then
         echo "  Desktop / DM          : ${DESKTOP_ENV:-<unset>} / ${DISPLAY_MANAGER:-<unset>} (graphical)"
@@ -4028,7 +4002,6 @@ echo "export GRUB_ESP_BOOT=\"$GRUB_ESP_BOOT\"" >> /mnt/tmp/chroot_env.sh
 echo "export KERNEL_MODE=\"$KERNEL_MODE\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIMINE_WALLPAPER=\"$LIMINE_WALLPAPER\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIMINE_WALLPAPER_STYLE=\"$LIMINE_WALLPAPER_STYLE\"" >> /mnt/tmp/chroot_env.sh
-echo "export LIMINE_NVRAM=\"$LIMINE_NVRAM\"" >> /mnt/tmp/chroot_env.sh
 echo "export DEFAULT_QUIET_BOOT=\"$DEFAULT_QUIET_BOOT\"" >> /mnt/tmp/chroot_env.sh
 echo "export DEFAULT_TEE_BLACKLIST=\"$DEFAULT_TEE_BLACKLIST\"" >> /mnt/tmp/chroot_env.sh
 echo "export SCRIPT_VERSION=\"$SCRIPT_VERSION\"" >> /mnt/tmp/chroot_env.sh
@@ -4936,6 +4909,48 @@ install_pkgs xdg-user-dirs xdg-utils xtools rsync git curl wget make binutils in
 [ "$PROFILE_PRELOAD" = "true" ] && install_pkgs preload
 [ "$INSTALL_OCTOXBPS" = "true" ] && install_pkgs octoxbps
 
+if [ "$INSTALL_OCTOXBPS" = "true" ]; then
+mkdir -p /usr/share/polkit-1/actions /etc/polkit-1/rules.d
+cat > /usr/share/polkit-1/actions/99-octoxbps-check-nopass.policy << 'INNER_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<policyconfig>
+  <action id="org.freedesktop.policykit.pkexec.run-xbpsinstall-nopass-sy">
+    <description>Allow passwordless repository sync (-Sy) for OctoXBPS/local sessions</description>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-install</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">-Sy</annotate>
+  </action>
+  <action id="org.freedesktop.policykit.pkexec.run-xbpsinstall-nopass-syy">
+    <description>Allow passwordless forced repository sync (-Syy) for OctoXBPS/local sessions</description>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-install</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">-Syy</annotate>
+  </action>
+</policyconfig>
+INNER_EOF
+chmod 644 /usr/share/polkit-1/actions/99-octoxbps-check-nopass.policy
+if [ "$ACCOUNT_MODEL" != "debian" ]; then
+cat > /etc/polkit-1/rules.d/90-octoxbps-nopass.rules << 'INNER_EOF'
+polkit.addRule(function(action, subject) {
+    if (action.id.indexOf("org.freedesktop.policykit.pkexec.run-xbpsinstall-nopass") === 0 &&
+        subject.isInGroup("wheel") &&
+        subject.active) {
+        return polkit.Result.YES;
+    }
+});
+INNER_EOF
+chmod 644 /etc/polkit-1/rules.d/90-octoxbps-nopass.rules
+fi
+fi
+
 if [ "$INSTALL_FLATPAK" = "true" ]; then
     install_pkgs flatpak fuse fuse3
     flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || \
@@ -5429,22 +5444,6 @@ fi
 mkdir -p /boot/efi/EFI/BOOT
 cp -f "$LIMINE_EFI_SRC" /boot/efi/EFI/BOOT/BOOTX64.EFI
 
-if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
-    install_pkgs efibootmgr
-    _esp_src="$(findmnt -no SOURCE /boot/efi 2>/dev/null)"
-    _esp_disk="$(lsblk -no PKNAME "$_esp_src" 2>/dev/null | head -n1)"
-    _esp_part="$(lsblk -no PARTN "$_esp_src" 2>/dev/null | head -n1)"
-    echo "==> Creating Limine NVRAM boot entry (efibootmgr) ..."
-    if [ -n "$_esp_disk" ] && [ -n "$_esp_part" ]; then
-        efibootmgr --create --disk "/dev/$_esp_disk" --part "$_esp_part" \
-            --loader '\EFI\BOOT\BOOTX64.EFI' --label "Void Linux (Limine)" \
-            || echo "WARNING: efibootmgr failed; system remains bootable via the fallback path." >&2
-    else
-        echo "WARNING: could not derive ESP disk/partition for efibootmgr; skipping NVRAM entry." >&2
-    fi
-    unset _esp_src _esp_disk _esp_part
-fi
-
 if [ "$KERNEL_MODE" = "esp-copy" ]; then
     mkdir -p /boot/efi/void-kernel
 fi
@@ -5458,7 +5457,6 @@ SYSPREFIX_BTRFS="${SYSPREFIX_BTRFS}"
 HIBERNATION_ENABLED="${ENABLE_HIBERNATION}"
 LIMINE_WALLPAPER="${LIMINE_WALLPAPER}"
 LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE}"
-LIMINE_NVRAM="${LIMINE_NVRAM}"
 DEFAULT_QUIET_BOOT="${DEFAULT_QUIET_BOOT:-no}"
 DEFAULT_TEE_BLACKLIST="${DEFAULT_TEE_BLACKLIST:-no}"
 ENCRYPT="${ENCRYPT}"
@@ -5532,7 +5530,6 @@ ENABLE_HIBERNATION="${ENABLE_HIBERNATION:-<unset>}"
 SWAPFILE_SIZE="${SWAPFILE_SIZE:-<unset>}"
 LIMINE_WALLPAPER="${LIMINE_WALLPAPER:-<unset>}"
 LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE:-<unset>}"
-LIMINE_NVRAM="${LIMINE_NVRAM:-no}"
 INSTALL_SSH_SERVER="${INSTALL_SSH_SERVER:-false}"
 SSH_PORT="${SSH_PORT:-<unset>}"
 SSH_PASSWORD_AUTH="${SSH_PASSWORD_AUTH:-<unset>}"
@@ -7760,11 +7757,7 @@ else
     echo "     at the console and run:  ${C_BOLD}ln -sf /etc/sv/${DISPLAY_MANAGER} /etc/runit/runsvdir/default/${C_RST}  (or your chosen DM)."
 fi
 if [ "$BOOTLOADER" = "limine" ]; then
-    if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
-        echo "${C_GRN}  3.${C_RST} Limine is registered in NVRAM (plus the removable fallback path)."
-    else
-        echo "${C_GRN}  3.${C_RST} Limine boots automatically (no NVRAM entry needed on UEFI)."
-    fi
+    echo "${C_GRN}  3.${C_RST} Limine boots automatically (no NVRAM entry needed on UEFI)."
     echo "     To snapshot a running system later:  ${C_BOLD}sudo snapper create -d 'manual'${C_RST}"
 else
     echo "${C_GRN}  3.${C_RST} GRUB is installed (with grub-btrfs snapshots). To update the menu:"

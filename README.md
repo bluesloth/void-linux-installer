@@ -1,4 +1,4 @@
-# Void Linux Advanced Installer
+# Void Linux Advanced Recovery Installer
 
 A self-documenting, runit-based Void Linux installer that runs **exclusively on
 the outer host terminal of a Void Linux Live CD** and produces a
@@ -172,24 +172,7 @@ neither the target nor the live medium.
 - Virtualization: QEMU/KVM + libvirt on a custom `br0` bridge (NOT the
   default NAT `virbr0`).
 
-## Post-install helpers (runtime tooling)
-
-The installer generates target-side helpers during its run and the host
-supervisor commonly keeps maintenance copies (e.g. under `/root/tools/`).
-They drift if edited independently, so the **script's embedded copy /
-install-target version is the source of truth**. Cross-check any hand-owned
-copy before reusing it.
-
-Common ones referenced by this project:
-
-- `void-limine-env.inc`, `void-limine-write-conf`,
-  `void-limine-sync-kernels`, and `limine-sync.sh` (Limine ESP handling)
-- `void-subvol-tool.sh` (subvolume ownership/layout changes)
-- `void-xbps-snap` (update-time snapper pre/post pairs)
-- elogind fixed-run wrappers maintained alongside the above
-
-See also `CHANGELOG.md` for which release introduced each helper.
-
+## Attribution & history
 
 The long development history is recorded in `CHANGELOG.md`. Early (alpha →
 3.0.x) work is an **educated reconstruction** from untagged legacy features

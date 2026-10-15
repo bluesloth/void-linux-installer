@@ -139,10 +139,8 @@
     — prints the detected profile + description, then accepts `y`/Enter, `n` (forces an
     explicit pick), or a direct 2-5 override.
 - Only if `BOOTLOADER=limine`:
-  - **Register Limine NVRAM entry? [y/N]** — optional efibootmgr registration;
-    default `N` keeps the removable/fallback boot path only.
   - **Enable Limine wallpaper? [y/N]** — asked right after the bootloader choice.
-  - If `y` (wallpaper):
+  - If `y`:
     - **Wallpaper browser** (copied onto the ESP) — a numbered `ls` menu of
       directories and BMP/PNG/JPEG/QOI images starting at `/run/media`
       (USB stick) if present, else `/root`. Enter `..` to go up, a number
@@ -280,9 +278,8 @@
   the following are asked:
   - **OpenSSH server port (default 22)** — must be an integer 1-65535, reprompts
     until valid
-  - **Allow password authentication over SSH? [y/N]** — default `n`
-  - **Allow root to log in over SSH (public-key only)? [y/N]** — default `n`
-    (a `y` answer sets `PermitRootLogin prohibit-password`, i.e. public-key-only root login)
+  - **Allow password authentication over SSH? [Y/n]** — default `y`
+  - **Allow root to log in over SSH (public-key only)? [Y/n]** — default `y`
     (maps to `prohibit-password`); `n` → `no`
 - **SSH keys** (`[SSH-KEYS]`, Beta-v2.9.23) — three independently-toggleable
   steps, each default `n`:
