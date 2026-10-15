@@ -139,9 +139,9 @@
     — prints the detected profile + description, then accepts `y`/Enter, `n` (forces an
     explicit pick), or a direct 2-5 override.
 - Only if `BOOTLOADER=limine`:
-  - **Enable Limine wallpaper? [y/N]** — asked right after the bootloader choice.
   - **Register Limine NVRAM entry? [y/N]** — optional efibootmgr registration;
     default `N` keeps the removable/fallback boot path only.
+  - **Enable Limine wallpaper? [y/N]** — asked right after the bootloader choice.
   - If `y` (wallpaper):
     - **Wallpaper browser** (copied onto the ESP) — a numbered `ls` menu of
       directories and BMP/PNG/JPEG/QOI images starting at `/run/media`

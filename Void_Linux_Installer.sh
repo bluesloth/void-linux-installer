@@ -1329,7 +1329,27 @@ export INSTALL_WIFI_FW WIFI_IDS WIFI_CHIPS WIFI_FW_PKG
 
 LIMINE_WALLPAPER="none"
 LIMINE_WALLPAPER_STYLE="stretched"
+LIMINE_NVRAM="${DEFAULT_LIMINE_NVRAM}"
 if [ "$BOOTLOADER" = "limine" ]; then
+    echo ""
+    echo "${C_BOLD}${C_BLU}Limine NVRAM registration${C_RST}"
+    echo "  Register a UEFI NVRAM boot entry pointing at Limine's BOOTX64.EFI"
+    echo "  via efibootmgr? The default ('no') keeps the removable/fallback"
+    echo "  boot path only (current behaviour); 'yes' adds an explicit entry."
+    while true; do
+        case "${DEFAULT_LIMINE_NVRAM}" in
+            y|Y|yes|Yes) _nvram_default="Y";;
+            *) _nvram_default="N";;
+        esac
+        ask "${C_GRN}Register Limine NVRAM entry?${C_RST} [y/N] (default ${_nvram_default}): "
+        read -r LIMINE_NVRAM_INPUT
+        case "${LIMINE_NVRAM_INPUT:-$DEFAULT_LIMINE_NVRAM}" in
+            y|Y|yes|Yes) LIMINE_NVRAM="yes"; break ;;
+            n|N|no|No|"") LIMINE_NVRAM="no"; break ;;
+            *) echo "Please enter y or n." >&2 ;;
+        esac
+    done
+    unset _nvram_default
     echo ""
     echo "${C_BOLD}${C_BLU}Limine boot-screen background${C_RST}"
     echo "  Add a wallpaper to the Limine boot menu? (BMP/PNG/JPEG/QOI)"
@@ -1378,29 +1398,6 @@ if [ "$BOOTLOADER" = "limine" ]; then
 fi
 export LIMINE_WALLPAPER
 export LIMINE_WALLPAPER_STYLE
-
-LIMINE_NVRAM="${DEFAULT_LIMINE_NVRAM}"
-if [ "$BOOTLOADER" = "limine" ]; then
-    echo ""
-    echo "${C_BOLD}${C_BLU}Limine NVRAM registration${C_RST}"
-    echo "  Register a UEFI NVRAM boot entry pointing at Limine's BOOTX64.EFI"
-    echo "  via efibootmgr? The default ('no') keeps the removable/fallback"
-    echo "  boot path only (current behaviour); 'yes' adds an explicit entry."
-    while true; do
-        case "${DEFAULT_LIMINE_NVRAM}" in
-            y|Y|yes|Yes) _nvram_default="Y";;
-            *) _nvram_default="N";;
-        esac
-        ask "${C_GRN}Register Limine NVRAM entry?${C_RST} [y/N] (default ${_nvram_default}): "
-        read -r LIMINE_NVRAM_INPUT
-        case "${LIMINE_NVRAM_INPUT:-$DEFAULT_LIMINE_NVRAM}" in
-            y|Y|yes|Yes) LIMINE_NVRAM="yes"; break ;;
-            n|N|no|No|"") LIMINE_NVRAM="no"; break ;;
-            *) echo "Please enter y or n." >&2 ;;
-        esac
-    done
-    unset _nvram_default
-fi
 export LIMINE_NVRAM
 
 ENCRYPT="no"
