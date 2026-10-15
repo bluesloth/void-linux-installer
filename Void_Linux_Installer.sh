@@ -57,8 +57,8 @@ DEFAULT_YK_TOUCH="${DEFAULT_YK_TOUCH:-yes}"
 DEFAULT_YK_FALLBACK="${DEFAULT_YK_FALLBACK:-yes}"
 DEFAULT_INSTALL_SSH_SERVER="${DEFAULT_INSTALL_SSH_SERVER:-false}"
 DEFAULT_SSH_PORT="${DEFAULT_SSH_PORT:-22}"
-DEFAULT_SSH_PASSWORD_AUTH="${DEFAULT_SSH_PASSWORD_AUTH:-yes}"
-DEFAULT_SSH_ROOT_LOGIN="${DEFAULT_SSH_ROOT_LOGIN:-prohibit-password}"
+DEFAULT_SSH_PASSWORD_AUTH="${DEFAULT_SSH_PASSWORD_AUTH:-no}"
+DEFAULT_SSH_ROOT_LOGIN="${DEFAULT_SSH_ROOT_LOGIN:-no}"
 DEFAULT_IMPORT_SSH_KEY="${DEFAULT_IMPORT_SSH_KEY:-false}"
 DEFAULT_GENERATE_SSH_KEY="${DEFAULT_GENERATE_SSH_KEY:-false}"
 DEFAULT_SSH_KEY_PROTECTED="${DEFAULT_SSH_KEY_PROTECTED:-yes}"
@@ -2245,8 +2245,8 @@ export INSTALL_VIRT
 
 INSTALL_SSH_SERVER="false"
 SSH_PORT="22"
-SSH_PASSWORD_AUTH="yes"
-SSH_ROOT_LOGIN="prohibit-password"
+SSH_PASSWORD_AUTH="no"
+SSH_ROOT_LOGIN="no"
 ask "Install and enable the OpenSSH server (sshd)? [y/N]: "
 read -r INSTALL_SSH_SERVER_INPUT
 case "$INSTALL_SSH_SERVER_INPUT" in
@@ -2264,15 +2264,16 @@ if [ "$INSTALL_SSH_SERVER" = "true" ]; then
         fi
         echo "  Please enter a valid port number (1-65535)." >&2
     done
-    ask "Allow password authentication over SSH? [Y/n]: "
+    ask "Allow password authentication over SSH? [y/N]: "
     read -r SSH_PASSWORD_AUTH_INPUT
     case "${SSH_PASSWORD_AUTH_INPUT:-$DEFAULT_SSH_PASSWORD_AUTH}" in
         ""|"$DEFAULT_SSH_PASSWORD_AUTH") SSH_PASSWORD_AUTH="$DEFAULT_SSH_PASSWORD_AUTH" ;;
         [yY]*) SSH_PASSWORD_AUTH="yes" ;;
         *) SSH_PASSWORD_AUTH="no" ;;
     esac
-    ask "Allow root to log in over SSH (public-key only)? [Y/n]: "
+    ask "Allow root to log in over SSH (public-key only)? [y/N]: "
     read -r SSH_ROOT_LOGIN_INPUT
+    # y/yes -> prohibit-password (public-key only); default N -> no root login.
     case "${SSH_ROOT_LOGIN_INPUT:-$DEFAULT_SSH_ROOT_LOGIN}" in
         ""|"$DEFAULT_SSH_ROOT_LOGIN") SSH_ROOT_LOGIN="$DEFAULT_SSH_ROOT_LOGIN" ;;
         [yY]*) SSH_ROOT_LOGIN="prohibit-password" ;;
