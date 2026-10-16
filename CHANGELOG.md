@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.95** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.96** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -132,6 +132,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.74** | `[USB-AUTOMOUNT]` — a COSMIC install had no removable-media automounter: udisks2 was installed (as a cosmic-files dependency) but its D-Bus-only activation unit meant udisksd was never reliably running on runit, and there was no udiskie/gvfs in the COSMIC path (gvfs automount only covers the GNOME/KDE/Cinnamon/MATE/Xfce/LXQt branches). The COSMIC DE branch now installs `udiskie` and autostarts it via a session-readiness guard (`/usr/local/sbin/udiskie-guard`, mirroring the polkit-agent guard), and the installer writes + first-boot-links a supervised `/etc/sv/udisksd` service. `udiskie`/`udisks2` added to PKG_PREFLIGHT | Beta-v2.9.73 below |
 | **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 | **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
+| **Beta-v2.9.96** | `[BR0-NAT-TEARDOWN]` + `[HEADLESS-PROMPT-LOOP]` — two fixes. **(1)** the libvirt `default` NAT teardown left the one-shot first-boot guard for the **every-boot** section of `/etc/rc.local`: it now polls until `virsh net-info default` actually succeeds (the old code trusted libvirtd's socket, which appears *before* the net is defined, so `net-destroy`/`net-autostart --disable` no-op'd under `|| true` — finding **F1**), destroys+disables then **verifies**, logs to `/var/log/void-br0-nat-teardown.log`, removes the orphaned `virbr0`, and only tears down when a physical wired NIC is present (a NIC-absent boot keeps the NAT fallback, so a virt box is never left with zero VM networking). **(2)** the two headless `[y/N]` opt-in prompts now accept `y`/`yes`/`true` and `n`/`no`/`false` case-insensitively, so bare Enter (= the `false` default) no longer loops forever. No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.95 below |
 | **Beta-v2.9.95** | `[SSH-DEFAULT-HARDEN]` — the two `[SSH-SERVER]` access sub-prompts now default to the **secure** posture: `DEFAULT_SSH_PASSWORD_AUTH` `yes` → `no` and `DEFAULT_SSH_ROOT_LOGIN` `prohibit-password` → `no`, with the prompt labels flipped `[Y/n]` → `[y/N]`. A bare Enter can therefore no longer write a password-reachable sshd (`PasswordAuthentication yes` + `PermitRootLogin prohibit-password`); a `y` answer still yields exactly the previous values (`yes` / `prohibit-password`, i.e. public-key-only root login), so no prompt was removed — only the Enter-default moved. Server toggle, port, key prompts, packages and the prompt set are unchanged. This re-applies in the canonical source the hardening that had landed only on the public export (2026-10-15) and was then clobbered there by the Release-v2.9.93 source sync. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.94 below |
 | **Beta-v2.9.94** | `[BASELINE-SNAPSHOT-FIRSTBOOT]` — the baseline snapper snapshot ("Baseline Automated System Installation") is **no longer taken at the end of the chroot install**; it is now created at the **end of the one-shot first-boot provisioning** in `/etc/rc.local`, right after the service symlinks (display manager, dbus, NetworkManager, polkitd, ...) are linked and right before the `/var/log/firstboot.log` marker is written. Root cause: those symlinks are the only thing that starts the greeter/desktop and they are created at **first boot** (deferred from the install), so the install-time snapshot captured a console-only system — rolling back to it, or booting it from the GRUB/Limine snapshot menu, landed on a bare `agetty` instead of the greeter, and the rollback could not self-heal because `/var/log/firstboot.log` lives on the separate `@log` subvolume (never restored by an `@` snapshot), so `rc.local` skipped first-boot provisioning on the restored system. Snapshotting after provisioning makes the baseline a fully-functional, rollback-ready clean-system image. The existing `[ ! -f /var/log/firstboot.log ]` guard already makes this exactly-once, so **no self-deleting script/cron is needed**. The install-time `41_snapshots-btrfs` `chmod -x`/`+x` dance (which only existed to keep the just-created snapshot out of the initial `grub-mkconfig`) is removed; `grub-mkconfig` now runs normally and the first-boot snapshot is picked up afterwards by `grub-btrfsd` (GRUB) or the Limine snapper plugin. Install-success NEXT-STEPS text updated to state the baseline is taken on first boot. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.93 below |
 | **Beta-v2.9.93** | `[OCTOXBPS-NOPASS-POLKIT]` — when `INSTALL_OCTOXBPS=true`, Stage 2 now also deposits a polkit **action + rules** pair (`/usr/share/polkit-1/actions/99-octoxbps-check-nopass.policy`, `/etc/polkit-1/rules.d/90-octoxbps-nopass.rules`) that allows **passwordless repository sync** (`xbps-install -Sy` / `-Syy`) for active, local users in `wheel`, suppressing the OctoXBPS notifier's startup / network-reconnect password prompt; installing and updating packages still requires normal authentication. *(Backfilled entry: the release commit bumped `SCRIPT_VERSION` to Beta-v2.9.93 but predated its changelog row.)* | Beta-v2.9.92 below |
@@ -819,6 +820,89 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.96 — `[BR0-NAT-TEARDOWN]` + `[HEADLESS-PROMPT-LOOP]` (libvirt NAT teardown made race-proof and every-boot; headless opt-in prompts no longer loop)
+
+`SCRIPT_VERSION` bumped to Beta-v2.9.96. Two fixes, both surfaced by the
+2026-10-15 post-install audit and the 2026-10-16 headless installer gate.
+
+### F1 — libvirt `default` NAT was not torn down (first-boot ordering race)
+
+`/etc/rc.local`'s `[BR0-SKIP]` teardown lived **inside** the one-shot
+`[ ! -f /var/log/firstboot.log ]` guard and waited only for libvirtd's
+`/run/libvirt/libvirt-sock` to appear:
+
+```sh
+for i in $(seq 1 15); do [ -S /run/libvirt/libvirt-sock ] && break; sleep 1; done
+virsh net-destroy default               >/dev/null 2>&1 || true
+virsh net-autostart default --disable   >/dev/null 2>&1 || true
+```
+
+The socket is up **before** libvirtd has defined/activated its bundled
+`default` network (`/etc/libvirt/qemu/networks/default.xml`), so both `virsh`
+calls hit *"network not found"* and were swallowed by `|| true`. libvirtd then
+autostarted `default` (it ships an autostart symlink) and the intended `br0`
+migration never happened — the audit found `default active autostart=yes` with
+the autostart symlink never removed.
+
+The block **moved to the every-boot section** at the end of `/etc/rc.local`
+(after the first-boot guard, so on first boot libvirtd has just been linked),
+and is now idempotent and deterministic:
+
+- it **polls** until `virsh net-info default` actually succeeds instead of
+  trusting the socket, then destroys + disables and **verifies** the result
+  (`net-list --name` for Active, `net-list --all --autostart --name` for
+  Autostart), retrying a few times;
+- it **logs** every outcome (ready/torn_down/active/autostart + the net list)
+  to `/var/log/void-br0-nat-teardown.log` — no more silent swallow;
+- on success it best-effort removes the orphaned `virbr0` bridge that
+  `net-destroy` leaves behind (`ip link del virbr0`);
+- it only tears down when a **physical wired NIC is present right now**
+  (mirrors the installer's `has_wired_nic_hw()`: a `device` link, no
+  `wireless` dir, and the non-wired name skip list), gated on the `br0`
+  NM profile existing. On the 2026-10-15 topology the install-time USB NIC was
+  absent at first boot, so a *successful* teardown would have left the box with
+  **zero** VM networking (`br0` down + `virbr0` gone) — the guard keeps the NAT
+  fallback in that case and re-checks next boot, so a NIC plugged in later
+  migrates on a later boot.
+
+Every step is failure-tolerant; first boot can never fail because of this, and
+the block is a no-op once `default` is inactive.
+
+### `[HEADLESS-PROMPT-LOOP]` — bare Enter on the headless opt-in prompts looped forever
+
+On a fully-headless install (`DESKTOP_ENV=none` + `DISPLAY_MANAGER=none`) the
+two opt-in prompts
+
+```
+Keep the Xorg/Wayland base for a later startx / remote-X? [y/N]:
+Install the audio stack (PipeWire + ALSA) on this server? [y/N]:
+```
+
+matched only `y|yes` / `n|no`, while their bare-Enter fallback variables
+`DEFAULT_XORG`/`DEFAULT_AUDIO` are `false`. An empty answer is rewritten by
+`${_xg:-$DEFAULT_XORG}` to the literal string `false`, which matched **no**
+arm and fell through to the re-prompt — an infinite loop on bare Enter (and
+uppercase `Y`/`N` looped too). Each `case` now accepts `y`/`yes`/`true` and
+`n`/`no`/`false` **case-insensitively**, so Enter = No exactly as the `[y/N]`
+label promises. No prompt, `DEFAULT_*` or package surface changed
+(`check-defaults.sh` ALL CONSISTENT).
+
+### Validation
+
+`bash -n`, `Debug/check-heredocs.sh` (**ALL CLEAN** — the `/etc/rc.local` body
+is extracted and checked), `Debug/check-defaults.sh` (**ALL CONSISTENT**) and
+`Debug/check-pkg-preflight.sh` (**ALL COVERED**) all pass. Both fixes were
+exercised functionally: the prompt block was driven headlessly (bare Enter →
+`false`/`false`, `y`/`Y`/`yes`/`true` → `true`, `junk` re-prompts then accepts
+Enter, no loop), and the rc.local teardown was run in a sandbox with stubbed
+`virsh`/`ip`/`date`/`sleep`, a fake `/sys/class/net`, and a simulated
+late-definition race (net defined after N probes), destroying a network that
+was already torn down, an absent NIC, a missing `br0` profile, a
+never-defined net (timeout), and a failing destroy — each branch behaved as
+designed. **Not yet exercised through a full install flow** (same caveat as
+the 2.9.84–2.9.86 backlog entries); the wired-*less* SKIP branch still needs a
+machine with the USB NIC removed during a fresh install.
 
 ## Beta-v2.9.95 — `[SSH-DEFAULT-HARDEN]` (the SSH access defaults become secure: password auth and root login both default to no)
 

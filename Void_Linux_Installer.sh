@@ -215,10 +215,16 @@
 #     the prompt; toggle defaults are literal true/false.
 #   - Virtualization: QEMU/KVM + libvirt on a custom `br0` bridge (built natively
 #     via NetworkManager connection profile tracking configurations at boot),
-#     NOT libvirt's default NAT `virbr0` (disabled on first boot whenever the
-#     br0 NM profile was written — see rc.local; Beta-v2.9.86 [BR0-SKIP] keeps
-#     virbr0 ENABLED as the VM-networking fallback on machines with no wired
-#     NIC at all, where the whole br0 pair is skipped).
+#     NOT libvirt's default NAT `virbr0`. The `default` NAT net is torn down on
+#     EVERY boot by rc.local whenever the br0 NM profile was written AND a
+#     physical wired NIC is present — the teardown waits for the net to be
+#     actually defined, verifies the result, logs to
+#     /var/log/void-br0-nat-teardown.log, and drops the orphaned virbr0
+#     (Beta-v2.9.96 [BR0-NAT-TEARDOWN], fixing the first-boot ordering race found
+#     as finding F1). virbr0 stays ENABLED as the VM-networking fallback on
+#     machines with no wired NIC at all (where the whole br0 pair is skipped —
+#     Beta-v2.9.86 [BR0-SKIP]) or whenever the install-time NIC is absent at
+#     boot.
 #     AI (Big Pickle) FIX — Beta-v2.5.2 [NM-IFACE]: NM's `[connection]
 #     interface-name=` is a LITERAL device name, not a glob (only `[match]`
 #     globs). The NIC-detection fallback `NET_INTERFACE_MATCH="enp*"` is therefore
@@ -566,7 +572,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.95"
+SCRIPT_VERSION="Beta-v2.9.96"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1043,6 +1049,35 @@ SCRIPT_VERSION="Beta-v2.9.95"
 #                     Release-v2.9.93 source sync — so the canonical tree now
 #                     carries it and no later export can wipe it again.
 #                     SCRIPT_VERSION bumped Beta-v2.9.94 -> Beta-v2.9.95.
+#     Beta-v2.9.96   [BR0-NAT-TEARDOWN] + [HEADLESS-PROMPT-LOOP] — two fixes.
+#                     (1) The libvirt `default` NAT teardown in /etc/rc.local
+#                     lived INSIDE the one-shot first-boot guard and waited only
+#                     for libvirtd's socket, which appears BEFORE libvirtd has
+#                     DEFINED its bundled `default` net — so `virsh net-destroy
+#                     default` / `net-autostart default --disable` hit "network
+#                     not found" and were swallowed by `|| true`; `default`
+#                     landed active+autostart and the intended br0 migration
+#                     never ran (audit finding F1, 2026-10-15). The block MOVED
+#                     to the every-boot section at the END of rc.local and is now
+#                     idempotent: it polls until `virsh net-info default`
+#                     actually succeeds, then destroys+disables and VERIFIES the
+#                     result, logs every outcome to
+#                     /var/log/void-br0-nat-teardown.log, best-effort removes the
+#                     orphaned virbr0 a destroy leaves behind, and only tears down
+#                     when a physical wired NIC is present right now (mirrors
+#                     has_wired_nic_hw()) — so a box whose install-time NIC is
+#                     absent keeps libvirt's NAT fallback instead of landing with
+#                     zero VM networking, and a NIC plugged in later migrates on a
+#                     later boot.
+#                     (2) The two headless (DESKTOP_ENV=none + DM=none) opt-in
+#                     prompts "Keep the Xorg/Wayland base …"/"Install the audio
+#                     stack …" matched only y|yes / n|no in their `case`, but the
+#                     bare-Enter default var (DEFAULT_XORG/DEFAULT_AUDIO) is
+#                     `false`, which matched NO arm — so bare Enter looped
+#                     forever. Each `case` now accepts y/yes/true and n/no/false
+#                     case-insensitively, so Enter = No as the [y/N] label
+#                     promises. No prompt, DEFAULT_* or package surface changed.
+#                     SCRIPT_VERSION bumped Beta-v2.9.95 -> Beta-v2.9.96.
 #     Beta-v2.9.87   [COSMIC-REPO-MOVE] — the COSMIC artifact repository is
 #                     now served from the unified Void_Linux_Cosmic project
 #                     (packaging templates + signed binary repo in one place):
@@ -3862,9 +3897,15 @@ if [ "$HAS_GRAPHICAL" = "no" ]; then
     while true; do
         ask "Keep the Xorg/Wayland base for a later startx / remote-X? [y/N]: "
         read -r _xg
+        # AI (Big Pickle) FIX — Beta-v2.9.96 [HEADLESS-PROMPT-LOOP]: the bare-Enter
+        # default is DEFAULT_XORG=false and `${_xg:-$DEFAULT_XORG}` substitutes
+        # "false" for an empty answer, so the old y|yes / n|no arms matched
+        # NEITHER and bare Enter looped forever. Accept the canonical tokens plus
+        # the default's own true/false values (case-insensitively) — "false" now
+        # lands in the No arm, so Enter = No as the [y/N] prompt promises.
         case "${_xg:-$DEFAULT_XORG}" in
-            y|yes) INSTALL_XORG="true"; break ;;
-            n|no) INSTALL_XORG="false"; break ;;
+            [yY]|[yY][eE][sS]|true)  INSTALL_XORG="true";  break ;;
+            [nN]|[nN][oO]|false)     INSTALL_XORG="false"; break ;;
             *) echo "Please enter y or n." >&2 ;;
         esac
     done
@@ -3873,9 +3914,11 @@ if [ "$HAS_GRAPHICAL" = "no" ]; then
     while true; do
         ask "Install the audio stack (PipeWire + ALSA) on this server? [y/N]: "
         read -r _au
+        # Same [HEADLESS-PROMPT-LOOP] fix as the Xorg prompt above:
+        # DEFAULT_AUDIO=false must match the No arm or bare Enter loops.
         case "${_au:-$DEFAULT_AUDIO}" in
-            y|yes) INSTALL_AUDIO="true"; break ;;
-            n|no) INSTALL_AUDIO="false"; break ;;
+            [yY]|[yY][eE][sS]|true)  INSTALL_AUDIO="true";  break ;;
+            [nN]|[nN][oO]|false)     INSTALL_AUDIO="false"; break ;;
             *) echo "Please enter y or n." >&2 ;;
         esac
     done
@@ -13334,32 +13377,14 @@ if [ ! -f /var/log/firstboot.log ]; then
         sleep 1
     done
 
-    # AI (Big Pickle) ADDITION — Beta-v2.5.7 [RCL-VIRT-WAIT]: only wait for
-    # libvirtd's socket (and tear down libvirt's default NAT bridge) when
-    # virtualization was actually chosen at install time. The libvirt-socket
-    # wait below used to run unconditionally; on a non-virt install
-    # /run/libvirt/libvirt-sock never appears, so every first boot burned a
-    # full 15 seconds sleeping through this loop before rc.local moved on.
-    # AI (Big Pickle) CHANGE — Beta-v2.9.86 [BR0-SKIP]: the teardown now also
-    # requires the br0 NM profile to actually EXIST. The file lands on disk at
-    # install time, so this is a pure disk-state check with no NM-timing
-    # dependency; on a machine with NO wired NIC the br0 pair was skipped and
-    # virbr0 must STAY enabled — it is the VM-networking fallback, so a virt
-    # install can never land with zero networking (the old unconditional kill
-    # did exactly that on a Wi-Fi-only topology). A resumed run reaches the
-    # same decision: the profile presence is decided in Stage-2 and survives.
-    if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connections/br0.nmconnection ]; then
-        for i in $(seq 1 15); do
-            if [ -S /run/libvirt/libvirt-sock ]; then
-                break
-            fi
-            sleep 1
-        done
-        if command -v virsh >/dev/null 2>&1; then
-            virsh net-destroy default >/dev/null 2>&1 || true
-            virsh net-autostart default --disable >/dev/null 2>&1 || true
-        fi
-    fi
+    # [BR0-NAT-TEARDOWN] (Beta-v2.9.96) — the libvirt `default` NAT teardown
+    # that used to live here (inside the first-boot guard, as [RCL-VIRT-WAIT] /
+    # [BR0-SKIP]) MOVED to the every-boot section at the END of rc.local
+    # (immediately after this guard's closing `fi`). It is now idempotent,
+    # re-checked on every boot, waits for the `default` net to be actually
+    # DEFINED (not just for libvirtd's socket) so it can no longer lose the
+    # first-boot ordering race (finding F1), and only tears down when a
+    # physical wired NIC is present. See the [BR0-NAT-TEARDOWN] block below.
 
     if command -v flatpak >/dev/null 2>&1; then
         # AI (Big Pickle) CHANGE — Beta-v2.5.2 [FLATHUB-RCL]: this block used
@@ -13416,6 +13441,98 @@ if [ ! -f /var/log/firstboot.log ]; then
 
     mkdir -p /var/log
     touch /var/log/firstboot.log
+fi
+
+# AI (Big Pickle) FIX — Beta-v2.9.96 [BR0-NAT-TEARDOWN]: deterministic libvirt
+# `default` NAT teardown. Finding F1 (2026-10-15 audit): the old block ran
+# ONCE, inside the first-boot guard above, and only waited for libvirtd's
+# /run/libvirt/libvirt-sock to APPEAR — but the socket is up BEFORE libvirtd
+# has finished DEFINING/activating its bundled `default` network, so
+# `virsh net-destroy default` / `net-autostart default --disable` hit
+# "network not found" and were swallowed by `|| true`; `default` then landed
+# active+autostart and the intended br0 migration never happened. This block
+# runs on EVERY boot (here, AFTER the guard, so on first boot libvirtd has
+# just been linked) and is fully idempotent:
+#   * it POLLS until `virsh net-info default` actually succeeds instead of
+#     trusting the socket, then destroys+disables and VERIFIES the result;
+#   * it only tears down when a physical WIRED NIC is present right now
+#     (mirrors the installer's has_wired_nic_hw()), so a box whose install-time
+#     USB NIC is absent keeps libvirt's `default` NAT as the VM-networking
+#     fallback — a NIC plugged in later migrates on a later boot, and a virt
+#     box is never left with zero VM networking;
+#   * it LOGS every outcome to /var/log/void-br0-nat-teardown.log (no silent
+#     swallow) and best-effort removes the orphaned virbr0 a destroy leaves.
+# Every step is failure-tolerant (`|| true` / `|| :`): first boot must never
+# fail because of this, and the block is a no-op once `default` is inactive.
+if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connections/br0.nmconnection ]; then
+    _vt_wired=no
+    for _vt_n in /sys/class/net/*; do
+        [ -e "$_vt_n/device" ] || continue
+        [ -d "$_vt_n/wireless" ] && continue
+        case "${_vt_n##*/}" in
+            lo|ww*|wl*|bn*|bt*|dm-*) continue ;;
+        esac
+        _vt_wired=yes
+        break
+    done
+    _vt_log=/var/log/void-br0-nat-teardown.log
+    if [ "$_vt_wired" != "yes" ]; then
+        { printf '[BR0-NAT] %s skip: no physical wired NIC present; libvirt default NAT kept (fallback)\n' \
+              "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; } >> "$_vt_log" 2>&1 || :
+    elif ! command -v virsh >/dev/null 2>&1; then
+        { printf '[BR0-NAT] %s skip: virsh not installed\n' \
+              "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; } >> "$_vt_log" 2>&1 || :
+    else
+        # (1) wait for the `default` net to be DEFINED — libvirtd's socket
+        #     appears FIRST, before the network is defined (the F1 race).
+        _vt_ready=no
+        _vt_i=0
+        while [ "$_vt_i" -lt 30 ]; do
+            if virsh net-info default >/dev/null 2>&1; then
+                _vt_ready=yes
+                break
+            fi
+            _vt_i=$((_vt_i + 1))
+            sleep 1
+        done
+        # (2) destroy + drop autostart, then VERIFY (retry: it may be mid-start
+        #     the first time we reach it).
+        _vt_done=no
+        _vt_act=unknown
+        _vt_auto=unknown
+        if [ "$_vt_ready" = "yes" ]; then
+            _vt_j=0
+            while [ "$_vt_j" -lt 10 ]; do
+                virsh net-autostart default --disable >/dev/null 2>&1 || true
+                virsh net-destroy default >/dev/null 2>&1 || true
+                if virsh net-list --name 2>/dev/null | grep -qx default; then
+                    _vt_act=yes
+                else
+                    _vt_act=no
+                fi
+                if virsh net-list --all --autostart --name 2>/dev/null | grep -qx default; then
+                    _vt_auto=yes
+                else
+                    _vt_auto=no
+                fi
+                if [ "$_vt_act" = "no" ] && [ "$_vt_auto" = "no" ]; then
+                    _vt_done=yes
+                    break
+                fi
+                _vt_j=$((_vt_j + 1))
+                sleep 1
+            done
+            # best-effort: drop the orphaned virbr0 libvirt leaves behind.
+            if [ "$_vt_done" = "yes" ]; then
+                ip link del virbr0 >/dev/null 2>&1 || true
+            fi
+        fi
+        {
+            printf '[BR0-NAT] %s ready=%s torn_down=%s active=%s autostart=%s\n' \
+                "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_ready" "$_vt_done" "$_vt_act" "$_vt_auto"
+            virsh net-list --all 2>&1 || true
+        } >> "$_vt_log" 2>&1 || :
+    fi
 fi
 INNER_EOF
 
