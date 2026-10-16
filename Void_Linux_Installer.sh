@@ -566,7 +566,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.94"
+SCRIPT_VERSION="Beta-v2.9.95"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1026,6 +1026,23 @@ SCRIPT_VERSION="Beta-v2.9.94"
 #                     the first-boot snapshot. Install-success NEXT-STEPS text
 #                     updated.
 #                     SCRIPT_VERSION bumped Beta-v2.9.93 -> Beta-v2.9.94.
+#     Beta-v2.9.95   [SSH-DEFAULT-HARDEN] — the [SSH-SERVER] access sub-prompts
+#                     now default to the secure posture: DEFAULT_SSH_PASSWORD_AUTH
+#                     yes -> no and DEFAULT_SSH_ROOT_LOGIN prohibit-password ->
+#                     no (both prompt labels [Y/n] -> [y/N]), so a bare Enter at
+#                     them can no longer write a password-reachable sshd
+#                     (PasswordAuthentication yes + PermitRootLogin
+#                     prohibit-password in /etc/ssh/sshd_config.d/…). A `y`
+#                     answer still yields exactly the old values (yes /
+#                     prohibit-password), so nothing is removed from the prompt
+#                     surface — only the Enter-default moves. Server toggle,
+#                     port, key prompts, packages and the prompt set are
+#                     unchanged. This re-applies, in the canonical source, the
+#                     hardening that had landed only on the public export
+#                     (2026-10-15) and was then clobbered there by the
+#                     Release-v2.9.93 source sync — so the canonical tree now
+#                     carries it and no later export can wipe it again.
+#                     SCRIPT_VERSION bumped Beta-v2.9.94 -> Beta-v2.9.95.
 #     Beta-v2.9.87   [COSMIC-REPO-MOVE] — the COSMIC artifact repository is
 #                     now served from the unified Void_Linux_Cosmic project
 #                     (packaging templates + signed binary repo in one place):
@@ -1301,12 +1318,13 @@ DEFAULT_YK_FALLBACK="${DEFAULT_YK_FALLBACK:-yes}"     # keep typed-passphrase fa
 # server toggle + port + access policy, plus SSH key import/generate/backup.
 # Server default-OFF (matches the post-Beta-v2.1 [OPT-DEFAULTS] posture of
 # NOT shipping network-facing daemons by default); access sub-prompts default
-# to reachable-without-key-setup (password auth via bare-Enter stays on) and
-# Void's stock root posture (prohibit-password).
+# to the secure posture instead — password auth OFF and root login OFF — so a
+# bare Enter never opens a password-reachable sshd; key-based login stays a `y`
+# away (Beta-v2.9.95 [SSH-DEFAULT-HARDEN]).
 DEFAULT_INSTALL_SSH_SERVER="${DEFAULT_INSTALL_SSH_SERVER:-false}"  # install+enable sshd? [y/N]
 DEFAULT_SSH_PORT="${DEFAULT_SSH_PORT:-22}"                        # sshd port [1-65535]
-DEFAULT_SSH_PASSWORD_AUTH="${DEFAULT_SSH_PASSWORD_AUTH:-yes}"     # allow password auth? [Y/n]
-DEFAULT_SSH_ROOT_LOGIN="${DEFAULT_SSH_ROOT_LOGIN:-prohibit-password}"  # root over SSH? [Y/n]
+DEFAULT_SSH_PASSWORD_AUTH="${DEFAULT_SSH_PASSWORD_AUTH:-no}"      # allow password auth? [y/N]
+DEFAULT_SSH_ROOT_LOGIN="${DEFAULT_SSH_ROOT_LOGIN:-no}"            # root over SSH? [y/N]
 DEFAULT_IMPORT_SSH_KEY="${DEFAULT_IMPORT_SSH_KEY:-false}"         # import existing key? [y/N]
 DEFAULT_GENERATE_SSH_KEY="${DEFAULT_GENERATE_SSH_KEY:-false}"     # generate fresh key? [y/N]
 DEFAULT_SSH_KEY_PROTECTED="${DEFAULT_SSH_KEY_PROTECTED:-yes}"     # passphrase-protect key? [Y/n]
@@ -4567,8 +4585,8 @@ export INSTALL_VIRT
 # the "no network-facing daemons by default" post-Beta-v2.1 [OPT-DEFAULTS] posture.
 INSTALL_SSH_SERVER="false"
 SSH_PORT="22"
-SSH_PASSWORD_AUTH="yes"
-SSH_ROOT_LOGIN="prohibit-password"
+SSH_PASSWORD_AUTH="no"
+SSH_ROOT_LOGIN="no"
 ask "Install and enable the OpenSSH server (sshd)? [y/N]: "
 read -r INSTALL_SSH_SERVER_INPUT
 case "$INSTALL_SSH_SERVER_INPUT" in
@@ -4586,15 +4604,16 @@ if [ "$INSTALL_SSH_SERVER" = "true" ]; then
         fi
         echo "  Please enter a valid port number (1-65535)." >&2
     done
-    ask "Allow password authentication over SSH? [Y/n]: "
+    ask "Allow password authentication over SSH? [y/N]: "
     read -r SSH_PASSWORD_AUTH_INPUT
     case "${SSH_PASSWORD_AUTH_INPUT:-$DEFAULT_SSH_PASSWORD_AUTH}" in
         ""|"$DEFAULT_SSH_PASSWORD_AUTH") SSH_PASSWORD_AUTH="$DEFAULT_SSH_PASSWORD_AUTH" ;;
         [yY]*) SSH_PASSWORD_AUTH="yes" ;;
         *) SSH_PASSWORD_AUTH="no" ;;
     esac
-    ask "Allow root to log in over SSH (public-key only)? [Y/n]: "
+    ask "Allow root to log in over SSH (public-key only)? [y/N]: "
     read -r SSH_ROOT_LOGIN_INPUT
+    # y/yes -> prohibit-password (public-key only); default N -> no root login.
     case "${SSH_ROOT_LOGIN_INPUT:-$DEFAULT_SSH_ROOT_LOGIN}" in
         ""|"$DEFAULT_SSH_ROOT_LOGIN") SSH_ROOT_LOGIN="$DEFAULT_SSH_ROOT_LOGIN" ;;
         [yY]*) SSH_ROOT_LOGIN="prohibit-password" ;;

@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Beta-v2.9.94**). It exists
+> `Void_Linux_Installer.sh` (current version: **Beta-v2.9.95**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -278,9 +278,10 @@
   the following are asked:
   - **OpenSSH server port (default 22)** — must be an integer 1-65535, reprompts
     until valid
-  - **Allow password authentication over SSH? [Y/n]** — default `y`
-  - **Allow root to log in over SSH (public-key only)? [Y/n]** — default `y`
-    (maps to `prohibit-password`); `n` → `no`
+  - **Allow password authentication over SSH? [y/N]** — default `n`
+  - **Allow root to log in over SSH (public-key only)? [y/N]** — default `n`
+    (a `y` answer sets `PermitRootLogin prohibit-password`, i.e. public-key-only
+    root login); `n` → `no`
 - **SSH keys** (`[SSH-KEYS]`, Beta-v2.9.23) — three independently-toggleable
   steps, each default `n`:
   - **Import an existing SSH private key from removable media? [y/N]** → if `y`,
