@@ -174,3 +174,68 @@
 - Line references deliberately omitted (they rot on every version bump — an
   earlier draft said "line 8415", already wrong by 2.9.83); find the gate by
   the `install_pkgs flatpak fuse fuse3` literal instead.
+
+## OPEN — [BR0-SKIP] libvirt `default` NAT teardown race (FINDING F1, audit 2026-10-15)
+- **Where:** `Void_Linux_Installer.sh` rc.local teardown block (~lines 13332–13343)
+  inside the one-shot firstboot guard: when `__INSTALL_VIRT__` is true and
+  `/etc/NetworkManager/system-connections/br0.nmconnection` exists, it does
+  ```sh
+  if command -v virsh >/dev/null 2>&1; then
+      virsh net-destroy default >/dev/null 2>&1 || true
+      virsh net-autostart default --disable >/dev/null 2>&1 || true
+  fi
+  ```
+- **Observed (2026-10-15 KDE audit, `<host>`):** libvirt's `default` NAT net was
+  NOT torn down — still `active autostart=yes`, autostart symlink never removed.
+  `default.xml` mtime `19:48` suggests the net was defined by libvirtd shortly
+  after first boot, racing the rc.local block. Also `virbr0` remained as an
+  orphaned bridge (`192.168.122.1`, dnsmasq on 53) even though no `default` net
+  was listed — untidy but harmless. Installer is `Beta-v2.9.94` HEAD `ad727b2`
+  (canonical sha `63bd3df9…`).
+- **Fix idea:** make the teardown robust against ordering. Options:
+  - Retry `virsh net-list --name --all` / `virsh net-destroy default` with a short
+    backoff (e.g. up to ~3–5s) until the net exists or times out. Or check
+    `virsh net-list --name --all | grep -q '^default$'` before destroying.
+  - Only destroy when `br0` actually has a live member (or when the migration to
+    br0 is genuinely complete). The current disk-state check (`br0.nmconnection`
+    exists) is fine, but it's not enough if libvirtd defines `default` later.
+  - Handle "network not found" explicitly (don't rely on blanket `|| true`).
+- **Test:** wired-less machine (the SKIP branch is unproven; on a box with USB NIC
+  present this branch doesn't run). Need to test on a machine with no physical
+  wired NIC to exercise both paths.
+
+## OPEN — headless Xorg/audio base-stack prompts loop forever on bare Enter (2026-10-16)
+- **Where:** the two headless opt-in prompts inside `if [ "$HAS_GRAPHICAL" = "no" ]`
+  (find them by the literals `Keep the Xorg/Wayland base` /
+  `Install the audio stack` — currently ~lines 3859–3882; the docs/TODO line refs
+  "1747–1765" have already rotted, so re-grep, never trust the number):
+  ```sh
+  case "${_xg:-$DEFAULT_XORG}" in
+      y|yes) INSTALL_XORG="true"; break ;;
+      n|no)  INSTALL_XORG="false"; break ;;
+      *) echo "Please enter y or n." >&2 ;;
+  esac
+  ```
+  (identical shape for `_au` / `DEFAULT_AUDIO` / `INSTALL_AUDIO`).
+- **Bug:** the `case` matches only `y|yes|n|no`, but the bare-Enter fallback is
+  the variable `DEFAULT_XORG`/`DEFAULT_AUDIO`, whose value is `false` — which
+  matches **no** arm and therefore falls to `*`, printing "Please enter y or n."
+  and **re-looping forever**. Both prompts show `[y/N]`, so an operator who just
+  taps Enter (or any scripted/headless driver that sends an empty answer) hangs
+  at the very top of a console-only (`DESKTOP_ENV=none` + `DISPLAY_MANAGER=none`)
+  run.
+- **Observed (2026-10-16 gate run):** hit while driving the KDE ISO's installer
+  headlessly with DE=none + DM=none; the driver escaped by answering `n`
+  explicitly, so it did **not** block the gate — but it is a real,
+  user-reachable defect. Because `DEFAULT_*` is applied as the answer, the loop
+  is independent of any test harness: an operator pressing Enter hits it too.
+- **Fix idea:** option (a) — widen each `case` to `""|y|yes|true)` / `""|n|no|false)`
+  (i.e. accept the empty token and the `false`/`true` default values). Smallest,
+  lowest-risk change; keeps the displayed `[y/N]` and the `DEFAULT_*=false` value
+  coherent. Alternative (b): normalize the default to `no`/`yes` before the
+  `case` (e.g. `case "${_xg:-$DEFAULT_XORG}" in` → map `false→no`) and keep the
+  prompt text in sync.
+- **Test:** `bash -n Void_Linux_Installer.sh`, then `Debug/check-defaults.sh`
+  (no new defaults — the surface is unchanged), then a `--dry-run` pass (or a
+  headless driver) that sends an **empty** answer to both prompts and must reach
+  past them without looping.
