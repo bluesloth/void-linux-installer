@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Beta-v2.9.93"
+SCRIPT_VERSION="Beta-v2.9.94"
 
 
 
@@ -7479,6 +7479,13 @@ if [ ! -f /var/log/firstboot.log ]; then
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database -q
     fi
+
+    if command -v snapper >/dev/null 2>&1 && [ -f /etc/snapper/configs/root ]; then
+        echo "==> Creating the baseline snapper snapshot (fully-provisioned system)..."
+        snapper --no-dbus -c root create --description "Baseline Automated System Installation" || \
+            echo "WARNING: baseline snapper snapshot failed — create one manually later with 'sudo snapper create -d \"Baseline Automated System Installation\"'." >&2
+    fi
+
     mkdir -p /var/log
     touch /var/log/firstboot.log
 fi
@@ -7646,14 +7653,7 @@ if [ "$BOOTLOADER" = "limine" ]; then
 fi
 
 if [ "$BOOTLOADER" = "grub" ]; then
-    [ -f /etc/grub.d/41_snapshots-btrfs ] && chmod -x /etc/grub.d/41_snapshots-btrfs
-fi
-snapper --no-dbus -c root create --description "Baseline Automated System Installation"
-if [ "$BOOTLOADER" = "grub" ]; then
-    [ -f /etc/grub.d/41_snapshots-btrfs ] && chmod +x /etc/grub.d/41_snapshots-btrfs
     grub-mkconfig -o /boot/grub/grub.cfg
-else
-    /usr/local/sbin/void-limine-write-conf
 fi
 CHROOT_EOF
 
@@ -7763,7 +7763,9 @@ else
     echo "${C_GRN}  3.${C_RST} GRUB is installed (with grub-btrfs snapshots). To update the menu:"
     echo "     ${C_BOLD}grub-mkconfig -o /boot/grub/grub.cfg${C_RST}"
 fi
-echo "${C_GRN}  4.${C_RST} A baseline snapper snapshot has already been created for the clean install."
+echo "${C_GRN}  4.${C_RST} A baseline snapper snapshot is taken on first boot, once the desktop"
+echo "     services are enabled — so it is a fully working, rollback-ready snapshot"
+echo "     of this clean install (not a pre-services console-only image)."
 echo "${C_GRN}  5.${C_RST} The exact choices + installer version that built this box are archived on it:"
 echo "     ${C_BOLD}/etc/void-installer/install-config${C_RST}  and  ${C_BOLD}/etc/void-installer/Void_Linux_Installer.sh${C_RST}"
 echo "     Quick record: ${C_BOLD}~/Documents/Void_Install.txt${C_RST} (installed user)"

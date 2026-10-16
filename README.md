@@ -8,7 +8,7 @@ recovery-first, snapshot-friendly system.
 
 | File | Description |
 |------|-------------|
-| `Void_Linux_Installer.sh` | Unified working installer (current version: **Beta-v2.9.92**). Run this. |
+| `Void_Linux_Installer.sh` | Unified working installer (current version: **Beta-v2.9.94**). Run this. |
 | `CHANGELOG.md` | Full lineage changelog using the `[VERSION-CARRY]` scheme: Alpha-v (manual step scripts), Beta-v (unified installer, current era). |
 
 ## Usage

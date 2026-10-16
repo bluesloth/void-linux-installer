@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.92** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.94** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -132,6 +132,8 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.74** | `[USB-AUTOMOUNT]` — a COSMIC install had no removable-media automounter: udisks2 was installed (as a cosmic-files dependency) but its D-Bus-only activation unit meant udisksd was never reliably running on runit, and there was no udiskie/gvfs in the COSMIC path (gvfs automount only covers the GNOME/KDE/Cinnamon/MATE/Xfce/LXQt branches). The COSMIC DE branch now installs `udiskie` and autostarts it via a session-readiness guard (`/usr/local/sbin/udiskie-guard`, mirroring the polkit-agent guard), and the installer writes + first-boot-links a supervised `/etc/sv/udisksd` service. `udiskie`/`udisks2` added to PKG_PREFLIGHT | Beta-v2.9.73 below |
 | **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 | **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
+| **Beta-v2.9.94** | `[BASELINE-SNAPSHOT-FIRSTBOOT]` — the baseline snapper snapshot ("Baseline Automated System Installation") is **no longer taken at the end of the chroot install**; it is now created at the **end of the one-shot first-boot provisioning** in `/etc/rc.local`, right after the service symlinks (display manager, dbus, NetworkManager, polkitd, ...) are linked and right before the `/var/log/firstboot.log` marker is written. Root cause: those symlinks are the only thing that starts the greeter/desktop and they are created at **first boot** (deferred from the install), so the install-time snapshot captured a console-only system — rolling back to it, or booting it from the GRUB/Limine snapshot menu, landed on a bare `agetty` instead of the greeter, and the rollback could not self-heal because `/var/log/firstboot.log` lives on the separate `@log` subvolume (never restored by an `@` snapshot), so `rc.local` skipped first-boot provisioning on the restored system. Snapshotting after provisioning makes the baseline a fully-functional, rollback-ready clean-system image. The existing `[ ! -f /var/log/firstboot.log ]` guard already makes this exactly-once, so **no self-deleting script/cron is needed**. The install-time `41_snapshots-btrfs` `chmod -x`/`+x` dance (which only existed to keep the just-created snapshot out of the initial `grub-mkconfig`) is removed; `grub-mkconfig` now runs normally and the first-boot snapshot is picked up afterwards by `grub-btrfsd` (GRUB) or the Limine snapper plugin. Install-success NEXT-STEPS text updated to state the baseline is taken on first boot. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.93 below |
+| **Beta-v2.9.93** | `[OCTOXBPS-NOPASS-POLKIT]` — when `INSTALL_OCTOXBPS=true`, Stage 2 now also deposits a polkit **action + rules** pair (`/usr/share/polkit-1/actions/99-octoxbps-check-nopass.policy`, `/etc/polkit-1/rules.d/90-octoxbps-nopass.rules`) that allows **passwordless repository sync** (`xbps-install -Sy` / `-Syy`) for active, local users in `wheel`, suppressing the OctoXBPS notifier's startup / network-reconnect password prompt; installing and updating packages still requires normal authentication. *(Backfilled entry: the release commit bumped `SCRIPT_VERSION` to Beta-v2.9.93 but predated its changelog row.)* | Beta-v2.9.92 below |
 | **Beta-v2.9.92** | `[COSMIC-TOUCHPAD-RCLICK]` — new **opt-in COSMIC-only** prompt: "Configure COSMIC touchpad right-click (two-finger tap + corner-click)? [y/N]", default OFF. cosmic-settings ships `input_touchpad` with `click_method:Some(Clickfinger)` which on real hardware (AMD Ryzen x360 laptop) yields no usable right-click; the proven daily-driver fix is a per-user override with `click_method:Some(ButtonAreas)` (bottom-corner right-click; two-finger tap preserved via the shipped `button_map:Some(LeftRightMiddle)`). Stage-2 deposits the override **derived** from the in-tree shipped default (`sed` of only the `click_method` token — never a stale hardcoded struct), per-user only (greeter untouched), with a fallback canonical write if the shipped file/token is absent. Guard + chown follow the dotfile-deposit pattern. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.91 below |
 | **Beta-v2.9.91** | `[COSMIC-GREETER-DEFAULT]` — cosmic-greeter becomes the **recommended/default DM for the COSMIC DE** (was SDDM). The old preference traced to a maintainer report that the greeter could not recognize elogind sessions; real hardware (COSMIC 1.10 + cosmic-greeter) sessions cleanly under elogind and is the daily driver, so `RECOMMENDED_DM="cosmic-greeter"` for COSMIC, the DM prompt's Debug caveat is removed, and the Enter-default now follows `RECOMMENDED_DM` exactly as it already does for KDE/GNOME/etc. No package/prompt-index/default changed; pairing text + header comment updated. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.90 below |
 | **Beta-v2.9.90** | `[COSMIC-PPD]` — COSMIC's `cosmic-settings` hard-depends on `power-profiles-daemon` (D-Bus `net.hadess.PowerProfiles`), yet nothing ever linked its runit service, so the DE's powermode picker showed **"Backend not found"** while tlp (laptop profile) ran alongside as the second power manager — a documented PPD+tlp conflict. The Stage-1 resolution now derives `POWER_PPD=true` for EVERY COSMIC build and suppresses tlp on COSMIC laptops (`PROFILE_TLP=false` for the install + first-boot link sites); COSMIC builds install `power-profiles-daemon` (added to `PKG_PREFLIGHT`) and first-boot-link `/etc/sv/power-profiles-daemon`. Scope is COSMIC-only — all other DEs keep the existing tlp laptop behavior. Proven on the reference install (AMD Ryzen laptop): PPD drives `quiet/balanced/performance` through `amd_pstate` + the firmware `platform_profile`; tlp/tlp-rdw removed. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.89 below |
@@ -816,6 +818,107 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.94 — `[BASELINE-SNAPSHOT-FIRSTBOOT]` (the baseline snapper snapshot is taken after first-boot provisioning, so it contains a working desktop instead of a bare console)
+
+`SCRIPT_VERSION` bumped to Beta-v2.9.94.
+
+### Symptom
+
+Rolling back to the baseline snapper snapshot — or selecting it from the
+GRUB/Limine snapshot menu — booted to a **bare `agetty` console** rather than the
+display manager / greeter. The baseline was advertised as "a clean install", but
+it did not actually start the desktop.
+
+### Root cause
+
+`/etc/runit/2` runs `/etc/rc.local` and **only afterwards** execs `runsvdir`.
+The installer deliberately defers **every** runit service symlink (the display
+manager, `dbus`, `NetworkManager`, `chronyd`, `cronie`, `snapperd`, `polkitd`,
+`udisksd`, the gated profile/virt/session services, ...) into the first-boot
+`rc.local` block, which is guarded by `[ ! -f /var/log/firstboot.log ]` and runs
+before `runsvdir` starts — that ordering is exactly what makes a *normal* first
+boot reach the greeter (the links exist by the time `runsvdir` reads them).
+
+The baseline snapshot, however, was created at the **end of the chroot install**
+— i.e. **before** that first boot ever ran. At that moment
+`/etc/runit/runsvdir/default/` contained only the `agetty-tty*` links shipped by
+the base packages, so the snapshot's `@` subvolume captured a **console-only**
+system graph. Two further facts made this un-recoverable on rollback:
+
+1. The service symlinks live in `@` (`/etc/runit/runsvdir/default/`), so the
+   snapshot is the *only* place they would have been recorded.
+2. The first-boot marker `/var/log/firstboot.log` lives on the **separate `@log`
+   subvolume**, which is *not* part of an `@` snapshot and therefore **survives**
+   a rollback. After restoring the baseline, `rc.local` sees the marker, skips
+   first-boot provisioning, and the (missing) display-manager link is never
+   recreated — the restored system can never self-heal to a greeter.
+
+(Confirmation that this is a *content* problem and not a snapper-filter problem:
+the man page states filters "do not exclude files or directories from being
+snapshotted" — the `var/service/*` filter in `/etc/snapper/filters/void-runit.txt`
+only affects `snapper diff`/`status` output, never what a snapshot contains.)
+
+### Fix
+
+Move the baseline creation to the **end of the one-shot first-boot provisioning
+block** in `/etc/rc.local`, immediately after `update-desktop-database` and
+immediately before the `touch /var/log/firstboot.log` marker is written. At that
+point the service symlinks exist, so the baseline captures a fully-functional
+clean-system image that boots to the greeter.
+
+This reuses the **existing** `[ ! -f /var/log/firstboot.log ]` guard, which
+already guarantees exactly one run, so — as the operator requested — **no
+self-deleting script or cron timer is needed**: the same one-shot gate that
+provisions the system also snapshots it, once. The snapshot step is guarded by
+`command -v snapper && [ -f /etc/snapper/configs/root ]` and warns (without
+aborting the boot) if it fails; the marker is written regardless so first-boot
+provisioning stays one-shot.
+
+The install-time snapshot line and its `41_snapshots-btrfs` `chmod -x`/`+x`
+toggle (which only existed to keep the freshly-created snapshot out of the
+initial `grub-mkconfig`) are removed. The installer now just runs
+`grub-mkconfig` normally (GRUB) / `void-limine-write-conf` (Limine); the
+first-boot snapshot is subsequently picked up by `grub-btrfsd` (GRUB) or the
+`/usr/lib/snapper/plugins/00-void-limine-snapper-sync` plugin (Limine), both of
+which are already installed and linked.
+
+The NEXT-STEPS install-success text is updated from "A baseline snapper snapshot
+has already been created" to state that it is taken on first boot, once the
+desktop services are enabled.
+
+Rationale for taking the snapshot at first boot rather than enabling the
+services earlier (during the chroot): enabling them at install would duplicate
+or relocate the ~30-line conditional symlink block, and the first boot's
+provisioning tasks (`virsh` bridge teardown for the `br0` case, the Flatpak
+remote add, `update-desktop-database`) are deliberately ordered after service
+start-up, so a boot-time snapshot is both the minimal and the more faithful
+"fully provisioned clean system" boundary.
+
+Validation: `bash -n` clean; `checks/check-heredocs.sh` ALL CLEAN (the modified
+`/etc/rc.local` heredoc still `bash -n`-checks clean); `checks/check-defaults.sh` ALL
+CONSISTENT; `checks/check-pkg-preflight.sh` ALL COVERED.
+
+## Beta-v2.9.93 — `[OCTOXBPS-NOPASS-POLKIT]` (OctoXBPS notifier startup/network-reconnect password prompt suppressed)
+
+`SCRIPT_VERSION` bumped to Beta-v2.9.93.
+
+When `INSTALL_OCTOXBPS=true`, Stage 2 now also deposits a **polkit action +
+rules pair**:
+
+- `/usr/share/polkit-1/actions/99-octoxbps-check-nopass.policy`
+- `/etc/polkit-1/rules.d/90-octoxbps-nopass.rules`
+
+The action defaults `allow_active` to `auth_self`; the rules file overrides it
+to `polkit.Result.YES` **only** for active, local users in the `wheel` group and
+**only** for repository-sync commands (`/usr/bin/xbps-install -Sy` and `-Syy`).
+This suppresses the OctoXBPS notifier's password prompt at login / after a
+network reconnect without weakening install/update authentication (installing
+and updating packages still authenticates normally). Both files are `chmod 644`.
+
+*(Backfilled entry: the Beta-v2.9.93 release commit bumped `SCRIPT_VERSION`
+ahead of its changelog row, leaving a gap between Beta-v2.9.92 and this
+version.)*
 
 ## Beta-v2.9.92 — `[COSMIC-TOUCHPAD-RCLICK]` (opt-in COSMIC touchpad right-click override)
 
