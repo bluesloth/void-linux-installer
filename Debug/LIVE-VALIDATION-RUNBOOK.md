@@ -103,7 +103,6 @@ script; KDE/SDDM, limine, `CRYPT_NAME=void`).
 
 ## Batched pending items (carried with the target-medium run)
 
-- Scenario A (all-default no-carve — the 2.9.37 tripwire) — unproven.
 - Scenario C (btrfs leaf carve: `/var` + `/var/cache` + `/srv`) — unproven.
 - Scenario B standalone (single ext4 `/home` without games) — the home-carve
   elements are proven as part of D/E on `<host>`; a clean single-carve run is
@@ -125,7 +124,7 @@ from the dev box)_
 
 | Scenario | Date | Result |
 |----------|------|--------|
-| A | — | not run (open) |
+| A | 2026-10-16 | **PROVEN** — fresh real-hardware install (<host>, <user>) of Beta-v2.9.96 via the Void-Linux-Live USB: all-default no-carve (REGION defaults, carved=<none>, all-Btrfs; nvme0n1p1 ESP + nvme0n1p2 btrfs, no extra region partitions), install COMPLETED, first boot reached an active KDE/SDDM graphical desktop |
 | B | — | home-carve elements proven via D (<host>); standalone B not run (open) |
 | C | — | not run (open) |
 | D | 2026-09-17 | **PROVEN** — <host> carved ENCRYPT: `void1` ext4 → `/home`, `void2` ext4 → `/home/<user>/Games` (mkfs/mount/fstab + `_region_fs_of` end-to-end) |
