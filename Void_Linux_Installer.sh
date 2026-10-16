@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Beta-v2.9.95"
+SCRIPT_VERSION="Beta-v2.9.96"
 
 
 
@@ -1747,8 +1747,8 @@ if [ "$HAS_GRAPHICAL" = "no" ]; then
         ask "Keep the Xorg/Wayland base for a later startx / remote-X? [y/N]: "
         read -r _xg
         case "${_xg:-$DEFAULT_XORG}" in
-            y|yes) INSTALL_XORG="true"; break ;;
-            n|no) INSTALL_XORG="false"; break ;;
+            [yY]|[yY][eE][sS]|true)  INSTALL_XORG="true";  break ;;
+            [nN]|[nN][oO]|false)     INSTALL_XORG="false"; break ;;
             *) echo "Please enter y or n." >&2 ;;
         esac
     done
@@ -1758,8 +1758,8 @@ if [ "$HAS_GRAPHICAL" = "no" ]; then
         ask "Install the audio stack (PipeWire + ALSA) on this server? [y/N]: "
         read -r _au
         case "${_au:-$DEFAULT_AUDIO}" in
-            y|yes) INSTALL_AUDIO="true"; break ;;
-            n|no) INSTALL_AUDIO="false"; break ;;
+            [yY]|[yY][eE][sS]|true)  INSTALL_AUDIO="true";  break ;;
+            [nN]|[nN][oO]|false)     INSTALL_AUDIO="false"; break ;;
             *) echo "Please enter y or n." >&2 ;;
         esac
     done
@@ -7459,18 +7459,6 @@ if [ ! -f /var/log/firstboot.log ]; then
         sleep 1
     done
 
-    if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connections/br0.nmconnection ]; then
-        for i in $(seq 1 15); do
-            if [ -S /run/libvirt/libvirt-sock ]; then
-                break
-            fi
-            sleep 1
-        done
-        if command -v virsh >/dev/null 2>&1; then
-            virsh net-destroy default >/dev/null 2>&1 || true
-            virsh net-autostart default --disable >/dev/null 2>&1 || true
-        fi
-    fi
 
     if command -v flatpak >/dev/null 2>&1; then
         flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo 2>/dev/null || true
@@ -7488,6 +7476,72 @@ if [ ! -f /var/log/firstboot.log ]; then
 
     mkdir -p /var/log
     touch /var/log/firstboot.log
+fi
+
+if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connections/br0.nmconnection ]; then
+    _vt_wired=no
+    for _vt_n in /sys/class/net/*; do
+        [ -e "$_vt_n/device" ] || continue
+        [ -d "$_vt_n/wireless" ] && continue
+        case "${_vt_n##*/}" in
+            lo|ww*|wl*|bn*|bt*|dm-*) continue ;;
+        esac
+        _vt_wired=yes
+        break
+    done
+    _vt_log=/var/log/void-br0-nat-teardown.log
+    if [ "$_vt_wired" != "yes" ]; then
+        { printf '[BR0-NAT] %s skip: no physical wired NIC present; libvirt default NAT kept (fallback)\n' \
+              "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; } >> "$_vt_log" 2>&1 || :
+    elif ! command -v virsh >/dev/null 2>&1; then
+        { printf '[BR0-NAT] %s skip: virsh not installed\n' \
+              "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; } >> "$_vt_log" 2>&1 || :
+    else
+        _vt_ready=no
+        _vt_i=0
+        while [ "$_vt_i" -lt 30 ]; do
+            if virsh net-info default >/dev/null 2>&1; then
+                _vt_ready=yes
+                break
+            fi
+            _vt_i=$((_vt_i + 1))
+            sleep 1
+        done
+        _vt_done=no
+        _vt_act=unknown
+        _vt_auto=unknown
+        if [ "$_vt_ready" = "yes" ]; then
+            _vt_j=0
+            while [ "$_vt_j" -lt 10 ]; do
+                virsh net-autostart default --disable >/dev/null 2>&1 || true
+                virsh net-destroy default >/dev/null 2>&1 || true
+                if virsh net-list --name 2>/dev/null | grep -qx default; then
+                    _vt_act=yes
+                else
+                    _vt_act=no
+                fi
+                if virsh net-list --all --autostart --name 2>/dev/null | grep -qx default; then
+                    _vt_auto=yes
+                else
+                    _vt_auto=no
+                fi
+                if [ "$_vt_act" = "no" ] && [ "$_vt_auto" = "no" ]; then
+                    _vt_done=yes
+                    break
+                fi
+                _vt_j=$((_vt_j + 1))
+                sleep 1
+            done
+            if [ "$_vt_done" = "yes" ]; then
+                ip link del virbr0 >/dev/null 2>&1 || true
+            fi
+        fi
+        {
+            printf '[BR0-NAT] %s ready=%s torn_down=%s active=%s autostart=%s\n' \
+                "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_ready" "$_vt_done" "$_vt_act" "$_vt_auto"
+            virsh net-list --all 2>&1 || true
+        } >> "$_vt_log" 2>&1 || :
+    fi
 fi
 INNER_EOF
 
