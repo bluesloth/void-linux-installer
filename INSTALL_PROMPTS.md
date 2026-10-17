@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Beta-v2.9.96**). It exists
+> `Void_Linux_Installer.sh` (current version: **Beta-v2.9.97**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -109,7 +109,9 @@
   - `1` 4G (default)
   - `2` 2G
 - **Bootloader [1/2] (default 1: Limine)**
-  - `1` Limine — newer, simpler, no efibootmgr/NVRAM dependency (4GiB EFI). **Default.**
+  - `1` Limine — newer, simpler, no efibootmgr/NVRAM dependency by default
+    (optional registration now available, off by default: the removable/fallback
+    boot path is always used) (4GiB EFI). **Default.**
   - `2` GRUB — mature, battle-tested snapshot boot via grub-btrfs. ESP size: 1GiB
     plain, **4GiB when full-disk encryption is then enabled** (next sections) — in that
     combo the ESP is mounted at `/boot`, so grub.cfg + kernels live unencrypted on the
@@ -139,6 +141,9 @@
     — prints the detected profile + description, then accepts `y`/Enter, `n` (forces an
     explicit pick), or a direct 2-5 override.
 - Only if `BOOTLOADER=limine`:
+  - **Register Limine NVRAM entry? [y/N]** — optional `efibootmgr` registration;
+    default `N` keeps the removable/fallback boot path only. Asked right after
+    the bootloader choice (before the wallpaper prompt).
   - **Enable Limine wallpaper? [y/N]** — asked right after the bootloader choice.
   - If `y`:
     - **Wallpaper browser** (copied onto the ESP) — a numbered `ls` menu of

@@ -210,6 +210,39 @@
   (no loop), `y`/`Y`/`yes`/`true` → `true`, `n`/`N`/`no`/`false` → `false`,
   `junk` re-prompts then accepts Enter; `check-defaults.sh` ALL CONSISTENT.
 
+## RESOLVED — Limine UEFI NVRAM via efibootmgr (Beta-v2.9.97 `[LIMINE-NVRAM]`)
+
+Resolved by Beta-v2.9.97: a Limine-only **Register Limine NVRAM entry? [y/N]**
+prompt now exists (default `N`), implemented as an opt-in `efibootmgr --create`
+call in the Stage-2 Limine deploy. The four discussion questions:
+
+1. **Should the installer auto-run `efibootmgr`?** Yes — but only when the user
+   opts in (default off). The removable/fallback `EFI/BOOT/BOOTX64.EFI` copy
+   stays unconditional, so registration is additive and never load-bearing.
+2. **Correct command sequence.** ESP device resolved at run time
+   (`findmnt -no SOURCE /boot/efi` → `lsblk -no PKNAME` / `-no PARTN`),
+   targeting the deployed fallback binary rather than `/EFI/limine/limine.efi`:
+
+   ```sh
+   efibootmgr --create --disk /dev/<pkname> --part <partn> \
+       --loader '\EFI\BOOT\BOOTX64.EFI' --label "Void Linux (Limine)"
+   ```
+
+3. **Interaction with `[LIMINE-WALLPAPER]`/ESP mounting.** None: wallpaper
+   state lives in `limine-env` and the ESP copy runs first; the NVRAM step
+   follows the `BOOTX64.EFI` copy and never touches `limine.conf`.
+4. **Security/policy implications.** Handled by exactly the guardrail the
+   question asked for: an explicit opt-in prompt (default `N`), `efibootmgr`
+   already in `[PKG-PREFLIGHT]`, and a failed call only warns (the fallback
+   path still boots). A default run never writes NVRAM.
+
+**History note:** the feature first landed on the public export line at
+Beta-v2.9.92 (`ae72d75`) and was clobbered there by the Release-v2.9.93 source
+sync before any release shipped it; Beta-v2.9.97 re-applies it on this
+canonical line (see CHANGELOG §Beta-v2.9.97). Cross-ref: `Limine bootloader
+background not showing — RESOLVED` (Beta-v2.9.18) for related ESP/EFI file
+handling.
+
 ## Fresh real-hardware install — Beta-v2.9.96 (<host>, <user>) — COMPLETED 2026-10-16
 
 - **Context:** operator booted the Void-Linux-Live media, doubled clicked the
@@ -236,7 +269,7 @@
 
 ## Relevant Files (post-topology resolution)
 - `private/void-linux-installer/TODO.md`: This file.
-- `private/void-linux-installer/Void_Linux_Installer.sh`: Installer codebase (Beta-v2.9.96).
+- `private/void-linux-installer/Void_Linux_Installer.sh`: Installer codebase (Beta-v2.9.97).
 - `coordination/tools/sanitize-scan.sh`, `coordination/tools/make-public.sh`: Publishing safety tooling.
 - `coordination/.sanitize-denylist.txt`: Denylist used by sanitize tooling.
 - `_archive/lineageanchor-v2.9.13/`: Immutable historical snapshot (do not commit swaps; document in notes).
