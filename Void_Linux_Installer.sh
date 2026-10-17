@@ -215,13 +215,16 @@
 #     the prompt; toggle defaults are literal true/false.
 #   - Virtualization: QEMU/KVM + libvirt on a custom `br0` bridge (built natively
 #     via NetworkManager connection profile tracking configurations at boot),
-#     NOT libvirt's default NAT `virbr0`. The `default` NAT net is torn down on
-#     EVERY boot by rc.local whenever the br0 NM profile was written AND a
-#     physical wired NIC is present — the teardown waits for the net to be
-#     actually defined, verifies the result, logs to
-#     /var/log/void-br0-nat-teardown.log, and drops the orphaned virbr0
+#     NOT libvirt's default NAT `virbr0`. The `default` NAT net is torn down by
+#     rc.local (backgrounded, one-shot) whenever the br0 NM profile was written
+#     AND a physical wired NIC is present — the teardown waits for the net to be
+#     actually defined, verifies the result, stamps
+#     /var/lib/void-installer/br0-nat-torn-down.done so all later boots skip it,
+#     logs to /var/log/void-br0-nat-teardown.log, and drops the orphaned virbr0
 #     (Beta-v2.9.96 [BR0-NAT-TEARDOWN], fixing the first-boot ordering race found
-#     as finding F1). virbr0 stays ENABLED as the VM-networking fallback on
+#     as finding F1; Beta-v2.9.98 [BR0-NAT-ONESHOT]+[BR0-NAT-BACKGROUND] keeps it
+#     off the boot critical path — /etc/runit/2 runs rc.local synchronously
+#     before runsvdir). virbr0 stays ENABLED as the VM-networking fallback on
 #     machines with no wired NIC at all (where the whole br0 pair is skipped —
 #     Beta-v2.9.86 [BR0-SKIP]) or whenever the install-time NIC is absent at
 #     boot.
@@ -574,7 +577,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.97"
+SCRIPT_VERSION="Beta-v2.9.98"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1098,6 +1101,30 @@ SCRIPT_VERSION="Beta-v2.9.97"
 #                     through DRY-RUN plan, chroot_env, limine-env, install-config
 #                     and the NEXT-STEPS text. SCRIPT_VERSION bumped
 #                     Beta-v2.9.96 -> Beta-v2.9.97.
+#     Beta-v2.9.98   [BR0-NAT-ONESHOT] + [BR0-NAT-BACKGROUND] — the rc.local
+#                     libvirt `default` NAT teardown no longer costs boot time.
+#                     /etc/runit/2 runs rc.local SYNCHRONOUSLY before
+#                     `runsvdir`, so the block's wait loop (`virsh net-info
+#                     default` polled up to 30x sleep 1) sat directly on the
+#                     path to the display manager and ALWAYS burned its full
+#                     30 s — libvirtd is started by runsvdir, so it is never
+#                     up when the loop begins and every probe failed
+#                     (measured on the operator's box 2026-10-17: kernel->Xorg 38.4 s, of
+#                     which 30 s was this block). Two changes: (1)
+#                     [BR0-NAT-ONESHOT] — a VERIFIED teardown (torn_down=yes)
+#                     stamps /var/lib/void-installer/br0-nat-torn-down.done
+#                     and the stamp's presence skips the block on every later
+#                     boot (an unverified teardown still retries next boot);
+#                     (2) [BR0-NAT-BACKGROUND] — the whole block runs as
+#                     `{ …; } &`, so rc.local returns immediately and even the
+#                     first unstamped run cannot block the desktop; the
+#                     backgrounded loop keeps polling while runsvdir starts
+#                     libvirtd, so it now actually succeeds mid-boot and
+#                     stamps (previously impossible — the wait could never
+#                     complete before libvirtd started). Teardown semantics,
+#                     the wired-NIC presence gate, the log and the virbr0
+#                     cleanup are unchanged. The same box boots to Xorg in ~8 s.
+#                     SCRIPT_VERSION bumped Beta-v2.9.97 -> Beta-v2.9.98.
 #     Beta-v2.9.87   [COSMIC-REPO-MOVE] — the COSMIC artifact repository is
 #                     now served from the unified Void_Linux_Cosmic project
 #                     (packaging templates + signed binary repo in one place):
@@ -13550,7 +13577,31 @@ fi
 #     swallow) and best-effort removes the orphaned virbr0 a destroy leaves.
 # Every step is failure-tolerant (`|| true` / `|| :`): first boot must never
 # fail because of this, and the block is a no-op once `default` is inactive.
-if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connections/br0.nmconnection ]; then
+#
+# AI (Big Pickle) FIX — Beta-v2.9.98 [BR0-NAT-ONESHOT] + [BR0-NAT-BACKGROUND]:
+# two boot-time changes, measured on the operator's box 2026-10-17
+# (kernel->Xorg 38.4 s, of which 30 s was THIS block):
+#   (1) ONE-SHOT — the teardown is a completed migration, not a recurring
+#       chore. Once it is VERIFIED (`torn_down=yes`) the block stamps
+#       /var/lib/void-installer/br0-nat-torn-down.done, and the stamp's
+#       presence skips the whole block on every later boot. The stamp is only
+#       written on a verified teardown, so an incomplete one still retries on
+#       the next boot.
+#   (2) BACKGROUND — the whole block runs as `{ …; } &` because /etc/runit/2
+#       executes rc.local SYNCHRONOUSLY before `runsvdir`: anything slow in
+#       here sits directly on the path to the display manager. The wait loop
+#       (`virsh net-info default` polled up to 30x `sleep 1`) ALWAYS burned the
+#       full 30 s at boot — it runs before runsvdir, so libvirtd is never up
+#       when the loop starts and every probe failed. Belt-and-braces: even the
+#       FIRST (unstamped) run no longer blocks the desktop, and because the
+#       backgrounded loop keeps polling while runsvdir starts libvirtd, it now
+#       actually SUCCEEDS partway through boot (it previously could not), gets
+#       verified, and stamps — so from the second boot on the block is a pure
+#       `[ -f … ]` skip.
+if [ "__INSTALL_VIRT__" = "true" ] \
+   && [ -f /etc/NetworkManager/system-connections/br0.nmconnection ] \
+   && [ ! -f /var/lib/void-installer/br0-nat-torn-down.done ]; then
+    {
     _vt_wired=no
     for _vt_n in /sys/class/net/*; do
         [ -e "$_vt_n/device" ] || continue
@@ -13608,9 +13659,14 @@ if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connection
                 _vt_j=$((_vt_j + 1))
                 sleep 1
             done
-            # best-effort: drop the orphaned virbr0 libvirt leaves behind.
+            # best-effort: drop the orphaned virbr0 libvirt leaves behind, and
+            # stamp the one-shot migration ([BR0-NAT-ONESHOT] Beta-v2.9.98) —
+            # only a VERIFIED teardown writes the stamp, so an incomplete one
+            # still retries on the next boot.
             if [ "$_vt_done" = "yes" ]; then
                 ip link del virbr0 >/dev/null 2>&1 || true
+                mkdir -p /var/lib/void-installer && \
+                    touch /var/lib/void-installer/br0-nat-torn-down.done || :
             fi
         fi
         {
@@ -13619,6 +13675,7 @@ if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connection
             virsh --connect qemu:///system net-list --all 2>&1 || true
         } >> "$_vt_log" 2>&1 || :
     fi
+    } &
 fi
 INNER_EOF
 

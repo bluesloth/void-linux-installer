@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.97** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.98** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -132,6 +132,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.74** | `[USB-AUTOMOUNT]` — a COSMIC install had no removable-media automounter: udisks2 was installed (as a cosmic-files dependency) but its D-Bus-only activation unit meant udisksd was never reliably running on runit, and there was no udiskie/gvfs in the COSMIC path (gvfs automount only covers the GNOME/KDE/Cinnamon/MATE/Xfce/LXQt branches). The COSMIC DE branch now installs `udiskie` and autostarts it via a session-readiness guard (`/usr/local/sbin/udiskie-guard`, mirroring the polkit-agent guard), and the installer writes + first-boot-links a supervised `/etc/sv/udisksd` service. `udiskie`/`udisks2` added to PKG_PREFLIGHT | Beta-v2.9.73 below |
 | **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 | **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
+| **Beta-v2.9.98** | `[BR0-NAT-ONESHOT]` + `[BR0-NAT-BACKGROUND]` — the rc.local libvirt `default` NAT teardown (Beta-v2.9.96) no longer costs boot time. `/etc/runit/2` runs `rc.local` **synchronously before `runsvdir`**, so the teardown's wait loop (`virsh net-info default` polled up to 30× `sleep 1`) sat directly on the path to the display manager and **always burned its full 30 s**: libvirtd is started by `runsvdir`, so it is never up when the loop begins and every probe failed (measured on the operator's box 2026-10-17: kernel→Xorg 38.4 s, of which 30 s was this block). Two changes: **(1)** a **verified** teardown (`torn_down=yes`) now stamps `/var/lib/void-installer/br0-nat-torn-down.done` and the stamp's presence skips the block on every later boot (an unverified teardown still retries the next boot); **(2)** the whole block runs as `{ …; } &`, so `rc.local` returns immediately and even the first unstamped run cannot block the desktop — and because the backgrounded loop keeps polling while `runsvdir` starts libvirtd, it now actually **succeeds** mid-boot (previously impossible), gets verified, and stamps. Teardown semantics, the wired-NIC presence gate, the log and the `virbr0` cleanup are unchanged; the same box boots to Xorg in ~8 s. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.97 below |
 | **Beta-v2.9.97** | `[LIMINE-NVRAM]` — re-adds the optional Limine UEFI NVRAM registration that first landed on the public export line at Beta-v2.9.92 (commit `ae72d75`, "feat(limine): add optional NVRAM entry, default off") and was then clobbered there by the Release-v2.9.93 source sync (`Source-Ref`) before any release shipped it — it was never present on this canonical line. A new `DEFAULT_LIMINE_NVRAM` toggle (default `false`) drives a Limine-only prompt; on `yes` the Stage-2 Limine deploy `install_pkgs efibootmgr` and runs `efibootmgr --create` pointing at `BOOTX64.EFI` (ESP disk/partition derived via `findmnt` + `lsblk`), in addition to the always-present removable/fallback path; failure is non-fatal. Default/no keeps the deploy byte-identical to the historical NVRAM-free behavior. The prompt accepts `y`/`yes`/`true` and `n`/`no`/`false` (the `[HEADLESS-PROMPT-LOOP]` lesson) so a true/false default can never loop. Threaded through the DRY-RUN plan, `chroot_env`, `limine-env`, `install-config` and the NEXT-STEPS text. `efibootmgr` was already in `PKG_PREFLIGHT`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.96 below |
 | **Beta-v2.9.96** | `[BR0-NAT-TEARDOWN]` + `[HEADLESS-PROMPT-LOOP]` — two fixes. **(1)** the libvirt `default` NAT teardown left the one-shot first-boot guard for the **every-boot** section of `/etc/rc.local`: it now polls until `virsh net-info default` actually succeeds (the old code trusted libvirtd's socket, which appears *before* the net is defined, so `net-destroy`/`net-autostart --disable` no-op'd under `|| true` — finding **F1**), destroys+disables then **verifies**, logs to `/var/log/void-br0-nat-teardown.log`, removes the orphaned `virbr0`, and only tears down when a physical wired NIC is present (a NIC-absent boot keeps the NAT fallback, so a virt box is never left with zero VM networking). **(2)** the two headless `[y/N]` opt-in prompts now accept `y`/`yes`/`true` and `n`/`no`/`false` case-insensitively, so bare Enter (= the `false` default) no longer loops forever. No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.95 below |
 | **Beta-v2.9.95** | `[SSH-DEFAULT-HARDEN]` — the two `[SSH-SERVER]` access sub-prompts now default to the **secure** posture: `DEFAULT_SSH_PASSWORD_AUTH` `yes` → `no` and `DEFAULT_SSH_ROOT_LOGIN` `prohibit-password` → `no`, with the prompt labels flipped `[Y/n]` → `[y/N]`. A bare Enter can therefore no longer write a password-reachable sshd (`PasswordAuthentication yes` + `PermitRootLogin prohibit-password`); a `y` answer still yields exactly the previous values (`yes` / `prohibit-password`, i.e. public-key-only root login), so no prompt was removed — only the Enter-default moved. Server toggle, port, key prompts, packages and the prompt set are unchanged. This re-applies in the canonical source the hardening that had landed only on the public export (2026-10-15) and was then clobbered there by the Release-v2.9.93 source sync. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.94 below |
@@ -821,6 +822,67 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.98 — `[BR0-NAT-ONESHOT]` + `[BR0-NAT-BACKGROUND]` (the rc.local libvirt NAT teardown moves off the boot critical path)
+
+`SCRIPT_VERSION` bumped to Beta-v2.9.98.
+
+### The problem
+
+`/etc/runit/2` executes `/etc/rc.local` **synchronously before** `runsvdir`, so
+everything in `rc.local` sits directly on the path to the display manager. The
+Beta-v2.9.96 `[BR0-NAT-TEARDOWN]` block runs there on **every boot**, and its
+wait loop —
+
+```sh
+while [ "$_vt_i" -lt 30 ]; do
+    virsh --connect qemu:///system net-info default >/dev/null 2>&1 && … && break
+    _vt_i=$((_vt_i + 1)); sleep 1
+done
+```
+
+— could **never** succeed: libvirtd is itself started by `runsvdir`, which has
+not run yet when `rc.local` does, so every `virsh` probe fails and the loop
+always burns its full budget of 30 × `sleep 1`. Beta-v2.9.96's
+`--connect qemu:///system` (commit `88f4b4d`) had already removed virsh's own
+30 s socket-hunt, leaving this loop as the remaining cost.
+
+measured on the operator's box (Beta-v2.9.96 install, 2026-10-17 12:47
+boot): kernel start ≈ 12:47:46 → `rc.local`'s fast steps at 12:47:53 →
+`[BR0-NAT] ready=no` at **12:48:23** (exactly the 30 s loop) → Xorg at 12:48:24
+(`Xorg.0.log` kernel-uptime 38.36 s). Meanwhile NetworkManager activated `br0`
+itself at 12:48:26 — 2 s *after* Xorg started — so br0/the bridge profile was
+never the delay; the teardown block keyed off it was.
+
+### The fix (two layers)
+
+- **`[BR0-NAT-ONESHOT]`** — the teardown is a completed one-time migration, not
+  a recurring chore. When it is **verified** (`torn_down=yes`, i.e. `default`
+  inactive *and* not autostart) the block stamps
+  `/var/lib/void-installer/br0-nat-torn-down.done`; the gate also tests the
+  stamp's absence, so every later boot skips the block outright (a single
+  `[ -f … ]`, zero cost). The stamp is written **only on a verified teardown**,
+  so a half-done one still retries on the next boot.
+- **`[BR0-NAT-BACKGROUND]`** — the whole block runs as `{ …; } &`, so `rc.local`
+  returns immediately and `runsvdir` (and thus SDDM) starts without waiting.
+  Belt-and-braces: even the **first**, unstamped run cannot block the desktop —
+  and because the backgrounded loop keeps polling while `runsvdir` starts
+  libvirtd seconds later, it now actually **succeeds** mid-boot (impossible
+  before), gets verified, and stamps. From the second boot on, the block is the
+  stamp check alone.
+
+Unchanged: the teardown semantics (poll-until-defined, destroy + disable,
+verify, log every outcome to `/var/log/void-br0-nat-teardown.log`, best-effort
+`virbr0` removal), the physical-wired-NIC presence gate (a NIC-absent boot keeps
+libvirt's `default` NAT as the VM-networking fallback), and all failure-tolerant
+`|| true` / `|| :` handling.
+
+Same box after the on-target patch: kernel→Xorg **~8 s** (was 38.4 s); the
+remaining ~7 s is stage-1/root-mount/`vkpurge` work before `rc.local`, unrelated
+to br0.
+
+Gates: `bash -n`, `check-heredocs.sh`, `check-defaults.sh`,
+`check-pkg-preflight.sh` ALL CLEAN.
 
 ## Beta-v2.9.97 — `[LIMINE-NVRAM]` (the optional Limine UEFI NVRAM registration is re-added to the canonical source, default off)
 
