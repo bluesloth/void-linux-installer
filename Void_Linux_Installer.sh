@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Beta-v2.9.96"
+SCRIPT_VERSION="Beta-v2.9.97"
 
 
 
@@ -12,6 +12,7 @@ DEFAULT_XORG="${DEFAULT_XORG:-false}"
 DEFAULT_AUDIO="${DEFAULT_AUDIO:-false}"
 DEFAULT_SESSION_STACK="${DEFAULT_SESSION_STACK:-1}"
 DEFAULT_BOOTLOADER="${DEFAULT_BOOTLOADER:-1}"
+DEFAULT_LIMINE_NVRAM="${DEFAULT_LIMINE_NVRAM:-false}"
 DEFAULT_EFI_ESP_SIZE="${DEFAULT_EFI_ESP_SIZE:-1}"
 DEFAULT_KERNEL_MAINLINE="${DEFAULT_KERNEL_MAINLINE:-false}"
 DEFAULT_KERNEL_LTS="${DEFAULT_KERNEL_LTS:-true}"
@@ -955,7 +956,9 @@ fi
  echo ""
  echo "${C_BOLD}${C_BLU}Choose bootloader${C_RST}  (default: Limine)"
  echo "  ${C_BOLD}1)${C_RST} ${C_GRN}Limine${C_RST} — newer, simpler, single-file UEFI bootloader with no"
- echo "     efibootmgr/NVRAM dependency. Snapshot-boot menu support is a"
+ echo "     efibootmgr/NVRAM dependency (optional registration now available,"
+ echo "     off by default: the removable/fallback boot path is always used)."
+ echo "     Snapshot-boot menu support is a"
  echo "     static config this script writes itself (with the snapper plugin"
  echo "     auto-regenerating it on every snapshot create/delete). Requires"
  echo "     a 4GiB+ EFI partition (ArchWiki's own recommendation for"
@@ -1326,7 +1329,27 @@ export INSTALL_WIFI_FW WIFI_IDS WIFI_CHIPS WIFI_FW_PKG
 
 LIMINE_WALLPAPER="none"
 LIMINE_WALLPAPER_STYLE="stretched"
+LIMINE_NVRAM="no"
 if [ "$BOOTLOADER" = "limine" ]; then
+    echo ""
+    echo "${C_BOLD}${C_BLU}Limine NVRAM registration${C_RST}"
+    echo "  Register a UEFI NVRAM boot entry pointing at Limine's BOOTX64.EFI"
+    echo "  via efibootmgr? The default ('no') keeps the removable/fallback"
+    echo "  boot path only (current behaviour); 'yes' adds an explicit entry."
+    while true; do
+        case "${DEFAULT_LIMINE_NVRAM}" in
+            [yY]|[yY][eE][sS]|true) _nvram_default="Y";;
+            *) _nvram_default="N";;
+        esac
+        ask "${C_GRN}Register Limine NVRAM entry?${C_RST} [y/N] (default ${_nvram_default}): "
+        read -r LIMINE_NVRAM_INPUT
+        case "${LIMINE_NVRAM_INPUT:-$DEFAULT_LIMINE_NVRAM}" in
+            [yY]|[yY][eE][sS]|true)  LIMINE_NVRAM="yes"; break ;;
+            [nN]|[nN][oO]|false)     LIMINE_NVRAM="no";  break ;;
+            *) echo "Please enter y or n." >&2 ;;
+        esac
+    done
+    unset _nvram_default LIMINE_NVRAM_INPUT
     echo ""
     echo "${C_BOLD}${C_BLU}Limine boot-screen background${C_RST}"
     echo "  Add a wallpaper to the Limine boot menu? (BMP/PNG/JPEG/QOI)"
@@ -1375,6 +1398,7 @@ if [ "$BOOTLOADER" = "limine" ]; then
 fi
 export LIMINE_WALLPAPER
 export LIMINE_WALLPAPER_STYLE
+export LIMINE_NVRAM
 
 ENCRYPT="no"
 ENCRYPT_PASSPHRASE=""
@@ -3083,6 +3107,7 @@ if [ "$DRY_RUN" = "1" ]; then
     if [ "$BOOTLOADER" = "limine" ]; then
         echo "  Kernel access         : ${KERNEL_MODE:-<unset>} (Limine)"
         echo "  Wallpaper             : ${LIMINE_WALLPAPER:-none}${LIMINE_WALLPAPER_STYLE:+ (style=${LIMINE_WALLPAPER_STYLE})}"
+        echo "  Limine NVRAM entry    : ${LIMINE_NVRAM:-no}"
     fi
     if [ "$HAS_GRAPHICAL" = "yes" ]; then
         echo "  Desktop / DM          : ${DESKTOP_ENV:-<unset>} / ${DISPLAY_MANAGER:-<unset>} (graphical)"
@@ -4002,6 +4027,7 @@ echo "export GRUB_ESP_BOOT=\"$GRUB_ESP_BOOT\"" >> /mnt/tmp/chroot_env.sh
 echo "export KERNEL_MODE=\"$KERNEL_MODE\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIMINE_WALLPAPER=\"$LIMINE_WALLPAPER\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIMINE_WALLPAPER_STYLE=\"$LIMINE_WALLPAPER_STYLE\"" >> /mnt/tmp/chroot_env.sh
+echo "export LIMINE_NVRAM=\"$LIMINE_NVRAM\"" >> /mnt/tmp/chroot_env.sh
 echo "export DEFAULT_QUIET_BOOT=\"$DEFAULT_QUIET_BOOT\"" >> /mnt/tmp/chroot_env.sh
 echo "export DEFAULT_TEE_BLACKLIST=\"$DEFAULT_TEE_BLACKLIST\"" >> /mnt/tmp/chroot_env.sh
 echo "export SCRIPT_VERSION=\"$SCRIPT_VERSION\"" >> /mnt/tmp/chroot_env.sh
@@ -5444,6 +5470,22 @@ fi
 mkdir -p /boot/efi/EFI/BOOT
 cp -f "$LIMINE_EFI_SRC" /boot/efi/EFI/BOOT/BOOTX64.EFI
 
+if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
+    install_pkgs efibootmgr
+    _esp_src="$(findmnt -no SOURCE /boot/efi 2>/dev/null)"
+    _esp_disk="$(lsblk -no PKNAME "$_esp_src" 2>/dev/null | head -n1)"
+    _esp_part="$(lsblk -no PARTN "$_esp_src" 2>/dev/null | head -n1)"
+    echo "==> Creating Limine NVRAM boot entry (efibootmgr) ..."
+    if [ -n "$_esp_disk" ] && [ -n "$_esp_part" ]; then
+        efibootmgr --create --disk "/dev/$_esp_disk" --part "$_esp_part" \
+            --loader '\EFI\BOOT\BOOTX64.EFI' --label "Void Linux (Limine)" \
+            || echo "WARNING: efibootmgr failed; system remains bootable via the fallback path." >&2
+    else
+        echo "WARNING: could not derive ESP disk/partition for efibootmgr; skipping NVRAM entry." >&2
+    fi
+    unset _esp_src _esp_disk _esp_part
+fi
+
 if [ "$KERNEL_MODE" = "esp-copy" ]; then
     mkdir -p /boot/efi/void-kernel
 fi
@@ -5457,6 +5499,7 @@ SYSPREFIX_BTRFS="${SYSPREFIX_BTRFS}"
 HIBERNATION_ENABLED="${ENABLE_HIBERNATION}"
 LIMINE_WALLPAPER="${LIMINE_WALLPAPER}"
 LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE}"
+LIMINE_NVRAM="${LIMINE_NVRAM}"
 DEFAULT_QUIET_BOOT="${DEFAULT_QUIET_BOOT:-no}"
 DEFAULT_TEE_BLACKLIST="${DEFAULT_TEE_BLACKLIST:-no}"
 ENCRYPT="${ENCRYPT}"
@@ -5530,6 +5573,7 @@ ENABLE_HIBERNATION="${ENABLE_HIBERNATION:-<unset>}"
 SWAPFILE_SIZE="${SWAPFILE_SIZE:-<unset>}"
 LIMINE_WALLPAPER="${LIMINE_WALLPAPER:-<unset>}"
 LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE:-<unset>}"
+LIMINE_NVRAM="${LIMINE_NVRAM:-no}"
 INSTALL_SSH_SERVER="${INSTALL_SSH_SERVER:-false}"
 SSH_PORT="${SSH_PORT:-<unset>}"
 SSH_PASSWORD_AUTH="${SSH_PASSWORD_AUTH:-<unset>}"
@@ -7811,7 +7855,11 @@ else
     echo "     at the console and run:  ${C_BOLD}ln -sf /etc/sv/${DISPLAY_MANAGER} /etc/runit/runsvdir/default/${C_RST}  (or your chosen DM)."
 fi
 if [ "$BOOTLOADER" = "limine" ]; then
-    echo "${C_GRN}  3.${C_RST} Limine boots automatically (no NVRAM entry needed on UEFI)."
+    if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
+        echo "${C_GRN}  3.${C_RST} Limine is registered in NVRAM (plus the removable fallback path)."
+    else
+        echo "${C_GRN}  3.${C_RST} Limine boots automatically (no NVRAM entry needed on UEFI)."
+    fi
     echo "     To snapshot a running system later:  ${C_BOLD}sudo snapper create -d 'manual'${C_RST}"
 else
     echo "${C_GRN}  3.${C_RST} GRUB is installed (with grub-btrfs snapshots). To update the menu:"

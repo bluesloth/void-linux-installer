@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.96** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.97** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -132,6 +132,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.74** | `[USB-AUTOMOUNT]` — a COSMIC install had no removable-media automounter: udisks2 was installed (as a cosmic-files dependency) but its D-Bus-only activation unit meant udisksd was never reliably running on runit, and there was no udiskie/gvfs in the COSMIC path (gvfs automount only covers the GNOME/KDE/Cinnamon/MATE/Xfce/LXQt branches). The COSMIC DE branch now installs `udiskie` and autostarts it via a session-readiness guard (`/usr/local/sbin/udiskie-guard`, mirroring the polkit-agent guard), and the installer writes + first-boot-links a supervised `/etc/sv/udisksd` service. `udiskie`/`udisks2` added to PKG_PREFLIGHT | Beta-v2.9.73 below |
 | **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 | **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
+| **Beta-v2.9.97** | `[LIMINE-NVRAM]` — re-adds the optional Limine UEFI NVRAM registration that first landed on the public export line at Beta-v2.9.92 (commit `ae72d75`, "feat(limine): add optional NVRAM entry, default off") and was then clobbered there by the Release-v2.9.93 source sync (`Source-Ref`) before any release shipped it — it was never present on this canonical line. A new `DEFAULT_LIMINE_NVRAM` toggle (default `false`) drives a Limine-only prompt; on `yes` the Stage-2 Limine deploy `install_pkgs efibootmgr` and runs `efibootmgr --create` pointing at `BOOTX64.EFI` (ESP disk/partition derived via `findmnt` + `lsblk`), in addition to the always-present removable/fallback path; failure is non-fatal. Default/no keeps the deploy byte-identical to the historical NVRAM-free behavior. The prompt accepts `y`/`yes`/`true` and `n`/`no`/`false` (the `[HEADLESS-PROMPT-LOOP]` lesson) so a true/false default can never loop. Threaded through the DRY-RUN plan, `chroot_env`, `limine-env`, `install-config` and the NEXT-STEPS text. `efibootmgr` was already in `PKG_PREFLIGHT`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.96 below |
 | **Beta-v2.9.96** | `[BR0-NAT-TEARDOWN]` + `[HEADLESS-PROMPT-LOOP]` — two fixes. **(1)** the libvirt `default` NAT teardown left the one-shot first-boot guard for the **every-boot** section of `/etc/rc.local`: it now polls until `virsh net-info default` actually succeeds (the old code trusted libvirtd's socket, which appears *before* the net is defined, so `net-destroy`/`net-autostart --disable` no-op'd under `|| true` — finding **F1**), destroys+disables then **verifies**, logs to `/var/log/void-br0-nat-teardown.log`, removes the orphaned `virbr0`, and only tears down when a physical wired NIC is present (a NIC-absent boot keeps the NAT fallback, so a virt box is never left with zero VM networking). **(2)** the two headless `[y/N]` opt-in prompts now accept `y`/`yes`/`true` and `n`/`no`/`false` case-insensitively, so bare Enter (= the `false` default) no longer loops forever. No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.95 below |
 | **Beta-v2.9.95** | `[SSH-DEFAULT-HARDEN]` — the two `[SSH-SERVER]` access sub-prompts now default to the **secure** posture: `DEFAULT_SSH_PASSWORD_AUTH` `yes` → `no` and `DEFAULT_SSH_ROOT_LOGIN` `prohibit-password` → `no`, with the prompt labels flipped `[Y/n]` → `[y/N]`. A bare Enter can therefore no longer write a password-reachable sshd (`PasswordAuthentication yes` + `PermitRootLogin prohibit-password`); a `y` answer still yields exactly the previous values (`yes` / `prohibit-password`, i.e. public-key-only root login), so no prompt was removed — only the Enter-default moved. Server toggle, port, key prompts, packages and the prompt set are unchanged. This re-applies in the canonical source the hardening that had landed only on the public export (2026-10-15) and was then clobbered there by the Release-v2.9.93 source sync. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.94 below |
 | **Beta-v2.9.94** | `[BASELINE-SNAPSHOT-FIRSTBOOT]` — the baseline snapper snapshot ("Baseline Automated System Installation") is **no longer taken at the end of the chroot install**; it is now created at the **end of the one-shot first-boot provisioning** in `/etc/rc.local`, right after the service symlinks (display manager, dbus, NetworkManager, polkitd, ...) are linked and right before the `/var/log/firstboot.log` marker is written. Root cause: those symlinks are the only thing that starts the greeter/desktop and they are created at **first boot** (deferred from the install), so the install-time snapshot captured a console-only system — rolling back to it, or booting it from the GRUB/Limine snapshot menu, landed on a bare `agetty` instead of the greeter, and the rollback could not self-heal because `/var/log/firstboot.log` lives on the separate `@log` subvolume (never restored by an `@` snapshot), so `rc.local` skipped first-boot provisioning on the restored system. Snapshotting after provisioning makes the baseline a fully-functional, rollback-ready clean-system image. The existing `[ ! -f /var/log/firstboot.log ]` guard already makes this exactly-once, so **no self-deleting script/cron is needed**. The install-time `41_snapshots-btrfs` `chmod -x`/`+x` dance (which only existed to keep the just-created snapshot out of the initial `grub-mkconfig`) is removed; `grub-mkconfig` now runs normally and the first-boot snapshot is picked up afterwards by `grub-btrfsd` (GRUB) or the Limine snapper plugin. Install-success NEXT-STEPS text updated to state the baseline is taken on first boot. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.93 below |
@@ -820,6 +821,79 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.97 — `[LIMINE-NVRAM]` (the optional Limine UEFI NVRAM registration is re-added to the canonical source, default off)
+
+`SCRIPT_VERSION` bumped to Beta-v2.9.97.
+
+### What was lost, and why re-apply instead of resurrect
+
+The OPTIONAL Limine "register a UEFI NVRAM boot entry" feature was added on
+**2026-10-15** as `ae72d75` *"feat(limine): add optional NVRAM entry, default
+off"*, documented in `d5fc61e`/`f53bb9a`, and reordered ahead of the wallpaper
+prompt in `a16db02`. All of those commits live on the **public export line** —
+the independent history rooted at `126b67b` *"Initial public release:
+void-linux-installer"* (tip `baa986b`). They are not ancestors of this canonical
+line (root `52637c6`).
+
+`cf95f80` *"Release v2.9.93"* carries `Source-Ref: ab95cb0` and **regenerated
+`Void_Linux_Installer.sh` from this canonical private source**, which never had
+the feature: `LIMINE_NVRAM` went from 14 references at `edd99ca` to **0** at
+`cf95f80`, and the whole export line was later discarded from the public remote
+(now a fresh single-commit snapshot `1d61390`). The feature therefore survives
+only as orphaned git objects, unreachable from any ref.
+
+Rather than cherry-pick dead objects, this re-applies the work cleanly on the
+canonical line — exactly the treatment the sibling SSH-hardening from that same
+export line received as Beta-v2.9.95 `[SSH-DEFAULT-HARDEN]`.
+
+### Behaviour
+
+- New `DEFAULT_LIMINE_NVRAM="${DEFAULT_LIMINE_NVRAM:-false}"` — a **yes/no
+  toggle** in the project's literal-`true`/`false` default convention, default
+  **off**.
+- Limine-only prompt, asked **before** the wallpaper prompt (matching
+  `a16db02`'s final order):
+
+  ```text
+  Limine NVRAM registration
+    Register a UEFI NVRAM boot entry pointing at Limine's BOOTX64.EFI
+    via efibootmgr? The default ('no') keeps the removable/fallback
+    boot path only (current behaviour); 'yes' adds an explicit entry.
+  Register Limine NVRAM entry? [y/N] (default N):
+  ```
+
+- The `case` accepts `y`/`yes`/`true` and `n`/`no`/`false` — the
+  `[HEADLESS-PROMPT-LOOP]` lesson from Beta-v2.9.96 — so a bare Enter resolves
+  against `DEFAULT_LIMINE_NVRAM` and a `true`/`false` default can never fall
+  through and loop. The persisted value stays `yes`/`no`.
+- On `yes`, the Stage-2 Limine deploy (right after the unconditional
+  `BOOTX64.EFI` copy) runs:
+
+  ```sh
+  if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
+      install_pkgs efibootmgr
+      _esp_src="$(findmnt -no SOURCE /boot/efi 2>/dev/null)"
+      _esp_disk="$(lsblk -no PKNAME "$_esp_src" 2>/dev/null | head -n1)"
+      _esp_part="$(lsblk -no PARTN  "$_esp_src" 2>/dev/null | head -n1)"
+      # ...
+      efibootmgr --create --disk "/dev/$_esp_disk" --part "$_esp_part" \
+          --loader '\EFI\BOOT\BOOTX64.EFI' --label "Void Linux (Limine)"
+  fi
+  ```
+
+  `efibootmgr` was already a member of the `[PKG-PREFLIGHT]` superset, and the
+  removable/fallback copy above is unconditional — so a failed `efibootmgr`
+  only warns and the box still boots. Default/no is **byte-identical** to the
+  historical NVRAM-free deploy.
+- The choice is threaded through the DRY-RUN plan, the `chroot_env` export, the
+  `limine-env` as-built record, the `install-config` dump and the NEXT-STEPS
+  text (which now says "registered in NVRAM" vs. "no NVRAM entry needed").
+
+Validation: `bash -n`, `check-heredocs.sh`, `check-defaults.sh`,
+`check-pkg-preflight.sh` ALL CLEAN; the prompt `case` was unit-tested across all
+14 default/input combinations (bare Enter, y/n, yes/no, true/false, mixed case,
+and junk → re-ask).
 
 ## Beta-v2.9.96 — `[BR0-NAT-TEARDOWN]` + `[HEADLESS-PROMPT-LOOP]` (libvirt NAT teardown made race-proof and every-boot; headless opt-in prompts no longer loop)
 
