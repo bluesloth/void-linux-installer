@@ -1061,7 +1061,7 @@ SCRIPT_VERSION="Beta-v2.9.97"
 #                     landed active+autostart and the intended br0 migration
 #                     never ran (audit finding F1, 2026-10-15). The block MOVED
 #                     to the every-boot section at the END of rc.local and is now
-#                     idempotent: it polls until `virsh net-info default`
+#                     idempotent: it polls until `virsh --connect qemu:///system net-info default`
 #                     actually succeeds, then destroys+disables and VERIFIES the
 #                     result, logs every outcome to
 #                     /var/log/void-br0-nat-teardown.log, best-effort removes the
@@ -13534,12 +13534,12 @@ fi
 # ONCE, inside the first-boot guard above, and only waited for libvirtd's
 # /run/libvirt/libvirt-sock to APPEAR — but the socket is up BEFORE libvirtd
 # has finished DEFINING/activating its bundled `default` network, so
-# `virsh net-destroy default` / `net-autostart default --disable` hit
+# `virsh --connect qemu:///system net-destroy default` / `net-autostart default --disable` hit
 # "network not found" and were swallowed by `|| true`; `default` then landed
 # active+autostart and the intended br0 migration never happened. This block
 # runs on EVERY boot (here, AFTER the guard, so on first boot libvirtd has
 # just been linked) and is fully idempotent:
-#   * it POLLS until `virsh net-info default` actually succeeds instead of
+#   * it POLLS until `virsh --connect qemu:///system net-info default` actually succeeds instead of
 #     trusting the socket, then destroys+disables and VERIFIES the result;
 #   * it only tears down when a physical WIRED NIC is present right now
 #     (mirrors the installer's has_wired_nic_hw()), so a box whose install-time
@@ -13574,7 +13574,7 @@ if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connection
         _vt_ready=no
         _vt_i=0
         while [ "$_vt_i" -lt 30 ]; do
-            if virsh net-info default >/dev/null 2>&1; then
+            if virsh --connect qemu:///system net-info default >/dev/null 2>&1; then
                 _vt_ready=yes
                 break
             fi
@@ -13589,14 +13589,14 @@ if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connection
         if [ "$_vt_ready" = "yes" ]; then
             _vt_j=0
             while [ "$_vt_j" -lt 10 ]; do
-                virsh net-autostart default --disable >/dev/null 2>&1 || true
-                virsh net-destroy default >/dev/null 2>&1 || true
-                if virsh net-list --name 2>/dev/null | grep -qx default; then
+                virsh --connect qemu:///system net-autostart default --disable >/dev/null 2>&1 || true
+                virsh --connect qemu:///system net-destroy default >/dev/null 2>&1 || true
+                if virsh --connect qemu:///system net-list --name 2>/dev/null | grep -qx default; then
                     _vt_act=yes
                 else
                     _vt_act=no
                 fi
-                if virsh net-list --all --autostart --name 2>/dev/null | grep -qx default; then
+                if virsh --connect qemu:///system net-list --all --autostart --name 2>/dev/null | grep -qx default; then
                     _vt_auto=yes
                 else
                     _vt_auto=no
@@ -13616,7 +13616,7 @@ if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connection
         {
             printf '[BR0-NAT] %s ready=%s torn_down=%s active=%s autostart=%s\n' \
                 "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_ready" "$_vt_done" "$_vt_act" "$_vt_auto"
-            virsh net-list --all 2>&1 || true
+            virsh --connect qemu:///system net-list --all 2>&1 || true
         } >> "$_vt_log" 2>&1 || :
     fi
 fi
