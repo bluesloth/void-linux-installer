@@ -243,7 +243,7 @@ canonical line (see CHANGELOG §Beta-v2.9.97). Cross-ref: `Limine bootloader
 background not showing — RESOLVED` (Beta-v2.9.18) for related ESP/EFI file
 handling.
 
-## VERIFIED on boot 1 (2026-10-17, Beta-v2.9.98 `[BR0-NAT-ONESHOT]`+`[BR0-NAT-BACKGROUND]`) — steady-state skip PENDING boot 2
+## rc.local 30 s NAT wait loop blocking boot — RESOLVED (Beta-v2.9.98 `[BR0-NAT-ONESHOT]`+`[BR0-NAT-BACKGROUND]`; checks 1–4 ALL VERIFIED, boots 1+2 on 2026-10-17)
 
 - **Was:** `/etc/runit/2` runs `rc.local` **synchronously before `runsvdir`**,
   and `libvirtd` is itself started *by* `runsvdir` — so the Beta-v2.9.96
@@ -274,10 +274,20 @@ handling.
      NetworkManager, `virbr0` deleted, `default` inactive + autostart off, no
      stray `virsh`/rc.local children, `sh -n` OK, and the live block is
      code-identical to this repo's rc.local heredoc.
-- **Still unproven (check 4):** the one-shot skip on a LATER boot — reboot 2
-  must add **no** new teardown-log entry while Xorg stays ~7.7 s. Cross-ref:
-  `docs/AGENTS.md` → Next Move + Validation backlog; flip this entry to
-  RESOLVED when it passes (no version bump needed).
+- **Check 4 VERIFIED on boot 2 (2026-10-17 13:52:05, this box):** the teardown
+  log is **byte-identical to the pre-reboot baseline** — still **33 lines /
+  2808 bytes, mtime `2026-10-17 13:26:56.353628811`** (no growth ⇒ the
+  `[ ! -f … ]` stamp gate fired and the block never ran), the stamp was **not
+  re-touched** (`/var/lib/void-installer/br0-nat-torn-down.done` mtime still
+  `13:26:56.340628605`), and boot speed held — `/var/log/Xorg.0.log` line 1 =
+  `[     7.774]` with boot 1's file rotated to `Xorg.0.log.old` =
+  `[     7.713]` (both ~7.7 s vs the pre-fix `[    38.360]`). Side effects
+  still correct: `br0` up with its address (NM `br0`/`br0-slave` activated),
+  `virbr0` absent, libvirt `default` inactive + no autostart, no stray
+  `virsh`/rc.local children, `sh -n /etc/rc.local` OK.
+- **CLOSED — nothing open here** (no version bump; on-box revert if ever
+  wanted: `sudo cp -a /etc/rc.local.bak-2.9.98 /etc/rc.local`). Cross-ref:
+  `docs/AGENTS.md` (Validation-backlog line struck) + `docs/TODO.md`.
 
 ## Fresh real-hardware install — Beta-v2.9.96 (<host>, <user>) — COMPLETED 2026-10-16
 
