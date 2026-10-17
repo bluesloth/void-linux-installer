@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Beta-v2.9.97"
+SCRIPT_VERSION="Beta-v2.9.98"
 
 
 
@@ -7522,7 +7522,10 @@ if [ ! -f /var/log/firstboot.log ]; then
     touch /var/log/firstboot.log
 fi
 
-if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connections/br0.nmconnection ]; then
+if [ "__INSTALL_VIRT__" = "true" ] \
+   && [ -f /etc/NetworkManager/system-connections/br0.nmconnection ] \
+   && [ ! -f /var/lib/void-installer/br0-nat-torn-down.done ]; then
+    {
     _vt_wired=no
     for _vt_n in /sys/class/net/*; do
         [ -e "$_vt_n/device" ] || continue
@@ -7544,7 +7547,7 @@ if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connection
         _vt_ready=no
         _vt_i=0
         while [ "$_vt_i" -lt 30 ]; do
-            if virsh net-info default >/dev/null 2>&1; then
+            if virsh --connect qemu:///system net-info default >/dev/null 2>&1; then
                 _vt_ready=yes
                 break
             fi
@@ -7557,14 +7560,14 @@ if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connection
         if [ "$_vt_ready" = "yes" ]; then
             _vt_j=0
             while [ "$_vt_j" -lt 10 ]; do
-                virsh net-autostart default --disable >/dev/null 2>&1 || true
-                virsh net-destroy default >/dev/null 2>&1 || true
-                if virsh net-list --name 2>/dev/null | grep -qx default; then
+                virsh --connect qemu:///system net-autostart default --disable >/dev/null 2>&1 || true
+                virsh --connect qemu:///system net-destroy default >/dev/null 2>&1 || true
+                if virsh --connect qemu:///system net-list --name 2>/dev/null | grep -qx default; then
                     _vt_act=yes
                 else
                     _vt_act=no
                 fi
-                if virsh net-list --all --autostart --name 2>/dev/null | grep -qx default; then
+                if virsh --connect qemu:///system net-list --all --autostart --name 2>/dev/null | grep -qx default; then
                     _vt_auto=yes
                 else
                     _vt_auto=no
@@ -7578,14 +7581,17 @@ if [ "__INSTALL_VIRT__" = "true" ] && [ -f /etc/NetworkManager/system-connection
             done
             if [ "$_vt_done" = "yes" ]; then
                 ip link del virbr0 >/dev/null 2>&1 || true
+                mkdir -p /var/lib/void-installer && \
+                    touch /var/lib/void-installer/br0-nat-torn-down.done || :
             fi
         fi
         {
             printf '[BR0-NAT] %s ready=%s torn_down=%s active=%s autostart=%s\n' \
                 "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_ready" "$_vt_done" "$_vt_act" "$_vt_auto"
-            virsh net-list --all 2>&1 || true
+            virsh --connect qemu:///system net-list --all 2>&1 || true
         } >> "$_vt_log" 2>&1 || :
     fi
+    } &
 fi
 INNER_EOF
 
