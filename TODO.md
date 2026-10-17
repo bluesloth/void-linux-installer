@@ -243,6 +243,42 @@ canonical line (see CHANGELOG §Beta-v2.9.97). Cross-ref: `Limine bootloader
 background not showing — RESOLVED` (Beta-v2.9.18) for related ESP/EFI file
 handling.
 
+## VERIFIED on boot 1 (2026-10-17, Beta-v2.9.98 `[BR0-NAT-ONESHOT]`+`[BR0-NAT-BACKGROUND]`) — steady-state skip PENDING boot 2
+
+- **Was:** `/etc/runit/2` runs `rc.local` **synchronously before `runsvdir`**,
+  and `libvirtd` is itself started *by* `runsvdir` — so the Beta-v2.9.96
+  teardown block's 30×`sleep 1` wait loop could never succeed there and always
+  burned its full 30 s on the path to the display manager (measured on this
+  box: kernel→Xorg 38.4 s, of which 30 s was this block; the br0 NM profile
+  activated 2 s *after* Xorg, so the profile was never the delay).
+- **Fix (Beta-v2.9.98, repo commit `2c85941`):** `[BR0-NAT-ONESHOT]` — only a
+  VERIFIED teardown (`torn_down=yes`) stamps
+  `/var/lib/void-installer/br0-nat-torn-down.done`, and the block's guard tests
+  the stamp's *absence*, so later boots skip it with a single `[ -f … ]` (an
+  unverified teardown still retries next boot); plus `[BR0-NAT-BACKGROUND]` —
+  the whole block runs as `{ …; } &`, so `rc.local` returns immediately and the
+  polling loop keeps running while `runsvdir` brings libvirtd up (it now
+  *succeeds* mid-boot, which the synchronous form could not). Teardown
+  semantics, wired-NIC gate, log format and virbr0 cleanup unchanged.
+- **Verified on the first post-fix boot (2026-10-17 13:26:48, this box):**
+  1. boot speed — `/var/log/Xorg.0.log` starts at `[     7.713]` vs
+     `[    38.360]` on the pre-fix boot (preserved as `Xorg.0.log.old`) →
+     **−30.6 s**;
+  2. backgrounded teardown **succeeded** — `/var/log/void-br0-nat-teardown.log`
+     last entry `2026-10-17T17:26:56Z ready=yes torn_down=yes active=no
+     autostart=no` (+ `default inactive no yes`) at **boot+8 s**, i.e. it
+     completed while `runsvdir` was starting libvirtd — impossible before (the
+     pre-fix boot logged `ready=no … virtqemud-sock: No such file`);
+  3. stamp written — `/var/lib/void-installer/br0-nat-torn-down.done` (same
+     second as the log line). Side effects clean: br0 up with its address via
+     NetworkManager, `virbr0` deleted, `default` inactive + autostart off, no
+     stray `virsh`/rc.local children, `sh -n` OK, and the live block is
+     code-identical to this repo's rc.local heredoc.
+- **Still unproven (check 4):** the one-shot skip on a LATER boot — reboot 2
+  must add **no** new teardown-log entry while Xorg stays ~7.7 s. Cross-ref:
+  `docs/AGENTS.md` → Next Move + Validation backlog; flip this entry to
+  RESOLVED when it passes (no version bump needed).
+
 ## Fresh real-hardware install — Beta-v2.9.96 (<host>, <user>) — COMPLETED 2026-10-16
 
 - **Context:** operator booted the Void-Linux-Live media, doubled clicked the
