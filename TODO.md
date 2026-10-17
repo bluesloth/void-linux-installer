@@ -1,5 +1,43 @@
 # TODO / Open Items
 
+## OPEN — [LIBVIRT-AUTOSTART] teardown removes the `libvirt` package-owned autostart symlink (found 2026-10-17, read-only audit of `<host>` / Beta-v2.9.96 as-built)
+- **Symptom:** `xbps-pkgdb -a` on the installed box reports
+  `ERROR: libvirt: broken symlink /etc/libvirt/qemu/networks/autostart/default.xml
+  (target: /etc/libvirt/qemu/networks/default.xml)` +
+  `files check FAILED`, permanently. Nothing is broken at runtime — `virsh
+  net-info default` shows `Active: no / Autostart: no` and `virbr0` is gone.
+- **Root cause (ours):** the BR0-NAT teardown block (rc.local +
+  Stage-3 equivalent) runs `virsh --connect qemu:///system net-autostart default
+  --disable`, and libvirt implements autostart as that symlink. The path is a
+  **package-owned file** (`xbps-query -f libvirt` lists
+  `/etc/libvirt/qemu/networks/autostart/default.xml -> …/networks/default.xml`),
+  so deleting it leaves the package permanently "files check FAILED". The
+  autostart dir mtime (`2026-10-17 12:23`) matches a teardown run.
+- **Latent risk (the reason this is OPEN, not just cosmetic):** since
+  Beta-v2.9.98 the teardown is **once + stamped**
+  (`/var/lib/void-installer/br0-nat-torn-down.done`), so it will NOT re-run
+  after a future `libvirt` package update — and an update re-installs all of the
+  package's files, i.e. it would silently restore the autostart symlink, bringing
+  `default` back to autostart and `virbr0` back on the next boot, on a box whose
+  design says br0/NAT with `default` inactive.
+- **Also recorded here so nobody "fixes" the wrong thing** — the other two
+  `xbps-pkgdb -a` errors on that box are **BY DESIGN**, both installer-authored
+  on purpose (verified in the source this session):
+  (a) `elogind: hash mismatch for /etc/sv/elogind/run` — the installer's
+  hardened run script (PID-reentry guard + `sv check dbus`), stock copy kept at
+  `/etc/sv/elogind/run.orig` (source: `[ -e run.orig ] || cp run run.orig`);
+  (b) `xbps: hash mismatch for /usr/bin/xbps-install` — the deliberate symlink
+  to `/usr/local/sbin/void-xbps-snap`, the snapper pre/post wrapper (proven
+  working live: snapshots #7/#8 and #13/#14 are `xbps system update`
+  pre/post pairs).
+- **Options (decision open — discuss before touching installer code):**
+  (1) make the autostart disable boot-independent (cheap `net-list --all
+  --autostart` probe that re-disables when a package update restored it);
+  (2) accept the pkgdb error and document it as expected (2 more lines in the
+  as-built record); (3) drop a `Conflicts`/`INSTALL`-time note. Option 1 is the
+  only one that also closes the latent virbr0 return.
+- No script change made (docs-only); `SCRIPT_VERSION` stays `Beta-v2.9.98`.
+
 ## RESOLVED — cosmic-greeter 1.10 DM: runtime elogind-session verification (2026-10-16)
 - **Authoritative entry lives in `AGENTS.md` → "Validation backlog"**
   (kept there so this TODO does not diverge from the work-state doc).
