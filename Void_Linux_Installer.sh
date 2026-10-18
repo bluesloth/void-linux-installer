@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Beta-v2.9.98"
+SCRIPT_VERSION="Beta-v2.9.99"
 
 
 
@@ -7522,10 +7522,17 @@ if [ ! -f /var/log/firstboot.log ]; then
     touch /var/log/firstboot.log
 fi
 
+_vt_stamp=/var/lib/void-installer/br0-nat-torn-down.done
+_vt_autostart=/etc/libvirt/qemu/networks/autostart/default.xml
 if [ "__INSTALL_VIRT__" = "true" ] \
    && [ -f /etc/NetworkManager/system-connections/br0.nmconnection ] \
-   && [ ! -f /var/lib/void-installer/br0-nat-torn-down.done ]; then
+   && { [ ! -f "$_vt_stamp" ] || [ -e "$_vt_autostart" ]; }; then
     {
+    if [ -f "$_vt_stamp" ]; then
+        _vt_reason="re-teardown (autostart symlink restored by a libvirt update)"
+    else
+        _vt_reason="initial migration"
+    fi
     _vt_wired=no
     for _vt_n in /sys/class/net/*; do
         [ -e "$_vt_n/device" ] || continue
@@ -7538,11 +7545,11 @@ if [ "__INSTALL_VIRT__" = "true" ] \
     done
     _vt_log=/var/log/void-br0-nat-teardown.log
     if [ "$_vt_wired" != "yes" ]; then
-        { printf '[BR0-NAT] %s skip: no physical wired NIC present; libvirt default NAT kept (fallback)\n' \
-              "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; } >> "$_vt_log" 2>&1 || :
+        { printf '[BR0-NAT] %s skip (%s): no physical wired NIC present; libvirt default NAT kept (fallback)\n' \
+              "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_reason"; } >> "$_vt_log" 2>&1 || :
     elif ! command -v virsh >/dev/null 2>&1; then
-        { printf '[BR0-NAT] %s skip: virsh not installed\n' \
-              "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; } >> "$_vt_log" 2>&1 || :
+        { printf '[BR0-NAT] %s skip (%s): virsh not installed\n' \
+              "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_reason"; } >> "$_vt_log" 2>&1 || :
     else
         _vt_ready=no
         _vt_i=0
@@ -7586,8 +7593,8 @@ if [ "__INSTALL_VIRT__" = "true" ] \
             fi
         fi
         {
-            printf '[BR0-NAT] %s ready=%s torn_down=%s active=%s autostart=%s\n' \
-                "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_ready" "$_vt_done" "$_vt_act" "$_vt_auto"
+            printf '[BR0-NAT] %s reason=%s ready=%s torn_down=%s active=%s autostart=%s\n' \
+                "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_reason" "$_vt_ready" "$_vt_done" "$_vt_act" "$_vt_auto"
             virsh --connect qemu:///system net-list --all 2>&1 || true
         } >> "$_vt_log" 2>&1 || :
     fi
