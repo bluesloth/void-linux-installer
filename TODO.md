@@ -1,20 +1,21 @@
 # TODO / Open Items
 
-## OPEN — [LIBVIRT-AUTOSTART] teardown removes the `libvirt` package-owned autostart symlink (found 2026-10-17, read-only audit of `<host>` / Beta-v2.9.96 as-built)
+## RESOLVED — [LIBVIRT-AUTOSTART] the one-shot BR0-NAT teardown self-heals against a `libvirt` package update (found 2026-10-17; fixed 2026-10-18, Beta-v2.9.99)
 - **Symptom:** `xbps-pkgdb -a` on the installed box reports
   `ERROR: libvirt: broken symlink /etc/libvirt/qemu/networks/autostart/default.xml
   (target: /etc/libvirt/qemu/networks/default.xml)` +
   `files check FAILED`, permanently. Nothing is broken at runtime — `virsh
   net-info default` shows `Active: no / Autostart: no` and `virbr0` is gone.
-- **Root cause (ours):** the BR0-NAT teardown block (rc.local +
-  Stage-3 equivalent) runs `virsh --connect qemu:///system net-autostart default
-  --disable`, and libvirt implements autostart as that symlink. The path is a
+- **Root cause (ours):** the BR0-NAT teardown block (the rc.local heredoc — the
+  only place a libvirt teardown runs) invokes `virsh --connect qemu:///system
+  net-autostart default --disable`, and libvirt implements autostart as that
+  symlink. The path is a
   **package-owned file** (`xbps-query -f libvirt` lists
   `/etc/libvirt/qemu/networks/autostart/default.xml -> …/networks/default.xml`),
   so deleting it leaves the package permanently "files check FAILED". The
   autostart dir mtime (`2026-10-17 12:23`) matches a teardown run.
-- **Latent risk (the reason this is OPEN, not just cosmetic):** since
-  Beta-v2.9.98 the teardown is **once + stamped**
+- **Latent risk (the reason this was OPEN, not just cosmetic):** since
+  Beta-v2.9.98 the teardown was **once + stamped**
   (`/var/lib/void-installer/br0-nat-torn-down.done`), so it will NOT re-run
   after a future `libvirt` package update — and an update re-installs all of the
   package's files, i.e. it would silently restore the autostart symlink, bringing
@@ -30,13 +31,34 @@
   to `/usr/local/sbin/void-xbps-snap`, the snapper pre/post wrapper (proven
   working live: snapshots #7/#8 and #13/#14 are `xbps system update`
   pre/post pairs).
-- **Options (decision open — discuss before touching installer code):**
+- **Options (decision was open — made this session: option 1):**
   (1) make the autostart disable boot-independent (cheap `net-list --all
   --autostart` probe that re-disables when a package update restored it);
   (2) accept the pkgdb error and document it as expected (2 more lines in the
   as-built record); (3) drop a `Conflicts`/`INSTALL`-time note. Option 1 is the
   only one that also closes the latent virbr0 return.
-- No script change made (docs-only); `SCRIPT_VERSION` stays `Beta-v2.9.98`.
+- **Decision + fix (option 1) — Beta-v2.9.99 `[LIBVIRT-AUTOSTART]`:** the
+  rc.local teardown gate no longer tests only the stamp's absence. It also
+  re-enters when the **package-owned autostart symlink**
+  (`/etc/libvirt/qemu/networks/autostart/default.xml`) is present again — the
+  exact state a `libvirt` package update restores. Cases: stamp absent →
+  initial migration (unchanged); stamp **+** symlink → a package update restored
+  it, re-tear; stamp + no symlink → still torn down, a single `[ -e ]` no-op
+  (no libvirtd, no wait loop, zero cost on an already-migrated box). A
+  re-entered run is the same idempotent path (re-verifies + re-stamps) and now
+  records `reason=initial migration` / `reason=re-teardown …` in
+  `/var/log/void-br0-nat-teardown.log`. The physical-wired-NIC gate is
+  unchanged (a NIC-absent boot logs a skip and keeps `default` as the VM-net
+  fallback, retrying later). No prompt/default/package surface changed. Gates
+  `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`
+  ALL CLEAN; the three gate cases were exercised with `sh`/`dash`/`bash`
+  against synthetic stamp/symlink states.
+- **Not fixed (by design; tracked separately):** option 1 does **not** remove
+  the permanent `xbps-pkgdb -a` `ERROR: libvirt: … files check FAILED` for the
+  removed package-owned symlink — any autostart disable deletes that symlink.
+  That error was not separately "accepted"; it simply remains, and the two
+  other pkgdb errors above stay by design. `SCRIPT_VERSION` `Beta-v2.9.98` →
+  `Beta-v2.9.99`.
 
 ## RESOLVED — cosmic-greeter 1.10 DM: runtime elogind-session verification (2026-10-16)
 - **Authoritative entry lives in `AGENTS.md` → "Validation backlog"**

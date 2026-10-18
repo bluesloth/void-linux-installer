@@ -227,7 +227,11 @@
 #     before runsvdir). virbr0 stays ENABLED as the VM-networking fallback on
 #     machines with no wired NIC at all (where the whole br0 pair is skipped —
 #     Beta-v2.9.86 [BR0-SKIP]) or whenever the install-time NIC is absent at
-#     boot.
+#     boot. Beta-v2.9.99 [LIBVIRT-AUTOSTART]: the one-shot stamp is not blind —
+#     the gate ALSO re-enters whenever the package-owned autostart symlink has
+#     reappeared (a `libvirt` package update re-installs it), re-tearing down so
+#     `virbr0` cannot silently return; on an already-migrated box that is a
+#     single `[ -e ]` no-op.
 #     AI (Big Pickle) FIX — Beta-v2.5.2 [NM-IFACE]: NM's `[connection]
 #     interface-name=` is a LITERAL device name, not a glob (only `[match]`
 #     globs). The NIC-detection fallback `NET_INTERFACE_MATCH="enp*"` is therefore
@@ -577,7 +581,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.98"
+SCRIPT_VERSION="Beta-v2.9.99"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1125,6 +1129,25 @@ SCRIPT_VERSION="Beta-v2.9.98"
 #                     the wired-NIC presence gate, the log and the virbr0
 #                     cleanup are unchanged. The same box boots to Xorg in ~8 s.
 #                     SCRIPT_VERSION bumped Beta-v2.9.97 -> Beta-v2.9.98.
+#     Beta-v2.9.99   [LIBVIRT-AUTOSTART] — the one-shot BR0-NAT teardown is now
+#                     self-healing against a `libvirt` package update. The
+#                     teardown disables `default` autostart by removing the
+#                     PACKAGE-OWNED symlink
+#                     /etc/libvirt/qemu/networks/autostart/default.xml, but a
+#                     later libvirt update re-installs every package file and
+#                     silently restores it — so `default` autostarts `virbr0`
+#                     again and, with the [BR0-NAT-ONESHOT] stamp present, the
+#                     block would skip forever and never undo it. The gate now
+#                     re-enters the block when that symlink is PRESENT again,
+#                     not only when the stamp is absent (stamp absent = initial
+#                     migration; stamp + symlink = a package update restored it,
+#                     re-tear; stamp + no symlink = still torn down, a single
+#                     `[ -e ]` no-op). A re-entered run is idempotent and
+#                     re-verifies + re-stamps. The permanent pkgdb
+#                     `libvirt: files check FAILED` from removing that
+#                     package-owned symlink is unchanged by this fix (a known,
+#                     by-design consequence tracked separately). SCRIPT_VERSION
+#                     bumped Beta-v2.9.98 -> Beta-v2.9.99.
 #     Beta-v2.9.87   [COSMIC-REPO-MOVE] — the COSMIC artifact repository is
 #                     now served from the unified Void_Linux_Cosmic project
 #                     (packaging templates + signed binary repo in one place):
@@ -13598,10 +13621,34 @@ fi
 #       actually SUCCEEDS partway through boot (it previously could not), gets
 #       verified, and stamps — so from the second boot on the block is a pure
 #       `[ -f … ]` skip.
+#
+# AI (Big Pickle) FIX — Beta-v2.9.99 [LIBVIRT-AUTOSTART]: the one-shot stamp
+# above left ONE hole. `net-autostart default --disable` disables autostart by
+# removing the PACKAGE-OWNED symlink
+# /etc/libvirt/qemu/networks/autostart/default.xml, so a later `libvirt`
+# package update — which re-installs every file the package owns — silently
+# restores that symlink and `default` autostarts `virbr0` again on the next
+# boot. With the stamp present the block would skip forever and never undo it
+# (the latent virbr0 return). The gate therefore RE-ENTERS when the autostart
+# symlink is present again, not merely when the stamp is absent:
+#   * stamp absent                     -> initial migration (unchanged);
+#   * stamp present + symlink present  -> a package update restored it; re-tear;
+#   * stamp present + symlink absent   -> still torn down; a pure no-op skip.
+# The re-entry probe is a single `[ -e … ]` on that symlink — no libvirtd, no
+# wait loop, zero cost on an already-migrated box (the symlink's presence IS
+# the "needs teardown" state, since `net-autostart --disable` is exactly what
+# removes it). A re-entered run is idempotent and re-verifies + re-stamps.
+_vt_stamp=/var/lib/void-installer/br0-nat-torn-down.done
+_vt_autostart=/etc/libvirt/qemu/networks/autostart/default.xml
 if [ "__INSTALL_VIRT__" = "true" ] \
    && [ -f /etc/NetworkManager/system-connections/br0.nmconnection ] \
-   && [ ! -f /var/lib/void-installer/br0-nat-torn-down.done ]; then
+   && { [ ! -f "$_vt_stamp" ] || [ -e "$_vt_autostart" ]; }; then
     {
+    if [ -f "$_vt_stamp" ]; then
+        _vt_reason="re-teardown (autostart symlink restored by a libvirt update)"
+    else
+        _vt_reason="initial migration"
+    fi
     _vt_wired=no
     for _vt_n in /sys/class/net/*; do
         [ -e "$_vt_n/device" ] || continue
@@ -13614,11 +13661,11 @@ if [ "__INSTALL_VIRT__" = "true" ] \
     done
     _vt_log=/var/log/void-br0-nat-teardown.log
     if [ "$_vt_wired" != "yes" ]; then
-        { printf '[BR0-NAT] %s skip: no physical wired NIC present; libvirt default NAT kept (fallback)\n' \
-              "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; } >> "$_vt_log" 2>&1 || :
+        { printf '[BR0-NAT] %s skip (%s): no physical wired NIC present; libvirt default NAT kept (fallback)\n' \
+              "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_reason"; } >> "$_vt_log" 2>&1 || :
     elif ! command -v virsh >/dev/null 2>&1; then
-        { printf '[BR0-NAT] %s skip: virsh not installed\n' \
-              "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; } >> "$_vt_log" 2>&1 || :
+        { printf '[BR0-NAT] %s skip (%s): virsh not installed\n' \
+              "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_reason"; } >> "$_vt_log" 2>&1 || :
     else
         # (1) wait for the `default` net to be DEFINED — libvirtd's socket
         #     appears FIRST, before the network is defined (the F1 race).
@@ -13670,8 +13717,8 @@ if [ "__INSTALL_VIRT__" = "true" ] \
             fi
         fi
         {
-            printf '[BR0-NAT] %s ready=%s torn_down=%s active=%s autostart=%s\n' \
-                "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_ready" "$_vt_done" "$_vt_act" "$_vt_auto"
+            printf '[BR0-NAT] %s reason=%s ready=%s torn_down=%s active=%s autostart=%s\n' \
+                "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_reason" "$_vt_ready" "$_vt_done" "$_vt_act" "$_vt_auto"
             virsh --connect qemu:///system net-list --all 2>&1 || true
         } >> "$_vt_log" 2>&1 || :
     fi
