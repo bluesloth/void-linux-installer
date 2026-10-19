@@ -581,21 +581,23 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.100"
+SCRIPT_VERSION="Version-3.0.00"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
 # overflow; the minor never carries into the major unless the author makes an
 # explicit major bump. The lineage is split into named eras carrying their
-# own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x), so each era reads
-# monotonic and the current release (Beta-v2.9.74) always carries the highest
-# numbering. See Debug/version-renumber-map.txt for the authoritative
-# OLD->NEW mapping recovered from the Debug/Old Versions/ artifacts.
+# own prefix (Alpha-v1.x, then Beta-v1.x/Beta-v2.x, and since Version-3.0.00
+# the Version-3.0.x era), so each era reads monotonic and the current release
+# (Version-3.0.00) always carries the highest numbering. See
+# Debug/version-renumber-map.txt for the authoritative OLD->NEW mapping
+# recovered from the Debug/Old Versions/ artifacts.
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — Beta-v2.8.1 [VERSION-HISTORY]: where this
 # SCRIPT_VERSION sits in the full lineage. The [VERSION-CARRY] scheme maps the
-# whole history into named eras (Alpha-v, Beta-v) per
+# whole history into named eras (Alpha-v, Beta-v, and since Version-3.0.00 the
+# current Version-3.0.x era) per
 # Debug/version-renumber-map.txt. The mangled OxAlpha fork and the failed
 # openSUSE-nested 4.0.0-SUSE build are dead ends and NOT part of the
 # installed lineage.
@@ -1148,7 +1150,10 @@ SCRIPT_VERSION="Beta-v2.9.100"
 #                     package-owned symlink is unchanged by this fix (a known,
 #                     by-design consequence tracked separately). SCRIPT_VERSION
 #                     bumped Beta-v2.9.98 -> Beta-v2.9.99.
-#     Beta-v2.9.100  [DKMS-HEADERS]+[DKMS-ZSTD]+[DKMS-AUTOINSTALL],
+#
+#   VERSION ERA — TRACKED (CURRENT; a major bump OUT of the Beta era, same
+#   [VERSION-CARRY] carry rules under the new `Version-3.0.x` prefix):
+#     Version-3.0.00 [DKMS-HEADERS]+[DKMS-ZSTD]+[DKMS-AUTOINSTALL],
 #                     [FLATPAK-FIRSTBOOT-LOG]/[FLATPAK-FIRSTBOOT-ADVANCE]/
 #                     [FLATPAK-FIRSTBOOT-SVC], [INSTALL-CONFIG-VIRT],
 #                     [SSH-NOKEY-WARNING] — four fixes from auditing the fresh
@@ -1218,7 +1223,10 @@ SCRIPT_VERSION="Beta-v2.9.100"
 #                     Gates: bash -n OK; check-heredocs.sh ALL CLEAN (77);
 #                     check-defaults.sh ALL CONSISTENT; check-pkg-preflight.sh
 #                     ALL COVERED (167). SCRIPT_VERSION bumped Beta-v2.9.99 ->
-#                     Beta-v2.9.100.
+#                     Version-3.0.00.
+#
+#   BETA ERA — TRACKED (continued; these pre-3.0.00 entries were appended out
+#   of order, newest first — Beta-v2.9.99 CLOSED this era):
 #     Beta-v2.9.87   [COSMIC-REPO-MOVE] — the COSMIC artifact repository is
 #                     now served from the unified Void_Linux_Cosmic project
 #                     (packaging templates + signed binary repo in one place):
@@ -1984,7 +1992,7 @@ browse_pick() { # browse_pick <mode> <what-label>
 }
 
 echo "=============================================================================="
-echo " ${C_BOLD}${C_CYN}Void Linux Unified Installer${C_RST} — version ${C_BOLD}${SCRIPT_VERSION}${C_RST}"
+echo " ${C_BOLD}${C_CYN}Void Linux Unified Installer${C_RST} — ${C_BOLD}${SCRIPT_VERSION}${C_RST}"
 echo " Bootloader: choose GRUB or Limine below — UEFI only, BIOS unsupported"
 echo "=============================================================================="
 
@@ -8047,7 +8055,7 @@ if [ "$INSTALL_SSH_SERVER" = "true" ]; then
         echo "Include /etc/ssh/sshd_config.d/*.conf" >> /etc/ssh/sshd_config
     fi
     cat > "$SSH_DROP" << INNER_EOF
-# Void_Linux_Installer.sh v${SCRIPT_VERSION} [SSH-SERVER] (Beta-v2.9.23)
+# Void_Linux_Installer.sh ${SCRIPT_VERSION} [SSH-SERVER] (Beta-v2.9.23)
 Port ${SSH_PORT}
 PasswordAuthentication ${SSH_PASSWORD_AUTH}
 PermitRootLogin ${SSH_ROOT_LOGIN}
@@ -8376,7 +8384,7 @@ install_pkgs ${MICROCODE_PKG} linux-firmware dracut sudo vim nano bash bash-comp
 # driver. `nvidia` (nonfree) auto-pulls nvidia-dkms → dkms (gcc/make/
 # linux-headers).
 #
-# AI (Big Pickle) FIX — Beta-v2.9.100 [DKMS-HEADERS] + [DKMS-ZSTD]: the
+# AI (Big Pickle) FIX — Version-3.0.00 [DKMS-HEADERS] + [DKMS-ZSTD]: the
 # "headers for every installed kernel flavor" mapping below used to live
 # INSIDE this NVIDIA branch as a first-match `case`, so it had two independent
 # defects:
@@ -9525,7 +9533,7 @@ if [ "$INSTALL_VIRTUALBOX" = "true" ]; then
     install_pkgs virtualbox-ose virtualbox-ose-dkms
     usermod -aG vboxusers "$TARGET_USER"
 fi
-# AI (Big Pickle) FIX — Beta-v2.9.100 [DKMS-AUTOINSTALL]: make the module
+# AI (Big Pickle) FIX — Version-3.0.00 [DKMS-AUTOINSTALL]: make the module
 # build explicit instead of relying on whichever xbps hook happens to fire and
 # WHEN. The Beta-v2.9.99 hardware install proved the gap: headers arrived only
 # for the `linux` flavor (dkms's run_depends), virtualbox-ose-dkms installed
@@ -9623,7 +9631,7 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
 # firing wins the lock and runs; the rest bail out and re-arm on whichever
 # network event comes next (a completed run leaves the .done stamp anyway;
 # flock releases automatically on exit, so a crashed drain never wedges it).
-# AI (Big Pickle) FIX — Beta-v2.9.100 [FLATPAK-FIRSTBOOT-LOG] +
+# AI (Big Pickle) FIX — Version-3.0.00 [FLATPAK-FIRSTBOOT-LOG] +
 # [FLATPAK-FIRSTBOOT-ADVANCE] + [FLATPAK-FIRSTBOOT-SVC]: three more defects
 # found while auditing the fresh Beta-v2.9.99 hardware install, where the
 # queue stalled 75 minutes and only drained because a connectivity-change
@@ -9723,7 +9731,7 @@ DIS_EOF
     chmod 0755 /etc/NetworkManager/dispatcher.d/99-flatpak-firstboot
     sed -i "s/__TARGET_USER__/${TARGET_USER}/g" /etc/NetworkManager/dispatcher.d/99-flatpak-firstboot
     echo "==> NetworkManager flatpak-firstboot dispatcher installed → /etc/NetworkManager/dispatcher.d/99-flatpak-firstboot"
-    # AI (Big Pickle) ADDITION — Beta-v2.9.100 [FLATPAK-FIRSTBOOT-SVC]: the
+    # AI (Big Pickle) ADDITION — Version-3.0.00 [FLATPAK-FIRSTBOOT-SVC]: the
     # supervised boot-time safety net for that queue. NetworkManager events
     # were the ONLY trigger, and a firing that LOSES the flock exits without
     # re-arming — so a drain killed mid-loop (observed on the Beta-v2.9.99
@@ -9736,7 +9744,7 @@ DIS_EOF
     mkdir -p /etc/sv/flatpak-firstboot/log /var/log/flatpak-firstboot-svc
     cat > /etc/sv/flatpak-firstboot/run << 'FPSVC_EOF'
 #!/bin/sh
-# AI (Big Pickle) ADDITION — Beta-v2.9.100 [FLATPAK-FIRSTBOOT-SVC]
+# AI (Big Pickle) ADDITION — Version-3.0.00 [FLATPAK-FIRSTBOOT-SVC]
 # Retry the first-boot Flatpak queue drain until it stamps itself done.
 # ALL drain logic (exclusive lock, default-route gate, queue advance, .done
 # stamp, append-only transcript) lives in the NetworkManager dispatcher
@@ -10616,7 +10624,7 @@ fi
 
 cat > /etc/void-installer/install-config << INNER_EOF
 # Void Linux Installer — install-time configuration for THIS machine.
-# Written by Void_Linux_Installer.sh (v${SCRIPT_VERSION}) at install time.
+# Written by Void_Linux_Installer.sh (${SCRIPT_VERSION}) at install time.
 # Human-readable "as-built" summary for recovery/troubleshooting/reproducibility.
 SCRIPT_VERSION="${SCRIPT_VERSION:-<unknown>}"
 HOSTNAME="${TARGET_HOSTNAME:-<unset>}"
@@ -10734,7 +10742,7 @@ INSTALL_PODMAN_ROOTFUL="${INSTALL_PODMAN_ROOTFUL:-false}"
 PROVISION_DOCKER_SUBVOL="${PROVISION_DOCKER_SUBVOL:-false}"
 PROVISION_PODMAN_SUBVOL="${PROVISION_PODMAN_SUBVOL:-false}"
 PROVISION_PODMAN_ROOTLESS_SUBVOL="${PROVISION_PODMAN_ROOTLESS_SUBVOL:-false}"
-# AI (Big Pickle) FIX — Beta-v2.9.100 [INSTALL-CONFIG-VIRT]: the virtualization
+# AI (Big Pickle) FIX — Version-3.0.00 [INSTALL-CONFIG-VIRT]: the virtualization
 # umbrella and the VirtualBox choice were prompted (Beta-v2.8.4 [INSTALL-VBOX]),
 # exported to the chroot and consumed by the rc.local first-boot links — but
 # never emitted here. The Beta-v2.9.99 as-built record therefore explained
@@ -10781,7 +10789,7 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
     {
         echo "# ========================================================================="
         echo "# VOID LINUX install record for THIS machine"
-        echo "# Written to ~/Documents by Void_Linux_Installer.sh v${SCRIPT_VERSION} at install time."
+        echo "# Written to ~/Documents by Void_Linux_Installer.sh ${SCRIPT_VERSION} at install time."
         echo "# Secret-free 'as-built' tracking. Full install-time CHOICES + installer"
         echo "# version live in /etc/void-installer/install-config; the installer itself"
         echo "# is archived at /etc/void-installer/Void_Linux_Installer.sh."
@@ -13749,7 +13757,7 @@ if [ ! -f /var/log/firstboot.log ]; then
     # runit box nothing was reliably supervising udisksd. The installer now
     # writes /etc/sv/udisksd (below) and links it like any other base service.
     ln -sfn /etc/sv/udisksd /etc/runit/runsvdir/default/udisksd
-    # AI (Big Pickle) ADDITION — Beta-v2.9.100 [FLATPAK-FIRSTBOOT-SVC]: link the
+    # AI (Big Pickle) ADDITION — Version-3.0.00 [FLATPAK-FIRSTBOOT-SVC]: link the
     # supervised first-boot Flatpak queue retry service. The service directory
     # is written only when INSTALL_FLATPAK=true, so the [ -d ] guard (the
     # [VBOX-SV-GUARD] pattern) is an exact proxy for the choice — no new
@@ -14428,7 +14436,7 @@ echo "${C_GRN}  7.${C_RST} Re-runnable maintenance tools shipped in ${C_BOLD}/ro
 echo "     ${C_BOLD}re-shadow-xbps.sh${C_RST}  restore auto-update snapshots after an xbps update"
 echo "     ${C_BOLD}limine-sync.sh${C_RST}      force a manual Limine boot-menu resync"
 echo "     ${C_BOLD}re-provision-snapper.sh${C_RST}  safely restore snapshots/plugin (no data loss)"
-# AI (Big Pickle) ADDITION — Beta-v2.9.100 [SSH-NOKEY-WARNING]: [SSH-DEFAULT-HARDEN]
+# AI (Big Pickle) ADDITION — Version-3.0.00 [SSH-NOKEY-WARNING]: [SSH-DEFAULT-HARDEN]
 # (Beta-v2.9.95) makes the SSH access defaults secure — password auth NO, root
 # login NO — while the key prompts default OFF (DEFAULT_IMPORT_SSH_KEY /
 # DEFAULT_GENERATE_SSH_KEY = false). A default install therefore ships a

@@ -8,8 +8,8 @@ recovery-first, snapshot-friendly system.
 
 | File | Description |
 |------|-------------|
-| `Void_Linux_Installer.sh` | Unified working installer (current version: **Beta-v2.9.97**). Run this. |
-| `CHANGELOG.md` | Full lineage changelog using the `[VERSION-CARRY]` scheme: Alpha-v (manual step scripts), Beta-v (unified installer, current era). |
+| `Void_Linux_Installer.sh` | Unified working installer (current version: **Version-3.0.00**). Run this. |
+| `CHANGELOG.md` | Full lineage changelog using the `[VERSION-CARRY]` scheme: Alpha-v (manual step scripts), Beta-v (unified installer, Beta era closed at `Beta-v2.9.99`), Version-3.0.x (current era). |
 
 ## Usage
 
@@ -171,6 +171,30 @@ neither the target nor the live medium.
     R/Enter=now, P=pause, C=continue, S=stop keys.
 - Virtualization: QEMU/KVM + libvirt on a custom `br0` bridge (NOT the
   default NAT `virbr0`).
+- **Version-3.0.00** — first release of the `Version-3.0.x` era, cut from a
+  full audit of a fresh `Beta-v2.9.99` install:
+  - **dkms now builds for the kernel you boot.** Headers are installed for
+    *every* selected kernel flavor whenever NVIDIA **or** VirtualBox is chosen
+    (the old mapping ran only inside the NVIDIA branch and its `case` matched
+    a single flavor), `zstd` is installed alongside (dkms compresses every
+    module it builds — nothing else ships that binary), and an explicit
+    best-effort `dkms autoinstall` pass runs after both consumers
+    (log: `/var/log/dkms-autoinstall.log`). Previously a VirtualBox-only
+    install got headers for one kernel only — not the default-boot one — so
+    `vboxdrv` was missing at boot.
+  - **The first-boot Flatpak queue cannot strand itself.** The transcript is
+    appended (timestamped per firing, rotated at 256 KiB) instead of
+    truncated, apps that are already installed are dropped so an interrupted
+    drain resumes where it stopped, and a supervised
+    `/etc/sv/flatpak-firstboot` service retries the same drain once a minute
+    until `/var/log/flatpak-firstboot.done` is stamped (then it parks on
+    `pause`).
+  - `install-config` records the **virtualization/VirtualBox** choices
+    (`INSTALL_VIRT`, `INSTALL_VIRTUALBOX`, `PROVISION_VIRTUALBOX_SUBVOL`).
+  - The final summary **warns when SSH is key-only with no key deposited**
+    (password auth and root login both default to No while the key prompts
+    default off), so a default install can no longer end with a listening
+    sshd that nobody can authenticate to.
 
 ## Attribution & history
 

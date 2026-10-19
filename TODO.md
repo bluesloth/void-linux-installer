@@ -1,9 +1,9 @@
 # TODO / Open Items
 
-## RESOLVED — audit of the fresh Beta-v2.9.99 install: `[DKMS-HEADERS]`/`[DKMS-ZSTD]`/`[DKMS-AUTOINSTALL]`, `[FLATPAK-FIRSTBOOT-LOG]`/`-ADVANCE`/`-SVC`, `[INSTALL-CONFIG-VIRT]`, `[SSH-NOKEY-WARNING]` (found 2026-10-19; fixed 2026-10-19, Beta-v2.9.100)
+## RESOLVED — audit of the fresh Beta-v2.9.99 install: `[DKMS-HEADERS]`/`[DKMS-ZSTD]`/`[DKMS-AUTOINSTALL]`, `[FLATPAK-FIRSTBOOT-LOG]`/`-ADVANCE`/`-SVC`, `[INSTALL-CONFIG-VIRT]`, `[SSH-NOKEY-WARNING]` (found 2026-10-19; fixed 2026-10-19, Version-3.0.00)
 
 Findings from running a fresh install built by this release and then
-reading the script for each anomaly. All five are fixed in Beta-v2.9.100
+reading the script for each anomaly. All five are fixed in Version-3.0.00
 (four tag groups: DKMS, Flatpak first-boot, install-config, SSH);
 details in CHANGELOG.md under the same tags.
 
@@ -450,7 +450,7 @@ handling.
 
 ## Relevant Files (post-topology resolution)
 - `private/void-linux-installer/TODO.md`: This file.
-- `private/void-linux-installer/Void_Linux_Installer.sh`: Installer codebase (Beta-v2.9.97).
+- `private/void-linux-installer/Void_Linux_Installer.sh`: Installer codebase (current: Version-3.0.00).
 - `coordination/tools/sanitize-scan.sh`, `coordination/tools/make-public.sh`: Publishing safety tooling.
 - `coordination/.sanitize-denylist.txt`: Denylist used by sanitize tooling.
 - `_archive/lineageanchor-v2.9.13/`: Immutable historical snapshot (do not commit swaps; document in notes).
