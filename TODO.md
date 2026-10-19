@@ -1,5 +1,80 @@
 # TODO / Open Items
 
+## RESOLVED — audit of the fresh Beta-v2.9.99 install: `[DKMS-HEADERS]`/`[DKMS-ZSTD]`/`[DKMS-AUTOINSTALL]`, `[FLATPAK-FIRSTBOOT-LOG]`/`-ADVANCE`/`-SVC`, `[INSTALL-CONFIG-VIRT]`, `[SSH-NOKEY-WARNING]` (found 2026-10-19; fixed 2026-10-19, Beta-v2.9.100)
+
+Findings from running a fresh install built by this release and then
+reading the script for each anomaly. All five are fixed in Beta-v2.9.100
+(four tag groups: DKMS, Flatpak first-boot, install-config, SSH);
+details in CHANGELOG.md under the same tags.
+
+- **(1) `[DKMS-HEADERS]` — dkms had headers for one kernel, and it was not the
+  boot kernel.** Symptom: `VBoxManage --version` failed on first login and
+  `vboxdrv` would not load, although `virtualbox-ose-dkms` was installed.
+  `dkms status` listed only `6.18.57_1`; the only header package present was
+  `linux-headers-6.18_1`; the default Limine entry is mainline `7.2.11_1`.
+  Root cause: the header mapping (`:8307` area) lived **inside** the
+  `[NVIDIA-GATE]` branch — so a VirtualBox-only install never ran it — and was
+  a first-match `case` over the whole `$KERNEL_PKGS` string, so
+  `*linux-mainline*` matched first and `linux`/`linux-lts` headers were
+  silently skipped even on an NVIDIA build. The single header package on the
+  box was a transitive accident (`dkms` run_depends on `linux-headers`).
+  Fix: one `<flavor>-headers` loop over `$KERNEL_PKGS`, gated on
+  `INSTALL_NVIDIA || INSTALL_VIRTUALBOX` and placed **before** both consumers.
+- **(2) `[DKMS-ZSTD]` + `[DKMS-AUTOINSTALL]` — the build was neither complete
+  nor compressed, and it was never explicitly requested.** `dkms` compresses
+  every module with the `zstd` binary, which nothing installs: the install
+  logged `zstd: command not found` and left all three kernels' `vbox.ko`
+  uncompressed. `zstd` is now installed with the headers, and an explicit
+  best-effort `dkms autoinstall` runs after both dkms consumers (transcript
+  `/var/log/dkms-autoinstall.log`, warn-only — never fatal after xbps has
+  committed the packages).
+- **(3) `[FLATPAK-FIRSTBOOT-LOG]`/`-ADVANCE`/`-SVC` — the first-boot Flatpak
+  queue could strand itself and erased its own evidence.** Symptom: the 09:05
+  drain logged Brave, then stopped with no `.done` stamp and no failure
+  record; the queue sat 75 minutes and completed only because a
+  `connectivity-change` happened to fire at 10:20; the queue file still listed
+  all three apps. Root cause (three defects): `: >` truncated the transcript on
+  every firing (the next event destroyed the evidence of WHY the previous run
+  died); the queue was re-read whole and never advanced, so an interrupted run
+  redid every installed app and could not record partial progress; and NM
+  events were the ONLY trigger while a flock **loser** exited without
+  re-arming, so a killed drain could wait forever for an event that might never
+  come. Fix: append-only transcript with a timestamped header + 256 KiB tail
+  rotation; a `flatpak info` pre-check per ID plus a queue rewrite to the
+  remaining failures (in place, owner/mode preserved); and a supervised
+  `/etc/sv/flatpak-firstboot` service that retries the SAME drain through the
+  dispatcher's new `boot-drain` action until the stamp exists, then `pause`
+  (linked on first boot behind `[ -d /etc/sv/flatpak-firstboot ]`). One drain
+  implementation, two triggers, one lock.
+- **(4) `[INSTALL-CONFIG-VIRT]` — install-config did not record the
+  virtualization/VirtualBox choices.** `INSTALL_VIRT`, `INSTALL_VIRTUALBOX`
+  and `PROVISION_VIRTUALBOX_SUBVOL` are prompted, exported and consumed by the
+  rc.local first-boot links, but only the derived `VIRT_BR0` row was emitted;
+  the 77-key as-built record could not say why `virtualbox-ose` was installed.
+  Three record-only rows added (same class as `[INSTALL-CONFIG-BACKENDS]`
+  Beta-v2.9.68).
+- **(5) `[SSH-NOKEY-WARNING]` — a default install ends with an sshd nobody can
+  use.** `[SSH-DEFAULT-HARDEN]` (Beta-v2.9.95) defaults password auth and root
+  login to NO while both key prompts default OFF, and NEXT STEPS items 1–7
+  never mention SSH: the fresh box shipped `Port 2323`,
+  `PasswordAuthentication no`, `PermitRootLogin no`, no `~/.ssh`. The summary
+  now warns, testing the real `/mnt/home/<user>/.ssh/authorized_keys` so a
+  key deposited by `[SSH-DEPOSIT-LOG]`/`[SSH-USABLE]` raises no false alarm.
+- **Verification:** sandbox-tested with a stub `flatpak` (live system
+  untouched): queue advance, failure retention, stamp-on-drain, append (two
+  headers), log rotation, all three early exits, flock loser, and the boot
+  service drain → `pause`. All four package names (`linux{,-lts,-mainline}-headers`,
+  `zstd`) verified present in the repo. Gates: `bash -n`, `check-heredocs.sh`
+  (77), `check-defaults.sh`, `check-pkg-preflight.sh` (167) ALL CLEAN.
+- **Deliberately NOT changed:** the three intentional `xbps-pkgdb` findings
+  (elogind run, `xbps-install` wrapper, libvirt autostart symlink) stay by
+  design — see the `[LIBVIRT-AUTOSTART]` entry below. Also noted but left
+  alone: `PROVISION_{FIREFOX,CHROMIUM,VIVALDI,FALKON,BRAVE,THUNDERBIRD,FLATPAK,VIRT}_SUBVOL`
+  are likewise never emitted to install-config (same class as (4), out of
+  scope for this fix), and a **generated** keypair's `.pub` is not appended to
+  `authorized_keys` (only an imported one is, per `[SSH-USABLE]`) — a design
+  question, not a regression.
+
 ## RESOLVED — [LIBVIRT-AUTOSTART] the one-shot BR0-NAT teardown self-heals against a `libvirt` package update (found 2026-10-17; fixed 2026-10-18, Beta-v2.9.99)
 - **Symptom:** `xbps-pkgdb -a` on the installed box reports
   `ERROR: libvirt: broken symlink /etc/libvirt/qemu/networks/autostart/default.xml

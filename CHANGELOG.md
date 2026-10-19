@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Beta-v2.9.99** (`SCRIPT_VERSION` in the script).
+Current version: **Beta-v2.9.100** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -132,6 +132,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.74** | `[USB-AUTOMOUNT]` — a COSMIC install had no removable-media automounter: udisks2 was installed (as a cosmic-files dependency) but its D-Bus-only activation unit meant udisksd was never reliably running on runit, and there was no udiskie/gvfs in the COSMIC path (gvfs automount only covers the GNOME/KDE/Cinnamon/MATE/Xfce/LXQt branches). The COSMIC DE branch now installs `udiskie` and autostarts it via a session-readiness guard (`/usr/local/sbin/udiskie-guard`, mirroring the polkit-agent guard), and the installer writes + first-boot-links a supervised `/etc/sv/udisksd` service. `udiskie`/`udisks2` added to PKG_PREFLIGHT | Beta-v2.9.73 below |
 | **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 | **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
+| **Beta-v2.9.100** | `[DKMS-HEADERS]`/`[DKMS-ZSTD]`/`[DKMS-AUTOINSTALL]`/`[FLATPAK-FIRSTBOOT-LOG]`/`[FLATPAK-FIRSTBOOT-ADVANCE]`/`[FLATPAK-FIRSTBOOT-SVC]`/`[INSTALL-CONFIG-VIRT]`/`[SSH-NOKEY-WARNING]` — four fixes from auditing the fresh Beta-v2.9.99 hardware install against this script. **(1)** The kernel-header mapping lived INSIDE the `[NVIDIA-GATE]` branch as a first-match `case`, so a VirtualBox-only install got NO headers and a multi-kernel build got exactly one flavor (`KERNEL_PKGS="linux linux-mainline linux-lts"` matches `*linux-mainline*` first); live proof: the only headers present were `linux-headers-6.18_1`, arriving solely as `dkms`'s own `run_depends`, so `dkms autoinstall` built `virtualbox-ose` for 6.18.57_1 only while the default boot entry was mainline 7.2.11_1 — no `vboxdrv` at boot and a failing `VBoxManage` until the header packages were installed by hand. Now: one `<flavor>-headers` loop over `$KERNEL_PKGS` gated on ANY dkms consumer (nvidia OR virtualbox) and placed BEFORE it; `zstd` installed alongside (`/usr/sbin/dkms` compresses every module with the `zstd` binary nothing else ships — observed `zstd: command not found`, all three kernels' `vbox.ko` left raw); and an explicit best-effort `dkms autoinstall` after both consumers (transcript `/var/log/dkms-autoinstall.log`, never fatal — xbps has already committed the packages). **(2)** The first-boot Flatpak queue drain TRUNCATED its transcript on every firing (`: > /var/log/flatpak-firstboot.log`), so the next event destroyed the evidence of WHY the previous run had died; it never advanced the queue, so an interrupted run redid every already-installed app; and NM events were its ONLY trigger while a flock LOSER exited without re-arming — observed live: the 09:05 run stopped after Brave, unstamped, and the queue sat 75 minutes until a `connectivity-change` happened to fire. Now: append-only transcript under a timestamped header with a 256 KiB tail rotation; a `flatpak info` pre-check per ID plus a queue rewrite to the remaining failures (in place, so owner/mode survive), so a killed drain resumes where it stopped; and a supervised `/etc/sv/flatpak-firstboot` service retries the SAME drain through the dispatcher's new `boot-drain` action once a minute until the `.done` stamp exists, then parks on `pause` — one drain implementation, two triggers, one lock — linked on first boot behind a `[ -d /etc/sv/flatpak-firstboot ]` guard so a flatpak-less install gets no dangling link. **(3)** `INSTALL_VIRT`/`INSTALL_VIRTUALBOX`/`PROVISION_VIRTUALBOX_SUBVOL` were prompted, exported to the chroot and consumed by the rc.local first-boot links but never written to `install-config`, so the as-built record could not explain why `virtualbox-ose` was installed (same class as `[INSTALL-CONFIG-BACKENDS]` Beta-v2.9.68, which added steam/docker/podman). **(4)** `[SSH-DEFAULT-HARDEN]` (Beta-v2.9.95) defaults password auth and root login to NO while both key prompts default OFF and the NEXT STEPS list never said so — a default install ships a listening sshd nothing can authenticate to (the Beta-v2.9.99 box: port 2323, `PasswordAuthentication no`, `PermitRootLogin no`, no `~/.ssh`); the summary now warns, testing the REAL target `/mnt/home/<user>/.ssh/authorized_keys` so a staged `[SSH-DEPOSIT-LOG]`/`[SSH-USABLE]` key raises no false alarm. `zstd` added to `PKG_PREFLIGHT`. Sandbox-verified with a stub `flatpak`: queue advance, failure retention, stamp-on-drain, append (two headers), rotation, all three early exits, the flock loser, and the boot service drain → `pause`. `bash -n` clean, `check-heredocs.sh` ALL CLEAN (77), `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED (167) | Beta-v2.9.99 below |
 | **Beta-v2.9.99** | `[LIBVIRT-AUTOSTART]` — the Beta-v2.9.98 one-shot BR0-NAT teardown was **irreversible** against a `libvirt` package update. `net-autostart default --disable` disables autostart by removing the **package-owned** symlink `/etc/libvirt/qemu/networks/autostart/default.xml`, and a later `libvirt` update re-installs every package file, silently restoring that symlink so `default` autostarts `virbr0` again — with the `[BR0-NAT-ONESHOT]` stamp present the block skipped forever and never undid it (the latent virbr0 return). The gate now **re-enters** when that symlink is present again, not only when the stamp is absent (stamp absent = initial migration; stamp + symlink = a package update restored it, re-tear; stamp + no symlink = still torn down, a single `[ -e ]` no-op). The re-entry probe needs no libvirtd and costs nothing on an already-migrated box, and a re-entered run is idempotent — it re-verifies and re-stamps, logging `reason=` in `/var/log/void-br0-nat-teardown.log`. The permanent pkgdb `libvirt: files check FAILED` for the removed package-owned symlink is unchanged (known, by-design; tracked separately). No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.98 below |
 | **Beta-v2.9.98** | `[BR0-NAT-ONESHOT]` + `[BR0-NAT-BACKGROUND]` — the rc.local libvirt `default` NAT teardown (Beta-v2.9.96) no longer costs boot time. `/etc/runit/2` runs `rc.local` **synchronously before `runsvdir`**, so the teardown's wait loop (`virsh net-info default` polled up to 30× `sleep 1`) sat directly on the path to the display manager and **always burned its full 30 s**: libvirtd is started by `runsvdir`, so it is never up when the loop begins and every probe failed (measured on the operator's box 2026-10-17: kernel→Xorg 38.4 s, of which 30 s was this block). Two changes: **(1)** a **verified** teardown (`torn_down=yes`) now stamps `/var/lib/void-installer/br0-nat-torn-down.done` and the stamp's presence skips the block on every later boot (an unverified teardown still retries the next boot); **(2)** the whole block runs as `{ …; } &`, so `rc.local` returns immediately and even the first unstamped run cannot block the desktop — and because the backgrounded loop keeps polling while `runsvdir` starts libvirtd, it now actually **succeeds** mid-boot (previously impossible), gets verified, and stamps. Teardown semantics, the wired-NIC presence gate, the log and the `virbr0` cleanup are unchanged; the same box boots to Xorg in ~8 s. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.97 below |
 | **Beta-v2.9.97** | `[LIMINE-NVRAM]` — re-adds the optional Limine UEFI NVRAM registration that first landed on the public export line at Beta-v2.9.92 (commit `ae72d75`, "feat(limine): add optional NVRAM entry, default off") and was then clobbered there by the Release-v2.9.93 source sync (`Source-Ref`) before any release shipped it — it was never present on this canonical line. A new `DEFAULT_LIMINE_NVRAM` toggle (default `false`) drives a Limine-only prompt; on `yes` the Stage-2 Limine deploy `install_pkgs efibootmgr` and runs `efibootmgr --create` pointing at `BOOTX64.EFI` (ESP disk/partition derived via `findmnt` + `lsblk`), in addition to the always-present removable/fallback path; failure is non-fatal. Default/no keeps the deploy byte-identical to the historical NVRAM-free behavior. The prompt accepts `y`/`yes`/`true` and `n`/`no`/`false` (the `[HEADLESS-PROMPT-LOOP]` lesson) so a true/false default can never loop. Threaded through the DRY-RUN plan, `chroot_env`, `limine-env`, `install-config` and the NEXT-STEPS text. `efibootmgr` was already in `PKG_PREFLIGHT`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.96 below |
@@ -823,6 +824,158 @@ chmod 0755 /usr/bin/void-inner-partscan.sh
 The scan then resolves `/usr/bin/void-inner-partscan.sh` and embeds it via `inst_binary` — the dinfo disappears from all future initramfs builds, and the installed system gains a directly-inspectable copy for boot troubleshooting (same `install_items+=" /usr/bin/btrfs "` precedent already in `90-system.conf`). The `$moddir` copy and the `inst_script` line are unchanged and remain the image's source of truth.
 
 Validation: applied live to the current install's chroot (`/mnt/usr/bin/void-inner-partscan.sh`, 02:36, 1795 bytes, 0755) so that box's next kernel update is already quiet; the already-built initramfs images were left untouched (verified correct). `bash -n` clean on the installer.
+
+## Beta-v2.9.100 — `[DKMS-HEADERS]` + `[DKMS-ZSTD]` + `[DKMS-AUTOINSTALL]` + `[FLATPAK-FIRSTBOOT-*]` + `[INSTALL-CONFIG-VIRT]` + `[SSH-NOKEY-WARNING]` (four audit fixes from a fresh Beta-v2.9.99 hardware install)
+`SCRIPT_VERSION` bumped to Beta-v2.9.99 → Beta-v2.9.100.
+
+Every item below was found by running the Beta-v2.9.99 release against a
+real fresh install and then reading this script for each anomaly that
+appeared. Nothing here changes a prompt or a default; all four are
+post-hoc correctness/observability fixes.
+
+### 1 — `[DKMS-HEADERS]`/`[DKMS-ZSTD]`/`[DKMS-AUTOINSTALL]`: dkms had headers for ONE kernel, and it was not the boot kernel
+
+**As-built evidence:** the fresh box (AMD GPU, `INSTALL_NVIDIA=false`,
+`KERNEL_PKGS="linux linux-mainline linux-lts"`, default Limine entry =
+mainline **7.2.11_1**) had exactly one header package, `linux-headers-6.18_1`.
+`dkms status` therefore listed `virtualbox-ose … 6.18.57_1` only, `vboxdrv`
+was not loadable on the kernel the machine actually boots, and
+`VBoxManage --version` failed until `linux-mainline-headers`,
+`linux7.2-headers` and `linux6.12-headers` were installed by hand and
+`dkms autoinstall` was run by hand.
+
+**Root cause (two independent defects in one block):**
+- The "headers for every installed kernel flavor" mapping sat **inside**
+  `if [ "$INSTALL_NVIDIA" = "true" ]`, so a VirtualBox-only install
+  (`virtualbox-ose-dkms`, Beta-v2.8.4 `[INSTALL-VBOX]`) never ran it. The only
+  headers on the box came from `dkms`'s own `run_depends`
+  (`dkms -> linux-headers -> linux6.18-headers`), i.e. a transitive accident
+  covering just the `linux` flavor — hence a build for 6.18 and nothing for
+  7.2 (mainline) or 6.12 (lts).
+- Even when it did run, it was a first-match `case` over the whole
+  `$KERNEL_PKGS` **string**: `*linux-mainline*` matches first, so
+  `linux-headers` and `linux-lts-headers` were never installed. On a
+  multi-kernel NVIDIA build the same defect was waiting.
+
+**The fix:**
+```sh
+if [ "$INSTALL_NVIDIA" = "true" ] || [ "${INSTALL_VIRTUALBOX:-false}" = "true" ]; then
+    for _dkms_kern in $KERNEL_PKGS; do
+        install_pkgs "${_dkms_kern}-headers"
+    done
+    unset _dkms_kern
+    install_pkgs zstd
+fi
+```
+Void's header package for every flavor is literally `<flavor>-headers`
+(`linux` → `linux-headers`, `linux-lts` → `linux-lts-headers`,
+`linux-mainline` → `linux-mainline-headers`; all four names — including
+`zstd` — verified present in the current repo and covered by
+`PKG_PREFLIGHT`), so one loop replaces the case and cannot drop a flavor.
+The gate now fires for **any** dkms consumer and sits **before** the
+consumers (`nvidia` / `virtualbox-ose … dkms`), so their own build hook
+already finds headers for every selected kernel.
+
+`[DKMS-ZSTD]`: `/usr/sbin/dkms` compresses every module it builds with the
+`zstd` binary (`zstd $compress_zstd_opts -f "$built_module"`); nothing on the
+system installs `zstd`, and the install was observed failing with
+`zstd: command not found`, leaving all three kernels' `vbox.ko` uncompressed
+while the shipped kernels carry compressed modules. `zstd` is now installed
+with the headers.
+
+`[DKMS-AUTOINSTALL]`: after both consumers, the installer runs
+`dkms autoinstall` explicitly (best-effort, transcript appended to
+`/var/log/dkms-autoinstall.log`, a failure warns but is never fatal — xbps
+has already committed the packages and a half-built module set must not roll
+back a completed install). This makes the build pass independent of which
+xbps hook fires and when.
+
+Also corrected the stale `[INSTALL-VBOX]` comment, which claimed `-ose-dkms`
+"builds the kernel module for the running kernel" (it builds only for kernels
+with headers) and that "the vboxdrv runit service is enabled" (Void dropped
+`/etc/sv/vboxdrv` in 7.2.16; the first-boot link stays guarded).
+
+### 2 — `[FLATPAK-FIRSTBOOT-LOG]`/`-ADVANCE`/`-SVC`: the first-boot Flatpak queue could strand itself and erased its own evidence
+
+**As-built evidence:** the queue (`com.brave.Browser`,
+`com.heroicgameslauncher.hgl`, `com.usebottles.bottles`) began draining at
+09:05, logged Brave, then stopped with **no** `.done` stamp and **no** failure
+record. It stayed stuck for 75 minutes and completed only because a
+`connectivity-change` happened to fire at 10:20. The transcript of the failed
+run was gone — the dispatcher ran `: > /var/log/flatpak-firstboot.log` on
+every firing, so the next event destroyed the only evidence of what went
+wrong. The queue file still listed all three apps afterwards.
+
+**Three defects, three fixes (one drain implementation, two triggers, one
+lock):**
+1. `[FLATPAK-FIRSTBOOT-LOG]` — the transcript is now **appended** under a
+   timestamped header (`(action: up|connectivity-change|boot-drain)`) with a
+   256 KiB / 400-line tail rotation, instead of truncated. A failed run's
+   output survives the next firing.
+2. `[FLATPAK-FIRSTBOOT-ADVANCE]` — every ID gets a `flatpak info` pre-check
+   (already-present IDs are dropped, so progress made before a kill is never
+   repeated) and the queue file is rewritten to the **remaining failures only**,
+   in place (`cat > "$_fp_queue"` preserves the file's owner and mode — it
+   lives in the user's home). Failures stay, in order, for the next drain.
+3. `[FLATPAK-FIRSTBOOT-SVC]` — NM state events were the only trigger, and a
+   flock **loser** exits without re-arming, so a run killed mid-loop could
+   strand the queue indefinitely. A new supervised
+   `/etc/sv/flatpak-firstboot` service calls the dispatcher's new `boot-drain`
+   action once a minute until the `.done` stamp exists, then `exec pause`.
+   It shares the dispatcher's exclusive flock, so the two triggers can never
+   race, and it is linked in rc.local's first-boot block behind
+   `[ -d /etc/sv/flatpak-firstboot ]` (the `[VBOX-SV-GUARD]` pattern) so a
+   flatpak-less install gets no dangling link. A queue file that is absent
+   while the user's config dir **is** present now stamps `.done` too
+   ("nothing queued" is a completed queue), while a missing config dir does
+   not stamp (home not mounted yet).
+
+### 3 — `[INSTALL-CONFIG-VIRT]`: install-config never recorded the virtualization or VirtualBox choices
+
+`INSTALL_VIRT` and `INSTALL_VIRTUALBOX` are prompted, exported to the chroot
+(`chroot_env.sh`), consumed by the rc.local first-boot links and by the
+`PROVISION_VIRTUALBOX_SUBVOL` subvol resolver — but neither row (nor
+`PROVISION_VIRTUALBOX_SUBVOL`) was ever written to
+`/etc/void-installer/install-config`. The Beta-v2.9.99 record therefore
+contained 77 keys with only the derived `VIRT_BR0="created"` and nothing
+saying VirtualBox was chosen. Same class as `[INSTALL-CONFIG-BACKENDS]`
+(Beta-v2.9.68, which added the steam/docker/podman rows); same fix: three
+record-only public rows.
+
+### 4 — `[SSH-NOKEY-WARNING]`: a default install ends with an sshd nobody can use
+
+Beta-v2.9.95 `[SSH-DEFAULT-HARDEN]` set `PasswordAuthentication no` and
+`PermitRootLogin no` as the defaults while `DEFAULT_IMPORT_SSH_KEY` /
+`DEFAULT_GENERATE_SSH_KEY` stay `false` — and the NEXT STEPS list (items 1–7)
+never mentioned SSH at all. The Beta-v2.9.99 box shipped exactly that state:
+sshd listening on 2323, both auth paths closed, `~/.ssh` absent, no on-screen
+hint. The summary now prints a warning when `INSTALL_SSH_SERVER=true` **and**
+both auth flags are `no` **and** the real target
+`/mnt/home/<user>/.ssh/authorized_keys` is empty — testing the filesystem (not
+the prompts) means a key deposited through `[SSH-DEPOSIT-LOG]`/`[SSH-USABLE]`
+raises no false alarm.
+
+### Verification
+- Functional, in a sandbox with a stub `flatpak` and sandboxed paths (the
+  live system was never touched): mixed present/installed/failed queue →
+  queue ends with only the failure and no stamp; retry with no failures →
+  queue emptied and stamped; second run appends (two headers, not one);
+  stamped run exits early; missing queue stamps; missing home dir does not;
+  unknown NM action exits early; a >256 KiB log rotates down to ~400 lines;
+  a concurrent firing loses the flock and writes nothing; and the boot
+  service drains → stamps → leaves the loop for `exec pause`.
+- Header package names (`linux-headers`, `linux-lts-headers`,
+  `linux-mainline-headers`) and `zstd` verified present in the current repo.
+- Gates: `bash -n` OK; `check-heredocs.sh` ALL CLEAN (77 heredocs, 40
+  shell-classified; `/etc/rc.local` 362 lines); `check-defaults.sh` ALL
+  CONSISTENT; `check-pkg-preflight.sh` ALL COVERED (167 preflight packages).
+
+### Not changed
+The three intentional `xbps-pkgdb` findings on the Beta-v2.9.99 box
+(`/etc/sv/elogind/run` and `/usr/bin/xbps-install` hash mismatches, the
+libvirt autostart symlink) remain by design and tracked separately; this
+release does not touch them. No prompt, default or package set changes for
+an install that selects neither NVIDIA nor VirtualBox.
 
 ## Beta-v2.9.99 — `[LIBVIRT-AUTOSTART]` (the one-shot BR0-NAT teardown self-heals against a `libvirt` package update)
 

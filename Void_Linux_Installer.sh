@@ -581,7 +581,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Beta-v2.9.99"
+SCRIPT_VERSION="Beta-v2.9.100"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1148,6 +1148,77 @@ SCRIPT_VERSION="Beta-v2.9.99"
 #                     package-owned symlink is unchanged by this fix (a known,
 #                     by-design consequence tracked separately). SCRIPT_VERSION
 #                     bumped Beta-v2.9.98 -> Beta-v2.9.99.
+#     Beta-v2.9.100  [DKMS-HEADERS]+[DKMS-ZSTD]+[DKMS-AUTOINSTALL],
+#                     [FLATPAK-FIRSTBOOT-LOG]/[FLATPAK-FIRSTBOOT-ADVANCE]/
+#                     [FLATPAK-FIRSTBOOT-SVC], [INSTALL-CONFIG-VIRT],
+#                     [SSH-NOKEY-WARNING] — four fixes from auditing the fresh
+#                     Beta-v2.9.99 hardware install against this script.
+#                     (1) The kernel-header mapping lived INSIDE the
+#                     [NVIDIA-GATE] branch as a first-match `case`, so a
+#                     VirtualBox-only install got NO headers at all and a
+#                     multi-kernel build got exactly one flavor
+#                     (KERNEL_PKGS="linux linux-mainline linux-lts" matches
+#                     *linux-mainline* first). Live proof: the only headers
+#                     present were linux-headers-6.18_1, arriving solely as
+#                     `dkms`'s own run_depends, so `dkms autoinstall` built
+#                     virtualbox-ose for 6.18.57_1 only while the default boot
+#                     entry was mainline 7.2.11_1 — no vboxdrv at boot and a
+#                     failing VBoxManage until the missing header packages were
+#                     installed by hand. The mapping is now one
+#                     `<flavor>-headers` loop over $KERNEL_PKGS (no case to
+#                     drop flavors), gated on ANY dkms consumer (nvidia OR
+#                     virtualbox) and placed BEFORE it; `zstd` is installed
+#                     alongside ([DKMS-ZSTD] — /usr/sbin/dkms compresses every
+#                     module it builds with the `zstd` binary that nothing else
+#                     ships, observed "zstd: command not found" leaving all
+#                     three kernels' vbox.ko raw); and an explicit best-effort
+#                     `dkms autoinstall` runs AFTER both consumers
+#                     ([DKMS-AUTOINSTALL], transcript
+#                     /var/log/dkms-autoinstall.log — never fatal, xbps has
+#                     already committed the packages).
+#                     (2) The first-boot Flatpak queue drain TRUNCATED its log
+#                     on every firing (": > /var/log/flatpak-firstboot.log"),
+#                     so the next event destroyed the evidence of why the
+#                     previous run had died; it never advanced the queue, so an
+#                     interrupted run redid every already-installed app; and
+#                     NetworkManager events were its ONLY trigger while a flock
+#                     LOSER exited without re-arming. Observed live: the 09:05
+#                     run stopped after Brave, unstamped, and the queue sat 75
+#                     minutes until a connectivity-change happened to fire.
+#                     The transcript is now APPENDED under a timestamped
+#                     header with a 256 KiB tail rotation
+#                     ([FLATPAK-FIRSTBOOT-LOG]); every ID gets a `flatpak info`
+#                     pre-check and the queue file is rewritten to the
+#                     remaining failures, so a killed drain resumes where it
+#                     stopped ([FLATPAK-FIRSTBOOT-ADVANCE]); and a supervised
+#                     /etc/sv/flatpak-firstboot service retries the SAME drain
+#                     through the dispatcher's new `boot-drain` action once a
+#                     minute until the .done stamp exists, then parks on
+#                     `pause` ([FLATPAK-FIRSTBOOT-SVC], linked on first boot
+#                     behind a `[ -d /etc/sv/flatpak-firstboot ]` guard so a
+#                     flatpak-less install gets no dangling link). One drain
+#                     implementation, two triggers, one lock.
+#                     (3) INSTALL_VIRT / INSTALL_VIRTUALBOX /
+#                     PROVISION_VIRTUALBOX_SUBVOL were prompted, exported to
+#                     the chroot and consumed by the rc.local first-boot links
+#                     but never written to install-config — the as-built record
+#                     could not explain why virtualbox-ose was installed
+#                     ([INSTALL-CONFIG-VIRT]; same class as [INSTALL-CONFIG-
+#                     BACKENDS] Beta-v2.9.68, which added steam/docker/podman).
+#                     (4) [SSH-DEFAULT-HARDEN] (Beta-v2.9.95) defaults password
+#                     auth and root login to NO while both key prompts default
+#                     OFF, and the NEXT STEPS list never said so — a default
+#                     install ships a listening sshd nothing can authenticate
+#                     to (the Beta-v2.9.99 box: port 2323, PasswordAuthentication
+#                     no, PermitRootLogin no, no ~/.ssh). The summary now
+#                     warns, testing the REAL target
+#                     /mnt/home/<user>/.ssh/authorized_keys so a staged
+#                     [SSH-DEPOSIT-LOG]/[SSH-USABLE] key raises no false alarm
+#                     ([SSH-NOKEY-WARNING]). `zstd` added to PKG_PREFLIGHT.
+#                     Gates: bash -n OK; check-heredocs.sh ALL CLEAN (77);
+#                     check-defaults.sh ALL CONSISTENT; check-pkg-preflight.sh
+#                     ALL COVERED (167). SCRIPT_VERSION bumped Beta-v2.9.99 ->
+#                     Beta-v2.9.100.
 #     Beta-v2.9.87   [COSMIC-REPO-MOVE] — the COSMIC artifact repository is
 #                     now served from the unified Void_Linux_Cosmic project
 #                     (packaging templates + signed binary repo in one place):
@@ -6245,6 +6316,7 @@ xtools
 ykpers
 zramen
 zsh
+zstd
 "
 echo ""
 echo "Stage-1 package preflight [PKG-PREFLIGHT]: verifying package names against the live union pool..."
@@ -8302,15 +8374,43 @@ install_pkgs ${MICROCODE_PKG} linux-firmware dracut sudo vim nano bash bash-comp
 
 # AI (Big Pickle) ADDITION — Beta-v2.9.25 [NVIDIA-GATE]: the one probe-gated
 # driver. `nvidia` (nonfree) auto-pulls nvidia-dkms → dkms (gcc/make/
-# linux-headers). The headers for every installed kernel flavor are mapped
-# from $KERNEL_PKGS so dkms can build at install time for all of them.
+# linux-headers).
+#
+# AI (Big Pickle) FIX — Beta-v2.9.100 [DKMS-HEADERS] + [DKMS-ZSTD]: the
+# "headers for every installed kernel flavor" mapping below used to live
+# INSIDE this NVIDIA branch as a first-match `case`, so it had two independent
+# defects:
+#   (a) a VirtualBox-only install (virtualbox-ose-dkms, [INSTALL-VBOX]) got NO
+#       explicit headers at all — and
+#   (b) even an NVIDIA install mapped exactly ONE flavor: `case` takes the
+#       first pattern that matches, so KERNEL_PKGS="linux linux-mainline
+#       linux-lts" matched *linux-mainline* and `linux`/`linux-lts` headers
+#       were silently skipped.
+# Proven on the fresh Beta-v2.9.99 hardware install (AMD GPU -> INSTALL_NVIDIA
+# = false, so branch (a) applied): the ONLY headers present were
+# linux-headers-6.18_1, arriving solely as dkms's own run_depends
+# (`dkms` -> `linux-headers` -> the `linux` flavor's meta) — so
+# `dkms autoinstall` built virtualbox-ose for 6.18.57_1 only, while the
+# default boot entry was mainline 7.2.11_1: vboxdrv was absent at boot and
+# `VBoxManage --version` errored until the missing header packages were
+# installed by hand. The mapping is now a loop over EVERY selected flavor
+# (one `<flavor>-headers` name each: linux -> linux-headers,
+# linux-lts -> linux-lts-headers, linux-mainline -> linux-mainline-headers),
+# gated on ANY dkms consumer and placed BEFORE it so the consumer's own dkms
+# hook already finds headers for all kernels.
+# [DKMS-ZSTD]: `zstd` rides along — /usr/sbin/dkms compresses every module it
+# builds with the `zstd` binary, which nothing else on the system installs
+# (observed live: "zstd: command not found", leaving all three kernels'
+# vbox.ko uncompressed while the shipped kernels carry compressed modules).
+if [ "$INSTALL_NVIDIA" = "true" ] || [ "${INSTALL_VIRTUALBOX:-false}" = "true" ]; then
+    for _dkms_kern in $KERNEL_PKGS; do
+        install_pkgs "${_dkms_kern}-headers"
+    done
+    unset _dkms_kern
+    install_pkgs zstd
+fi
 if [ "$INSTALL_NVIDIA" = "true" ]; then
     install_pkgs nvidia
-    case "$KERNEL_PKGS" in
-        *linux-mainline*) install_pkgs linux-mainline-headers ;;
-        *linux-lts*) install_pkgs linux-lts-headers ;;
-        *linux*) install_pkgs linux-headers ;;
-    esac
     # Blacklist nouveau so the open driver cannot bind the device ahead of
     # the proprietary module (nvidia-dkms installs the udev rules + binary
     # that prefers the nvidia module once loaded).
@@ -9412,13 +9512,39 @@ if [ "$INSTALL_ANY_GAME" = "true" ]; then
 fi
 # AI (Big Pickle) ADDITION — Beta-v2.8.4 [INSTALL-VBOX]: VirtualBox is now a
 # real installable option (previously pre-create-only). The -ose package is
-# in the nonfree repo (already added above); -ose-dkms builds the kernel
-# module for the running kernel. The user is added to the vboxusers group and
-# the vboxdrv runit service is enabled (module load at boot). A kernel module
-# build needs the build toolchain, which is installed for dkms.
+# in the nonfree repo (already added above); -ose-dkms carries the kernel
+# module SOURCES, which dkms compiles for every kernel that has headers (the
+# [DKMS-HEADERS] loop above installs them for all of $KERNEL_PKGS first — the
+# old comment claiming "-ose-dkms builds the module for the running kernel"
+# was wrong: it builds only for kernels WITH headers, which on a
+# mainline-default box was none of the bootable ones). The user is added to
+# the vboxusers group; note Void 7.2.16+ ships no /etc/sv/vboxdrv, so the
+# first-boot link below in rc.local stays guarded on the directory existing.
+# A kernel module build needs the build toolchain, which comes with dkms.
 if [ "$INSTALL_VIRTUALBOX" = "true" ]; then
     install_pkgs virtualbox-ose virtualbox-ose-dkms
     usermod -aG vboxusers "$TARGET_USER"
+fi
+# AI (Big Pickle) FIX — Beta-v2.9.100 [DKMS-AUTOINSTALL]: make the module
+# build explicit instead of relying on whichever xbps hook happens to fire and
+# WHEN. The Beta-v2.9.99 hardware install proved the gap: headers arrived only
+# for the `linux` flavor (dkms's run_depends), virtualbox-ose-dkms installed
+# after that, its build covered 6.18.57_1 only — and the default boot entry
+# was mainline 7.2.11_1, so the box came up with no vboxdrv and a failing
+# VBoxManage until `dkms autoinstall` was run by hand. Running it here, AFTER
+# every dkms consumer and AFTER the headers loop, is the single authoritative
+# build pass for all kernels. Best-effort by design: a failure is logged and
+# warned about (never fatal), because xbps has already committed the packages
+# and a half-built module set must not roll back a completed install — the
+# transcript lives in /var/log/dkms-autoinstall.log.
+if [ "$INSTALL_NVIDIA" = "true" ] || [ "${INSTALL_VIRTUALBOX:-false}" = "true" ]; then
+    if command -v dkms >/dev/null 2>&1; then
+        if dkms autoinstall >> /var/log/dkms-autoinstall.log 2>&1; then
+            echo "==> dkms: kernel module build pass complete for every selected kernel (log: /var/log/dkms-autoinstall.log)"
+        else
+            echo "WARNING: dkms autoinstall reported errors — check /var/log/dkms-autoinstall.log" >&2
+        fi
+    fi
 fi
 if [ "$INSTALL_BRAVE" = "true" ]; then
     if [ "$INSTALL_FLATPAK" = "true" ]; then
@@ -9497,8 +9623,30 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
 # firing wins the lock and runs; the rest bail out and re-arm on whichever
 # network event comes next (a completed run leaves the .done stamp anyway;
 # flock releases automatically on exit, so a crashed drain never wedges it).
+# AI (Big Pickle) FIX — Beta-v2.9.100 [FLATPAK-FIRSTBOOT-LOG] +
+# [FLATPAK-FIRSTBOOT-ADVANCE] + [FLATPAK-FIRSTBOOT-SVC]: three more defects
+# found while auditing the fresh Beta-v2.9.99 hardware install, where the
+# queue stalled 75 minutes and only drained because a connectivity-change
+# happened to fire:
+#   (1) LOG — `: > /var/log/flatpak-firstboot.log` TRUNCATED the transcript on
+#       every firing, so the next event destroyed the evidence of WHY the
+#       previous run had died (the 09:05 run stopped after Brave, unstamped,
+#       and left nothing to diagnose). The transcript is now APPENDED under a
+#       timestamped header, size-bounded by a tail rotation at 256 KiB.
+#   (2) ADVANCE — the queue file was re-read whole on every run and never
+#       shrank, so an interrupted run redid every already-installed app and
+#       could never record partial progress. Each ID now gets a `flatpak info`
+#       pre-check (present IDs are dropped) and the queue is rewritten to the
+#       remaining failures at the end of the run — an interrupted drain
+#       resumes exactly where it stopped.
+#   (3) TRIGGER — NM events were the ONLY trigger and a flock LOSER exits
+#       without re-arming, so a run killed mid-loop could strand the queue
+#       until an unrelated link event. The `boot-drain` action below is the
+#       second caller: a supervised /etc/sv/flatpak-firstboot service retries
+#       the same drain from boot until the stamp exists. ONE drain
+#       implementation, two triggers, one lock.
 case "$2" in
-    up|vpn-up|connectivity-change) ;;
+    up|vpn-up|connectivity-change|boot-drain) ;;
     *) exit 0 ;;
 esac
 command -v flatpak >/dev/null 2>&1 || exit 0
@@ -9507,30 +9655,118 @@ exec 9>/var/lock/flatpak-firstboot.lock
 flock -n 9 || exit 0
 # Need a default route (internet reachable) for flathub to resolve
 ip route show default >/dev/null 2>&1 || exit 0
-_fp_queue="/home/__TARGET_USER__/.config/void-installer/flatpak-install-on-first-boot.txt"
-[ -f "$_fp_queue" ] || exit 0
-echo "=== flatpak-firstboot: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
-: > /var/log/flatpak-firstboot.log
+_fp_home="/home/__TARGET_USER__"
+_fp_qdir="${_fp_home}/.config/void-installer"
+_fp_queue="${_fp_qdir}/flatpak-install-on-first-boot.txt"
+# Home must be mounted before "queue missing" can mean "nothing queued" —
+# otherwise an early drain would stamp an install that has not appeared yet.
+# (The CONFIG dir is deliberately not the test: a flatpak install whose every
+# app was declined never creates it, and that must still reach the stamp.)
+[ -d "$_fp_home" ] || exit 0
+if [ ! -f "$_fp_queue" ]; then
+    # Nothing was ever queued (flatpak installed, every app declined): the
+    # absence of a queue IS a completed queue, so stamp it and stop the
+    # boot-time service from retrying forever.
+    touch /var/log/flatpak-firstboot.done
+    exit 0
+fi
+_fp_log=/var/log/flatpak-firstboot.log
+_fp_hdr="=== flatpak-firstboot: $(date '+%Y-%m-%d %H:%M:%S %Z') (action: ${2:-?}) ==="
+echo "$_fp_hdr"
+# [FLATPAK-FIRSTBOOT-LOG] append-only transcript; rotate instead of truncate so
+# a failed run's evidence survives the next firing.
+if [ -f "$_fp_log" ] && [ "$(wc -c < "$_fp_log")" -gt 262144 ]; then
+    tail -n 400 "$_fp_log" > "${_fp_log}.rotate" && mv -f "${_fp_log}.rotate" "$_fp_log"
+fi
+echo "$_fp_hdr" >> "$_fp_log"
+# [FLATPAK-FIRSTBOOT-ADVANCE] snapshot the queue (skipping blanks/comments)
+# so the loop below can rewrite it without reading the file it writes.
+_fp_pending="$(mktemp /tmp/flatpak-queue.XXXXXX)" || exit 1
+_fp_failed="$(mktemp /tmp/flatpak-queue-failed.XXXXXX)" || exit 1
+grep -v '^#' "$_fp_queue" 2>/dev/null | grep -v '^[[:space:]]*$' > "$_fp_pending" || true
 _fp_fail=0
 while IFS= read -r _fp_app_id; do
     [ -n "$_fp_app_id" ] || continue
-    echo "==> Installing queued Flatpak app: ${_fp_app_id}"
-    if ! flatpak install -y --noninteractive flathub "$_fp_app_id" >> /var/log/flatpak-firstboot.log 2>&1; then
-        echo "WARNING: failed to install queued Flatpak app '${_fp_app_id}' — will retry on next up event." >&2
+    if flatpak info "$_fp_app_id" >/dev/null 2>&1; then
+        echo "==> Queued Flatpak app already present — dropped from queue: ${_fp_app_id}" | tee -a "$_fp_log"
+        continue
+    fi
+    echo "==> Installing queued Flatpak app: ${_fp_app_id}" | tee -a "$_fp_log"
+    if flatpak install -y --noninteractive flathub "$_fp_app_id" >> "$_fp_log" 2>&1; then
+        echo "==> Queued Flatpak app installed: ${_fp_app_id}" | tee -a "$_fp_log"
+    else
+        echo "WARNING: failed to install queued Flatpak app '${_fp_app_id}' — kept in the queue for the next drain." | tee -a "$_fp_log" >&2
+        printf '%s\n' "$_fp_app_id" >> "$_fp_failed"
         _fp_fail=1
     fi
-done < "$_fp_queue"
+done < "$_fp_pending"
+rm -f "$_fp_pending"
+# Rewrite the queue IN PLACE (cat > keeps the file's owner/mode — it lives in
+# the user's home): successes are gone, failures stay in order. The `flatpak
+# info` pre-check above makes the same progress durable even if this run is
+# killed before it gets here.
+if [ -s "$_fp_failed" ]; then
+    cat "$_fp_failed" > "$_fp_queue"
+else
+    : > "$_fp_queue"
+fi
+rm -f "$_fp_failed"
 # [FLATPAK-NM-DISPATCH-STAMP] (Beta-v2.9.46): stamp only when every install
 # succeeded, so a partial failure leaves the queue live for the next event.
 if [ "$_fp_fail" -eq 0 ]; then
     touch /var/log/flatpak-firstboot.done
+    echo "==> flatpak-firstboot: queue drained — stamped /var/log/flatpak-firstboot.done" | tee -a "$_fp_log"
 else
-    echo "WARNING: one or more queued Flatpak installs failed — queue is still live." >&2
+    echo "WARNING: one or more queued Flatpak installs failed — queue is still live." | tee -a "$_fp_log" >&2
 fi
 DIS_EOF
     chmod 0755 /etc/NetworkManager/dispatcher.d/99-flatpak-firstboot
     sed -i "s/__TARGET_USER__/${TARGET_USER}/g" /etc/NetworkManager/dispatcher.d/99-flatpak-firstboot
     echo "==> NetworkManager flatpak-firstboot dispatcher installed → /etc/NetworkManager/dispatcher.d/99-flatpak-firstboot"
+    # AI (Big Pickle) ADDITION — Beta-v2.9.100 [FLATPAK-FIRSTBOOT-SVC]: the
+    # supervised boot-time safety net for that queue. NetworkManager events
+    # were the ONLY trigger, and a firing that LOSES the flock exits without
+    # re-arming — so a drain killed mid-loop (observed on the Beta-v2.9.99
+    # fresh install: the 09:05 run stopped after Brave, unstamped) could sit
+    # 75 minutes until an unrelated connectivity-change happened to fire. This
+    # service retries the SAME drain through the dispatcher's `boot-drain`
+    # action — one implementation, one lock, two triggers — once a minute until
+    # the .done stamp exists, then parks on `pause` (a plain exit would make
+    # runsv restart the loop forever).
+    mkdir -p /etc/sv/flatpak-firstboot/log /var/log/flatpak-firstboot-svc
+    cat > /etc/sv/flatpak-firstboot/run << 'FPSVC_EOF'
+#!/bin/sh
+# AI (Big Pickle) ADDITION — Beta-v2.9.100 [FLATPAK-FIRSTBOOT-SVC]
+# Retry the first-boot Flatpak queue drain until it stamps itself done.
+# ALL drain logic (exclusive lock, default-route gate, queue advance, .done
+# stamp, append-only transcript) lives in the NetworkManager dispatcher
+# script; this service supplies only the missing TRIGGER, because NM state
+# transitions are not guaranteed to recur on a stable link. Never fatal: a
+# failed attempt is logged by the dispatcher and retried a minute later.
+exec 2>&1
+_STAMP=/var/log/flatpak-firstboot.done
+_DISPATCH=/etc/NetworkManager/dispatcher.d/99-flatpak-firstboot
+# No user placeholder may appear in THIS file: the post-generation
+# `sed -i` substitution targets only the dispatcher script (the one file it is
+# run against), so every user-specific path must live there. That is fine — the dispatcher is the
+# single source of truth for home/queue/stamp state (it exits immediately, and
+# stamps, when there is nothing queued), and this loop only supplies the
+# missing TRIGGER.
+while [ ! -f "$_STAMP" ]; do
+    if [ -x "$_DISPATCH" ]; then
+        "$_DISPATCH" flatpak boot-drain || true
+    fi
+    sleep 60
+done
+exec pause
+FPSVC_EOF
+    chmod 0755 /etc/sv/flatpak-firstboot/run
+    cat > /etc/sv/flatpak-firstboot/log/run << 'FPSVCLOG_EOF'
+#!/bin/sh
+exec svlogd -tt /var/log/flatpak-firstboot-svc
+FPSVCLOG_EOF
+    chmod 0755 /etc/sv/flatpak-firstboot/log/run
+    echo "==> Supervised flatpak first-boot retry service written → /etc/sv/flatpak-firstboot (linked on first boot)"
 fi
 
 [ "$INSTALL_PODMAN" = "true" ] && install_pkgs podman
@@ -10498,6 +10734,17 @@ INSTALL_PODMAN_ROOTFUL="${INSTALL_PODMAN_ROOTFUL:-false}"
 PROVISION_DOCKER_SUBVOL="${PROVISION_DOCKER_SUBVOL:-false}"
 PROVISION_PODMAN_SUBVOL="${PROVISION_PODMAN_SUBVOL:-false}"
 PROVISION_PODMAN_ROOTLESS_SUBVOL="${PROVISION_PODMAN_ROOTLESS_SUBVOL:-false}"
+# AI (Big Pickle) FIX — Beta-v2.9.100 [INSTALL-CONFIG-VIRT]: the virtualization
+# umbrella and the VirtualBox choice were prompted (Beta-v2.8.4 [INSTALL-VBOX]),
+# exported to the chroot and consumed by the rc.local first-boot links — but
+# never emitted here. The Beta-v2.9.99 as-built record therefore explained
+# neither why `virtualbox-ose`/`virtualbox-ose-dkms` were installed nor which
+# subvol the [SUBVOL-GATES] resolver created for them (only the derived
+# VIRT_BR0 row above, which says nothing about the choice itself). Same
+# [INSTALL-CONFIG-BACKENDS] class of gap, same fix: public booleans only.
+INSTALL_VIRT="${INSTALL_VIRT:-false}"
+INSTALL_VIRTUALBOX="${INSTALL_VIRTUALBOX:-false}"
+PROVISION_VIRTUALBOX_SUBVOL="${PROVISION_VIRTUALBOX_SUBVOL:-false}"
 # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: as-built record of every
 # data-region decision (fs per location + carved sizes + the derived carve
 # list). Sizes/fs strings are public config, secret-free. REGION_PARTITIONED
@@ -13502,6 +13749,16 @@ if [ ! -f /var/log/firstboot.log ]; then
     # runit box nothing was reliably supervising udisksd. The installer now
     # writes /etc/sv/udisksd (below) and links it like any other base service.
     ln -sfn /etc/sv/udisksd /etc/runit/runsvdir/default/udisksd
+    # AI (Big Pickle) ADDITION — Beta-v2.9.100 [FLATPAK-FIRSTBOOT-SVC]: link the
+    # supervised first-boot Flatpak queue retry service. The service directory
+    # is written only when INSTALL_FLATPAK=true, so the [ -d ] guard (the
+    # [VBOX-SV-GUARD] pattern) is an exact proxy for the choice — no new
+    # __PLACEHOLDER__ needed in this single-quoted heredoc, and no dangling
+    # link on a flatpak-less install. NetworkManager (linked above) is the
+    # other trigger; this loop is the one that guarantees the queue drains even
+    # if no NM state change ever fires again.
+    [ -d /etc/sv/flatpak-firstboot ] && \
+        ln -sfn /etc/sv/flatpak-firstboot /etc/runit/runsvdir/default/flatpak-firstboot
     # AI (Big Pickle) ADDITION — Beta-v2.4.0 [SWAP]: enable the zramen (zram) runit
     # service on first boot when the chosen backend uses zram (zram or both).
     [ "__SWAP_BACKEND__" = "zram" ] || [ "__SWAP_BACKEND__" = "both" ] && \
@@ -14171,6 +14428,29 @@ echo "${C_GRN}  7.${C_RST} Re-runnable maintenance tools shipped in ${C_BOLD}/ro
 echo "     ${C_BOLD}re-shadow-xbps.sh${C_RST}  restore auto-update snapshots after an xbps update"
 echo "     ${C_BOLD}limine-sync.sh${C_RST}      force a manual Limine boot-menu resync"
 echo "     ${C_BOLD}re-provision-snapper.sh${C_RST}  safely restore snapshots/plugin (no data loss)"
+# AI (Big Pickle) ADDITION — Beta-v2.9.100 [SSH-NOKEY-WARNING]: [SSH-DEFAULT-HARDEN]
+# (Beta-v2.9.95) makes the SSH access defaults secure — password auth NO, root
+# login NO — while the key prompts default OFF (DEFAULT_IMPORT_SSH_KEY /
+# DEFAULT_GENERATE_SSH_KEY = false). A default install therefore ships a
+# LISTENING sshd that nothing can authenticate to, and the numbered list above
+# said nothing about it (the Beta-v2.9.99 box had exactly this state: sshd on
+# port 2323, PasswordAuthentication no, PermitRootLogin no, no ~/.ssh at all).
+# Test the real target filesystem — an [SSH-DEPOSIT-LOG]/[SSH-USABLE] deposit
+# counts too, so answering the prompts "no" while a key was already staged
+# does not raise a false alarm.
+if [ "${INSTALL_SSH_SERVER:-false}" = "true" ] \
+   && [ "${SSH_PASSWORD_AUTH:-no}" = "no" ] \
+   && [ "${SSH_ROOT_LOGIN:-no}" = "no" ] \
+   && [ ! -s "/mnt/home/${TARGET_USER}/.ssh/authorized_keys" ]; then
+    echo ""
+    echo "${C_RED}  !! SSH remote access is installed but NOT yet usable:${C_RST}"
+    echo "     sshd listens on port ${SSH_PORT:-22} with password authentication OFF and root"
+    echo "     login OFF, and no public key was deposited — so no account can log in over"
+    echo "     SSH yet. Before you need it, copy a client public key into"
+    echo "     ${C_BOLD}/home/${TARGET_USER}/.ssh/authorized_keys${C_RST} (mode 600, owned by ${TARGET_USER}),"
+    echo "     or re-run and answer y to the import/generate SSH key prompts."
+    echo "     As-built facts: ${C_BOLD}/etc/void-installer/install-config${C_RST} (SSH_KEY_PRESENT)."
+fi
 echo ""
 echo "${C_GRN}======================================================================${C_RST}"
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [RESUME]: The install completed fully, so
