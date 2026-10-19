@@ -581,7 +581,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Version-3.0.00"
+SCRIPT_VERSION="Version-3.0.01"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1224,6 +1224,48 @@ SCRIPT_VERSION="Version-3.0.00"
 #                     check-defaults.sh ALL CONSISTENT; check-pkg-preflight.sh
 #                     ALL COVERED (167). SCRIPT_VERSION bumped Beta-v2.9.99 ->
 #                     Version-3.0.00.
+#     Version-3.0.01 [LIMINE-NVRAM-LABEL] + [LIMINE-NVRAM-PROMPT-MOVE] +
+#                     [LIMINE-NVRAM-RESUME] — the optional Limine UEFI NVRAM
+#                     entry (Beta-v2.9.97) can now be NAMED, both of its
+#                     prompts moved to where the bootloader is chosen, and a
+#                     resume-state gap that silently dropped the choice is
+#                     closed.
+#                     (1) [LIMINE-NVRAM-LABEL] — a new text prompt (asked only
+#                     after the toggle is answered yes) sets LIMINE_NVRAM_LABEL
+#                     from DEFAULT_LIMINE_NVRAM_LABEL, whose value is the exact
+#                     Beta-v2.9.97 literal `Void Linux (Limine)`, so bare Enter
+#                     reproduces the old deploy byte-for-byte. The label is what
+#                     `efibootmgr -v` and the firmware boot menu display; the
+#                     Stage-2 `--label` argument is now
+#                     `${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}` (the
+#                     fallback covers a resumed state file that predates this
+#                     row). Input is trimmed in pure bash, must be non-empty,
+#                     <= 80 characters (firmware menus truncate long
+#                     descriptions), and may not contain quotes, backticks,
+#                     dollar signs, backslashes or control characters: the
+#                     value is interpolated into double-quoted shell config at
+#                     every consumer (chroot_env, install-config, DRY-RUN plan,
+#                     NEXT-STEPS summary), so refusing it up front is safer than
+#                     escaping each writer. Spaces and parentheses — the
+#                     characters people actually want — are accepted verbatim.
+#                     (2) [LIMINE-NVRAM-PROMPT-MOVE] — the toggle and the new
+#                     label prompt now run directly under
+#                     `1) BOOTLOADER="limine"` (right after esp_size_choose),
+#                     ~450 lines earlier, instead of after the kernel/device/
+#                     hardware/network prompts. Both variables are initialized
+#                     before the menu, so a GRUB run never sees either prompt.
+#                     (3) [LIMINE-NVRAM-RESUME] — LIMINE_NVRAM was never in the
+#                     [RESUME] state-save list while the entire config block is
+#                     skipped when RESUME=1, so a `-r` resumed run left it
+#                     unset and `${LIMINE_NVRAM:-no}` silently skipped the NVRAM
+#                     entry the operator had already accepted (found while
+#                     wiring the label through that same list). Both names are
+#                     now persisted there (`printf %q`, so any label is safe).
+#                     Gates: bash -n OK; check-heredocs.sh ALL CLEAN;
+#                     check-defaults.sh ALL CONSISTENT (new DEFAULT_ declared
+#                     AND wired); check-pkg-preflight.sh unchanged (no package
+#                     surface). SCRIPT_VERSION bumped Version-3.0.00 ->
+#                     Version-3.0.01.
 #
 #   BETA ERA — TRACKED (continued; these pre-3.0.00 entries were appended out
 #   of order, newest first — Beta-v2.9.99 CLOSED this era):
@@ -1415,6 +1457,12 @@ DEFAULT_BOOTLOADER="${DEFAULT_BOOTLOADER:-1}"         # 1=limine 2=grub
 # convention above); the default `false` keeps the removable/fallback boot path
 # only (the historical NVRAM-free behavior). Only consulted on a Limine install.
 DEFAULT_LIMINE_NVRAM="${DEFAULT_LIMINE_NVRAM:-false}" # register Limine in UEFI NVRAM? [y/N]
+# AI (Big Pickle) ADDITION — Version-3.0.01 [LIMINE-NVRAM-LABEL]: the label
+# efibootmgr writes for that optional entry — literally what the firmware boot
+# menu and `efibootmgr -v` display. Asked only when the toggle above is
+# answered yes; the default is byte-identical to the Beta-v2.9.97 hard-coded
+# `--label "Void Linux (Limine)"`, so an unanswered prompt changes nothing.
+DEFAULT_LIMINE_NVRAM_LABEL="${DEFAULT_LIMINE_NVRAM_LABEL:-Void Linux (Limine)}" # UEFI NVRAM boot-entry label
 # AI (Big Pickle) ADDITION — Beta-v2.9.35 [ESP-SIZE]: the EFI ESP size is a
 # prompt-time decision (Limine esp-copy mirrors every kernel/snapshot onto the
 # ESP; GRUB+ENCRYPT mounts the ESP AT /boot). Menu index 1-4, default 1=4G;
@@ -2857,6 +2905,15 @@ export SWAPFILE_SIZE
 # runs only after the bootloader + YK_FALLBACK clamp are final (unchanged
 # semantic from [ENCRYPT-ORDER]); the audio choice moved to the tail of this
 # cluster. YubiKey still must be decided under ENCRYPT=yes before the clamp.
+# AI (Big Pickle) CHANGE — Version-3.0.01 [LIMINE-NVRAM-PROMPT-MOVE]: the
+# [LIMINE-NVRAM] toggle + the new [LIMINE-NVRAM-LABEL] prompt now run INSIDE
+# this menu (case `1)`, directly after `esp_size_choose`), so they are the
+# first things asked once Limine is picked. Related accuracy note on the
+# Beta-v2.7.5 wording above: the wallpaper prompt is no longer adjacent to the
+# bootloader either — [KERNEL-SELECT] (2.9.16), [DEVICE-PROFILE] (2.9.17),
+# [HARDWARE-REVIEW]/[NVIDIA-GATE] (2.9.25) and [CPU-DETECT]/[NIC-DETECT]/
+# [WIFI-FW] (2.9.26-27) were all inserted between the bootloader menu and the
+# wallpaper block after [FLOW-ORDER] was written (they now precede it).
 # AI (Claude, Sonnet 5, Medium) CHANGE — Beta-v2.3.0: Limine was briefly made the ONLY
 # bootloader in an earlier pass of this beta (see CHANGELOG §3.19/§4.7 for
 # the original GRUB→Limine rationale — smaller trusted codebase, single-
@@ -2882,6 +2939,17 @@ if [ ! -d /sys/firmware/efi ]; then
     echo "       implemented." >&2
     exit 1
 fi
+
+# AI (Big Pickle) MOVE — Version-3.0.01 [LIMINE-NVRAM-PROMPT-MOVE] +
+# [LIMINE-NVRAM-LABEL]: both NVRAM answers now belong to the bootloader menu
+# itself (asked immediately after `1) BOOTLOADER="limine"` picks Limine)
+# instead of several hundred lines later, where kernel/device/hardware/network
+# prompts used to sit between the bootloader choice and the decision about how
+# this machine shows up in the firmware boot menu. Both variables are
+# initialized BEFORE the menu so a GRUB run never sees either prompt and keeps
+# the historical defaults (no entry, canonical label).
+LIMINE_NVRAM="no"
+LIMINE_NVRAM_LABEL="Void Linux (Limine)"
 
 # AI (Big Pickle) CHANGE — Beta-v2.6.0 [LIMINE-DEFAULT]: Limine is now
 # listed FIRST and is the DEFAULT bootloader (bare Enter selects it). GRUB
@@ -2919,6 +2987,81 @@ echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snaps
             # esp-copy mirrors kernels + snapshots onto the ESP, so its size is
             # a real prompt-time decision (default 4G via DEFAULT_EFI_ESP_SIZE).
             esp_size_choose
+            # AI (Big Pickle) MOVE — Version-3.0.01 [LIMINE-NVRAM-PROMPT-MOVE]:
+            # the Beta-v2.9.97 [LIMINE-NVRAM] toggle now runs HERE, directly
+            # under the Limine choice, so the firmware-entry decision is made
+            # while the bootloader is being chosen rather than ~450 lines later.
+            # Behavior is unchanged: default off => the removable/fallback path
+            # (BOOTX64.EFI) is the only firmware entry, exactly as before;
+            # `yes` additionally runs `efibootmgr --create` in Stage 2.
+            echo ""
+            echo "${C_BOLD}${C_BLU}Limine NVRAM registration${C_RST}"
+            echo "  Register a UEFI NVRAM boot entry pointing at Limine's BOOTX64.EFI"
+            echo "  via efibootmgr? The default ('no') keeps the removable/fallback"
+            echo "  boot path only (current behaviour); 'yes' adds an explicit entry."
+            while true; do
+                case "${DEFAULT_LIMINE_NVRAM}" in
+                    [yY]|[yY][eE][sS]|true) _nvram_default="Y";;
+                    *) _nvram_default="N";;
+                esac
+                ask "${C_GRN}Register Limine NVRAM entry?${C_RST} [y/N] (default ${_nvram_default}): "
+                read -r LIMINE_NVRAM_INPUT
+                # AI (Big Pickle) — Beta-v2.9.96 [HEADLESS-PROMPT-LOOP] lesson applied
+                # here: accept the canonical tokens AND the toggle-convention true/false
+                # so a DEFAULT_LIMINE_NVRAM of true/false can never fall through and loop.
+                case "${LIMINE_NVRAM_INPUT:-$DEFAULT_LIMINE_NVRAM}" in
+                    [yY]|[yY][eE][sS]|true)  LIMINE_NVRAM="yes"; break ;;
+                    [nN]|[nN][oO]|false)     LIMINE_NVRAM="no";  break ;;
+                    *) echo "Please enter y or n." >&2 ;;
+                esac
+            done
+            unset _nvram_default LIMINE_NVRAM_INPUT
+            # AI (Big Pickle) ADDITION — Version-3.0.01 [LIMINE-NVRAM-LABEL]:
+            # name the entry instead of always using the Beta-v2.9.97 literal.
+            # Asked ONLY when a registration was just accepted (a `no` run still
+            # asks nothing extra) and shaped after the [SSH-SERVER] port prompt:
+            # bare Enter = DEFAULT_LIMINE_NVRAM_LABEL = the old literal string.
+            # The value is interpolated into double-quoted shell config at four
+            # writers (chroot_env, install-config, the DRY-RUN plan and the
+            # NEXT-STEPS summary), so anything that could be re-evaluated there
+            # is rejected up front rather than escaped at each call site (the
+            # resume state writes it with printf %q and is safe either way);
+            # spaces and parentheses — the two things people actually want —
+            # are accepted verbatim.
+            if [ "$LIMINE_NVRAM" = "yes" ]; then
+                echo ""
+                echo "${C_BOLD}${C_BLU}UEFI boot entry name${C_RST}"
+                echo "  The description the firmware boot menu and 'efibootmgr -v' show"
+                echo "  for this entry. Spaces and parentheses are fine; quotes, backticks,"
+                echo "  dollar signs and backslashes are not (kept out of shell config)."
+                while true; do
+                    ask "UEFI boot entry label (default ${DEFAULT_LIMINE_NVRAM_LABEL}): "
+                    read -r LIMINE_NVRAM_LABEL_INPUT
+                    _lbl="${LIMINE_NVRAM_LABEL_INPUT:-$DEFAULT_LIMINE_NVRAM_LABEL}"
+                    # Trim surrounding whitespace in pure bash (no external deps).
+                    _lbl="${_lbl#"${_lbl%%[![:space:]]*}"}"
+                    _lbl="${_lbl%"${_lbl##*[![:space:]]}"}"
+                    if [ -z "$_lbl" ]; then
+                        echo "Label cannot be empty — press Enter for the default." >&2
+                        continue
+                    fi
+                    if [ "${#_lbl}" -gt 80 ]; then
+                        # Soft guard: firmware menus truncate long descriptions.
+                        echo "Label too long — keep it under 80 characters." >&2
+                        continue
+                    fi
+                    case "$_lbl" in
+                        *\"*|*\`*|*\\*|*\$*|*[[:cntrl:]]*)
+                            echo "Label may not contain quotes, backticks, dollar signs," >&2
+                            echo "backslashes or control characters." >&2
+                            continue ;;
+                    esac
+                    LIMINE_NVRAM_LABEL="$_lbl"
+                    break
+                done
+                unset _lbl LIMINE_NVRAM_LABEL_INPUT
+                echo "  NVRAM entry will be: ${LIMINE_NVRAM_LABEL}"
+            fi
             break ;;
          2) BOOTLOADER="grub"
             # Plain GRUB's ESP holds only the bootloader at /boot/efi and stays
@@ -2934,6 +3077,9 @@ echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snaps
  done
 export BOOTLOADER
 export EFI_PART_SIZE
+# NVRAM answers are set for both branches (GRUB keeps the pre-menu defaults).
+export LIMINE_NVRAM
+export LIMINE_NVRAM_LABEL
 
 # AI (Big Pickle) ADDITION — Beta-v2.9.16 [KERNEL-SELECT]: real Stage-1 kernel
 # choice. Void's x86_64 repo ships exactly three flavors; the base `linux`
@@ -3358,35 +3504,13 @@ export INSTALL_WIFI_FW WIFI_IDS WIFI_CHIPS WIFI_FW_PKG
 # menu is untouched (safe default).
 LIMINE_WALLPAPER="none"
 LIMINE_WALLPAPER_STYLE="stretched"
-# AI (Big Pickle) RE-ADDITION — Beta-v2.9.97 [LIMINE-NVRAM]: optional UEFI NVRAM
-# registration. Default OFF => the removable/fallback path (BOOTX64.EFI) is the
-# only firmware entry, exactly as before; `yes` additionally runs
-# `efibootmgr --create` in the Stage-2 Limine deploy. Persisted value stays
-# yes/no; DEFAULT_LIMINE_NVRAM only drives this prompt's bare-Enter resolution.
-LIMINE_NVRAM="no"
+# AI (Big Pickle) CHANGE — Version-3.0.01 [LIMINE-NVRAM-PROMPT-MOVE]: the
+# Beta-v2.9.97 [LIMINE-NVRAM] toggle and the Version-3.0.01
+# [LIMINE-NVRAM-LABEL] prompt moved UP into the bootloader menu (they now run
+# directly under `1) BOOTLOADER="limine"`), so this block only asks about the
+# wallpaper any more. Both variables are still initialized/exported there for
+# every bootloader, so `${LIMINE_NVRAM:-no}` consumers below are unchanged.
 if [ "$BOOTLOADER" = "limine" ]; then
-    echo ""
-    echo "${C_BOLD}${C_BLU}Limine NVRAM registration${C_RST}"
-    echo "  Register a UEFI NVRAM boot entry pointing at Limine's BOOTX64.EFI"
-    echo "  via efibootmgr? The default ('no') keeps the removable/fallback"
-    echo "  boot path only (current behaviour); 'yes' adds an explicit entry."
-    while true; do
-        case "${DEFAULT_LIMINE_NVRAM}" in
-            [yY]|[yY][eE][sS]|true) _nvram_default="Y";;
-            *) _nvram_default="N";;
-        esac
-        ask "${C_GRN}Register Limine NVRAM entry?${C_RST} [y/N] (default ${_nvram_default}): "
-        read -r LIMINE_NVRAM_INPUT
-        # AI (Big Pickle) — Beta-v2.9.96 [HEADLESS-PROMPT-LOOP] lesson applied
-        # here: accept the canonical tokens AND the toggle-convention true/false
-        # so a DEFAULT_LIMINE_NVRAM of true/false can never fall through and loop.
-        case "${LIMINE_NVRAM_INPUT:-$DEFAULT_LIMINE_NVRAM}" in
-            [yY]|[yY][eE][sS]|true)  LIMINE_NVRAM="yes"; break ;;
-            [nN]|[nN][oO]|false)     LIMINE_NVRAM="no";  break ;;
-            *) echo "Please enter y or n." >&2 ;;
-        esac
-    done
-    unset _nvram_default LIMINE_NVRAM_INPUT
     echo ""
     echo "${C_BOLD}${C_BLU}Limine boot-screen background${C_RST}"
     echo "  Add a wallpaper to the Limine boot menu? (BMP/PNG/JPEG/QOI)"
@@ -3460,7 +3584,8 @@ if [ "$BOOTLOADER" = "limine" ]; then
 fi
 export LIMINE_WALLPAPER
 export LIMINE_WALLPAPER_STYLE
-export LIMINE_NVRAM
+# LIMINE_NVRAM / LIMINE_NVRAM_LABEL are exported up in the bootloader menu
+# ([LIMINE-NVRAM-PROMPT-MOVE]) so a GRUB run exports them too.
 
 # AI (Big Pickle) ADDITION — Beta-v2.5.5 [ENCRYPT]: optional LUKS2 full-disk
 # encryption of partition 2 (the Btrfs filesystem). The ESP stays
@@ -6019,6 +6144,7 @@ fi
                USER_SHELL USER_SHELL_PKG \
                LIGHTDM_GREETER LIGHTDM_GREETER_PKG LIGHTDM_GREETER_SESSION \
                LIMINE_WALLPAPER LIMINE_WALLPAPER_STYLE \
+               LIMINE_NVRAM LIMINE_NVRAM_LABEL \
                SESSION_STACK ENABLE_SNAPSHOT_AUDIO \
                LOCALE LOCALE_CODESET TIMEZONE SWAP_BACKEND SWAPFILE_MODE ENABLE_HIBERNATION SWAPFILE_SIZE \
                INSTALL_KERNEL_MAINLINE INSTALL_KERNEL_LTS KERNEL_PKGS \
@@ -6090,6 +6216,9 @@ if [ "$DRY_RUN" = "1" ]; then
         echo "  Kernel access         : ${KERNEL_MODE:-<unset>} (Limine)"
         echo "  Wallpaper             : ${LIMINE_WALLPAPER:-none}${LIMINE_WALLPAPER_STYLE:+ (style=${LIMINE_WALLPAPER_STYLE})}"
         echo "  Limine NVRAM entry    : ${LIMINE_NVRAM:-no}"
+        if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
+            echo "  Limine NVRAM label    : ${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}"
+        fi
     fi
     # AI (Big Pickle) FIX — Beta-v2.9.53 [HEADLESS-PLAN-LABEL]: the plan used to
     # print "headless=$HAS_GRAPHICAL", i.e. "(headless=yes)" for a GRAPHICAL
@@ -7550,6 +7679,7 @@ echo "export KERNEL_MODE=\"$KERNEL_MODE\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIMINE_WALLPAPER=\"$LIMINE_WALLPAPER\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIMINE_WALLPAPER_STYLE=\"$LIMINE_WALLPAPER_STYLE\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIMINE_NVRAM=\"$LIMINE_NVRAM\"" >> /mnt/tmp/chroot_env.sh
+echo "export LIMINE_NVRAM_LABEL=\"$LIMINE_NVRAM_LABEL\"" >> /mnt/tmp/chroot_env.sh
 # AI (Big Pickle) ADDITION — Beta-v2.9.47 [TEE-BOOT-QUIET]/[TEE-BLACKLIST]:
 # env-only boot-cmdline knobs carried into the chroot so Stage 2 can bake the
 # GRUB branch (GRUB_CMDLINE_LINUX_DEFAULT) and persist the PUBLIC limine-env
@@ -10439,6 +10569,10 @@ cp -f "$LIMINE_EFI_SRC" /boot/efi/EFI/BOOT/BOOTX64.EFI
 # failure is non-fatal (the fallback path still boots), so this can never break
 # an install. efibootmgr is already a member of the Stage-1 PKG_PREFLIGHT
 # superset, so the install_pkgs call below cannot trip the drift gate.
+# Version-3.0.01 [LIMINE-NVRAM-LABEL]: the entry's description is the
+# prompt-time LIMINE_NVRAM_LABEL; the `${...:-Void Linux (Limine)}` fallback is
+# the Beta-v2.9.97 literal, so an empty/unset value (old resumed state file)
+# still yields a named entry instead of `--label ""`.
 if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
     install_pkgs efibootmgr
     _esp_src="$(findmnt -no SOURCE /boot/efi 2>/dev/null)"
@@ -10447,7 +10581,8 @@ if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
     echo "==> Creating Limine NVRAM boot entry (efibootmgr) ..."
     if [ -n "$_esp_disk" ] && [ -n "$_esp_part" ]; then
         efibootmgr --create --disk "/dev/$_esp_disk" --part "$_esp_part" \
-            --loader '\EFI\BOOT\BOOTX64.EFI' --label "Void Linux (Limine)" \
+            --loader '\EFI\BOOT\BOOTX64.EFI' \
+            --label "${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}" \
             || echo "WARNING: efibootmgr failed; system remains bootable via the fallback path." >&2
     else
         echo "WARNING: could not derive ESP disk/partition for efibootmgr; skipping NVRAM entry." >&2
@@ -10524,6 +10659,10 @@ LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE}"
 # the optional NVRAM registration choice (yes/no). Public value only; the
 # generator does not read it (it documents why an explicit Boot entry exists).
 LIMINE_NVRAM="${LIMINE_NVRAM}"
+# AI (Big Pickle) ADDITION — Version-3.0.01 [LIMINE-NVRAM-LABEL]: the label
+# written on that entry (only meaningful when LIMINE_NVRAM="yes"). Same rule:
+# public, prompt-time value, never key material.
+LIMINE_NVRAM_LABEL="${LIMINE_NVRAM_LABEL}"
 # AI (Big Pickle) ADDITION — Beta-v2.9.47 [TEE-BOOT-QUIET]/[TEE-BLACKLIST]:
 # env-only PUBLIC boot-cmdline knobs, persisted beside LIMINE_WALLPAPER so
 # void-limine-write-conf re-derives the shared TEE_QB_FRAG ("quiet" +
@@ -10671,6 +10810,7 @@ SWAPFILE_SIZE="${SWAPFILE_SIZE:-<unset>}"
 LIMINE_WALLPAPER="${LIMINE_WALLPAPER:-<unset>}"
 LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE:-<unset>}"
 LIMINE_NVRAM="${LIMINE_NVRAM:-no}"
+LIMINE_NVRAM_LABEL="${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}"
 # AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]/[SSH-KEYS]: as-built
 # record of the OpenSSH server decision + the PUBLIC key facts (comment /
 # protection flag). Never any key material or passphrase here — matches the
@@ -14408,7 +14548,8 @@ else
 fi
 if [ "$BOOTLOADER" = "limine" ]; then
     if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
-        echo "${C_GRN}  3.${C_RST} Limine is registered in NVRAM (plus the removable fallback path)."
+        echo "${C_GRN}  3.${C_RST} Limine is registered in NVRAM (plus the removable fallback path)"
+        echo "     as ${C_BOLD}${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}${C_RST} — check with:  ${C_BOLD}efibootmgr${C_RST}"
     else
         echo "${C_GRN}  3.${C_RST} Limine boots automatically (no NVRAM entry needed on UEFI)."
     fi

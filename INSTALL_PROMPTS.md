@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Version-3.0.00**). It exists
+> `Void_Linux_Installer.sh` (current version: **Version-3.0.01**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -116,8 +116,19 @@
     plain, **4GiB when full-disk encryption is then enabled** (next sections) — in that
     combo the ESP is mounted at `/boot`, so grub.cfg + kernels live unencrypted on the
     ESP and GRUB never has to unlock LUKS (one dracut passphrase prompt after handoff).
+  - Only after `1` Limine is picked — in the same step, right after the ESP-size
+    menu below:
+    - **Register Limine NVRAM entry? [y/N]** — optional `efibootmgr`
+      registration; default `N` keeps only the removable/fallback boot path.
+    - **UEFI boot entry label [default `Void Linux (Limine)`]** — asked only when
+      the toggle above was `y`; what `efibootmgr -v` and the firmware boot menu
+      show for the entry. Spaces and parentheses are kept; quotes, backticks,
+      `$`, backslashes and control characters are rejected with an explanation;
+      ≤ 80 characters; **Enter** = the default (the exact label earlier
+      releases always wrote).
 - **EFI/ESP partition size [1-4/Custom, default 4 GiB]** — called once the bootloader
-  path needs a real ESP: right after the bootloader choice for Limine, and right after
+  path needs a real ESP: right after the bootloader choice for Limine (with the
+  Limine NVRAM prompts immediately after it), and right after
   the full-disk-encryption choice for GRUB+ENCRYPT (plain GRUB keeps its fixed 1G).
   - `1` 4 GiB (default) — ArchWiki's recommendation for bootable snapshots
   - `2` 6 GiB — headroom for many kernel flavors + snapshots
@@ -141,10 +152,12 @@
     — prints the detected profile + description, then accepts `y`/Enter, `n` (forces an
     explicit pick), or a direct 2-5 override.
 - Only if `BOOTLOADER=limine`:
-  - **Register Limine NVRAM entry? [y/N]** — optional `efibootmgr` registration;
-    default `N` keeps the removable/fallback boot path only. Asked right after
-    the bootloader choice (before the wallpaper prompt).
-  - **Enable Limine wallpaper? [y/N]** — asked right after the bootloader choice.
+  - *(the **Register Limine NVRAM entry?** and **UEFI boot entry label** prompts
+    moved up into the Bootloader section above — Version-3.0.01
+    `[LIMINE-NVRAM-PROMPT-MOVE]`.)*
+  - **Enable Limine wallpaper? [y/N]** — in the same Limine block, but after the
+    kernel / device-profile / hardware / network prompts (not adjacent to the
+    bootloader menu any more).
   - If `y`:
     - **Wallpaper browser** (copied onto the ESP) — a numbered `ls` menu of
       directories and BMP/PNG/JPEG/QOI images starting at `/run/media`

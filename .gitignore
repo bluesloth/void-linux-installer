@@ -31,6 +31,11 @@ Debug/*
 # package name is added to the installer without also being added to the
 # PKG_PREFLIGHT candidate list (crash #005 regression guard). Re-unignore.
 !Debug/check-pkg-preflight.sh
+# ...and Debug/check-nvram-prompt.sh IS committed — the Version-3.0.01
+# [LIMINE-NVRAM-LABEL]/[LIMINE-NVRAM-PROMPT-MOVE] prompt suite: 23 cases over
+# the prompt block it extracts VERBATIM from the installer (marker-based line
+# resolution, so it cannot drift when line numbers move). Re-unignore.
+!Debug/check-nvram-prompt.sh
 # ...and the YubiKey possession-only validation kit (probe + protocol) is
 # committed so it survives until the real-hardware run happens.
 !Debug/yk_validation/

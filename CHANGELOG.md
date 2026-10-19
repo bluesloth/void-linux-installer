@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Version-3.0.00** (`SCRIPT_VERSION` in the script).
+Current version: **Version-3.0.01** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -38,7 +38,7 @@ Current version: **Version-3.0.00** (`SCRIPT_VERSION` in the script).
 >   install-config record gaps, the SSH no-key warning). The carry rules are
 >   unchanged (patch 0-9 → minor carry, minor never carries into major) — only
 >   the prefix changes, and releases are numbered `Version-3.0.NN`, so the
->   current release (`Version-3.0.00`) is always the highest — preserving the
+>   current release (`Version-3.0.01`) is always the highest — preserving the
 >   monotonicity invariant.
 > - The old `v3.x` labels are preserved inline (`was v3.x` in headings and
 >   `version-renumber-map.txt`) for `[TAG]`-marker traceability, but the
@@ -142,6 +142,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 | **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
 | **Version-3.0.00** | `[DKMS-HEADERS]`/`[DKMS-ZSTD]`/`[DKMS-AUTOINSTALL]`/`[FLATPAK-FIRSTBOOT-LOG]`/`[FLATPAK-FIRSTBOOT-ADVANCE]`/`[FLATPAK-FIRSTBOOT-SVC]`/`[INSTALL-CONFIG-VIRT]`/`[SSH-NOKEY-WARNING]` — four fixes from auditing the fresh Beta-v2.9.99 hardware install against this script. **(1)** The kernel-header mapping lived INSIDE the `[NVIDIA-GATE]` branch as a first-match `case`, so a VirtualBox-only install got NO headers and a multi-kernel build got exactly one flavor (`KERNEL_PKGS="linux linux-mainline linux-lts"` matches `*linux-mainline*` first); live proof: the only headers present were `linux-headers-6.18_1`, arriving solely as `dkms`'s own `run_depends`, so `dkms autoinstall` built `virtualbox-ose` for 6.18.57_1 only while the default boot entry was mainline 7.2.11_1 — no `vboxdrv` at boot and a failing `VBoxManage` until the header packages were installed by hand. Now: one `<flavor>-headers` loop over `$KERNEL_PKGS` gated on ANY dkms consumer (nvidia OR virtualbox) and placed BEFORE it; `zstd` installed alongside (`/usr/sbin/dkms` compresses every module with the `zstd` binary nothing else ships — observed `zstd: command not found`, all three kernels' `vbox.ko` left raw); and an explicit best-effort `dkms autoinstall` after both consumers (transcript `/var/log/dkms-autoinstall.log`, never fatal — xbps has already committed the packages). **(2)** The first-boot Flatpak queue drain TRUNCATED its transcript on every firing (`: > /var/log/flatpak-firstboot.log`), so the next event destroyed the evidence of WHY the previous run had died; it never advanced the queue, so an interrupted run redid every already-installed app; and NM events were its ONLY trigger while a flock LOSER exited without re-arming — observed live: the 09:05 run stopped after Brave, unstamped, and the queue sat 75 minutes until a `connectivity-change` happened to fire. Now: append-only transcript under a timestamped header with a 256 KiB tail rotation; a `flatpak info` pre-check per ID plus a queue rewrite to the remaining failures (in place, so owner/mode survive), so a killed drain resumes where it stopped; and a supervised `/etc/sv/flatpak-firstboot` service retries the SAME drain through the dispatcher's new `boot-drain` action once a minute until the `.done` stamp exists, then parks on `pause` — one drain implementation, two triggers, one lock — linked on first boot behind a `[ -d /etc/sv/flatpak-firstboot ]` guard so a flatpak-less install gets no dangling link. **(3)** `INSTALL_VIRT`/`INSTALL_VIRTUALBOX`/`PROVISION_VIRTUALBOX_SUBVOL` were prompted, exported to the chroot and consumed by the rc.local first-boot links but never written to `install-config`, so the as-built record could not explain why `virtualbox-ose` was installed (same class as `[INSTALL-CONFIG-BACKENDS]` Beta-v2.9.68, which added steam/docker/podman). **(4)** `[SSH-DEFAULT-HARDEN]` (Beta-v2.9.95) defaults password auth and root login to NO while both key prompts default OFF and the NEXT STEPS list never said so — a default install ships a listening sshd nothing can authenticate to (the Beta-v2.9.99 box: port 2323, `PasswordAuthentication no`, `PermitRootLogin no`, no `~/.ssh`); the summary now warns, testing the REAL target `/mnt/home/<user>/.ssh/authorized_keys` so a staged `[SSH-DEPOSIT-LOG]`/`[SSH-USABLE]` key raises no false alarm. `zstd` added to `PKG_PREFLIGHT`. Sandbox-verified with a stub `flatpak`: queue advance, failure retention, stamp-on-drain, append (two headers), rotation, all three early exits, the flock loser, and the boot service drain → `pause`. `bash -n` clean, `check-heredocs.sh` ALL CLEAN (77), `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED (167) | Beta-v2.9.99 below |
+| **Version-3.0.01** | `[LIMINE-NVRAM-LABEL]`/`[LIMINE-NVRAM-PROMPT-MOVE]`/`[LIMINE-NVRAM-RESUME]` — the optional Limine UEFI NVRAM entry (Beta-v2.9.97) can now be **named**: a text prompt, asked only after the toggle is answered `y`, sets `LIMINE_NVRAM_LABEL` from `DEFAULT_LIMINE_NVRAM_LABEL` = the exact old literal `Void Linux (Limine)`, so a bare Enter reproduces the previous deploy byte-for-byte; Stage 2 now passes `${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}` to `efibootmgr --label` (the fallback covers a resumed state file predating this row). Input is trimmed in pure bash and must be non-empty, ≤80 characters (firmware menus truncate long descriptions) and free of quotes, backticks, `$`, backslashes and control characters, because the value is interpolated into double-quoted shell config at every consumer (chroot_env, install-config, DRY-RUN plan, NEXT-STEPS summary) — refusing up front beats escaping four writers; spaces and parentheses are accepted verbatim. Both prompts now run directly under `1) BOOTLOADER="limine"` (right after `esp_size_choose`), ~450 lines earlier than the old position after the kernel/device/hardware/network prompts. **Resume bug found while wiring the label:** `LIMINE_NVRAM` was never in the `[RESUME]` state-save list while the entire config block is skipped when `RESUME=1`, so a `-r` resumed run left it unset and `${LIMINE_NVRAM:-no}` silently skipped the entry the operator had already accepted; both names are now persisted (`printf %q`). `Debug/check-nvram-prompt.sh` — 23 cases over the verbatim-extracted prompt block; `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Version-3.0.00 below |
 | **Beta-v2.9.99** | `[LIBVIRT-AUTOSTART]` — the Beta-v2.9.98 one-shot BR0-NAT teardown was **irreversible** against a `libvirt` package update. `net-autostart default --disable` disables autostart by removing the **package-owned** symlink `/etc/libvirt/qemu/networks/autostart/default.xml`, and a later `libvirt` update re-installs every package file, silently restoring that symlink so `default` autostarts `virbr0` again — with the `[BR0-NAT-ONESHOT]` stamp present the block skipped forever and never undid it (the latent virbr0 return). The gate now **re-enters** when that symlink is present again, not only when the stamp is absent (stamp absent = initial migration; stamp + symlink = a package update restored it, re-tear; stamp + no symlink = still torn down, a single `[ -e ]` no-op). The re-entry probe needs no libvirtd and costs nothing on an already-migrated box, and a re-entered run is idempotent — it re-verifies and re-stamps, logging `reason=` in `/var/log/void-br0-nat-teardown.log`. The permanent pkgdb `libvirt: files check FAILED` for the removed package-owned symlink is unchanged (known, by-design; tracked separately). No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.98 below |
 | **Beta-v2.9.98** | `[BR0-NAT-ONESHOT]` + `[BR0-NAT-BACKGROUND]` — the rc.local libvirt `default` NAT teardown (Beta-v2.9.96) no longer costs boot time. `/etc/runit/2` runs `rc.local` **synchronously before `runsvdir`**, so the teardown's wait loop (`virsh net-info default` polled up to 30× `sleep 1`) sat directly on the path to the display manager and **always burned its full 30 s**: libvirtd is started by `runsvdir`, so it is never up when the loop begins and every probe failed (measured on the operator's box 2026-10-17: kernel→Xorg 38.4 s, of which 30 s was this block). Two changes: **(1)** a **verified** teardown (`torn_down=yes`) now stamps `/var/lib/void-installer/br0-nat-torn-down.done` and the stamp's presence skips the block on every later boot (an unverified teardown still retries the next boot); **(2)** the whole block runs as `{ …; } &`, so `rc.local` returns immediately and even the first unstamped run cannot block the desktop — and because the backgrounded loop keeps polling while `runsvdir` starts libvirtd, it now actually **succeeds** mid-boot (previously impossible), gets verified, and stamps. Teardown semantics, the wired-NIC presence gate, the log and the `virbr0` cleanup are unchanged; the same box boots to Xorg in ~8 s. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.97 below |
 | **Beta-v2.9.97** | `[LIMINE-NVRAM]` — re-adds the optional Limine UEFI NVRAM registration that first landed on the public export line at Beta-v2.9.92 (commit `ae72d75`, "feat(limine): add optional NVRAM entry, default off") and was then clobbered there by the Release-v2.9.93 source sync (`Source-Ref`) before any release shipped it — it was never present on this canonical line. A new `DEFAULT_LIMINE_NVRAM` toggle (default `false`) drives a Limine-only prompt; on `yes` the Stage-2 Limine deploy `install_pkgs efibootmgr` and runs `efibootmgr --create` pointing at `BOOTX64.EFI` (ESP disk/partition derived via `findmnt` + `lsblk`), in addition to the always-present removable/fallback path; failure is non-fatal. Default/no keeps the deploy byte-identical to the historical NVRAM-free behavior. The prompt accepts `y`/`yes`/`true` and `n`/`no`/`false` (the `[HEADLESS-PROMPT-LOOP]` lesson) so a true/false default can never loop. Threaded through the DRY-RUN plan, `chroot_env`, `limine-env`, `install-config` and the NEXT-STEPS text. `efibootmgr` was already in `PKG_PREFLIGHT`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.96 below |
@@ -985,6 +986,87 @@ The three intentional `xbps-pkgdb` findings on the Beta-v2.9.99 box
 libvirt autostart symlink) remain by design and tracked separately; this
 release does not touch them. No prompt, default or package set changes for
 an install that selects neither NVIDIA nor VirtualBox.
+
+## Version-3.0.01 — `[LIMINE-NVRAM-LABEL]` + `[LIMINE-NVRAM-PROMPT-MOVE]` + `[LIMINE-NVRAM-RESUME]` (the optional Limine NVRAM entry can be named, is asked at bootloader choice, and now survives `-r`)
+`SCRIPT_VERSION` bumped to Version-3.0.00 → Version-3.0.01.
+
+Two maintainer requests and one bug found while implementing them, all in the
+`[LIMINE-NVRAM]` feature (Beta-v2.9.97): let the operator choose the firmware
+boot-entry name (defaulting to the existing literal), ask about it closer to
+the moment Limine is picked — and, while threading a new variable through the
+resume machinery, close a hole that silently discarded an already-accepted
+answer.
+
+### 1 — `[LIMINE-NVRAM-LABEL]`: name the entry, default = the old literal
+
+**As-built context:** `[LIMINE-NVRAM]` created the entry with a hard-coded
+`--label "Void Linux (Limine)"`. The operator on the Beta-v2.9.99 box could
+see that name in `efibootmgr -v` (`Boot0003* Void Linux (Limine)`) but had no
+way to choose it.
+
+**The fix:**
+```sh
+DEFAULT_LIMINE_NVRAM_LABEL="${DEFAULT_LIMINE_NVRAM_LABEL:-Void Linux (Limine)}"
+…
+ask "UEFI boot entry label (default ${DEFAULT_LIMINE_NVRAM_LABEL}): "
+read -r LIMINE_NVRAM_LABEL_INPUT
+_lbl="${LIMINE_NVRAM_LABEL_INPUT:-$DEFAULT_LIMINE_NVRAM_LABEL}"
+```
+The prompt runs **only** when the toggle was just answered `yes`, so a default
+(no-entry) run still asks nothing it did not ask before, and an unanswered
+prompt yields exactly the Beta-v2.9.97 string — the deploy is unchanged unless
+someone types.
+
+Validation is deliberately strict, because the value is interpolated into
+double-quoted shell config at every consumer — `chroot_env`, the
+`install-config` heredoc, the DRY-RUN plan and the NEXT-STEPS summary — where
+one `"` or `` ` `` would break the generated file rather than merely look odd:
+
+- **trim** surrounding whitespace in pure bash (also covers a padded
+  `DEFAULT_LIMINE_NVRAM_LABEL` passed through the environment);
+- **non-empty** after trimming (reachable when the default itself is empty);
+- **≤ 80 characters** — firmware boot menus truncate long descriptions;
+- **no quotes, backticks, `$`, backslashes or control characters** — rejected
+  with an explanation instead of escaped at each of the four writers;
+- **spaces and parentheses are accepted verbatim** — the two characters people
+  actually want in a name (`Void Linux (my box)`).
+
+Stage 2 uses `${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}`; the fallback exists
+for a resumed state file written before this row, so `--label ""` is impossible.
+
+### 2 — `[LIMINE-NVRAM-PROMPT-MOVE]`: ask while the bootloader is being chosen
+
+The toggle lived ~450 lines after the bootloader menu, behind the kernel,
+device-profile, hardware-review, NVIDIA-gate, CPU/NIC/WiFi-firmware and
+network prompts. Both prompts now run inside `case 1)` of that menu, directly
+under `esp_size_choose`, so "how does this machine show up in the firmware
+boot menu" is settled at the moment Limine is chosen. Both variables are
+initialized **before** the menu, so a GRUB run sees neither prompt and keeps
+the historical defaults; the `export` moved with them (after the menu), so a
+GRUB run still exports both for the same downstream consumers.
+
+### 3 — `[LIMINE-NVRAM-RESUME]`: the resumed run silently dropped the choice
+
+**Root cause:** `[RESUME]` skips the **entire** interactive configuration
+block, and its state writer persists an explicit list of variables. `LIMINE_NVRAM`
+was not on that list, so after `-r` it was unset and
+`${LIMINE_NVRAM:-no}` resolved to `no` — a resumed install that had already
+accepted NVRAM registration created **no** entry, with no warning. Found while
+threading the label through that same list; both names are now on it
+(the writer uses `printf %q`, so any label round-trips safely).
+
+### Validation
+
+`Debug/check-nvram-prompt.sh` — 23 cases that extract the prompt block
+**verbatim** from the installer (start/end resolved by marker grep, so the
+test cannot drift when line numbers move) and assert: every toggle token
+(`y`/`yes`/`true`/`n`/`no`/`false`/bare Enter/garbage-then-retry), the label
+default, trimming, the 80-char boundary, all four unsafe-character classes,
+the control-character reject, the empty-default guard, the three error
+messages, and that `NVRAM=no` never shows the label prompt. Gates: `bash -n`
+clean; `check-heredocs.sh` ALL CLEAN; `check-defaults.sh` ALL CONSISTENT (the
+new `DEFAULT_` is declared *and* wired); `check-pkg-preflight.sh` ALL COVERED
+(no package surface changed).
 
 ## Beta-v2.9.99 — `[LIBVIRT-AUTOSTART]` (the one-shot BR0-NAT teardown self-heals against a `libvirt` package update)
 

@@ -8,7 +8,7 @@ recovery-first, snapshot-friendly system.
 
 | File | Description |
 |------|-------------|
-| `Void_Linux_Installer.sh` | Unified working installer (current version: **Version-3.0.00**). Run this. |
+| `Void_Linux_Installer.sh` | Unified working installer (current version: **Version-3.0.01**). Run this. |
 | `CHANGELOG.md` | Full lineage changelog using the `[VERSION-CARRY]` scheme: Alpha-v (manual step scripts), Beta-v (unified installer, Beta era closed at `Beta-v2.9.99`), Version-3.0.x (current era). |
 
 ## Usage
@@ -195,6 +195,22 @@ neither the target nor the live medium.
     (password auth and root login both default to No while the key prompts
     default off), so a default install can no longer end with a listening
     sshd that nobody can authenticate to.
+- **Version-3.0.01** — the optional Limine UEFI NVRAM entry is now **yours to
+  name**, and it is asked at the moment Limine is chosen:
+  - Answering `y` to *Register Limine NVRAM entry?* now also asks for the
+    entry's **label** — what `efibootmgr -v` and the firmware boot menu show.
+    Bare Enter keeps `Void Linux (Limine)`, the exact string the installer has
+    always written, so nothing changes unless you type. Spaces and parentheses
+    are fine (`Void Linux (my box)`); quotes, backticks, `$`, backslashes and
+    control characters are refused (the value is written into shell config),
+    80 characters is the cap, and an empty answer falls back to the default.
+  - **Both** prompts now sit immediately after `1) Limine` is selected in the
+    bootloader menu (beside the ESP-size menu) instead of several hundred
+    lines later.
+  - **A resumed install no longer drops the choice.** `LIMINE_NVRAM` was
+    missing from the `[RESUME]` state file while resume skips the whole config
+    block, so `-r` silently reinstalled without the entry the operator had
+    already accepted; the toggle and the label are both persisted now.
 
 ## Attribution & history
 

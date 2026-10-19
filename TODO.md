@@ -1,5 +1,43 @@
 # TODO / Open Items
 
+## RESOLVED — `[LIMINE-NVRAM-LABEL]` + `[LIMINE-NVRAM-PROMPT-MOVE]` + `[LIMINE-NVRAM-RESUME]` (found 2026-10-19; fixed 2026-10-19, Version-3.0.01)
+
+Two maintainer requests for the `[LIMINE-NVRAM]` feature (Beta-v2.9.97), plus
+one latent bug discovered while implementing them. Details in CHANGELOG.md
+under the same tags; the prompt logic is covered by the 23-case
+`Debug/check-nvram-prompt.sh`.
+
+- **(1) `[LIMINE-NVRAM-LABEL]` — let the operator name the firmware entry.**
+  The entry was always created as `efibootmgr --label "Void Linux (Limine)"`.
+  A new prompt (asked only after the registration toggle is answered `y`) sets
+  `LIMINE_NVRAM_LABEL` from `DEFAULT_LIMINE_NVRAM_LABEL` = that exact string,
+  so a bare Enter reproduces every previous deploy. Input is trimmed in pure
+  bash, must be non-empty, ≤ 80 characters, and may not contain quotes,
+  backticks, `$`, backslashes or control characters — the value is interpolated
+  into double-quoted shell config at four consumer sites (chroot_env,
+  install-config, DRY-RUN plan, NEXT-STEPS summary), so rejecting up front is
+  safer than escaping each writer; spaces/parentheses are accepted verbatim.
+  Stage 2 uses `${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}` so an old state
+  file can never produce `--label ""`.
+- **(2) `[LIMINE-NVRAM-PROMPT-MOVE]` — ask at the bootloader choice.** Both
+  prompts moved into `case 1)` of the bootloader menu (directly after
+  `esp_size_choose`), ~450 lines earlier; they used to sit behind the kernel,
+  device-profile, hardware-review, NVIDIA-gate, CPU/NIC/WiFi and network
+  prompts. Defaults are initialized before the menu, so a GRUB run never sees
+  either prompt, and the `export` moved to after the menu for the same reason.
+- **(3) `[LIMINE-NVRAM-RESUME]` — a resumed install silently dropped the
+  choice (the bug).** `[RESUME]` skips the entire interactive config block and
+  persists an explicit variable list; `LIMINE_NVRAM` was not on it, so after
+  `-r` it was unset, `${LIMINE_NVRAM:-no}` resolved to `no`, and an operator
+  who had already accepted NVRAM registration got **no** entry — with no
+  warning. Both `LIMINE_NVRAM` and `LIMINE_NVRAM_LABEL` are now in that list
+  (`printf %q`, so any label round-trips).
+
+Deliberately unchanged: `DEFAULT_LIMINE_NVRAM` stays `false` (opt-in, off by
+default), `efibootmgr` stays in `PKG_PREFLIGHT` (no package surface change),
+and the removable/fallback `EFI/BOOT/BOOTX64.EFI` path remains the only
+guaranteed boot entry whether or not registration succeeds.
+
 ## RESOLVED — audit of the fresh Beta-v2.9.99 install: `[DKMS-HEADERS]`/`[DKMS-ZSTD]`/`[DKMS-AUTOINSTALL]`, `[FLATPAK-FIRSTBOOT-LOG]`/`-ADVANCE`/`-SVC`, `[INSTALL-CONFIG-VIRT]`, `[SSH-NOKEY-WARNING]` (found 2026-10-19; fixed 2026-10-19, Version-3.0.00)
 
 Findings from running a fresh install built by this release and then
@@ -450,7 +488,7 @@ handling.
 
 ## Relevant Files (post-topology resolution)
 - `private/void-linux-installer/TODO.md`: This file.
-- `private/void-linux-installer/Void_Linux_Installer.sh`: Installer codebase (current: Version-3.0.00).
+- `private/void-linux-installer/Void_Linux_Installer.sh`: Installer codebase (current: Version-3.0.01).
 - `coordination/tools/sanitize-scan.sh`, `coordination/tools/make-public.sh`: Publishing safety tooling.
 - `coordination/.sanitize-denylist.txt`: Denylist used by sanitize tooling.
 - `_archive/lineageanchor-v2.9.13/`: Immutable historical snapshot (do not commit swaps; document in notes).
