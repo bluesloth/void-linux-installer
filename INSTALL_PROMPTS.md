@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Version-3.0.01**). It exists
+> `Void_Linux_Installer.sh` (current version: **Version-3.1.00**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -17,6 +17,12 @@
 
 ## 1. Startup
 
+- **Firmware/boot mode — not a prompt (Version-3.1.00).** Before anything else
+  the script reads `/sys/firmware/efi` and sets `BOOT_MODE=uefi|bios`
+  (re-derived from the environment on a resumed run), then prints one line:
+  `==> Boot mode: UEFI` or `==> Boot mode: legacy BIOS — bootloader steps use
+  the BIOS paths (GRUB i386-pc / limine bios-install) and no NVRAM entry is
+  offered.` Nothing is asked, and `BIOSBOOT_PART_SIZE` is fixed at `1M`.
 - **Resume the interrupted install using saved answers? [y/N]**
   Only shown if a saved state file exists. `y` skips the entire interactive
   configuration and resumes the interrupted run using saved answers.
@@ -120,6 +126,8 @@
     menu below:
     - **Register Limine NVRAM entry? [y/N]** — optional `efibootmgr`
       registration; default `N` keeps only the removable/fallback boot path.
+      **UEFI only:** a `BOOT_MODE=bios` run skips both prompts entirely
+      (legacy BIOS has no NVRAM) and prints one line saying so.
     - **UEFI boot entry label [default `Void Linux (Limine)`]** — asked only when
       the toggle above was `y`; what `efibootmgr -v` and the firmware boot menu
       show for the entry. Spaces and parentheses are kept; quotes, backticks,
@@ -387,8 +395,10 @@ Btrfs; these choices only slice DATA regions. Each `[b/e]` prompt accepts
 ## 10. Final review
 
 - **Proceed with these settings? [Enter=continue, R=restart config]**
-  A full summary of every choice is printed above. **Enter** proceeds to
-  the destructive partitioning; **R** re-runs the entire configuration
+  A full summary of every choice is printed above — since Version-3.1.00 it
+  starts with **`Boot mode: uefi|bios`**, the firmware detected before the
+  first prompt. **Enter** proceeds to the
+  destructive partitioning; **R** re-runs the entire configuration
   from the top (no disk has been touched yet).
 
 ---

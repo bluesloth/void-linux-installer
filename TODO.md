@@ -1,5 +1,89 @@
 # TODO / Open Items
 
+## RESOLVED — `[BIOS-BOOT]` (legacy-BIOS support; fixed 2026-10-19, Version-3.1.00)
+
+The installer was UEFI-only: on a non-UEFI machine it created a GPT with no
+BIOS boot partition, installed no i386-pc GRUB and never ran Limine's BIOS
+deploy, so the target disk was unbootable. Details in CHANGELOG.md under
+`[BIOS-BOOT]`; the static audit gate is `Debug/check-bios-boot.sh`
+(42 checks over every firmware-dependent construct) and the runtime
+validation is the QEMU/SeaBIOS case matrix run by the **committed**
+`Debug/qemu-matrix/` harness (`run-case.sh`: BIOS×{limine,grub}×
+{plain,ENCRYPT} + OVMF control cases — its README documents how to
+re-extract the live kernel/initrd and what a passing case looks like).
+
+- **Detection, not a prompt.** `BOOT_MODE=uefi|bios` is derived from
+  `/sys/firmware/efi` before the RESUME prompt (re-derived on resume),
+  exported through `chroot_env`, recorded in the resume state file,
+  `install-config`, the DRY-RUN plan (`Boot mode : …`) and the final
+  summary. Every firmware-dependent construct is written as
+  `if [ "$BOOT_MODE" = … ]` with the **UEFI branch as the default**, so the
+  legacy path can never be taken by accident on a UEFI box.
+- **Partition plan unchanged on UEFI; one extra partition on BIOS.** GPT is
+  kept, ESP stays p1 and carved regions keep their numbers — a fixed 1 MiB
+  `ef02` "BIOS boot" partition (`BIOSBOOT_PART_SIZE=1M`, not a prompt) is
+  appended immediately before the system partition, so only the remainder
+  row and any LUKS layer shift by `BIOSBOOT_OFFSET`.
+- **GRUB:** `grub-install --target=i386-pc --boot-directory … <disk>` under
+  the same `BIOSBOOT_PN` sanity check, then the usual `grub-mkconfig`.
+  (`--target=x86_64-efi` stays the UEFI branch, verbatim.)
+- **Limine:** `limine bios-install <disk> <index>` plus
+  `cp /usr/share/limine/limine-bios.sys /boot/efi/limine-bios.sys`, and the
+  config generator re-emits the already-written `limine.conf` to the ESP
+  root (`/boot/efi/limine.conf`) because `EFI/BOOT` is a UEFI-only search
+  location — one generator, one `mv`, both modes.
+- **UEFI-only behaviour gated:** the NVRAM registration prompts, the
+  Stage-2 `efibootmgr --create` and the `/Reboot Into Firmware` menu entry
+  are skipped on BIOS (no NVRAM exists); `BOOTX64.EFI` is still laid down so
+  a BIOS-installed disk also remains UEFI-bootable.
+
+- **Carried forward / still open:** see the "Not changed" note in CHANGELOG
+  §Version-3.1.00 — CSM/legacy-CSI firmware quirks and non-GPT BIOS disks
+  are out of scope.
+
+## OPEN — the disk picker offers the floppy drive (`/dev/fd0`) as an install target (found 2026-10-19 during QEMU BIOS validation; pre-existing, both modes)
+
+Not introduced by `[BIOS-BOOT]` and **not fixed in Version-3.1.00** (scope: a
+change to target selection is a pre-write risk and this release is about
+firmware support).
+
+- **What happens:** `DISK_CANDIDATE_NAMES` is `lsblk -d -n -o NAME,TYPE` filtered
+  on `type=disk`, minus anything with a mountpoint. `/dev/fd0` is `type=disk`
+  and is never mounted, so **any machine with a floppy controller lists it** —
+  and a legacy-BIOS PC (exactly the hardware Version-3.1.00 targets) is the
+  class of machine most likely to have one. Observed in QEMU: the menu came
+  back as `[1-2]` with `1) /dev/fd0 4096B` ahead of `2) /dev/vda`.
+- **Why it is not dangerous today:** the selection is followed by the
+  `You selected: /dev/fd0` destructive banner and the `ERASE!` typed
+  confirmation, and the DRY-RUN budget gate then refuses the 4 KiB device
+  (`FATAL [DISK-BUDGET] … 4096 bytes`) — the observed run stopped exactly
+  there, having written nothing.
+- **Worth doing later:** skip devices below a sane minimum size (or `fd*`)
+  in the candidate loop — with care, because removable USB media must stay
+  selectable.
+
+## OPEN — `[INSTALL-CONFIG-GRUB]` the install-config record file is only written on the Limine branch (found 2026-10-19 while root-causing a Version-3.1.00 matrix failure; pre-existing)
+
+`cat > /etc/void-installer/install-config << INNER_EOF` (stage 2) sits
+**inside** the `else` branch of `if [ "$BOOTLOADER" = "grub" ]` — that branch
+does not close until the `fi` marked `# End of GRUB/Limine branch` — so a GRUB
+install never writes the record file (nor its `chmod 644`), while the final
+summary still advertises `/etc/void-installer/install-config` as archived on
+the machine.
+
+- **Evidence:** all three Version-3.1.00 matrix runs that chose GRUB
+  (`bios-grub-plain`, `bios-grub-encrypt`, `uefi-grub-plain`) pass with the
+  verify probe's `---CFG---` section empty (nothing to grep); the Limine runs
+  reach the write — and died inside it until the 3.1.00 backtick fix (see
+  `Debug/qemu-matrix/README.md`, "What the matrix caught in the product").
+- **Not fixed in Version-3.1.00:** hoisting the write above the `fi` changes
+  the GRUB path (a file appears that never existed before), and this release
+  keeps the GRUB/UEFI path byte-identical to `eebc88e`.
+- **Fix when picked up:** move the write **and** its `chmod 644` above the
+  branch's `fi` (or close the branch earlier), then confirm a GRUB case gains a
+  non-empty `install-config` with `BOOT_MODE`/`BOOTLOADER` rows while Limine's
+  stays unchanged.
+
 ## RESOLVED — `[LIMINE-NVRAM-LABEL]` + `[LIMINE-NVRAM-PROMPT-MOVE]` + `[LIMINE-NVRAM-RESUME]` (found 2026-10-19; fixed 2026-10-19, Version-3.0.01)
 
 Two maintainer requests for the `[LIMINE-NVRAM]` feature (Beta-v2.9.97), plus

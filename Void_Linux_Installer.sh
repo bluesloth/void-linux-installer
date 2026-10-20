@@ -33,7 +33,7 @@
 #     Debug/check-pkg-preflight.sh. Repository/network hiccups DEGRADE the gate
 #     to a WARN+skip, never a false FATAL. This block sits after --dry-run and
 #     before the RESUME/partition boundary — it must never move.
-#   - Single physical disk, GPT, UEFI boot — the disk is chosen
+#   - Single physical disk, GPT, UEFI or legacy BIOS boot — the disk is chosen
 #     interactively at install time (numbered lsblk-based picker, live
 #     medium and any already-mounted disks filtered out, requires typing
 #     ERASE to confirm) rather than hardcoded to a specific device or bus
@@ -487,7 +487,11 @@
 #         AT /boot instead, giving GRUB a fully unencrypted boot tree (no
 #         LUKS cryptodisk needed — one dracut passphrase prompt) and growing
 #         the ESP to 4GiB to hold every kernel/initramfs.
-#     Both paths are UEFI-only; BIOS boot is not implemented for either.
+#     Both paths support UEFI and legacy BIOS since Version-3.1.00
+#     [BIOS-BOOT]: UEFI runs grub-install --target=x86_64-efi / the
+#     BOOTX64.EFI fallback (plus optional efibootmgr), BIOS runs
+#     grub-install --target=i386-pc into a 1 MiB ef02 partition / `limine
+#     bios-install` — every difference gated on $BOOT_MODE.
 #   - Repo mirror (Beta-v2.4.1): the official Void repository mirror is a real
 #     install-time choice auto-derived from the selected timezone (regional
 #     selection from the authoritative registry at xmirror.voidlinux.org),
@@ -581,7 +585,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Version-3.0.01"
+SCRIPT_VERSION="Version-3.1.00"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1266,6 +1270,37 @@ SCRIPT_VERSION="Version-3.0.01"
 #                     AND wired); check-pkg-preflight.sh unchanged (no package
 #                     surface). SCRIPT_VERSION bumped Version-3.0.00 ->
 #                     Version-3.0.01.
+#     Version-3.1.00 [BIOS-BOOT] — legacy-BIOS (non-UEFI) machines can now
+#                     boot an installed system; the installer was UEFI-only.
+#                     BOOT_MODE=uefi|bios is DERIVED from /sys/firmware/efi
+#                     before the RESUME prompt (re-derived on resume) — never
+#                     a prompt — exported through chroot_env and recorded in
+#                     the resume state, install-config, the DRY-RUN plan and
+#                     the final summary. Every firmware-dependent construct
+#                     reads it, with the UEFI branch as the default, so the
+#                     pre-3.1.00 path stays byte-identical.
+#                     BIOS appends a fixed 1 MiB `ef02` partition
+#                     (BIOSBOOT_PART_SIZE=1M, not a prompt) immediately before
+#                     the system partition: GPT is kept, the ESP stays p1 and
+#                     carved regions keep their numbers, so only the remainder
+#                     row and any LUKS layer shift by BIOSBOOT_OFFSET, and the
+#                     DISK-BUDGET pre-write gate now sums that 1 MiB too.
+#                     GRUB: `grub-install --target=i386-pc` under a
+#                     BIOSBOOT_PN sanity check (UEFI keeps x86_64-efi).
+#                     Limine: `limine bios-install <disk> <index>` +
+#                     limine-bios.sys on the ESP, and the config generator
+#                     re-emits limine.conf to the ESP root after its atomic
+#                     mv (a BIOS stage 2 only searches root,/boot,/limine).
+#                     UEFI-only by gate: NVRAM prompts, Stage-2 efibootmgr
+#                     and the /Reboot Into Firmware entry; BOOTX64.EFI stays
+#                     unconditional so a BIOS-installed disk still UEFI-boots.
+#                     Gates: bash -n OK; check-heredocs.sh ALL CLEAN (77);
+#                     check-defaults.sh ALL CONSISTENT; check-pkg-preflight.sh
+#                     ALL COVERED (168); check-nvram-prompt.sh 23/23;
+#                     Debug/check-bios-boot.sh 36/36 (new gate). Validated in
+#                     QEMU/SeaBIOS + OVMF: dry-run plan + full installs, cold
+#                     boot to the bootloader menu and login prompt.
+#                     SCRIPT_VERSION bumped Version-3.0.01 -> Version-3.1.00.
 #
 #   BETA ERA — TRACKED (continued; these pre-3.0.00 entries were appended out
 #   of order, newest first — Beta-v2.9.99 CLOSED this era):
@@ -1672,6 +1707,7 @@ save_log_to_usb() {
             echo "STAGE_CONTEXT=${STAGE_CONTEXT:-<pre-stage>}"
             echo "TARGET_DISK=${DISK:-<not yet selected>}"
             echo "BOOTLOADER=${BOOTLOADER:-<n/a>}"
+            echo "BOOT_MODE=${BOOT_MODE:-<n/a>}"
             echo "DESKTOP_ENV=${DESKTOP_ENV:-<n/a>}"
             echo "DISPLAY_MANAGER=${DISPLAY_MANAGER:-<n/a>}"
             echo "ENCRYPT=${ENCRYPT:-no} (public flag only; no passphrase ever)"
@@ -2041,7 +2077,7 @@ browse_pick() { # browse_pick <mode> <what-label>
 
 echo "=============================================================================="
 echo " ${C_BOLD}${C_CYN}Void Linux Unified Installer${C_RST} — ${C_BOLD}${SCRIPT_VERSION}${C_RST}"
-echo " Bootloader: choose GRUB or Limine below — UEFI only, BIOS unsupported"
+echo " Bootloader: choose GRUB or Limine below — UEFI and legacy BIOS both supported"
 echo "=============================================================================="
 
 # Best-effort unwind of whatever got mounted, run ONLY on an actual command
@@ -2452,6 +2488,44 @@ has_wired_nic_hw() {
 # answers are restored from the state file instead of being re-prompted.
 # On a fresh run (RESUME=0) this block behaves exactly as before.
 # =============================================================================
+
+# AI (Big Pickle) CHANGE — Version-3.1.00 [BIOS-BOOT]: the old hard FATAL on a
+# non-EFI boot is gone. Both paths now have a legacy-BIOS mode, so the running
+# firmware is DETECTED here instead of refused, and every downstream difference
+# keys off $BOOT_MODE. `/sys/firmware/efi` only exists when the kernel was
+# booted through EFI, so it is the one authoritative signal — no new prompt, the
+# firmware decides, and a CSM/legacy boot of the live medium lands in `bios`
+# exactly as it should.
+#
+# PLACEMENT MATTERS: this sits BEFORE the RESUME prompt-skip gate below, because
+# a resumed run must derive the same value the fresh run did — inside that gate
+# it would only be set from the state file, and a state file written by a
+# pre-3.1.00 run would leave it EMPTY (silently reading as "not uefi", i.e. the
+# wrong branch). Detection is cheap and side-effect free, so re-deriving beats
+# trusting stale state. The value is also recorded in the resume state,
+# chroot_env, install-config, the DRY-RUN plan and the final summary.
+# UEFI runs stay byte-identical to before: every BIOS difference below is
+# written as `if [ "$BOOT_MODE" = ... ]` with the UEFI branch as the default.
+if [ -d /sys/firmware/efi ]; then
+    BOOT_MODE="uefi"
+else
+    BOOT_MODE="bios"
+fi
+export BOOT_MODE
+# AI (Big Pickle) ADDITION — Version-3.1.00 [BIOS-BOOT]: the BIOS boot
+# partition is a fixed 1 MiB (GRUB's documented size for it; also exactly what
+# `limine bios-install` was probed against on a scratch GPT image in Step 0 —
+# stage 2 landed at the ef02 start and the menu booted). Not a prompt: there is
+# nothing worth asking.
+BIOSBOOT_PART_SIZE="1M"
+export BIOSBOOT_PART_SIZE
+if [ "$BOOT_MODE" = "bios" ]; then
+    echo "==> Boot mode: legacy BIOS — bootloader steps use the BIOS paths"
+    echo "    (GRUB i386-pc / limine bios-install) and no NVRAM entry is offered."
+else
+    echo "==> Boot mode: UEFI"
+fi
+
 if [ "$RESUME" != "1" ]; then
 echo ""
 echo "${C_BOLD}${C_BLU}Account privilege model${C_RST}"
@@ -2929,17 +3003,6 @@ export SWAPFILE_SIZE
 # has since switched the default. Limine is now listed FIRST in the menu
 # and bare Enter selects it (the mature GRUB path stays as choice 2).
 #
-# BIOS boot is NOT supported by either path in this script — both GRUB
-# (grub-install --target=x86_64-efi) and Limine are installed UEFI-only, so
-# the UEFI check applies regardless of which bootloader is chosen.
-if [ ! -d /sys/firmware/efi ]; then
-    echo "FATAL: this machine does not appear to be booted in UEFI mode." >&2
-    echo "       This installer only supports UEFI boot (GRUB and Limine" >&2
-    echo "       are both installed via their UEFI paths) — BIOS is not" >&2
-    echo "       implemented." >&2
-    exit 1
-fi
-
 # AI (Big Pickle) MOVE — Version-3.0.01 [LIMINE-NVRAM-PROMPT-MOVE] +
 # [LIMINE-NVRAM-LABEL]: both NVRAM answers now belong to the bootloader menu
 # itself (asked immediately after `1) BOOTLOADER="limine"` picks Limine)
@@ -2958,22 +3021,23 @@ LIMINE_NVRAM_LABEL="Void Linux (Limine)"
 # unchanged (GRUB and Limine remain two separate code paths, per DO NOT #5).
  echo ""
  echo "${C_BOLD}${C_BLU}Choose bootloader${C_RST}  (default: Limine)"
- echo "  ${C_BOLD}1)${C_RST} ${C_GRN}Limine${C_RST} — newer, simpler, single-file UEFI bootloader with no"
+ echo "  ${C_BOLD}1)${C_RST} ${C_GRN}Limine${C_RST} — newer, simpler, single-file bootloader with no"
  echo "     efibootmgr/NVRAM dependency (optional registration now available,"
- echo "     off by default: the removable/fallback boot path is always used)."
+ echo "     UEFI only and off by default: the removable/fallback boot path is"
+ echo "     always used; legacy BIOS installs the stages onto the disk instead)."
  echo "     Snapshot-boot menu support is a"
  echo "     static config this script writes itself (with the snapper plugin"
  echo "     auto-regenerating it on every snapshot create/delete). Requires"
- echo "     a 4GiB+ EFI partition (ArchWiki's own recommendation for"
- echo "     bootable snapshots, kernel versions, and large early-boot"
- echo "     modules)."
+ echo "     a 4GiB+ FAT boot partition (the ESP under UEFI — ArchWiki's own"
+ echo "     recommendation for bootable snapshots, kernel versions, and large"
+ echo "     early-boot modules)."
 echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snapshot-boot support via"
   echo "     grub-btrfs. Extensively real-hardware tested on this script's"
-  echo "     3.0.x line, including snapshot boot. 1GiB EFI partition."
+  echo "     3.0.x line, including snapshot boot. 1GiB boot partition (ESP under UEFI)."
   echo "     ${C_RED}NOTE: if you then enable full-disk encryption (next prompt), GRUB's"
- echo "     LUKS cryptodisk is bypassed entirely — the ESP is mounted AT /boot so"
- echo "     grub.cfg + kernels stay unencrypted and GRUB never unlocks the disk"
- echo "     (dracut prompts once, after handoff). The ESP grows to 4GiB in that"
+ echo "     LUKS cryptodisk is bypassed entirely — that FAT partition is mounted AT"
+ echo "     /boot so grub.cfg + kernels stay unencrypted and GRUB never unlocks the disk"
+ echo "     (dracut prompts once, after handoff). The partition grows to 4GiB in that"
  echo "     combo to hold every kernel/initramfs. YubiKey-only unlock still"
  echo "     clamps to passphrase-fallback on GRUB per [YUBIKEY].${C_RST}"
  while true; do
@@ -2994,73 +3058,88 @@ echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snaps
             # Behavior is unchanged: default off => the removable/fallback path
             # (BOOTX64.EFI) is the only firmware entry, exactly as before;
             # `yes` additionally runs `efibootmgr --create` in Stage 2.
-            echo ""
-            echo "${C_BOLD}${C_BLU}Limine NVRAM registration${C_RST}"
-            echo "  Register a UEFI NVRAM boot entry pointing at Limine's BOOTX64.EFI"
-            echo "  via efibootmgr? The default ('no') keeps the removable/fallback"
-            echo "  boot path only (current behaviour); 'yes' adds an explicit entry."
-            while true; do
-                case "${DEFAULT_LIMINE_NVRAM}" in
-                    [yY]|[yY][eE][sS]|true) _nvram_default="Y";;
-                    *) _nvram_default="N";;
-                esac
-                ask "${C_GRN}Register Limine NVRAM entry?${C_RST} [y/N] (default ${_nvram_default}): "
-                read -r LIMINE_NVRAM_INPUT
-                # AI (Big Pickle) — Beta-v2.9.96 [HEADLESS-PROMPT-LOOP] lesson applied
-                # here: accept the canonical tokens AND the toggle-convention true/false
-                # so a DEFAULT_LIMINE_NVRAM of true/false can never fall through and loop.
-                case "${LIMINE_NVRAM_INPUT:-$DEFAULT_LIMINE_NVRAM}" in
-                    [yY]|[yY][eE][sS]|true)  LIMINE_NVRAM="yes"; break ;;
-                    [nN]|[nN][oO]|false)     LIMINE_NVRAM="no";  break ;;
-                    *) echo "Please enter y or n." >&2 ;;
-                esac
-            done
-            unset _nvram_default LIMINE_NVRAM_INPUT
-            # AI (Big Pickle) ADDITION — Version-3.0.01 [LIMINE-NVRAM-LABEL]:
-            # name the entry instead of always using the Beta-v2.9.97 literal.
-            # Asked ONLY when a registration was just accepted (a `no` run still
-            # asks nothing extra) and shaped after the [SSH-SERVER] port prompt:
-            # bare Enter = DEFAULT_LIMINE_NVRAM_LABEL = the old literal string.
-            # The value is interpolated into double-quoted shell config at four
-            # writers (chroot_env, install-config, the DRY-RUN plan and the
-            # NEXT-STEPS summary), so anything that could be re-evaluated there
-            # is rejected up front rather than escaped at each call site (the
-            # resume state writes it with printf %q and is safe either way);
-            # spaces and parentheses — the two things people actually want —
-            # are accepted verbatim.
-            if [ "$LIMINE_NVRAM" = "yes" ]; then
+            # AI (Big Pickle) GATE — Version-3.1.00 [BIOS-BOOT]: both prompts are
+            # UEFI-only. Legacy BIOS has no NVRAM, so a BIOS run keeps the
+            # pre-menu defaults (no entry, canonical label), is told so in one
+            # line, and never reaches the Stage-2 `efibootmgr --create` (that
+            # call is keyed off LIMINE_NVRAM=yes, which stays "no" here). The
+            # UEFI branch is the pre-3.1.00 block verbatim, re-indented only —
+            # Debug/check-nvram-prompt.sh extracts it from the toggle header to
+            # the label block's closing `fi`, which is unaffected by this guard.
+            if [ "$BOOT_MODE" = "uefi" ]; then
                 echo ""
-                echo "${C_BOLD}${C_BLU}UEFI boot entry name${C_RST}"
-                echo "  The description the firmware boot menu and 'efibootmgr -v' show"
-                echo "  for this entry. Spaces and parentheses are fine; quotes, backticks,"
-                echo "  dollar signs and backslashes are not (kept out of shell config)."
+                echo "${C_BOLD}${C_BLU}Limine NVRAM registration${C_RST}"
+                echo "  Register a UEFI NVRAM boot entry pointing at Limine's BOOTX64.EFI"
+                echo "  via efibootmgr? The default ('no') keeps the removable/fallback"
+                echo "  boot path only (current behaviour); 'yes' adds an explicit entry."
                 while true; do
-                    ask "UEFI boot entry label (default ${DEFAULT_LIMINE_NVRAM_LABEL}): "
-                    read -r LIMINE_NVRAM_LABEL_INPUT
-                    _lbl="${LIMINE_NVRAM_LABEL_INPUT:-$DEFAULT_LIMINE_NVRAM_LABEL}"
-                    # Trim surrounding whitespace in pure bash (no external deps).
-                    _lbl="${_lbl#"${_lbl%%[![:space:]]*}"}"
-                    _lbl="${_lbl%"${_lbl##*[![:space:]]}"}"
-                    if [ -z "$_lbl" ]; then
-                        echo "Label cannot be empty — press Enter for the default." >&2
-                        continue
-                    fi
-                    if [ "${#_lbl}" -gt 80 ]; then
-                        # Soft guard: firmware menus truncate long descriptions.
-                        echo "Label too long — keep it under 80 characters." >&2
-                        continue
-                    fi
-                    case "$_lbl" in
-                        *\"*|*\`*|*\\*|*\$*|*[[:cntrl:]]*)
-                            echo "Label may not contain quotes, backticks, dollar signs," >&2
-                            echo "backslashes or control characters." >&2
-                            continue ;;
+                    case "${DEFAULT_LIMINE_NVRAM}" in
+                        [yY]|[yY][eE][sS]|true) _nvram_default="Y";;
+                        *) _nvram_default="N";;
                     esac
-                    LIMINE_NVRAM_LABEL="$_lbl"
-                    break
+                    ask "${C_GRN}Register Limine NVRAM entry?${C_RST} [y/N] (default ${_nvram_default}): "
+                    read -r LIMINE_NVRAM_INPUT
+                    # AI (Big Pickle) — Beta-v2.9.96 [HEADLESS-PROMPT-LOOP] lesson applied
+                    # here: accept the canonical tokens AND the toggle-convention true/false
+                    # so a DEFAULT_LIMINE_NVRAM of true/false can never fall through and loop.
+                    case "${LIMINE_NVRAM_INPUT:-$DEFAULT_LIMINE_NVRAM}" in
+                        [yY]|[yY][eE][sS]|true)  LIMINE_NVRAM="yes"; break ;;
+                        [nN]|[nN][oO]|false)     LIMINE_NVRAM="no";  break ;;
+                        *) echo "Please enter y or n." >&2 ;;
+                    esac
                 done
-                unset _lbl LIMINE_NVRAM_LABEL_INPUT
-                echo "  NVRAM entry will be: ${LIMINE_NVRAM_LABEL}"
+                unset _nvram_default LIMINE_NVRAM_INPUT
+                # AI (Big Pickle) ADDITION — Version-3.0.01 [LIMINE-NVRAM-LABEL]:
+                # name the entry instead of always using the Beta-v2.9.97 literal.
+                # Asked ONLY when a registration was just accepted (a `no` run still
+                # asks nothing extra) and shaped after the [SSH-SERVER] port prompt:
+                # bare Enter = DEFAULT_LIMINE_NVRAM_LABEL = the old literal string.
+                # The value is interpolated into double-quoted shell config at four
+                # writers (chroot_env, install-config, the DRY-RUN plan and the
+                # NEXT-STEPS summary), so anything that could be re-evaluated there
+                # is rejected up front rather than escaped at each call site (the
+                # resume state writes it with printf %q and is safe either way);
+                # spaces and parentheses — the two things people actually want —
+                # are accepted verbatim.
+                if [ "$LIMINE_NVRAM" = "yes" ]; then
+                    echo ""
+                    echo "${C_BOLD}${C_BLU}UEFI boot entry name${C_RST}"
+                    echo "  The description the firmware boot menu and 'efibootmgr -v' show"
+                    echo "  for this entry. Spaces and parentheses are fine; quotes, backticks,"
+                    echo "  dollar signs and backslashes are not (kept out of shell config)."
+                    while true; do
+                        ask "UEFI boot entry label (default ${DEFAULT_LIMINE_NVRAM_LABEL}): "
+                        read -r LIMINE_NVRAM_LABEL_INPUT
+                        _lbl="${LIMINE_NVRAM_LABEL_INPUT:-$DEFAULT_LIMINE_NVRAM_LABEL}"
+                        # Trim surrounding whitespace in pure bash (no external deps).
+                        _lbl="${_lbl#"${_lbl%%[![:space:]]*}"}"
+                        _lbl="${_lbl%"${_lbl##*[![:space:]]}"}"
+                        if [ -z "$_lbl" ]; then
+                            echo "Label cannot be empty — press Enter for the default." >&2
+                            continue
+                        fi
+                        if [ "${#_lbl}" -gt 80 ]; then
+                            # Soft guard: firmware menus truncate long descriptions.
+                            echo "Label too long — keep it under 80 characters." >&2
+                            continue
+                        fi
+                        case "$_lbl" in
+                            *\"*|*\`*|*\\*|*\$*|*[[:cntrl:]]*)
+                                echo "Label may not contain quotes, backticks, dollar signs," >&2
+                                echo "backslashes or control characters." >&2
+                                continue ;;
+                        esac
+                        LIMINE_NVRAM_LABEL="$_lbl"
+                        break
+                    done
+                    unset _lbl LIMINE_NVRAM_LABEL_INPUT
+                    echo "  NVRAM entry will be: ${LIMINE_NVRAM_LABEL}"
+                fi
+            else
+                echo ""
+                echo "  ${C_GRN}Legacy BIOS boot:${C_RST} this machine has no UEFI NVRAM, so no"
+                echo "  firmware boot entry is offered — Limine is installed to the"
+                echo "  disk's MBR/BIOS stages instead and boots from there."
             fi
             break ;;
          2) BOOTLOADER="grub"
@@ -5745,12 +5824,60 @@ fi
 # device, an eMMC target (/dev/mmcblkN) is just as reachable as NVMe, and
 # it uses the same "pN" partition-suffix convention nvme does (unlike
 # sdX/vdX, which just append the number directly).
+# =============================================================================
+# PARTITION NUMBERING INPUTS (must precede the first PART_SYS assignment below)
+# -----------------------------------------------------------------------------
+# AI (Big Pickle) ADDITION — Version-3.1.00 [BIOS-BOOT]: a legacy-BIOS install
+# adds ONE partition — the 1 MiB ef02 "BIOS boot" partition BOTH loaders need
+# (GRUB embeds core.img there; `limine bios-install` flatly refuses anything
+# else: "Chosen partition for BIOS boot code is not of BIOS boot partition
+# type", verified against a scratch GPT image). It is carved IMMEDIATELY BEFORE
+# the remainder partition, so partition 1 stays the ESP and every carved region
+# keeps its number in both modes — only the remainder (LINUX / the LUKS
+# container) shifts by BIOSBOOT_OFFSET. UEFI runs get BIOSBOOT_OFFSET=0 and are
+# byte-for-byte unchanged, so this has to be settled before PART_SYS is first
+# written. BIOSBOOT_PN/PART_BIOSBOOT are the number/device the carve below and
+# `limine bios-install <dev> <index>` both consume.
+#
+# The region-name validation and the NREG count that the Beta-v2.9.38
+# [MULTI-FS] geometry block used to open with moved up here for exactly that
+# reason (REGION_PARTITIONED is already final by the time a disk is chosen).
+# =============================================================================
+for _rr in $REGION_PARTITIONED; do
+    case "$_rr" in
+        home|var|cache|srv|opt|games) ;;
+        *) echo "FATAL: unknown carved region '$_rr' in REGION_PARTITIONED." >&2; exit 1 ;;
+    esac
+done
+NREG=0
+for _rr in $REGION_PARTITIONED; do NREG=$((NREG + 1)); done
+unset _rr
+if [ "$BOOT_MODE" = "bios" ]; then
+    # ef02 goes where the remainder WOULD start: after the regions when they
+    # are carved on the outer disk, otherwise straight after the ESP.
+    if [ -n "${REGION_PARTITIONED:-}" ] && [ "$ENCRYPT" != "yes" ]; then
+        BIOSBOOT_PN=$((NREG + 2))
+    else
+        BIOSBOOT_PN=2
+    fi
+    BIOSBOOT_OFFSET=1
+    if [[ "$DISK" =~ (nvme|mmcblk) ]]; then
+        export PART_BIOSBOOT="${DISK}p${BIOSBOOT_PN}"
+    else
+        export PART_BIOSBOOT="${DISK}${BIOSBOOT_PN}"
+    fi
+else
+    BIOSBOOT_PN=""
+    BIOSBOOT_OFFSET=0
+    PART_BIOSBOOT=""
+fi
+export NREG BIOSBOOT_PN BIOSBOOT_OFFSET PART_BIOSBOOT
 if [[ "$DISK" =~ (nvme|mmcblk) ]]; then
     export PART_EFI="${DISK}p1"
-    export PART_SYS="${DISK}p2"
+    export PART_SYS="${DISK}p$((2 + BIOSBOOT_OFFSET))"
 else
     export PART_EFI="${DISK}1"
-    export PART_SYS="${DISK}2"
+    export PART_SYS="${DISK}$((2 + BIOSBOOT_OFFSET))"
 fi
 
 # =============================================================================
@@ -5765,23 +5892,16 @@ fi
 # close/reopen — UNPROVEN, [MULTI-FS-PARTSCAN-FORCE] / [INNER-PARTSCAN-BOOT]
 # harden it later). Computed here (single site) so the resume-state file, the
 # dry-run plan, $BTRFS_DEV, fstab, and the sgdisk carve below all agree.
-# Partition 1 stays the ESP in every layout.
+# Partition 1 stays the ESP in every layout; NREG and the BIOS-boot offset
+# that feed the numbers here are computed immediately above (Version-3.1.00
+# [BIOS-BOOT]).
 # =============================================================================
-for _rr in $REGION_PARTITIONED; do
-    case "$_rr" in
-        home|var|cache|srv|opt|games) ;;
-        *) echo "FATAL: unknown carved region '$_rr' in REGION_PARTITIONED." >&2; exit 1 ;;
-    esac
-done
-NREG=0
-for _rr in $REGION_PARTITIONED; do NREG=$((NREG + 1)); done
-unset _rr
 if [ -n "${REGION_PARTITIONED:-}" ] && [ "$ENCRYPT" != "yes" ]; then
     # Outer-disk carve: regions 2..1+nreg, LINUX last (remainder).
     if [[ "$DISK" =~ (nvme|mmcblk) ]]; then
-        export PART_SYS="${DISK}p$((NREG + 2))"
+        export PART_SYS="${DISK}p$((NREG + 2 + BIOSBOOT_OFFSET))"
     else
-        export PART_SYS="${DISK}$((NREG + 2))"
+        export PART_SYS="${DISK}$((NREG + 2 + BIOSBOOT_OFFSET))"
     fi
     # Per-region partition device, in carve order.
     _rr_i=1
@@ -5800,8 +5920,9 @@ elif [ "${REGION_PARTITIONED:-}" = "" ]; then
     jl "MULTI-FS: no carved regions (all-Btrfs layout; PART_SYS=${PART_SYS})"
 else
     # ENCRYPT+regions: outer disk is ESP + single LUKS container (PART_SYS
-    # stays p2); the inner GPT on the mapper is carved after luksOpen with
-    # region i at mapper-pi and the Btrfs root at mapper-p(NREG+1).
+    # p2 on UEFI, p3 on BIOS where ef02 sits at p2); the inner GPT on the
+    # mapper is carved after luksOpen with region i at mapper-pi and the Btrfs
+    # root at mapper-p(NREG+1).
     jl "MULTI-FS geometry: ENCRYPT+regions nreg=${NREG} carved='${REGION_PARTITIONED}' LUKS container=${PART_SYS} (inner GPT on mapper)"
 fi
 export NREG
@@ -5956,7 +6077,7 @@ _region_sizes_sum() {
 # skip) only when the disk size is unreadable; any parse failure of a size we
 # DO understand is a hard 1 so an obviously-wrong value can't silently pass.
 _disk_budget_check() {
-    local _disk_b="${DISK_BYTES:-}" _esp_b _reg_b _need _lin_b
+    local _disk_b="${DISK_BYTES:-}" _esp_b _reg_b _need _lin_b _bb_b=0 _bb_txt=""
     if [ -z "$_disk_b" ] || ! [[ "$_disk_b" =~ ^[0-9]+$ ]]; then
         echo "WARN [DISK-BUDGET]: disk size for ${DISK:-<unset>} unreadable — skipping pre-write fit check."
         return 0
@@ -5966,17 +6087,29 @@ _disk_budget_check() {
         echo "FATAL [DISK-BUDGET]: could not parse ESP size '${EFI_PART_SIZE:-<unset>}' for the fit check." >&2
         return 1
     fi
+    # AI (Big Pickle) ADDITION — Version-3.1.00 [BIOS-BOOT]: a BIOS install also
+    # carves the 1 MiB ef02 partition, so the required sum has to include it —
+    # otherwise a disk that fits by a hair would pass the gate and then FATAL
+    # inside sgdisk with a partial table already written. UEFI adds 0 here.
+    if [ "${BOOT_MODE:-}" = "bios" ]; then
+        _bb_b="$(_size_to_bytes "${BIOSBOOT_PART_SIZE:-1M}")"
+        if [ -z "$_bb_b" ]; then
+            echo "FATAL [DISK-BUDGET]: could not parse BIOS boot partition size '${BIOSBOOT_PART_SIZE:-<unset>}'." >&2
+            return 1
+        fi
+        _bb_txt=" + ${BIOSBOOT_PART_SIZE} BIOS boot"
+    fi
     _reg_b="$(_region_sizes_sum)"
-    _need=$(( _esp_b + _reg_b + DISK_BUDGET_MIN_SYS ))
+    _need=$(( _esp_b + _bb_b + _reg_b + DISK_BUDGET_MIN_SYS ))
     _lin_b=$(( _disk_b - _need ))
     if [ "$_lin_b" -lt 0 ]; then
         echo "${C_RED}!! FATAL [DISK-BUDGET]: layout does NOT fit on ${DISK} (${_disk_b} bytes)." >&2
-        echo "     ESP(+${EFI_PART_SIZE}) + carved regions (${_reg_b} bytes) + >=1 GiB system" >&2
+        echo "     ESP(+${EFI_PART_SIZE})${_bb_txt} + carved regions (${_reg_b} bytes) + >=1 GiB system" >&2
         echo "     remainder would need ${_need} bytes total — ${_lin_b} bytes short. Nothing" >&2
         echo "     was written. Reduce the ESP and/or carved-region sizes and re-run.${C_RST}" >&2
         return 1
     fi
-    echo "OK [DISK-BUDGET]: ESP(+${EFI_PART_SIZE}) + regions (${_reg_b} B) + LINUX remainder (${_lin_b} B >= 1 GiB) fit inside ${_disk_b} B."
+    echo "OK [DISK-BUDGET]: ESP(+${EFI_PART_SIZE})${_bb_txt} + regions (${_reg_b} B) + LINUX remainder (${_lin_b} B >= 1 GiB) fit inside ${_disk_b} B."
     return 0
 }
 
@@ -6138,7 +6271,7 @@ fi
 {
     printf 'export RESUME_TYPE="coarse"\n'
     for _sv in ACCOUNT_MODEL ROOT_PASS_HASH TARGET_PASS_HASH TARGET_USER TARGET_HOSTNAME \
-               TARGET_DOMAIN TARGET_FQDN NET_INTERFACE_MATCH BOOTLOADER \
+               TARGET_DOMAIN TARGET_FQDN NET_INTERFACE_MATCH BOOTLOADER BOOT_MODE \
                EFI_PART_SIZE KERNEL_MODE DESKTOP_ENV DISPLAY_MANAGER \
                HAS_GRAPHICAL INSTALL_XORG INSTALL_AUDIO \
                USER_SHELL USER_SHELL_PKG \
@@ -6208,9 +6341,10 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "${C_MAG}========================= DRY-RUN PLAN =========================${C_RST}"
     echo "  Mode                  : --dry-run — no disk changes performed."
     echo "  Target disk           : ${DISK:-<not selected>} (${DISK_BYTES:-<size unreadable>} bytes)"
-    echo "  Destructive steps     : sgdisk -Z + -og, ESP(+${EFI_PART_SIZE}) + LINUX parts,"
+    echo "  Destructive steps     : sgdisk -Z + -og, ESP(+${EFI_PART_SIZE})$([ "${BOOT_MODE:-}" = "bios" ] && echo " + ${BIOSBOOT_PART_SIZE:-1M} ef02 BIOS boot") + LINUX parts,"
     echo "                          mkfs.fat -F32 EFI, mkfs.btrfs -f, subvolume layout."
     echo "  Headroom              : >= 1 GiB LINUX system remainder required (DISK-BUDGET pass)"
+    echo "  Boot mode             : ${BOOT_MODE:-<unset>}"
     echo "  Bootloader            : ${BOOTLOADER:-<unset>}"
     if [ "$BOOTLOADER" = "limine" ]; then
         echo "  Kernel access         : ${KERNEL_MODE:-<unset>} (Limine)"
@@ -6339,6 +6473,7 @@ go
 greetd
 grub-btrfs
 grub-btrfs-runit
+grub
 grub-x86_64-efi
 udiskie
 udisks2
@@ -6623,10 +6758,29 @@ if [ "$RESUME" != "1" ]; then
             sgdisk -n "${_rr_pn}::+${_rr_posn}" -t "${_rr_pn}":8300 -c "${_rr_pn}":"LINUX-${_rr}" "$DISK"
             _rr_pn=$((_rr_pn + 1))
         done
+        # AI (Big Pickle) ADDITION — Version-3.1.00 [BIOS-BOOT]: the 1 MiB ef02
+        # partition, exactly where BIOSBOOT_PN said it would be (computed in the
+        # numbering block above, before PART_SYS was derived from it). Regions
+        # were carved first, so they keep numbers 2..1+NREG in both modes; LINUX
+        # then takes the remainder after it.
+        if [ "$BOOT_MODE" = "bios" ]; then
+            sgdisk -n "${_rr_pn}::+${BIOSBOOT_PART_SIZE}" -t "${_rr_pn}":ef02 -c "${_rr_pn}":'BIOSBOOT' "$DISK"
+            _rr_pn=$((_rr_pn + 1))
+        fi
         sgdisk -n "${_rr_pn}::" -t "${_rr_pn}":8300 -c "${_rr_pn}":'LINUX' "$DISK"
         unset _rr_pn _rr_posn _rr _rr_n
     else
-        sgdisk -n 2:: -t 2:8300 -c 2:'LINUX' "$DISK"
+        # AI (Big Pickle) CHANGE — Version-3.1.00 [BIOS-BOOT]: on BIOS the ef02
+        # partition sits at p2 and the remainder (plain LINUX, or the LUKS
+        # container when ENCRYPT=yes — same partition either way) starts at p3,
+        # matching PART_SYS=$((2 + BIOSBOOT_OFFSET)) above. UEFI writes p2 as it
+        # always has.
+        if [ "$BOOT_MODE" = "bios" ]; then
+            sgdisk -n "2::+${BIOSBOOT_PART_SIZE}" -t 2:ef02 -c 2:'BIOSBOOT' "$DISK"
+            sgdisk -n 3:: -t 3:8300 -c 3:'LINUX' "$DISK"
+        else
+            sgdisk -n 2:: -t 2:8300 -c 2:'LINUX' "$DISK"
+        fi
     fi
     # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS-RUNLOG]: line the journal
     # with the carve summary so a crash (or the installer-run.log archive below)
@@ -7269,7 +7423,13 @@ for dir in dev proc sys run; do
     mount -v --rbind "/${dir}" "/mnt/${dir}"
     mount -v --make-rslave "/mnt/${dir}"
 done
-mount -v -t efivarfs efivarfs /mnt/sys/firmware/efi/efivars
+# AI (Big Pickle) GATE — Version-3.1.00 [BIOS-BOOT]: efivarfs only exists when
+# the kernel was booted through EFI (it lives under the EFI sysfs subtree), and
+# this script runs under `set -eE` — an unguarded mount here would abort a BIOS
+# install outright. UEFI runs mount exactly as before.
+if [ "$BOOT_MODE" = "uefi" ]; then
+    mount -v -t efivarfs efivarfs /mnt/sys/firmware/efi/efivars
+fi
 cp /etc/resolv.conf /mnt/etc/
 
 BTRFS_UUID=$(blkid -s UUID -o value "$BTRFS_DEV")
@@ -7672,6 +7832,19 @@ fi
 echo "export SESSION_STACK=\"$SESSION_STACK\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_OCTOXBPS=\"$INSTALL_OCTOXBPS\"" >> /mnt/tmp/chroot_env.sh
 echo "export BOOTLOADER=\"$BOOTLOADER\"" >> /mnt/tmp/chroot_env.sh
+# AI (Big Pickle) ADDITION — Version-3.1.00 [BIOS-BOOT]: which firmware path
+# Stage 2's bootloader branch takes (grub-install --target=i386-pc +
+# `limine bios-install` vs the x86_64-efi paths).
+echo "export BOOT_MODE=\"$BOOT_MODE\"" >> /mnt/tmp/chroot_env.sh
+# AI (Big Pickle) ADDITION — Version-3.1.00 [BIOS-BOOT]: the BIOS installers
+# need the DISK itself (grub-install i386-pc takes the whole-disk device;
+# limine bios-install takes disk + the ef02 partition INDEX) — none of it
+# crosses into a chroot by inheritance, exactly like the variables above.
+# UEFI carries them too (DISK is public; PART_BIOSBOOT/BIOSBOOT_PN are empty
+# strings there and simply unused).
+echo "export DISK=\"$DISK\"" >> /mnt/tmp/chroot_env.sh
+echo "export PART_BIOSBOOT=\"${PART_BIOSBOOT:-}\"" >> /mnt/tmp/chroot_env.sh
+echo "export BIOSBOOT_PN=\"${BIOSBOOT_PN:-}\"" >> /mnt/tmp/chroot_env.sh
 # Beta-v2.6.2 [GRUB-ESP-BOOT]: derived flag (grub && encrypt) carried into
 # the chroot so Stage 2 picks the right grub-install --efi-directory.
 echo "export GRUB_ESP_BOOT=\"$GRUB_ESP_BOOT\"" >> /mnt/tmp/chroot_env.sh
@@ -10450,15 +10623,34 @@ install_pkgs snapper
 # grub-mkconfig-style generator.
 if [ "$BOOTLOADER" = "grub" ]; then
 
-install_pkgs grub-x86_64-efi efibootmgr
-# AI (Big Pickle) CHANGE — Beta-v2.6.2 [GRUB-ESP-BOOT]: under GRUB+ENCRYPT
-# the ESP IS /boot (vfat covering the whole boot tree), so grub-install must
-# point --efi-directory at /boot — GRUB's prefix, modules, and grub.cfg all
-# land on the unencrypted ESP; GRUB never opens the LUKS volume.
-if [ "$GRUB_ESP_BOOT" = "true" ]; then
-    grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id="Void_GRUB" --recheck
+# AI (Big Pickle) CHANGE — Version-3.1.00 [BIOS-BOOT]: package + target branch.
+# UEFI keeps `grub-x86_64-efi efibootmgr` and the two --efi-directory variants
+# verbatim. BIOS installs the BASE `grub` package instead — that is what ships
+# /usr/lib/grub/i386-pc (verified against the Void repo: there is no separate
+# grub-i386-pc package, the base `grub` carries the BIOS module tree, and
+# grub-x86_64-efi only carries the EFI one) — skips efibootmgr entirely (no
+# NVRAM on legacy firmware), and installs to the disk's MBR + the ef02
+# partition. grub-install auto-detects the bios_grub (ef02) partition on a GPT
+# disk, so the whole-disk device is the only argument; $DISK reaches the chroot
+# via chroot_env. --recheck stays, same as the UEFI branch (it re-probes device
+# maps). GRUB_ESP_BOOT is mode-independent (grub && encrypt) and still applies:
+# the FAT partition is mounted AT /boot in both modes, so a BIOS+ENCRYPT run
+# gets GRUB's core modules on the unencrypted FAT too, and GRUB never touches
+# LUKS — exactly the property the UEFI branch relies on.
+if [ "$BOOT_MODE" = "bios" ]; then
+    install_pkgs grub
+    grub-install --target=i386-pc --recheck "$DISK"
 else
-    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id="Void_GRUB" --recheck
+    install_pkgs grub-x86_64-efi efibootmgr
+    # AI (Big Pickle) CHANGE — Beta-v2.6.2 [GRUB-ESP-BOOT]: under GRUB+ENCRYPT
+    # the ESP IS /boot (vfat covering the whole boot tree), so grub-install must
+    # point --efi-directory at /boot — GRUB's prefix, modules, and grub.cfg all
+    # land on the unencrypted ESP; GRUB never opens the LUKS volume.
+    if [ "$GRUB_ESP_BOOT" = "true" ]; then
+        grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id="Void_GRUB" --recheck
+    else
+        grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id="Void_GRUB" --recheck
+    fi
 fi
 
 # AI (Big Pickle) CHANGE — Beta-v2.4.0 [SWAP]: resume-from-disk kernel params are
@@ -10562,6 +10754,52 @@ fi
 mkdir -p /boot/efi/EFI/BOOT
 cp -f "$LIMINE_EFI_SRC" /boot/efi/EFI/BOOT/BOOTX64.EFI
 
+# AI (Big Pickle) ADDITION — Version-3.1.00 [BIOS-BOOT]: the legacy-BIOS
+# counterpart to the copy above. Legacy firmware never reads EFI/BOOT, so BIOS
+# gets its own two pieces, both proven rootlessly against a scratch GPT image
+# in Step 0 (QEMU/SeaBIOS reached the Limine 12.9.3 menu and loaded a kernel):
+#   1. `limine bios-install <disk> <ef02 index>` writes the MBR boot code plus
+#      stage 2 into the BIOS boot partition. The index is passed EXPLICITLY
+#      rather than left to autodetection (probe: autodetect works, but an
+#      explicit number cannot be surprised by partition order), and Limine
+#      hard-refuses a partition that isn't of BIOS boot type — so the carve
+#      guarantee "ef02 exists at BIOSBOOT_PN" is verified first.
+#   2. limine-bios.sys (the stage-3 data file — the UEFI fallback BOOTX64.EFI
+#      above is self-contained, BIOS is not) goes to the FAT partition's ROOT,
+#      one of Limine's four documented data-file locations; /boot/efi IS that
+#      partition's mountpoint.
+# The config is deliberately NOT copied here: void-limine-write-conf (called
+# below and from every later kernel hook / snapper resync) emits the second
+# limine.conf to /boot/efi/limine.conf whenever limine-env says bios, so the
+# two files can never drift apart. The BOOTX64.EFI copy above is intentionally
+# left unconditional — it is harmless on a BIOS install and keeps a drive
+# installed under legacy boot able to boot if the firmware is switched to UEFI.
+if [ "$BOOT_MODE" = "bios" ]; then
+    # AI (Big Pickle) CHANGE — Version-3.1.00 [BIOS-BOOT]: the first cut compared
+    # BIOSBOOT_PN to raw `lsblk -no PARTN`, which RIGHT-ALIGNS its column (" 2"),
+    # so the strings never matched and the matrix caught this gate refusing the
+    # very table its verify probe printed p1 EF00 / p2 EF02 / p3 8300
+    # (bios-limine-plain, rc=4). The kernel answers first — sysfs
+    # /sys/class/block/<name>/partition needs only the /sys rbind Stage 2 mounts
+    # at bootstrap and emits a bare "2" — lsblk stays as the whitespace-stripped
+    # fallback. Refusal needs POSITIVE evidence and the FATAL names every source
+    # so the log alone diagnoses the next miss; Limine itself still hard-refuses
+    # a partition that is not of BIOS boot type, so type safety is its job.
+    _bb_pn="$(cat "/sys/class/block/${PART_BIOSBOOT##*/}/partition" 2>/dev/null || true)"
+    if [ -z "$_bb_pn" ]; then
+        _bb_pn="$(lsblk -no PARTN "$PART_BIOSBOOT" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)"
+    fi
+    if [ -n "$_bb_pn" ] && [ "$_bb_pn" != "${BIOSBOOT_PN}" ]; then
+        echo "FATAL: expected ef02 partition ${PART_BIOSBOOT} to be p${BIOSBOOT_PN} but the kernel reports p${_bb_pn} — refusing to install Limine BIOS stages." >&2; exit 1
+    fi
+    if [ -z "$_bb_pn" ] && [ ! -b "$PART_BIOSBOOT" ]; then
+        echo "FATAL: expected ef02 partition ${PART_BIOSBOOT} (p${BIOSBOOT_PN}) has no kernel partition number (/sys entry, lsblk answer, and device node all absent) — refusing to install Limine BIOS stages." >&2; exit 1
+    fi
+    echo "==> Installing Limine BIOS boot stages: MBR + stage 2 in ${PART_BIOSBOOT} (p${BIOSBOOT_PN}; kernel number: p${_bb_pn:-unconfirmed})"
+    limine bios-install "$DISK" "$BIOSBOOT_PN"
+    cp -f /usr/share/limine/limine-bios.sys /boot/efi/limine-bios.sys
+fi
+
 # AI (Big Pickle) RE-ADDITION — Beta-v2.9.97 [LIMINE-NVRAM]: opt-in UEFI NVRAM
 # registration. Default (LIMINE_NVRAM != yes) leaves the removable/fallback
 # path above as the only firmware entry, exactly as historical Limine installs.
@@ -10573,7 +10811,12 @@ cp -f "$LIMINE_EFI_SRC" /boot/efi/EFI/BOOT/BOOTX64.EFI
 # prompt-time LIMINE_NVRAM_LABEL; the `${...:-Void Linux (Limine)}` fallback is
 # the Beta-v2.9.97 literal, so an empty/unset value (old resumed state file)
 # still yields a named entry instead of `--label ""`.
-if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
+# AI (Big Pickle) GATE — Version-3.1.00 [BIOS-BOOT]: belt-and-braces firmware
+# guard. The prompt that sets LIMINE_NVRAM never runs on a BIOS install (it is
+# behind the same BOOT_MODE=uefi gate), so LIMINE_NVRAM is "no" here anyway —
+# but efibootmgr --create cannot work without NVRAM, so the mode is checked
+# too rather than trusting prompt ordering. UEFI behaviour is unchanged.
+if [ "${LIMINE_NVRAM:-no}" = "yes" ] && [ "$BOOT_MODE" = "uefi" ]; then
     install_pkgs efibootmgr
     _esp_src="$(findmnt -no SOURCE /boot/efi 2>/dev/null)"
     _esp_disk="$(lsblk -no PKNAME "$_esp_src" 2>/dev/null | head -n1)"
@@ -10646,6 +10889,15 @@ KERNEL_MODE="${KERNEL_MODE}"
 BTRFS_UUID="${BTRFS_UUID}"
 SYSPREFIX_ESP="${SYSPREFIX_ESP}"
 SYSPREFIX_BTRFS="${SYSPREFIX_BTRFS}"
+# AI (Big Pickle) ADDITION — Version-3.1.00 [BIOS-BOOT]: which firmware this
+# system was installed for (uefi|bios). Unlike the LIMINE_NVRAM rows below,
+# void-limine-write-conf READS this one: a BIOS install needs a SECOND
+# limine.conf at the root of the FAT partition (a BIOS stage2 searches root,
+# /boot, /limine and /boot/limine — never EFI/BOOT, which is a UEFI-only
+# location), while /boot/efi/EFI/BOOT/limine.conf stays the primary file for
+# both modes. The generator falls back to "uefi", so a pre-3.1.00 record (no
+# row) behaves exactly as it always did.
+BOOT_MODE="${BOOT_MODE}"
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [SWAP]: baked at install time so the
 # kernel/cron generators know whether to emit resume-from-disk kernel params.
 HIBERNATION_ENABLED="${ENABLE_HIBERNATION}"
@@ -10780,6 +11032,11 @@ HAS_GRAPHICAL="${HAS_GRAPHICAL:-yes}"
 INSTALL_XORG="${INSTALL_XORG:-false}"
 INSTALL_AUDIO="${INSTALL_AUDIO:-true}"
 BOOTLOADER="${BOOTLOADER:-<unset>}"
+# AI (Big Pickle) ADDITION — Version-3.1.00 [BIOS-BOOT]: as-built record of the
+# firmware the system was installed for (uefi|bios). Public, non-secret; lets a
+# later audit tell which bootloader path was taken. Missing on pre-3.1.00
+# records, hence the '<unset>' fallback.
+BOOT_MODE="${BOOT_MODE:-<unset>}"
 KERNEL_MODE="${KERNEL_MODE:-<unset>}"
 # AI (Big Pickle) ADDITION — Beta-v2.9.16 [KERNEL-SELECT]: as-built record of
 # the resolved kernel set (always starts with linux; space-joined).
@@ -10849,7 +11106,7 @@ INSTALL_COSMIC_STORE="${INSTALL_COSMIC_STORE:-false}"
 # AI (Big Pickle) ADDITION — Beta-v2.9.84 [FLATPAK-PULL-DETECT]: when Flatpak
 # was DECLINED at the prompt (INSTALL_FLATPAK=false) but is installed anyway
 # (a future metapackage revision or a manual install pulled it), this row
-# records who pulled it (reverse deps via `xbps-query -X flatpak`). Empty when
+# records who pulled it (reverse deps via xbps-query -X flatpak). Empty when
 # Flatpak is absent or was accepted. Public facts only.
 FLATPAK_PULLED_BY="${FLATPAK_PULLED_BY:-}"
 INSTALL_BRAVE="${INSTALL_BRAVE:-false}"
@@ -10886,7 +11143,7 @@ PROVISION_PODMAN_ROOTLESS_SUBVOL="${PROVISION_PODMAN_ROOTLESS_SUBVOL:-false}"
 # umbrella and the VirtualBox choice were prompted (Beta-v2.8.4 [INSTALL-VBOX]),
 # exported to the chroot and consumed by the rc.local first-boot links — but
 # never emitted here. The Beta-v2.9.99 as-built record therefore explained
-# neither why `virtualbox-ose`/`virtualbox-ose-dkms` were installed nor which
+# neither why virtualbox-ose/virtualbox-ose-dkms were installed nor which
 # subvol the [SUBVOL-GATES] resolver created for them (only the derived
 # VIRT_BR0 row above, which says nothing about the choice itself). Same
 # [INSTALL-CONFIG-BACKENDS] class of gap, same fix: public booleans only.
@@ -11286,13 +11543,30 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
         done
     fi
 
-    echo ""
-    echo "/Reboot Into Firmware"
-    echo "    protocol: efi_firmware_update_request"
+    # AI (Big Pickle) GATE — Version-3.1.00 [BIOS-BOOT]: firmware hand-off is a
+    # UEFI runtime service; under legacy BIOS the entry would render but do
+    # nothing useful, so it is only emitted where it can work. UEFI output is
+    # byte-identical to 3.0.01.
+    if [ "${BOOT_MODE:-uefi}" = "uefi" ]; then
+        echo ""
+        echo "/Reboot Into Firmware"
+        echo "    protocol: efi_firmware_update_request"
+    fi
 } > "$TMP_CONF"
 # Atomic swap — a cron run landing mid-write (e.g. install disk full,
 # process killed) never leaves limine.conf truncated or half-written.
 mv -f "$TMP_CONF" /boot/efi/EFI/BOOT/limine.conf
+# AI (Big Pickle) ADDITION — Version-3.1.00 [BIOS-BOOT]: legacy-BIOS installs
+# keep a SECOND copy at the FAT partition's root, because a Limine BIOS stage2
+# only searches root, /boot, /limine and /boot/limine for its config — the
+# EFI/BOOT path above is a UEFI-only location. Placed after the atomic mv so
+# both copies are always produced from the same freshly-written bytes by EVERY
+# trigger (install-time call, kernel post-install/post-remove hook, snapper
+# plugin), which is the whole point of having one generator. A UEFI install
+# takes neither line: no second file, no extra write, /boot/efi untouched.
+if [ "${BOOT_MODE:-uefi}" = "bios" ]; then
+    cp -f /boot/efi/EFI/BOOT/limine.conf /boot/efi/limine.conf
+fi
 INNER_EOF
 chmod 0755 /usr/local/sbin/void-limine-write-conf
 
@@ -14515,6 +14789,7 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
     echo "${C_BOLD}  Greeter:${C_RST}       ${_GREETER_FRIENDLY}"
     unset _GREETER_FRIENDLY
 fi
+echo "${C_BOLD}  Boot mode:${C_RST}     ${BOOT_MODE}"
 echo "${C_BOLD}  Bootloader:${C_RST}   ${BOOTLOADER}"
 # AI (Big Pickle) ADDITION — Beta-v2.4.0 [LOCALIZE]: echo the chosen locale and
 # timezone in the summary so the user knows the target's configured language
@@ -14550,6 +14825,8 @@ if [ "$BOOTLOADER" = "limine" ]; then
     if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
         echo "${C_GRN}  3.${C_RST} Limine is registered in NVRAM (plus the removable fallback path)"
         echo "     as ${C_BOLD}${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}${C_RST} — check with:  ${C_BOLD}efibootmgr${C_RST}"
+    elif [ "$BOOT_MODE" = "bios" ]; then
+        echo "${C_GRN}  3.${C_RST} Limine boots from its MBR/BIOS install (legacy boot — no NVRAM entry)."
     else
         echo "${C_GRN}  3.${C_RST} Limine boots automatically (no NVRAM entry needed on UEFI)."
     fi

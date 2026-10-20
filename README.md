@@ -8,8 +8,8 @@ recovery-first, snapshot-friendly system.
 
 | File | Description |
 |------|-------------|
-| `Void_Linux_Installer.sh` | Unified working installer (current version: **Version-3.0.01**). Run this. |
-| `CHANGELOG.md` | Full lineage changelog using the `[VERSION-CARRY]` scheme: Alpha-v (manual step scripts), Beta-v (unified installer, Beta era closed at `Beta-v2.9.99`), Version-3.0.x (current era). |
+| `Void_Linux_Installer.sh` | Unified working installer (current version: **Version-3.1.00**). Run this. |
+| `CHANGELOG.md` | Full lineage changelog using the `[VERSION-CARRY]` scheme: Alpha-v (manual step scripts), Beta-v (unified installer, Beta era closed at `Beta-v2.9.99`), Version-3.x (current era). |
 
 ## Usage
 
@@ -35,8 +35,20 @@ neither the target nor the live medium.
 
 ## What it produces
 
-- Single physical disk, GPT, **UEFI-only** (BIOS boot is not implemented).
-- Partition 1 = ESP (FAT32); partition 2 = one BTRFS filesystem with a
+- Single physical disk, GPT, booting **either firmware**: UEFI (the unchanged
+  path) or **legacy BIOS** (Version-3.1.00). There is no prompt for it —
+  `BOOT_MODE` is detected from `/sys/firmware/efi` before any other question,
+  recorded in the resume state / `install-config` / DRY-RUN plan / final
+  summary, and gates every firmware-dependent step. Legacy boot carves one
+  fixed 1 MiB `ef02` "BIOS boot" partition **immediately before the system
+  partition** (ESP stays p1, carved regions keep their numbers), which both
+  `grub-install --target=i386-pc` and `limine bios-install <disk> <index>`
+  require; Limine additionally gets `limine-bios.sys` and a second
+  `limine.conf` at the ESP root, the locations a Limine BIOS stage-2 searches
+  (`EFI/BOOT` is a UEFI-only location, so the primary config stays put for
+  both modes and is re-emitted to the root copy by the same single generator).
+- Partition 1 = ESP (FAT32); partition 2 (UEFI) / partition 3 (BIOS, after the
+  `ef02` partition) = one BTRFS filesystem with a
   **flat** (non-nested) subvolume topology (`@`, `@home`, `@grub`, `@swap`,
   browser subvols) so each is independently snapshot-able/rollback-able.
 - **runit** init — systemd-free, no systemctl/journalctl/loginctl logic.
@@ -211,6 +223,24 @@ neither the target nor the live medium.
     missing from the `[RESUME]` state file while resume skips the whole config
     block, so `-r` silently reinstalled without the entry the operator had
     already accepted; the toggle and the label are both persisted now.
+- **Version-3.1.00** — the installer now boots on **legacy BIOS (non-UEFI)
+  machines** as well as UEFI, with no new question to answer:
+  - `BOOT_MODE` is detected from `/sys/firmware/efi` before the first prompt
+    (and re-derived when a run is resumed) and recorded in the resume state,
+    `install-config`, the DRY-RUN plan and the final summary. Every
+    firmware-dependent step is gated on it, so the **UEFI path is unchanged**
+    byte-for-byte.
+  - On BIOS the partition plan keeps GPT and carves one fixed 1 MiB
+    `ef02` **BIOS boot partition immediately before the system partition**
+    (ESP stays p1, carved regions keep their numbers, so only the remainder
+    and any LUKS layer shift); GRUB installs to the disk with
+    `grub-install --target=i386-pc`, Limine runs `bios-install` and ships
+    `limine-bios.sys` plus a second `limine.conf` at the ESP root (the
+    location a Limine BIOS stage-2 reads — `EFI/BOOT` is UEFI-only).
+  - The `/Reboot Into Firmware` menu entry and the NVRAM registration
+    prompts are UEFI-only; on BIOS the installed disk also stays
+    UEFI-bootable, because the removable-path `BOOTX64.EFI` is still laid
+    down.
 
 ## Attribution & history
 

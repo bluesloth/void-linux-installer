@@ -36,6 +36,27 @@ Debug/*
 # the prompt block it extracts VERBATIM from the installer (marker-based line
 # resolution, so it cannot drift when line numbers move). Re-unignore.
 !Debug/check-nvram-prompt.sh
+# ...and Debug/check-bios-boot.sh IS committed — the Version-3.1.00
+# [BIOS-BOOT] gate: 42 static checks that every firmware-dependent construct
+# sits behind an explicit $BOOT_MODE gate and that the BIOS wiring
+# (detection -> geometry -> budget -> chroot_env -> carve -> Stage 2 ->
+# generator -> records) is complete. Re-unignore.
+!Debug/check-bios-boot.sh
+# ...and Debug/qemu-matrix/ IS committed — the QEMU/SeaBIOS+OVMF validation
+# harness behind the Version-3.1.00 runtime claims (scripts + a README only:
+# the ISO, extracted kernel/initrd and per-case images/logs stay out of git).
+# Debug/* matches direct children, so unignoring the directory is enough.
+!Debug/qemu-matrix/
+# ...but keep byte-compiled droppings out of the harness directory.
+Debug/qemu-matrix/__pycache__/
+# ...and the live kernel/initrd the harness boots (~260 MB, extracted from the
+# ISO once — see Debug/qemu-matrix/README.md for the one-line recipe).
+Debug/qemu-matrix/live-extract/
+# ...plus the medium it boots and the per-case output (qcow2, logs, PNGs):
+# both default INSIDE the harness dir, and the ISO symlink's TARGET is a local
+# path the deny-list would block, so neither may ever reach an index.
+Debug/qemu-matrix/void-live.iso
+Debug/qemu-matrix/artifacts/
 # ...and the YubiKey possession-only validation kit (probe + protocol) is
 # committed so it survives until the real-hardware run happens.
 !Debug/yk_validation/

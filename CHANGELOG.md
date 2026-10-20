@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Version-3.0.01** (`SCRIPT_VERSION` in the script).
+Current version: **Version-3.1.00** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -31,15 +31,16 @@ Current version: **Version-3.0.01** (`SCRIPT_VERSION` in the script).
 >   `Debug/version-renumber-map.txt`. Every release within the Beta era
 > gets a unique number; the era CLOSED at `Beta-v2.9.99`, so that number is
 >   the Beta-era ceiling.
-> - **Version era** (`Version-3.0.x`) — **current**: opened by
+> - **Version era** (`Version-3.x`, opened as `Version-3.0.x`) — **current**: opened by
 >   `Version-3.0.00`, a deliberate major bump OUT of the Beta era immediately
 >   after a full audit of a fresh `Beta-v2.9.99` install (DKMS headers /
 >   zstd / explicit autoinstall, the first-boot Flatpak queue drain, the
 >   install-config record gaps, the SSH no-key warning). The carry rules are
 >   unchanged (patch 0-9 → minor carry, minor never carries into major) — only
->   the prefix changes, and releases are numbered `Version-3.0.NN`, so the
->   current release (`Version-3.0.01`) is always the highest — preserving the
->   monotonicity invariant.
+>   the prefix changes: fixes are numbered `Version-3.0.NN`, and a feature
+>   release bumps the minor (`Version-3.1.00` = legacy-BIOS boot), so the
+>   current release is always the highest — preserving the monotonicity
+>   invariant.
 > - The old `v3.x` labels are preserved inline (`was v3.x` in headings and
 >   `version-renumber-map.txt`) for `[TAG]`-marker traceability, but the
 >   `SCRIPT_VERSION` and all "current version" indicators carry the
@@ -143,6 +144,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
 | **Version-3.0.00** | `[DKMS-HEADERS]`/`[DKMS-ZSTD]`/`[DKMS-AUTOINSTALL]`/`[FLATPAK-FIRSTBOOT-LOG]`/`[FLATPAK-FIRSTBOOT-ADVANCE]`/`[FLATPAK-FIRSTBOOT-SVC]`/`[INSTALL-CONFIG-VIRT]`/`[SSH-NOKEY-WARNING]` — four fixes from auditing the fresh Beta-v2.9.99 hardware install against this script. **(1)** The kernel-header mapping lived INSIDE the `[NVIDIA-GATE]` branch as a first-match `case`, so a VirtualBox-only install got NO headers and a multi-kernel build got exactly one flavor (`KERNEL_PKGS="linux linux-mainline linux-lts"` matches `*linux-mainline*` first); live proof: the only headers present were `linux-headers-6.18_1`, arriving solely as `dkms`'s own `run_depends`, so `dkms autoinstall` built `virtualbox-ose` for 6.18.57_1 only while the default boot entry was mainline 7.2.11_1 — no `vboxdrv` at boot and a failing `VBoxManage` until the header packages were installed by hand. Now: one `<flavor>-headers` loop over `$KERNEL_PKGS` gated on ANY dkms consumer (nvidia OR virtualbox) and placed BEFORE it; `zstd` installed alongside (`/usr/sbin/dkms` compresses every module with the `zstd` binary nothing else ships — observed `zstd: command not found`, all three kernels' `vbox.ko` left raw); and an explicit best-effort `dkms autoinstall` after both consumers (transcript `/var/log/dkms-autoinstall.log`, never fatal — xbps has already committed the packages). **(2)** The first-boot Flatpak queue drain TRUNCATED its transcript on every firing (`: > /var/log/flatpak-firstboot.log`), so the next event destroyed the evidence of WHY the previous run had died; it never advanced the queue, so an interrupted run redid every already-installed app; and NM events were its ONLY trigger while a flock LOSER exited without re-arming — observed live: the 09:05 run stopped after Brave, unstamped, and the queue sat 75 minutes until a `connectivity-change` happened to fire. Now: append-only transcript under a timestamped header with a 256 KiB tail rotation; a `flatpak info` pre-check per ID plus a queue rewrite to the remaining failures (in place, so owner/mode survive), so a killed drain resumes where it stopped; and a supervised `/etc/sv/flatpak-firstboot` service retries the SAME drain through the dispatcher's new `boot-drain` action once a minute until the `.done` stamp exists, then parks on `pause` — one drain implementation, two triggers, one lock — linked on first boot behind a `[ -d /etc/sv/flatpak-firstboot ]` guard so a flatpak-less install gets no dangling link. **(3)** `INSTALL_VIRT`/`INSTALL_VIRTUALBOX`/`PROVISION_VIRTUALBOX_SUBVOL` were prompted, exported to the chroot and consumed by the rc.local first-boot links but never written to `install-config`, so the as-built record could not explain why `virtualbox-ose` was installed (same class as `[INSTALL-CONFIG-BACKENDS]` Beta-v2.9.68, which added steam/docker/podman). **(4)** `[SSH-DEFAULT-HARDEN]` (Beta-v2.9.95) defaults password auth and root login to NO while both key prompts default OFF and the NEXT STEPS list never said so — a default install ships a listening sshd nothing can authenticate to (the Beta-v2.9.99 box: port 2323, `PasswordAuthentication no`, `PermitRootLogin no`, no `~/.ssh`); the summary now warns, testing the REAL target `/mnt/home/<user>/.ssh/authorized_keys` so a staged `[SSH-DEPOSIT-LOG]`/`[SSH-USABLE]` key raises no false alarm. `zstd` added to `PKG_PREFLIGHT`. Sandbox-verified with a stub `flatpak`: queue advance, failure retention, stamp-on-drain, append (two headers), rotation, all three early exits, the flock loser, and the boot service drain → `pause`. `bash -n` clean, `check-heredocs.sh` ALL CLEAN (77), `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED (167) | Beta-v2.9.99 below |
 | **Version-3.0.01** | `[LIMINE-NVRAM-LABEL]`/`[LIMINE-NVRAM-PROMPT-MOVE]`/`[LIMINE-NVRAM-RESUME]` — the optional Limine UEFI NVRAM entry (Beta-v2.9.97) can now be **named**: a text prompt, asked only after the toggle is answered `y`, sets `LIMINE_NVRAM_LABEL` from `DEFAULT_LIMINE_NVRAM_LABEL` = the exact old literal `Void Linux (Limine)`, so a bare Enter reproduces the previous deploy byte-for-byte; Stage 2 now passes `${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}` to `efibootmgr --label` (the fallback covers a resumed state file predating this row). Input is trimmed in pure bash and must be non-empty, ≤80 characters (firmware menus truncate long descriptions) and free of quotes, backticks, `$`, backslashes and control characters, because the value is interpolated into double-quoted shell config at every consumer (chroot_env, install-config, DRY-RUN plan, NEXT-STEPS summary) — refusing up front beats escaping four writers; spaces and parentheses are accepted verbatim. Both prompts now run directly under `1) BOOTLOADER="limine"` (right after `esp_size_choose`), ~450 lines earlier than the old position after the kernel/device/hardware/network prompts. **Resume bug found while wiring the label:** `LIMINE_NVRAM` was never in the `[RESUME]` state-save list while the entire config block is skipped when `RESUME=1`, so a `-r` resumed run left it unset and `${LIMINE_NVRAM:-no}` silently skipped the entry the operator had already accepted; both names are now persisted (`printf %q`). `Debug/check-nvram-prompt.sh` — 23 cases over the verbatim-extracted prompt block; `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Version-3.0.00 below |
+| **Version-3.1.00** | `[BIOS-BOOT]` — the installer installs a **bootable system on legacy-BIOS (non-UEFI) machines**; until now it was UEFI-only and produced a disk with no BIOS boot path at all. `BOOT_MODE=uefi\|bios` is **derived** from `/sys/firmware/efi` before the RESUME prompt (re-derived on resume, never a question), exported through `chroot_env` and recorded in the resume state, `install-config` (`BOOT_MODE=` row, `<unset>` fallback for older records; the record file is written on the Limine branch only — pre-existing, see TODO `[INSTALL-CONFIG-GRUB]`), the DRY-RUN plan and the final summary — every firmware-dependent construct reads it with the **UEFI branch as the default**, so a UEFI run is byte-for-byte the 3.0.01 path. **BIOS keeps GPT** and appends a fixed 1 MiB `ef02` partition (`BIOSBOOT_PART_SIZE=1M`, deliberately not a prompt) immediately before the system partition: the ESP stays p1, carved regions keep `2..1+NREG`, and only the remainder row and any LUKS container shift by `BIOSBOOT_OFFSET` (`BIOSBOOT_PN = NREG+2` with outer regions and no ENCRYPT, else `2`), so `PART_SYS=$((2 + BIOSBOOT_OFFSET))` stays true for every combination; the `[DISK-BUDGET]` pre-write gate now sums that 1 MiB (UEFI adds 0) and its message names the extra row. **GRUB** runs `grub-install --target=i386-pc --recheck "$DISK"` behind the same BIOSBOOT_PN sanity check, with `--target=x86_64-efi` untouched in the UEFI branch. **Limine** runs `limine bios-install "$DISK" "$BIOSBOOT_PN"` (refusing loudly if the ef02 partition is missing or not the expected number) plus `limine-bios.sys` on the ESP, and the single config generator now re-emits its already-written `limine.conf` to `/boot/efi/limine.conf` right after the atomic `mv` — a Limine BIOS stage 2 searches only root/`/boot`/`/limine`, while `EFI/BOOT` is a UEFI-only location, so one generator keeps both copies in step for every trigger (install, kernel hooks, snapper). **UEFI-only by explicit gate:** the NVRAM registration prompts, the Stage-2 `efibootmgr --create` and the `/Reboot Into Firmware` menu entry (legacy BIOS has no NVRAM/runtime services), while the removable-path `BOOTX64.EFI` copy stays unconditional so a BIOS-installed disk still boots if the firmware is switched to UEFI; `efivarfs` mounting is gated too (an unguarded mount under `set -eE` would abort a BIOS run). `limine-env`/`install-config` carry the mode so hooks regenerate the right layout later. Gates: `bash -n`, `check-heredocs.sh` (77), `check-defaults.sh`, `check-pkg-preflight.sh` (168), `check-nvram-prompt.sh` (23/23) ALL CLEAN, plus the new **`Debug/check-bios-boot.sh` — 36 static checks** that every firmware-dependent construct sits behind `$BOOT_MODE` and the BIOS wiring is complete end to end | Version-3.0.01 below |
 | **Beta-v2.9.99** | `[LIBVIRT-AUTOSTART]` — the Beta-v2.9.98 one-shot BR0-NAT teardown was **irreversible** against a `libvirt` package update. `net-autostart default --disable` disables autostart by removing the **package-owned** symlink `/etc/libvirt/qemu/networks/autostart/default.xml`, and a later `libvirt` update re-installs every package file, silently restoring that symlink so `default` autostarts `virbr0` again — with the `[BR0-NAT-ONESHOT]` stamp present the block skipped forever and never undid it (the latent virbr0 return). The gate now **re-enters** when that symlink is present again, not only when the stamp is absent (stamp absent = initial migration; stamp + symlink = a package update restored it, re-tear; stamp + no symlink = still torn down, a single `[ -e ]` no-op). The re-entry probe needs no libvirtd and costs nothing on an already-migrated box, and a re-entered run is idempotent — it re-verifies and re-stamps, logging `reason=` in `/var/log/void-br0-nat-teardown.log`. The permanent pkgdb `libvirt: files check FAILED` for the removed package-owned symlink is unchanged (known, by-design; tracked separately). No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.98 below |
 | **Beta-v2.9.98** | `[BR0-NAT-ONESHOT]` + `[BR0-NAT-BACKGROUND]` — the rc.local libvirt `default` NAT teardown (Beta-v2.9.96) no longer costs boot time. `/etc/runit/2` runs `rc.local` **synchronously before `runsvdir`**, so the teardown's wait loop (`virsh net-info default` polled up to 30× `sleep 1`) sat directly on the path to the display manager and **always burned its full 30 s**: libvirtd is started by `runsvdir`, so it is never up when the loop begins and every probe failed (measured on the operator's box 2026-10-17: kernel→Xorg 38.4 s, of which 30 s was this block). Two changes: **(1)** a **verified** teardown (`torn_down=yes`) now stamps `/var/lib/void-installer/br0-nat-torn-down.done` and the stamp's presence skips the block on every later boot (an unverified teardown still retries the next boot); **(2)** the whole block runs as `{ …; } &`, so `rc.local` returns immediately and even the first unstamped run cannot block the desktop — and because the backgrounded loop keeps polling while `runsvdir` starts libvirtd, it now actually **succeeds** mid-boot (previously impossible), gets verified, and stamps. Teardown semantics, the wired-NIC presence gate, the log and the `virbr0` cleanup are unchanged; the same box boots to Xorg in ~8 s. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.97 below |
 | **Beta-v2.9.97** | `[LIMINE-NVRAM]` — re-adds the optional Limine UEFI NVRAM registration that first landed on the public export line at Beta-v2.9.92 (commit `ae72d75`, "feat(limine): add optional NVRAM entry, default off") and was then clobbered there by the Release-v2.9.93 source sync (`Source-Ref`) before any release shipped it — it was never present on this canonical line. A new `DEFAULT_LIMINE_NVRAM` toggle (default `false`) drives a Limine-only prompt; on `yes` the Stage-2 Limine deploy `install_pkgs efibootmgr` and runs `efibootmgr --create` pointing at `BOOTX64.EFI` (ESP disk/partition derived via `findmnt` + `lsblk`), in addition to the always-present removable/fallback path; failure is non-fatal. Default/no keeps the deploy byte-identical to the historical NVRAM-free behavior. The prompt accepts `y`/`yes`/`true` and `n`/`no`/`false` (the `[HEADLESS-PROMPT-LOOP]` lesson) so a true/false default can never loop. Threaded through the DRY-RUN plan, `chroot_env`, `limine-env`, `install-config` and the NEXT-STEPS text. `efibootmgr` was already in `PKG_PREFLIGHT`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.96 below |
@@ -1067,6 +1069,211 @@ messages, and that `NVRAM=no` never shows the label prompt. Gates: `bash -n`
 clean; `check-heredocs.sh` ALL CLEAN; `check-defaults.sh` ALL CONSISTENT (the
 new `DEFAULT_` is declared *and* wired); `check-pkg-preflight.sh` ALL COVERED
 (no package surface changed).
+
+## Version-3.1.00 — `[BIOS-BOOT]` (legacy-BIOS machines can now boot what this installer writes)
+`SCRIPT_VERSION` bumped to Version-3.0.01 → Version-3.1.00.
+
+Everything in this release is behind one variable. The installer used to
+assume `/sys/firmware/efi` existed: it created a GPT with no BIOS boot
+partition, ran only `grub-install --target=x86_64-efi` or Limine's UEFI
+deploy, and mounted `efivarfs` unconditionally — on a non-UEFI PC the result
+was a disk with no boot path at all (and, under `set -eE`, a script that could
+abort outright). Now the firmware is detected once, recorded everywhere, and
+**every** firmware-dependent construct branches on it.
+
+### 1 — detection, not a prompt
+
+```sh
+if [ -d /sys/firmware/efi ]; then BOOT_MODE="uefi"; else BOOT_MODE="bios"; fi
+export BOOT_MODE
+BIOSBOOT_PART_SIZE="1M"
+```
+
+Detection runs **before** the RESUME prompt (and again from the resumed
+environment on `-r`), then prints exactly one line — `==> Boot mode: UEFI` or
+`==> Boot mode: legacy BIOS — bootloader steps use the BIOS paths (GRUB
+i386-pc / limine bios-install) and no NVRAM entry is offered.` There is
+nothing worth asking an operator, so there is no new prompt, no `DEFAULT_*`
+and nothing in `INSTALL_PROMPTS.md` beyond that note. The value then travels
+where every other fact travels: `[RESUME]` state file, `chroot_env`
+(`export BOOT_MODE=…` for Stage 2), `limine-env`, `install-config`
+(`BOOT_MODE=${BOOT_MODE:-<unset>}` — old records predate the row), the
+DRY-RUN plan (`Boot mode : bios|uefi`) and the final summary. Every consumer
+is written as `if [ "$BOOT_MODE" = "…" ]` with **UEFI as the else/default**
+branch, so a mode variable that is somehow empty behaves exactly as 3.0.01
+did.
+
+### 2 — one extra partition, same numbers everywhere else
+
+Legacy boot needs a place to put GRUB's `core.img` / Limine's stage 2, and
+that place is an `ef02` "BIOS boot" partition. Rather than reshuffle the
+layout, the plan keeps GPT and **appends** 1 MiB:
+
+- ESP stays **p1**; carved regions keep **`2 … 1+NREG`** in *both* modes
+  (regions are created before the ef02 row), so nothing that already points at
+  `p2…pN` by region index changes;
+- ef02 goes where the remainder would have started, and the remainder — plain
+  `LINUX`, or the LUKS container when `ENCRYPT=yes`, same partition either way
+  — moves to **`PART_SYS = 2 + BIOSBOOT_OFFSET`** (`BIOSBOOT_OFFSET` is 0 on
+  UEFI, 1 on BIOS, so the arithmetic is identical in both modes);
+- with outer regions *and* plain/`ENCRYPT` the numbering differs
+  (`BIOSBOOT_PN = NREG + 2` when regions are carved on the outer disk without
+  ENCRYPT, else `2`), which is computed in the numbering block **before**
+  `PART_SYS` is derived from it — that ordering is the whole reason the block
+  sits where it does.
+
+`BIOSBOOT_PART_SIZE=1M` is a constant, not a menu: GRUB documents 1 MiB as
+the minimum for its i386-pc boot image and `limine bios-install` was probed
+against exactly this geometry (Step 0: stage 2 landed at the ef02 start and
+the menu booted). The `[DISK-BUDGET]` pre-write gate now adds
+`_size_to_bytes "$BIOSBOOT_PART_SIZE"` to the required sum (0 on UEFI) and
+prints `+ 1M BIOS boot` in its own shortfall message, so a disk that fits by
+a hair can no longer pass the gate and then die inside `sgdisk` with a
+half-written table.
+
+### 3 — GRUB
+
+```sh
+if [ "$BOOT_MODE" = "bios" ]; then
+    install_pkgs grub
+    grub-install --target=i386-pc --recheck "$DISK"
+else
+    install_pkgs grub-x86_64-efi efibootmgr
+    … --target=x86_64-efi …            # byte-identical to 3.0.01
+fi
+```
+
+`GRUB_ESP_BOOT` (the `grub && encrypt` "ESP is /boot" arrangement) is
+mode-independent and still applies, so a BIOS+ENCRYPT run puts GRUB's core
+modules on the unencrypted FAT exactly like its UEFI counterpart and GRUB
+never touches LUKS. `grub-mkconfig` and the grub-btrfs snapshot wiring are
+untouched — they are bootloader-specific, not firmware-specific.
+
+### 4 — Limine
+
+```sh
+limine bios-install "$DISK" "$BIOSBOOT_PN"
+cp -f /usr/share/limine/limine-bios.sys /boot/efi/limine-bios.sys
+```
+
+guarded by a check that `$PART_BIOSBOOT` exists **and** is actually partition
+`$BIOSBOOT_PN` (a missing/misnumbered ef02 is a loud FATAL before anything is
+written to the disk). Limine's BIOS stage 2 then reads its config from the FAT
+root — `EFI/BOOT/limine.conf` is a UEFI-only search location — so the one
+config generator, immediately after its atomic `mv`, re-emits the exact bytes
+it just wrote to `/boot/efi/limine.conf` on a BIOS run. One generator, two
+consumers, no drift: every trigger (install-time call, kernel
+post-install/post-remove hooks, the snapper plugin) refreshes both. The
+`BOOTX64.EFI` copy is deliberately **not** gated — harmless on a BIOS install,
+and it keeps a drive that was installed under legacy boot able to boot if the
+firmware is switched to UEFI. `guid(<PARTUUID>):` addressing in
+`void-limine-write-conf` needs no change: GPT PARTUUIDs work in both modes.
+
+### 5 — what stays UEFI-only (explicit gates, verified by proximity checks)
+
+- the **two NVRAM prompts** at the Limine choice: a BIOS run keeps the
+  defaults (`LIMINE_NVRAM=no`, canonical label) and prints one line saying so;
+- the **Stage-2 `efibootmgr --create`** (`… && [ "$BOOT_MODE" = "uefi" ]`);
+- the **`/Reboot Into Firmware`** menu entry in `limine.conf` (a UEFI runtime
+  service would render but do nothing under legacy boot);
+- the **`efivarfs` mount** — `set -eE` would otherwise abort a BIOS install
+  the moment `/sys/firmware/efi` failed to exist.
+
+### 6 — the validation harness ships with the tree
+
+The runtime evidence below was produced by a QEMU matrix (SeaBIOS **and**
+OVMF) that is now committed as **`Debug/qemu-matrix/`** — scripts plus a
+README, nothing else: the ISO, the ~260 MB live kernel/initrd extracted from
+it and the per-case qcow2/log/PNG artifacts stay outside git and are pointed
+at with `VLI_ISO` / `VLI_DATA` / `VLI_SRC` / `VLI_LIVE_EXTRACT` (the harness
+travels with the repo: `SRC` defaults to two levels up), and it warns whenever
+any of those paths resolves to removable media — sustained installs have
+wedged guests there mid-`xbps-install`). It boots the real Void live medium
+with a serial console, drives every prompt of the real installer (source
+mounted over 9p), probes the result from inside the guest, then — for every
+non-dry case — **cold-boots the disk it just wrote in the same firmware mode**
+and screendumps the bootloader menu and the login prompt. One case
+(`iso-bios-media`) skips the installer entirely and boots the **real ISO under
+SeaBIOS with no hand-fed `-kernel`** — first as a CD (El Torito), then as the
+isohybrid image attached as a raw disk — so the medium's own boot chain is
+covered too, judged from screendumps (the live console is VGA-only, so serial
+stays silent by design). ENCRYPT cases get one more judge: when the cold boot
+stops at `Enter passphrase for /dev/vda3:`, the driver types the LUKS
+passphrase over QMP and a **two-stage** screendump poll decides the case — the
+screen must change within 90 s *and keep changing* over the next 30 s (an
+unlocking boot floods the console; a re-prompt after a wrong passphrase, or
+the prompt's cursor cell alone, does not) — and a failed unlock **fails the
+case (rc=8)** instead of warning past a green summary. `.gitignore` gained
+an explicit `!Debug/qemu-matrix/` beside the existing `!Debug/check-bios-boot.sh`
+(`Debug/*` matches only direct children, so unignoring the directory is
+enough).
+
+### Validation
+
+Static, on every commit of this change: `bash -n`; `check-heredocs.sh` ALL
+CLEAN (77 — now including a strict guard that **no unquoted heredoc body
+contains a backtick**: unquoted bodies are expanded when the installer writes
+them, so a prose backtick is a live command substitution at run time — the
+exact shape of catch (b) below); `check-defaults.sh` ALL CONSISTENT;
+`check-pkg-preflight.sh` ALL COVERED (168); `check-nvram-prompt.sh` 23/23; and
+the gate **`Debug/check-bios-boot.sh` — 42/42**: it asserts detection happens
+*before* the RESUME gate, that every UEFI-only construct carries a
+`$BOOT_MODE` guard within a fixed window above it, that the BIOS wiring
+(geometry → budget → `chroot_env` → carve → Stage 2 → config generator →
+records) is present, that the ef02 gate asks the kernel first (the sysfs
+partition number, `lsblk` only as a whitespace-stripped fallback), refuses
+only on positive evidence and names both sources in its FATAL, and that the
+UEFI anchors (x86_64-efi `grub-install`, the ESP carve, plain
+`sgdisk -n 2:: -t 2:8300 -c 2:'LINUX'`) are still byte-identical.
+
+Runtime (QEMU + KVM, 2 concurrent guests: SeaBIOS for `bios`, OVMF for
+`uefi`; harness `Debug/qemu-matrix/run-case.sh <case>`). Dry runs — they walk
+every prompt and print the plan without touching a disk:
+
+| case | result |
+|------|--------|
+| `dryrun-bios-limine` | **rc=0** — banner `==> Boot mode: legacy BIOS`, plan row `… + 1M ef02 BIOS boot + …`, destructive line `ESP(+4G) + 1M ef02 BIOS boot + LINUX parts`, `Limine NVRAM entry: no`, disk pick = the `/dev/vda` entry |
+| `dryrun-bios-grub` | **rc=0** — banner `==> Boot mode: legacy BIOS`, destructive line `ESP(+1G) + 1M ef02 BIOS boot + LINUX parts` (GRUB's ESP default, unchanged; ef02 appended, ESP still p1) |
+| `dryrun-uefi-limine` | **rc=0** — banner `==> Boot mode: UEFI`, state line `Boot mode             : uefi`, destructive line `ESP(+4G) + LINUX parts` with **no** ef02 row (plan checks: recorded mode found, ef02 absent), and the Limine NVRAM prompt *is* offered (`Register Limine NVRAM entry? [y/N] (default N)`) |
+
+Full installs (partition + chroot + Stage 2, then a cold boot of the written
+disk in the same firmware mode):
+
+| case | result |
+|------|--------|
+| `bios-limine-plain` | **rc=0** — the run's own record proves the rewritten heredoc: `BOOT_MODE="bios"` + `BOOTLOADER="limine"` + `ENCRYPT="no"` written into `install-config`; budget row `ESP(+4G) + 1M BIOS boot + …`; the ef02 gate answered **by the kernel** (`p2; kernel number: p2`, sysfs — no `lsblk` compare); table `p1 4G EF00 ESP / p2 1M EF02 BIOSBOOT / p3 36G 8300 LINUX`; Limine `MBR + stage 2 in /dev/vda2`; cold boot under SeaBIOS through the Limine menu to `voidtest login:` with `registered: /dev/vda3` — the root-number shift end-to-end |
+| `bios-grub-plain` | **rc=0** — same `EF00 / EF02 / 8300` shape with GRUB's unchanged 1 G ESP default, `grub-install --target=i386-pc` accepted by the BIOSBOOT_PN gate, cold boot to `voidtest login:` (`registered: /dev/vda3`). No `install-config` record is written on the GRUB path — **pre-existing**, tracked as TODO `[INSTALL-CONFIG-GRUB]` — so this row is evidenced from the live summary and the disk instead |
+| `bios-limine-encrypt` | **rc=0** — ENCRYPT on the BIOS path: record `BOOT_MODE="bios"` + `BOOTLOADER="limine"` + `ENCRYPT="yes"`, same `EF00 / EF02 / 8300` table, gate `MBR + stage 2 in /dev/vda2 (p2; kernel number: p2)`; LUKS2 full-disk with the in-install re-unlock check (`passphrase verified (luksFormat key == unlock key)`); the cold boot stops at `Enter passphrase for /dev/vda3:`, the driver types it over QMP (`typed 10 chars`, the fixed `qmp-sendkey`), and the post-unlock frame shows the unlocked system booting — `registered: /dev/mapper/void-root`, runit stage 2 toward login: the passphrase was accepted on a cold boot. Summary `Encryption: LUKS2 full-disk (passphrase at boot)` |
+| `bios-grub-encrypt` | **rc=0** — same `EF00 / EF02 / 8300` table with the LUKS2 container inside. The original cold-boot artifacts turned out to be the **pre-`qmp-sendkey`-fix** run (typed 11 = the literal `\n`) that had passed at rc=0 with nothing typed, so the case was re-run under the hardened two-stage unlock judge: `typed 10 chars`, both poll stages saw the console keep moving, and the post-unlock frame boots from `registered: /dev/mapper/void-root` through runit stage 2 toward login. Summary `Encryption: LUKS2 full-disk (passphrase at boot)` |
+| `uefi-limine-plain` | **rc=0** — record `BOOT_MODE="uefi"` + `BOOTLOADER="limine"`, **no** ef02 row (`p1 4G EF00 ESP / p2 36G 8300 LINUX`), Limine's `EFI/BOOT` path under OVMF, cold boot to `voidtest login:` (`registered: /dev/vda2`) — the 3.0.01 UEFI path, unchanged |
+| `uefi-grub-plain` | **rc=0** — OVMF control: **no** ef02 row (`p1 1G EF00 / p2 39G 8300`), `--target=x86_64-efi` untouched, cold boot to `voidtest login:` (`registered: /dev/vda2`) |
+
+Plus the media-only case (no installer): `iso-bios-media` **rc=0** — the real
+ISO boots under SeaBIOS **without** a hand-fed `-kernel`, as a CD (El Torito)
+and as the isohybrid image attached as a raw disk; judged from screendumps
+(the live console is VGA-only, serial silent by design).
+
+One environmental note, for honesty about how these rows were obtained: two
+overnight attempts at the Limine pair froze mid-`xbps-install` (rc=7) while
+all harness state (qcow2s, 9p source, ISO, kernel/initrd) lived on a
+USB-attached btrfs whose host log that same day showed stuck btrfs writers
+and USB disconnects — the guests were I/O-wedged, **not** suspended (no PM
+markers in any guest log, QMP answering throughout; see the harness README
+finding #5). State was moved to a local disk, `run-case.sh` now warns when
+any hot path resolves to removable media, and both cases passed exactly as
+recorded above.
+
+### Not changed / out of scope
+
+- **No MBR/`msdos` target** — the plan stays GPT with an `ef02` row, which is
+  what both `grub-install --target=i386-pc` and `limine bios-install` expect
+  on a modern disk.
+- **No CSM/firmware-quirk handling** and no 32-bit BIOS support.
+- **The disk picker still lists `/dev/fd0`** when the machine has a floppy
+  controller (pre-existing, both modes — see TODO.md `OPEN`; more likely to
+  appear on exactly this class of hardware, but guarded by the `ERASE!`
+  confirmation and by the budget gate refusing a 4 KiB device).
+- No prompt, default or package surface changed.
 
 ## Beta-v2.9.99 — `[LIBVIRT-AUTOSTART]` (the one-shot BR0-NAT teardown self-heals against a `libvirt` package update)
 
