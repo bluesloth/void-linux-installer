@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.1.00"
+SCRIPT_VERSION="Version-3.1.01"
 
 
 
@@ -4426,6 +4426,12 @@ if [ "$INSTALL_VIRT" = "true" ]; then
     echo "--- end nftables.conf ---"
 fi
 
+if [ -n "${REPO_PRIMARY:-}" ]; then
+    mkdir -p /etc/xbps.d
+    echo "repository=${REPO_PRIMARY}" > /etc/xbps.d/00-repository-main.conf
+    echo "==> Primary mirror persisted -> /etc/xbps.d/00-repository-main.conf (${REPO_PRIMARY})"
+fi
+
 if [ "$INSTALL_SSH_SERVER" = "true" ]; then
     install_pkgs openssh
     SSH_DROP="/etc/ssh/sshd_config.d/10-void-installer.conf"
@@ -6214,6 +6220,13 @@ _should_snap() {
     local _a
     for _a in "$@"; do
         case "$_a" in
+            -n|--dry-run) return 1 ;;
+            --*) continue ;;
+            -*n*) return 1 ;;
+        esac
+    done
+    for _a in "$@"; do
+        case "$_a" in
             -S) return 0 ;;
             -Su|-us|-Su*|-S*) return 0 ;;
             -u) return 0 ;;
@@ -6229,16 +6242,26 @@ _main() {
         exec "$REAL_XBPS" "$@"
     fi
 
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "==> [void-xbps-snap] not root: skipping snapshots (run via sudo for the pre/post pair)" >&2
+        exec "$REAL_XBPS" "$@"
+    fi
+
     desc="${DESC:-xbps system update ($(date '+%Y-%m-%d %H:%M:%S'))}"
     echo "==> [void-xbps-snap] before-update snapshot: $desc"
 
+    _snap_err="$(mktemp)"
     pre_snap="$(
         snapper --no-dbus -c "$SNAP_CONFIG" create --type pre \
-            --description "$desc" --cleanup number --print-number 2>/dev/null
+            --description "$desc" --cleanup number --print-number 2>"$_snap_err"
     )" || {
         echo "WARNING: could not take pre snapshot; running xbps-install without snapshots." >&2
+        if [ -s "$_snap_err" ]; then
+            sed 's/^/    snapper: /' "$_snap_err" >&2
+        fi
         pre_snap=""
     }
+    rm -f "$_snap_err"
 
     set +e
     "$REAL_XBPS" "$@"
