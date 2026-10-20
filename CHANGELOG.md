@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Version-3.1.00** (`SCRIPT_VERSION` in the script).
+Current version: **Version-3.1.01** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -145,6 +145,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Version-3.0.00** | `[DKMS-HEADERS]`/`[DKMS-ZSTD]`/`[DKMS-AUTOINSTALL]`/`[FLATPAK-FIRSTBOOT-LOG]`/`[FLATPAK-FIRSTBOOT-ADVANCE]`/`[FLATPAK-FIRSTBOOT-SVC]`/`[INSTALL-CONFIG-VIRT]`/`[SSH-NOKEY-WARNING]` — four fixes from auditing the fresh Beta-v2.9.99 hardware install against this script. **(1)** The kernel-header mapping lived INSIDE the `[NVIDIA-GATE]` branch as a first-match `case`, so a VirtualBox-only install got NO headers and a multi-kernel build got exactly one flavor (`KERNEL_PKGS="linux linux-mainline linux-lts"` matches `*linux-mainline*` first); live proof: the only headers present were `linux-headers-6.18_1`, arriving solely as `dkms`'s own `run_depends`, so `dkms autoinstall` built `virtualbox-ose` for 6.18.57_1 only while the default boot entry was mainline 7.2.11_1 — no `vboxdrv` at boot and a failing `VBoxManage` until the header packages were installed by hand. Now: one `<flavor>-headers` loop over `$KERNEL_PKGS` gated on ANY dkms consumer (nvidia OR virtualbox) and placed BEFORE it; `zstd` installed alongside (`/usr/sbin/dkms` compresses every module with the `zstd` binary nothing else ships — observed `zstd: command not found`, all three kernels' `vbox.ko` left raw); and an explicit best-effort `dkms autoinstall` after both consumers (transcript `/var/log/dkms-autoinstall.log`, never fatal — xbps has already committed the packages). **(2)** The first-boot Flatpak queue drain TRUNCATED its transcript on every firing (`: > /var/log/flatpak-firstboot.log`), so the next event destroyed the evidence of WHY the previous run had died; it never advanced the queue, so an interrupted run redid every already-installed app; and NM events were its ONLY trigger while a flock LOSER exited without re-arming — observed live: the 09:05 run stopped after Brave, unstamped, and the queue sat 75 minutes until a `connectivity-change` happened to fire. Now: append-only transcript under a timestamped header with a 256 KiB tail rotation; a `flatpak info` pre-check per ID plus a queue rewrite to the remaining failures (in place, so owner/mode survive), so a killed drain resumes where it stopped; and a supervised `/etc/sv/flatpak-firstboot` service retries the SAME drain through the dispatcher's new `boot-drain` action once a minute until the `.done` stamp exists, then parks on `pause` — one drain implementation, two triggers, one lock — linked on first boot behind a `[ -d /etc/sv/flatpak-firstboot ]` guard so a flatpak-less install gets no dangling link. **(3)** `INSTALL_VIRT`/`INSTALL_VIRTUALBOX`/`PROVISION_VIRTUALBOX_SUBVOL` were prompted, exported to the chroot and consumed by the rc.local first-boot links but never written to `install-config`, so the as-built record could not explain why `virtualbox-ose` was installed (same class as `[INSTALL-CONFIG-BACKENDS]` Beta-v2.9.68, which added steam/docker/podman). **(4)** `[SSH-DEFAULT-HARDEN]` (Beta-v2.9.95) defaults password auth and root login to NO while both key prompts default OFF and the NEXT STEPS list never said so — a default install ships a listening sshd nothing can authenticate to (the Beta-v2.9.99 box: port 2323, `PasswordAuthentication no`, `PermitRootLogin no`, no `~/.ssh`); the summary now warns, testing the REAL target `/mnt/home/<user>/.ssh/authorized_keys` so a staged `[SSH-DEPOSIT-LOG]`/`[SSH-USABLE]` key raises no false alarm. `zstd` added to `PKG_PREFLIGHT`. Sandbox-verified with a stub `flatpak`: queue advance, failure retention, stamp-on-drain, append (two headers), rotation, all three early exits, the flock loser, and the boot service drain → `pause`. `bash -n` clean, `check-heredocs.sh` ALL CLEAN (77), `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED (167) | Beta-v2.9.99 below |
 | **Version-3.0.01** | `[LIMINE-NVRAM-LABEL]`/`[LIMINE-NVRAM-PROMPT-MOVE]`/`[LIMINE-NVRAM-RESUME]` — the optional Limine UEFI NVRAM entry (Beta-v2.9.97) can now be **named**: a text prompt, asked only after the toggle is answered `y`, sets `LIMINE_NVRAM_LABEL` from `DEFAULT_LIMINE_NVRAM_LABEL` = the exact old literal `Void Linux (Limine)`, so a bare Enter reproduces the previous deploy byte-for-byte; Stage 2 now passes `${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}` to `efibootmgr --label` (the fallback covers a resumed state file predating this row). Input is trimmed in pure bash and must be non-empty, ≤80 characters (firmware menus truncate long descriptions) and free of quotes, backticks, `$`, backslashes and control characters, because the value is interpolated into double-quoted shell config at every consumer (chroot_env, install-config, DRY-RUN plan, NEXT-STEPS summary) — refusing up front beats escaping four writers; spaces and parentheses are accepted verbatim. Both prompts now run directly under `1) BOOTLOADER="limine"` (right after `esp_size_choose`), ~450 lines earlier than the old position after the kernel/device/hardware/network prompts. **Resume bug found while wiring the label:** `LIMINE_NVRAM` was never in the `[RESUME]` state-save list while the entire config block is skipped when `RESUME=1`, so a `-r` resumed run left it unset and `${LIMINE_NVRAM:-no}` silently skipped the entry the operator had already accepted; both names are now persisted (`printf %q`). `Debug/check-nvram-prompt.sh` — 23 cases over the verbatim-extracted prompt block; `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Version-3.0.00 below |
 | **Version-3.1.00** | `[BIOS-BOOT]` — the installer installs a **bootable system on legacy-BIOS (non-UEFI) machines**; until now it was UEFI-only and produced a disk with no BIOS boot path at all. `BOOT_MODE=uefi\|bios` is **derived** from `/sys/firmware/efi` before the RESUME prompt (re-derived on resume, never a question), exported through `chroot_env` and recorded in the resume state, `install-config` (`BOOT_MODE=` row, `<unset>` fallback for older records; the record file is written on the Limine branch only — pre-existing, see TODO `[INSTALL-CONFIG-GRUB]`), the DRY-RUN plan and the final summary — every firmware-dependent construct reads it with the **UEFI branch as the default**, so a UEFI run is byte-for-byte the 3.0.01 path. **BIOS keeps GPT** and appends a fixed 1 MiB `ef02` partition (`BIOSBOOT_PART_SIZE=1M`, deliberately not a prompt) immediately before the system partition: the ESP stays p1, carved regions keep `2..1+NREG`, and only the remainder row and any LUKS container shift by `BIOSBOOT_OFFSET` (`BIOSBOOT_PN = NREG+2` with outer regions and no ENCRYPT, else `2`), so `PART_SYS=$((2 + BIOSBOOT_OFFSET))` stays true for every combination; the `[DISK-BUDGET]` pre-write gate now sums that 1 MiB (UEFI adds 0) and its message names the extra row. **GRUB** runs `grub-install --target=i386-pc --recheck "$DISK"` behind the same BIOSBOOT_PN sanity check, with `--target=x86_64-efi` untouched in the UEFI branch. **Limine** runs `limine bios-install "$DISK" "$BIOSBOOT_PN"` (refusing loudly if the ef02 partition is missing or not the expected number) plus `limine-bios.sys` on the ESP, and the single config generator now re-emits its already-written `limine.conf` to `/boot/efi/limine.conf` right after the atomic `mv` — a Limine BIOS stage 2 searches only root/`/boot`/`/limine`, while `EFI/BOOT` is a UEFI-only location, so one generator keeps both copies in step for every trigger (install, kernel hooks, snapper). **UEFI-only by explicit gate:** the NVRAM registration prompts, the Stage-2 `efibootmgr --create` and the `/Reboot Into Firmware` menu entry (legacy BIOS has no NVRAM/runtime services), while the removable-path `BOOTX64.EFI` copy stays unconditional so a BIOS-installed disk still boots if the firmware is switched to UEFI; `efivarfs` mounting is gated too (an unguarded mount under `set -eE` would abort a BIOS run). `limine-env`/`install-config` carry the mode so hooks regenerate the right layout later. Gates: `bash -n`, `check-heredocs.sh` (77), `check-defaults.sh`, `check-pkg-preflight.sh` (168), `check-nvram-prompt.sh` (23/23) ALL CLEAN, plus the new **`Debug/check-bios-boot.sh` — 36 static checks** that every firmware-dependent construct sits behind `$BOOT_MODE` and the BIOS wiring is complete end to end | Version-3.0.01 below |
+| **Version-3.1.01** | `[REPO-PRIMARY-PERSIST]`/`[PKG-SNAP-NODRY]`/`[PKG-SNAP-ROOTGATE]`/`[PKG-SNAP-ERRSURFACE]` — four fixes from auditing the first Version-3.1.00 hardware install (a fresh KDE laptop, `<host>`) against this script. **(1)** The operator-chosen primary mirror (`REPO_PRIMARY`, e.g. `mirrors.summithq.com`) was recorded in `install-config` and drove the install-time chroot syncs, but was **never written to the target's `/etc/xbps.d`** — the only `/etc/xbps.d` write in the script is the COSMIC repo — so the booted system silently fell back to the vendor defaults in `/usr/share/xbps.d` (`repo-default.voidlinux.org`) and the recorded choice had no effect on the running box. Stage 2 now writes `/etc/xbps.d/00-repository-main.conf` with `repository=${REPO_PRIMARY}` whenever the variable is non-empty (idempotent rewrite of its own file), with a comment noting the xbps precedence subtlety: `/usr/share/xbps.d` is read **before** `/etc/xbps.d` and repositories accumulate, so the chosen mirror becomes a working additional source (syncs, version checks, installs) while the vendor entry stays primary for virtual-package resolution — honest and update-safe, rather than editing a vendor-owned file a `base-files` update would revert. **(2)** `void-xbps-snap`'s `_should_snap` matched any `-S*` short-flag cluster, so a **dry run** — `xbps-install -Sn`, exactly the command used to verify the install — attempted a snapshot and, non-root, printed a spurious `WARNING: could not take pre snapshot`; the wrapper's own doc comment already promised dry-runs were skipped. `_should_snap` now rejects `-n`/`--dry-run` alone or clustered (`-Sn`, `-nSu`, …) before the install/update matcher. **(3)** The wrapper never checked its own EUID: snapper can only create snapshots as root, so any non-root invocation that *did* match (a user running `xbps-install -S …` through the shadowed `/usr/bin/xbps-install`) failed and warned like a system fault — proven benign on the audited box (the pkexec root path created and removed a test pre-snapshot cleanly). `_main` now passes non-root invocations straight through to the real binary with a one-line note (`not root: skipping snapshots (run via sudo for the pre/post pair)`). **(4)** The pre-snapshot snapper call discarded stderr (`2>/dev/null`), which is precisely why the non-root failure above was undiagnosable; stderr is now captured to a `mktemp` file (keeping `--print-number` clean on stdout) and printed under the WARNING, prefixed `snapper: `, when the pre snapshot fails. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Version-3.1.00 below |
 | **Beta-v2.9.99** | `[LIBVIRT-AUTOSTART]` — the Beta-v2.9.98 one-shot BR0-NAT teardown was **irreversible** against a `libvirt` package update. `net-autostart default --disable` disables autostart by removing the **package-owned** symlink `/etc/libvirt/qemu/networks/autostart/default.xml`, and a later `libvirt` update re-installs every package file, silently restoring that symlink so `default` autostarts `virbr0` again — with the `[BR0-NAT-ONESHOT]` stamp present the block skipped forever and never undid it (the latent virbr0 return). The gate now **re-enters** when that symlink is present again, not only when the stamp is absent (stamp absent = initial migration; stamp + symlink = a package update restored it, re-tear; stamp + no symlink = still torn down, a single `[ -e ]` no-op). The re-entry probe needs no libvirtd and costs nothing on an already-migrated box, and a re-entered run is idempotent — it re-verifies and re-stamps, logging `reason=` in `/var/log/void-br0-nat-teardown.log`. The permanent pkgdb `libvirt: files check FAILED` for the removed package-owned symlink is unchanged (known, by-design; tracked separately). No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.98 below |
 | **Beta-v2.9.98** | `[BR0-NAT-ONESHOT]` + `[BR0-NAT-BACKGROUND]` — the rc.local libvirt `default` NAT teardown (Beta-v2.9.96) no longer costs boot time. `/etc/runit/2` runs `rc.local` **synchronously before `runsvdir`**, so the teardown's wait loop (`virsh net-info default` polled up to 30× `sleep 1`) sat directly on the path to the display manager and **always burned its full 30 s**: libvirtd is started by `runsvdir`, so it is never up when the loop begins and every probe failed (measured on the operator's box 2026-10-17: kernel→Xorg 38.4 s, of which 30 s was this block). Two changes: **(1)** a **verified** teardown (`torn_down=yes`) now stamps `/var/lib/void-installer/br0-nat-torn-down.done` and the stamp's presence skips the block on every later boot (an unverified teardown still retries the next boot); **(2)** the whole block runs as `{ …; } &`, so `rc.local` returns immediately and even the first unstamped run cannot block the desktop — and because the backgrounded loop keeps polling while `runsvdir` starts libvirtd, it now actually **succeeds** mid-boot (previously impossible), gets verified, and stamps. Teardown semantics, the wired-NIC presence gate, the log and the `virbr0` cleanup are unchanged; the same box boots to Xorg in ~8 s. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.97 below |
 | **Beta-v2.9.97** | `[LIMINE-NVRAM]` — re-adds the optional Limine UEFI NVRAM registration that first landed on the public export line at Beta-v2.9.92 (commit `ae72d75`, "feat(limine): add optional NVRAM entry, default off") and was then clobbered there by the Release-v2.9.93 source sync (`Source-Ref`) before any release shipped it — it was never present on this canonical line. A new `DEFAULT_LIMINE_NVRAM` toggle (default `false`) drives a Limine-only prompt; on `yes` the Stage-2 Limine deploy `install_pkgs efibootmgr` and runs `efibootmgr --create` pointing at `BOOTX64.EFI` (ESP disk/partition derived via `findmnt` + `lsblk`), in addition to the always-present removable/fallback path; failure is non-fatal. Default/no keeps the deploy byte-identical to the historical NVRAM-free behavior. The prompt accepts `y`/`yes`/`true` and `n`/`no`/`false` (the `[HEADLESS-PROMPT-LOOP]` lesson) so a true/false default can never loop. Threaded through the DRY-RUN plan, `chroot_env`, `limine-env`, `install-config` and the NEXT-STEPS text. `efibootmgr` was already in `PKG_PREFLIGHT`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.96 below |
@@ -1069,6 +1070,93 @@ messages, and that `NVRAM=no` never shows the label prompt. Gates: `bash -n`
 clean; `check-heredocs.sh` ALL CLEAN; `check-defaults.sh` ALL CONSISTENT (the
 new `DEFAULT_` is declared *and* wired); `check-pkg-preflight.sh` ALL COVERED
 (no package surface changed).
+
+## Version-3.1.01 — `[REPO-PRIMARY-PERSIST]` + `[PKG-SNAP-*]` (the chosen mirror now survives the install; the snapshot wrapper stops lying about dry-runs and non-root)
+`SCRIPT_VERSION` bumped to Version-3.1.00 → Version-3.1.01.
+
+A four-item patch from the end-to-end audit of the **first Version-3.1.00
+hardware install** (fresh KDE laptop, as-built record in
+`/etc/void-installer/install-config` + `~/Documents/Void_Install.txt`). Two of
+the four audited findings (the missing-SSH-key warning and the interface
+scoping of the sshd accept rule) turned out to be **already handled** by
+v3.1.00 — `[SSH-NOKEY-WARNING]` prints the notice, and the generated
+`tcp dport "${SSH_PORT}" ct state new accept` is interface-agnostic; the
+wlo1-only restriction seen on the audited box lived in that box's
+hand-maintained `/etc/nftables.conf`, matching neither this script's template
+nor the Live ISO's include.
+
+### 1 — `[REPO-PRIMARY-PERSIST]` the primary mirror is written to the target
+
+`REPO_PRIMARY` (the mirror menu choice, possibly promoted by
+`[MIRROR-SKEW-PREFLIGHT]`) was exported through `chroot_env.sh` and used for
+every install-time sync, and recorded in `install-config` — but nothing ever
+wrote it to `/etc/xbps.d`, so the freshly installed system fell back to the
+vendor defaults in `/usr/share/xbps.d`. On the audited box:
+`install-config` said `mirrors.summithq.com`, `/etc/xbps.d` carried only
+`59-cosmic.conf`.
+
+Stage 2 now persists it, right after the nftables build and before the SSH
+block:
+
+```sh
+if [ -n "${REPO_PRIMARY:-}" ]; then
+    mkdir -p /etc/xbps.d
+    echo "repository=${REPO_PRIMARY}" > /etc/xbps.d/00-repository-main.conf
+    echo "==> Primary mirror persisted -> /etc/xbps.d/00-repository-main.conf (${REPO_PRIMARY})"
+fi
+```
+
+Precedence note (in the comment, and repeated here): xbps reads
+`/usr/share/xbps.d` first, then `/etc/xbps.d`, and repositories **accumulate**,
+so the chosen mirror becomes a working additional source — syncs, version
+checks and installs all use it — while the vendor entry stays primary for
+virtual-package resolution. Overriding the vendor file outright would be
+reverted by a `base-files` update, so the additive form is the honest,
+update-safe behaviour.
+
+### 2 — `[PKG-SNAP-NODRY]` a dry run never snapshots
+
+`_should_snap` matched any `-S*` short-flag cluster, so `xbps-install -Sn`
+(sync + **dry run**, the exact command used to verify the install) took a
+snapshot pair — and, run unprivileged, printed the confusing
+`WARNING: could not take pre snapshot`. The wrapper's own doc comment already
+promised dry-runs were untouched; the matcher now honours that: a leading
+loop rejects `-n`/`--dry-run` outright, skips every other long option (`--*`
+— xbps owns those, and a bare `-*n*` would wrongly swallow e.g.
+`--ignore-conf-repo-post`), and only then excludes a short-flag cluster
+containing `n` (`-Sn`, `-nSu`, `-nS`, …) before the install/update matcher
+runs.
+
+### 3 — `[PKG-SNAP-ROOTGATE]` non-root passes through, with a note
+
+snapper can only create snapshots as root. Any non-root invocation that
+reached the snapshot path failed and warned like a system fault (proven
+benign: the root path via pkexec created and removed a test pre-snapshot
+cleanly). `_main` now checks the EUID immediately after the
+`_should_snap`/`_snap_enabled` gate and execs the real binary with a one-line
+note instead of attempting the impossible:
+
+```
+==> [void-xbps-snap] not root: skipping snapshots (run via sudo for the pre/post pair)
+```
+
+### 4 — `[PKG-SNAP-ERRSURFACE]` snapper's stderr is no longer discarded
+
+The pre-snapshot call ran snapper with `2>/dev/null`, which is exactly why
+finding 3 was undiagnosable. stderr is now captured to a `mktemp` file
+(`--print-number` stays clean on stdout) and, on failure, printed under the
+WARNING prefixed `snapper: `; the temp file is removed on all paths. The
+`pre_snap=""` assignment still ends the `|| { … }` group (never a bare test —
+`set -e` hazard).
+
+### Validation
+
+`bash -n` clean; `Debug/check-heredocs.sh` ALL CLEAN (the wrapper heredoc is
+still one well-formed quoted `INNER_EOF` block); `check-defaults.sh` clean (no
+new `DEFAULT_*` surface); `check-pkg-preflight.sh` ALL COVERED (no package
+surface changed). The fixed wrapper template was extracted byte-for-byte from
+the patched heredoc and deployed to the audited box alongside the machine-side
+fixes (br0 SSH accept rule, mirror persistence) in the same session.
 
 ## Version-3.1.00 — `[BIOS-BOOT]` (legacy-BIOS machines can now boot what this installer writes)
 `SCRIPT_VERSION` bumped to Version-3.0.01 → Version-3.1.00.

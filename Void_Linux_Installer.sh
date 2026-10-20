@@ -585,7 +585,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Version-3.1.00"
+SCRIPT_VERSION="Version-3.1.01"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -8344,6 +8344,25 @@ if [ "$INSTALL_VIRT" = "true" ]; then
     echo "--- end nftables.conf ---"
 fi
 
+# AI (Big Pickle) ADDITION — Version-3.1.01 [REPO-PRIMARY-PERSIST]: write the
+# operator-chosen primary mirror into the TARGET's /etc/xbps.d so it survives
+# the install. Until now REPO_PRIMARY only drove the install-time chroot
+# syncs (exported via chroot_env.sh) and the as-built record; the booted
+# system fell back to the vendor defaults shipped in /usr/share/xbps.d
+# (observed on the first Version-3.1.00 box: install-config said
+# mirrors.summithq.com, /etc/xbps.d carried only 59-cosmic.conf).
+# NOTE on precedence: xbps reads /usr/share/xbps.d FIRST, then /etc/xbps.d;
+# entries accumulate, so this file adds the chosen mirror as a working
+# additional source (used for syncs, version checks and installs) while the
+# vendor file still supplies the primary entry for virtual-package
+# resolution. That is the honest, update-safe behaviour — overriding the
+# vendor entry outright would be reverted by a base-files update.
+if [ -n "${REPO_PRIMARY:-}" ]; then
+    mkdir -p /etc/xbps.d
+    echo "repository=${REPO_PRIMARY}" > /etc/xbps.d/00-repository-main.conf
+    echo "==> Primary mirror persisted -> /etc/xbps.d/00-repository-main.conf (${REPO_PRIMARY})"
+fi
+
 # AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]: optional OpenSSH
 # server install + config. The input chain above already carries the
 # ${SSH_PORT_RULE} accept when INSTALL_SSH_SERVER=true; here we install
@@ -11944,6 +11963,24 @@ _should_snap() {
     # Snapshot only when we are mutating packages: -S (install) or a bare
     # -u (update). The `--` end-of-options is irrelevant to detection.
     local _a
+    # [PKG-SNAP-NODRY] (Version-3.1.01): a dry run (-n / --dry-run, alone or
+    # clustered as -Sn/-nSu/…) changes nothing on disk, so it must never take
+    # a snapshot — the pre-3.1.01 matcher treated any -S* cluster as an
+    # install and snapshotting `xbps-install -Sn` (the exact command used to
+    # VERIFY the install) created stray pre/post pairs and, when run
+    # unprivileged, a spurious "could not take pre snapshot" WARNING.
+    # Ordering matters: -n/--dry-run first, then every other long option
+    # (--*) is left to xbps itself, and only THEN does a short-flag cluster
+    # containing n (-Sn, -nSu, -nS, …) exclude — a bare `-*n*` without the
+    # --* guard would also swallow legitimate long options that merely
+    # contain an n (e.g. --ignore-conf-repo-post).
+    for _a in "$@"; do
+        case "$_a" in
+            -n|--dry-run) return 1 ;;
+            --*) continue ;;
+            -*n*) return 1 ;;
+        esac
+    done
     for _a in "$@"; do
         case "$_a" in
             -S) return 0 ;;
@@ -11961,18 +11998,36 @@ _main() {
         exec "$REAL_XBPS" "$@"
     fi
 
+    # [PKG-SNAP-ROOTGATE] (Version-3.1.01): snapper can only create
+    # snapshots as root; a non-root invocation (e.g. `xbps-install -Sn`
+    # as a normal user checking for updates) must not attempt one and
+    # spook the operator with a WARNING — pass through to the real
+    # binary with a one-line note instead.
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "==> [void-xbps-snap] not root: skipping snapshots (run via sudo for the pre/post pair)" >&2
+        exec "$REAL_XBPS" "$@"
+    fi
+
     desc="${DESC:-xbps system update ($(date '+%Y-%m-%d %H:%M:%S'))}"
     echo "==> [void-xbps-snap] before-update snapshot: $desc"
 
+    # [PKG-SNAP-ERRSURFACE] (Version-3.1.01): capture snapper's stderr to a
+    # temp file (NOT /dev/null) so a failed pre snapshot can tell us WHY —
+    # --print-number must stay clean on stdout, hence the separate file.
+    _snap_err="$(mktemp)"
     pre_snap="$(
         snapper --no-dbus -c "$SNAP_CONFIG" create --type pre \
-            --description "$desc" --cleanup number --print-number 2>/dev/null
+            --description "$desc" --cleanup number --print-number 2>"$_snap_err"
     )" || {
         # If the pre snapshot cannot be taken, do not block the update;
         # fall back to running it unsnapshotted.
         echo "WARNING: could not take pre snapshot; running xbps-install without snapshots." >&2
+        if [ -s "$_snap_err" ]; then
+            sed 's/^/    snapper: /' "$_snap_err" >&2
+        fi
         pre_snap=""
     }
+    rm -f "$_snap_err"
 
     set +e
     "$REAL_XBPS" "$@"
