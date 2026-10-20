@@ -57,7 +57,12 @@ local usernames, hostnames and the removable-media identifier): the medium
 defaults to `./void-live.iso` — symlink it — and the per-case output (qcow2,
 logs, PNGs) to `./artifacts/`, both gitignored. Override any of it with
 `VLI_ISO`, `VLI_DATA`, `VLI_SRC` (the installer tree to 9p-mount),
-`VLI_LIVE_EXTRACT`, `VLI_OVMF` and `VLI_SOCKDIR`.
+`VLI_LIVE_EXTRACT`, `VLI_OVMF` and `VLI_SOCKDIR`. Optionally `VLI_CACHE`
+(mklive-style `xbps-cachedir-<arch>` directory): it is shared into the
+guest read-WRITE as `/mnt/vlicache` and the driver types that path at the
+installer's "Use a local package cache?" prompt, so package fetches come
+from local 9p instead of the network — unset means the bare-Enter
+network-only default, exactly as before.
 
 Two properties to know before touching this while a case runs:
 

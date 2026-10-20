@@ -76,6 +76,11 @@ VERIFY_CMD = (
 VERIFY_DONE = "===ENDV12==="   # arithmetic so the tty echo of the command cannot match it
 
 # --- reactive rules for the installer prompts (specific before generic) -----
+# Guest path of the optional package-cache 9p share (section 3b2). Empty when
+# run-case.sh did not export VLI_CACHE — the cache rule below then answers the
+# prompt with a bare Enter, exactly the pre-existing default.
+CACHE_GUEST_PATH = "/mnt/vlicache" if os.environ.get("VLI_CACHE") else ""
+
 RULES = [
     (re.compile(r"Enter (?:root|user|\S+) password: "), PASS + "\n", None, "set password"),
     (re.compile(r"Confirm (?:\S+) password: "), PASS + "\n", None, "confirm password"),
@@ -95,6 +100,13 @@ RULES = [
     (re.compile(r"Enter a passphrase for the encrypted disk"), PASS + "\n", 1, "LUKS passphrase"),
     (re.compile(r"Enter the passphrase again to confirm"), PASS + "\n", 1, "LUKS passphrase confirm"),
     (re.compile(r"Enter choice \[1/2/3/4/5/6/7/8, default "), "8\n", 1, "desktop = none (fast console install)"),
+    # Optional local package cache (only when run-case.sh exported VLI_CACHE):
+    # type the guest path of the writable 9p share instead of taking the
+    # [y/N] default (default = network-only). Without VLI_CACHE this rule
+    # sends a bare Enter — byte-identical to the old fall-through default.
+    (re.compile(r"Use a local package cache\? \[y/N\] or type an absolute path: "),
+     (CACHE_GUEST_PATH + "\n") if CACHE_GUEST_PATH else "\n", 1,
+     "local package cache = " + CACHE_GUEST_PATH if CACHE_GUEST_PATH else "local package cache (default: network-only)"),
 ]
 hits = [0] * len(RULES)
 DISK_RE = re.compile(r"Select disk to partition and install to \[\d-\d+\]: ")
@@ -317,6 +329,20 @@ send("mkdir -p /mnt/vlio; mount -t 9p -o trans=virtio,version=9p2000.L vlio "
 if not wait_for(r"NINEP_OK_2", 60, "9p-script-mount"):
     print("could not mount the installer directory over 9p")
     sys.exit(15)
+
+# ------------------------------------------ 3b2. package cache share (opt-in)
+# VLI_CACHE (host dir, exported by run-case.sh when set) is exposed to the
+# guest as the `vlicache` 9p tag — WRITABLE, because every consumer of the
+# cache path checks -w (the prompt, the resume re-detect, and the bind-mount
+# into the chroot at /mnt/tmp/xbps-cache). The installer then gets the guest
+# path typed at the "Use a local package cache?" prompt (see RULES below).
+# Unset = today's behavior exactly: no share, no rule, bare-Enter default.
+if os.environ.get("VLI_CACHE"):
+    send("mkdir -p /mnt/vlicache; mount -t 9p -o trans=virtio,version=9p2000.L vlicache "
+         "/mnt/vlicache && ls /mnt/vlicache >/dev/null && echo \"VCACHE_OK_$((1000+1))\"\n")
+    if not wait_for(r"VCACHE_OK_1001", 60, "9p-cache-mount"):
+        print("could not mount the package cache over 9p")
+        sys.exit(15)
 
 # ------------------------------------------------ 3c. no-sleep preamble
 # The live KDE session suspends the whole machine a few minutes in, which
