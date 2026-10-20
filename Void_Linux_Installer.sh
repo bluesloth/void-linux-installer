@@ -585,7 +585,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Version-3.1.01"
+SCRIPT_VERSION="Version-3.1.02"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -5573,6 +5573,35 @@ for _cand in "${DISK_CANDIDATE_NAMES[@]}"; do
     # Exclude anything currently mounted anywhere (the disk itself or any
     # partition/child of it) — this is what filters out the live medium.
     if lsblk -n -o MOUNTPOINT "$_dev" 2>/dev/null | grep -q '[^[:space:]]'; then
+        continue
+    fi
+    # AI (Big Pickle) FIX — Version-3.1.02 [DISK-PICK-FLOOR]: never offer a
+    # device that cannot hold an install. A legacy-BIOS PC (the class
+    # Version-3.1.00 targets) is the machine most likely to expose a floppy
+    # controller — and QEMU's PC machine always does — so `/dev/fd0`
+    # (type=disk, never mounted, 4096 B) listed FIRST in the picker ahead of
+    # the real disk (observed 2026-10-19 in the Version-3.1.00 matrix; TODO.md
+    # [DISK-PICK-FLOOR]). It was never dangerous — the `You selected: ...`
+    # destructive banner, the typed ERASE! confirmation and the
+    # [DISK-BUDGET] 4096-byte refusal all held, and nothing was written — but
+    # a menu entry that can only ever fail is noise. Two independent tests:
+    # (a) an `fd*` name is never an install target, whatever firmware reports;
+    # (b) a 1 GiB byte floor, deliberately far below any real Void target
+    # ([DISK-BUDGET] still refuses undersized disks at select time) so
+    # removable USB media — which MUST stay selectable — is unaffected in
+    # either direction. An unreadable size fails OPEN (device stays listed)
+    # exactly like [DISK-BUDGET]'s own unreadable-size handling: skip only
+    # on positive evidence. Skips are printed, never silent, so a vanished
+    # entry is always explained on screen.
+    case "$_cand" in
+        fd*)
+            note "Skipped ${_dev}: floppy drive — never a valid install target."
+            continue
+            ;;
+    esac
+    _cand_bytes="$(lsblk -bdn -o SIZE "$_dev" 2>/dev/null | tr -d '[:space:]')"
+    if [[ "${_cand_bytes:-}" =~ ^[0-9]+$ ]] && [ "$_cand_bytes" -lt 1073741824 ]; then
+        note "Skipped ${_dev}: ${_cand_bytes} B is below the 1 GiB install floor."
         continue
     fi
     DISK_LIST+=("$_dev")
@@ -10971,333 +11000,6 @@ YK_TOUCH="${YK_TOUCH}"
 INNER_EOF
 chmod 644 /etc/void-installer/limine-env
 
-# AI (Big Pickle) ADDITION — Beta-v2.5.1 [INSTALL-CONFIG]: write a
-# human-readable record of every install-time CHOICE into the target, so the
-# finished machine is self-documenting and reproducible without relying on
-# this shell's (now-gone) environment or a USB transfer. This is the recovery-
-# first project's equivalent of writing the "as-built" config onto the box
-# itself. It deliberately excludes secrets: NO password hashes, only booleans/
-# choices (limine-env, the resume-state file, or the account provisioning
-# already stores whatever secrets the system actually needs at runtime).
-mkdir -p /etc/void-installer
-# AI (Big Pickle) FIX — Beta-v2.9.68 [INSTALL-CONFIG-SSHKEY]: `SSH_KEY_COMMENT`/
-# `SSH_KEY_PROTECTED` are initialized to their prompt defaults BEFORE the
-# [SSH-KEYS] prompts and exported unconditionally, so a run that imported AND
-# generated nothing still wrote those two rows — a false positive that read as
-# if a key existed. Derive presence from the actual deposit (done earlier this
-# stage into ~/.ssh) and emit the comment/protection rows ONLY when present.
-_ssh_key_present="no"
-if [ -f "/home/${TARGET_USER}/.ssh/id_ed25519" ] || [ -f "/home/${TARGET_USER}/.ssh/imported" ]; then
-    _ssh_key_present="yes"
-fi
-if [ "$_ssh_key_present" = "yes" ]; then
-    _ssh_key_rows="SSH_KEY_COMMENT=\"${SSH_KEY_COMMENT:-<unset>}\"
-SSH_KEY_PROTECTED=\"${SSH_KEY_PROTECTED:-<unset>}\""
-else
-    _ssh_key_rows="# (no SSH key imported or generated — comment/protection rows omitted)"
-fi
-
-# AI (Big Pickle) ADDITION — Beta-v2.9.84 [FLATPAK-PULL-DETECT]: safety net
-# for the toggle's blind spots. The [COSMIC-STORE] prompt only appears when
-# INSTALL_FLATPAK=true and its Stage-2 install site re-checks the flag (the
-# Brave rule) — but nothing can stop a FUTURE metapackage revision (or a
-# manual xbps-install) from pulling flatpak into a run where the operator
-# explicitly declined it at the prompt. When INSTALL_FLATPAK=false but flatpak
-# still ends up installed, this warns loudly and records WHO pulled it
-# (xbps-query -X flatpak = reverse dependencies) in the as-built install-config
-# — surfacing the opt-out violation instead of letting it pass silently. Never
-# FATAL: the operator's decline is a preference, and the detection exists to
-# inform, not abort.
-FLATPAK_PULLED_BY=""
-if [ "$INSTALL_FLATPAK" != "true" ] && xbps-query -p pkgver flatpak >/dev/null 2>&1; then
-    FLATPAK_PULLED_BY="$(xbps-query -X flatpak 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
-    echo "WARNING: [FLATPAK-PULL-DETECT] Flatpak was declined at the prompt (INSTALL_FLATPAK=false) but IS installed on this system." >&2
-    echo "         Reverse dependencies (who pulled it): ${FLATPAK_PULLED_BY:-unknown}" >&2
-    echo "         This is recorded in /etc/void-installer/install-config as FLATPAK_PULLED_BY." >&2
-fi
-
-# AI (Big Pickle) ADDITION — Beta-v2.9.86 [BR0-SKIP]: as-built record of the
-# bridged-profile decision. Same condition as the Stage-2 profile gate, so the
-# row always matches what was actually written: "created" = the br0/br0-slave
-# pair exists; "skipped (no wired NIC; virbr0 kept)" = no physical wired NIC
-# at all (NET_INTERFACE_MATCH empty) — rc.local likewise suppressed the
-# virbr0 teardown, so virbr0 is the live VM-network path; "n/a" = no
-# virtualization chosen. Public fact only, per this file's secret-free rule.
-VIRT_BR0="n/a"
-if [ "$INSTALL_VIRT" = "true" ]; then
-    if [ -n "${NET_INTERFACE_MATCH:-}" ]; then
-        VIRT_BR0="created"
-    else
-        VIRT_BR0="skipped (no wired NIC; virbr0 kept)"
-    fi
-fi
-
-cat > /etc/void-installer/install-config << INNER_EOF
-# Void Linux Installer — install-time configuration for THIS machine.
-# Written by Void_Linux_Installer.sh (${SCRIPT_VERSION}) at install time.
-# Human-readable "as-built" summary for recovery/troubleshooting/reproducibility.
-SCRIPT_VERSION="${SCRIPT_VERSION:-<unknown>}"
-HOSTNAME="${TARGET_HOSTNAME:-<unset>}"
-USER="${TARGET_USER:-<unset>}"
-USER_FULL_NAME="${TARGET_FULL_NAME:-<unset>}"
-USER_SHELL="${USER_SHELL:-<unset>}"
-DESKTOP_ENV="${DESKTOP_ENV:-<unset>}"
-DISPLAY_MANAGER="${DISPLAY_MANAGER:-<unset>}"
-# AI (Big Pickle) ADDITION — Beta-v2.9.48 [HEADLESS]: RECORD-ONLY copy of the
-# resolved graphics flags (the REAL in-chroot runtime defaults live at the
-# Stage-2 xorg/wayland gate — Beta-v2.9.60 [RESUME-GFX-FLAGS]). These lines
-# only print to this config file; they are never evaluated as shell code.
-HAS_GRAPHICAL="${HAS_GRAPHICAL:-yes}"
-INSTALL_XORG="${INSTALL_XORG:-false}"
-INSTALL_AUDIO="${INSTALL_AUDIO:-true}"
-BOOTLOADER="${BOOTLOADER:-<unset>}"
-# AI (Big Pickle) ADDITION — Version-3.1.00 [BIOS-BOOT]: as-built record of the
-# firmware the system was installed for (uefi|bios). Public, non-secret; lets a
-# later audit tell which bootloader path was taken. Missing on pre-3.1.00
-# records, hence the '<unset>' fallback.
-BOOT_MODE="${BOOT_MODE:-<unset>}"
-KERNEL_MODE="${KERNEL_MODE:-<unset>}"
-# AI (Big Pickle) ADDITION — Beta-v2.9.16 [KERNEL-SELECT]: as-built record of
-# the resolved kernel set (always starts with linux; space-joined).
-KERNEL_PKGS="${KERNEL_PKGS:-<unset>}"
-# AI (Big Pickle) ADDITION — Beta-v2.9.17 [DEVICE-PROFILE]: as-built record
-# of the resolved profile + the booleans that actually drove the install.
-DEVICE_PROFILE="${DEVICE_PROFILE:-<unset>}"
-PROFILE_TLP="${PROFILE_TLP:-<unset>}"
-PROFILE_BT="${PROFILE_BT:-<unset>}"
-PROFILE_PRELOAD="${PROFILE_PRELOAD:-<unset>}"
-POWER_PPD="${POWER_PPD:-false}"  # [COSMIC-PPD] true = COSMIC build carries PPD (tlp skipped)
-# AI (Big Pickle) ADDITION — Beta-v2.7.1 [CRYPT-NAME]: record the encryption
-# choice + LUKS mapper name in the as-built config. Both are PUBLIC (no
-# passphrase — matches the secret-free rule for this file and limine-env).
-ENCRYPT="${ENCRYPT:-no}"
-CRYPT_NAME="${CRYPT_NAME:-void-root}"
-SESSION_STACK="${SESSION_STACK:-<unset>}"
-LOCALE="${LOCALE:-<unset>}"
-TIMEZONE="${TIMEZONE:-<unset>}"
-REPO_PRIMARY="${REPO_PRIMARY:-<unset>}"
-# AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: flag only — the cache
-# PATH itself is media-scoped and meaningless after the install completes
-# (mirrors remain the installed system's package source).
-LOCAL_CACHE_REUSE="${LOCAL_CACHE_REUSE:-no}"
-SWAP_BACKEND="${SWAP_BACKEND:-<unset>}"
-ENABLE_HIBERNATION="${ENABLE_HIBERNATION:-<unset>}"
-SWAPFILE_SIZE="${SWAPFILE_SIZE:-<unset>}"
-LIMINE_WALLPAPER="${LIMINE_WALLPAPER:-<unset>}"
-LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE:-<unset>}"
-LIMINE_NVRAM="${LIMINE_NVRAM:-no}"
-LIMINE_NVRAM_LABEL="${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}"
-# AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]/[SSH-KEYS]: as-built
-# record of the OpenSSH server decision + the PUBLIC key facts (comment /
-# protection flag). Never any key material or passphrase here — matches the
-# secret-free rule for this file.
-INSTALL_SSH_SERVER="${INSTALL_SSH_SERVER:-false}"
-SSH_PORT="${SSH_PORT:-<unset>}"
-SSH_PASSWORD_AUTH="${SSH_PASSWORD_AUTH:-<unset>}"
-SSH_ROOT_LOGIN="${SSH_ROOT_LOGIN:-<unset>}"
-SSH_KEY_PRESENT="${_ssh_key_present}"
-${_ssh_key_rows}
-# AI (Big Pickle) ADDITION — Beta-v2.9.25 [HARDWARE-REVIEW]/[NVIDIA-GATE]:
-# hardware facts are public as-built data; the driver decision is recorded
-# too (probe results persist for future use, e.g. the Steam/gaming TODO).
-GPU_FAMILIES="${GPU_FAMILIES:-<unset>}"
-WIFI_HW="${WIFI_HW:-<unset>}"
-HAS_NVIDIA_GPU="${HAS_NVIDIA_GPU:-<unset>}"
-HAS_AMD_GPU="${HAS_AMD_GPU:-<unset>}"
-HAS_INTEL_GPU="${HAS_INTEL_GPU:-<unset>}"
-INSTALL_NVIDIA="${INSTALL_NVIDIA:-<unset>}"
-# AI (Big Pickle) ADDITION — Beta-v2.9.27 [CPU-DETECT]/[NIC-DETECT]: the
-# microcode package decision (the one genuinely pruned package) and the wired
-# NIC that feeds the bridged VM network are public as-built facts recorded here
-# alongside the other hardware review data.
-BR0_NIC="${BR0_NIC:-<unset>}"
-# AI (Big Pickle) ADDITION — Beta-v2.9.86 [BR0-SKIP]: created / skipped /
-# n/a — computed just above this heredoc; mirrors the Stage-2 profile gate.
-VIRT_BR0="${VIRT_BR0:-n/a}"
-MICROCODE_PKG="${MICROCODE_PKG:-<unset>}"
-MICROCODE_DECIDED="${MICROCODE_DECIDED:-<unset>}"
-# AI (Big Pickle) ADDITION — Beta-v2.9.46 [INSTALL-CONFIG-FLATPAK]: record the
-# Flatpak/Flathub channel + the Brave browser decision in the as-built config —
-# Heroic/Bottles ship via that first-boot Flatpak queue, so INSTALL_FLATPAK is
-# the gate row that explains why (or why not) they're present. Public flags only.
-INSTALL_FLATPAK="${INSTALL_FLATPAK:-false}"
-INSTALL_COSMIC_STORE="${INSTALL_COSMIC_STORE:-false}"
-# AI (Big Pickle) ADDITION — Beta-v2.9.84 [FLATPAK-PULL-DETECT]: when Flatpak
-# was DECLINED at the prompt (INSTALL_FLATPAK=false) but is installed anyway
-# (a future metapackage revision or a manual install pulled it), this row
-# records who pulled it (reverse deps via xbps-query -X flatpak). Empty when
-# Flatpak is absent or was accepted. Public facts only.
-FLATPAK_PULLED_BY="${FLATPAK_PULLED_BY:-}"
-INSTALL_BRAVE="${INSTALL_BRAVE:-false}"
-# AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: record the Homebrew
-# channel decision + its (separate, opt-in) subvolume isolation flag. Public
-# flags only — no brew credentials/prefix keys, matches secret-free rule.
-INSTALL_BREW="${INSTALL_BREW:-false}"
-PROVISION_LINUXBREW_SUBVOL="${PROVISION_LINUXBREW_SUBVOL:-false}"
-# AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-LAUNCHERS]/[GAME-SUBVOL]:
-# as-built record of the game-launcher umbrella (Lutris/Heroic/Bottles/Wine/
-# gamemode + the shared INSTALL_ANY_GAME gate + the ONE @game subvolume flag).
-# Wine/gamemode have no isolated datadir so only launchers feed INSTALL_ANY_GAME.
-INSTALL_LUTRIS="${INSTALL_LUTRIS:-false}"
-INSTALL_HEROIC="${INSTALL_HEROIC:-false}"
-INSTALL_BOTTLES="${INSTALL_BOTTLES:-false}"
-INSTALL_WINE="${INSTALL_WINE:-false}"
-INSTALL_GAMEMODE="${INSTALL_GAMEMODE:-false}"
-INSTALL_ANY_GAME="${INSTALL_ANY_GAME:-false}"
-PROVISION_GAME_SUBVOL="${PROVISION_GAME_SUBVOL:-false}"
-# AI (Big Pickle) FIX — Beta-v2.9.68 [INSTALL-CONFIG-BACKENDS]: record the Steam
-# client + the container backend decisions. These were never emitted, so the
-# as-built config could not explain why steam/podman/docker were present (a
-# fresh install had steam + podman installed and @containers mounted with no
-# row for any of them). PROVISION_* rows name the subvols the [SUBVOL-GATES]
-# resolver actually created (@containers / @containers-user / @docker).
-INSTALL_STEAM="${INSTALL_STEAM:-false}"
-INSTALL_DOCKER="${INSTALL_DOCKER:-false}"
-INSTALL_PODMAN_ROOTLESS="${INSTALL_PODMAN_ROOTLESS:-false}"
-INSTALL_PODMAN_ROOTFUL="${INSTALL_PODMAN_ROOTFUL:-false}"
-PROVISION_DOCKER_SUBVOL="${PROVISION_DOCKER_SUBVOL:-false}"
-PROVISION_PODMAN_SUBVOL="${PROVISION_PODMAN_SUBVOL:-false}"
-PROVISION_PODMAN_ROOTLESS_SUBVOL="${PROVISION_PODMAN_ROOTLESS_SUBVOL:-false}"
-# AI (Big Pickle) FIX — Version-3.0.00 [INSTALL-CONFIG-VIRT]: the virtualization
-# umbrella and the VirtualBox choice were prompted (Beta-v2.8.4 [INSTALL-VBOX]),
-# exported to the chroot and consumed by the rc.local first-boot links — but
-# never emitted here. The Beta-v2.9.99 as-built record therefore explained
-# neither why virtualbox-ose/virtualbox-ose-dkms were installed nor which
-# subvol the [SUBVOL-GATES] resolver created for them (only the derived
-# VIRT_BR0 row above, which says nothing about the choice itself). Same
-# [INSTALL-CONFIG-BACKENDS] class of gap, same fix: public booleans only.
-INSTALL_VIRT="${INSTALL_VIRT:-false}"
-INSTALL_VIRTUALBOX="${INSTALL_VIRTUALBOX:-false}"
-PROVISION_VIRTUALBOX_SUBVOL="${PROVISION_VIRTUALBOX_SUBVOL:-false}"
-# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: as-built record of every
-# data-region decision (fs per location + carved sizes + the derived carve
-# list). Sizes/fs strings are public config, secret-free. REGION_PARTITIONED
-# is the space-joined carve list in fixed order; the per-location fs/size rows
-# let the recovery diagnosis map a mountpoint back to its partition.
-REGION_HOME_FS="${REGION_HOME_FS:-btrfs}"
-REGION_VAR_FS="${REGION_VAR_FS:-btrfs}"
-REGION_CACHE_FS="${REGION_CACHE_FS:-btrfs}"
-REGION_SRV_FS="${REGION_SRV_FS:-btrfs}"
-REGION_OPT_FS="${REGION_OPT_FS:-btrfs}"
-REGION_GAMES="${REGION_GAMES:-none}"
-REGION_PARTITIONED="${REGION_PARTITIONED:-}"
-REGION_HOME_SIZE="${REGION_HOME_SIZE:-}"
-REGION_VAR_SIZE="${REGION_VAR_SIZE:-}"
-REGION_CACHE_SIZE="${REGION_CACHE_SIZE:-}"
-REGION_SRV_SIZE="${REGION_SRV_SIZE:-}"
-REGION_OPT_SIZE="${REGION_OPT_SIZE:-}"
-REGION_GAMES_SIZE="${REGION_GAMES_SIZE:-}"
-INNER_EOF
-chmod 644 /etc/void-installer/install-config
-
-# AI (Big Pickle) ADDITION — Beta-v2.6.2 [DOCS-LOG]: drop a human-readable
-# install record into the target user's ~/Documents so the box itself
-# advertises which installer version built it (and where the full as-built
-# config + archived installer live), without booting rescue media to find
-# out. Kept secret-free like install-config — public facts and a pointer
-# only; nothing here unlocks anything.
-if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
-    mkdir -p "/home/${TARGET_USER}/Documents"
-    # mkdir -p above runs as root and the inner write only chowns the FILE —
-    # chown Documents itself too or the shell-owned xdg-user-dirs home leaves a
-    # root-owned Documents dir the user cannot chmod. [DOCS-LOG-CHOWN] Beta-v2.7.8.
-    chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/Documents"
-    {
-        echo "# ========================================================================="
-        echo "# VOID LINUX install record for THIS machine"
-        echo "# Written to ~/Documents by Void_Linux_Installer.sh ${SCRIPT_VERSION} at install time."
-        echo "# Secret-free 'as-built' tracking. Full install-time CHOICES + installer"
-        echo "# version live in /etc/void-installer/install-config; the installer itself"
-        echo "# is archived at /etc/void-installer/Void_Linux_Installer.sh."
-        echo "# ========================================================================="
-        echo "SCRIPT_VERSION=${SCRIPT_VERSION:-<unknown>}"
-        echo "INSTALLED_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        echo "HOSTNAME=${TARGET_HOSTNAME:-<unset>}"
-        echo "USER=${TARGET_USER:-<unset>}"
-        echo "BOOTLOADER=${BOOTLOADER:-<unset>}"
-        if [ "${GRUB_ESP_BOOT}" = "true" ]; then
-            echo "ESP_MOUNTED_AT=/boot (GRUB+ENCRYPT combo: boot tree unencrypted, on the ESP)"
-        else
-            echo "ESP_MOUNTED_AT=/boot/efi"
-        fi
-        echo "ENCRYPT=${ENCRYPT:-no}"
-        echo "LUKS_MAPPER=${CRYPT_NAME:-void-root}"
-        echo "YUBIKEY_UNLOCK=${YK_MODE:-off}"
-        echo "SESSION_STACK=${SESSION_STACK:-<unset>}"
-        echo "DESKTOP_ENV=${DESKTOP_ENV:-<unset>}"
-        # AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]: one pointer
-        # line for the OpenSSH decision; the port + a pointer to the
-        # authoritative as-built config (which holds auth/root-login policy).
-        # Public facts only.
-        echo "SSH_SERVER=${INSTALL_SSH_SERVER:-no} (port ${SSH_PORT:-22}; policy: /etc/void-installer/install-config)"
-        # AI (Big Pickle) ADDITION — Beta-v2.9.25 [NVIDIA-GATE]: one pointer
-        # line for the hardware-gated driver; the wifi presence flag rides
-        # here alongside the GPU families (both are live-probed facts).
-        echo "NVIDIA_DRIVER=${INSTALL_NVIDIA:-no} (GPU: ${GPU_FAMILIES:-<none detected>}, wifi: ${WIFI_HW:-no})"
-        # AI (Big Pickle) ADDITION — Beta-v2.9.25 [WIFI-HARDWARE]: the probe's
-        # raw vendor:device id(s) for the detected wireless radio(s), so a
-        # support person can map the box to its firmware without re-probing.
-        echo "WIFI_HARDWARE=${WIFI_IDS:-<none>}"
-        # AI (Big Pickle) ADDITION — Beta-v2.9.27 [CPU-DETECT]: the CPU vendor
-        # (re-derived in-chroot from /proc/cpuinfo — same hardware as the live
-        # probe) + the microcode package the installer chose for it.
-        _doc_cpu="$(grep -m1 vendor_id /proc/cpuinfo 2>/dev/null | awk '{print $3}')"
-        echo "CPU=${_doc_cpu:-<unknown>} (microcode: ${MICROCODE_PKG:-none})"
-        unset _doc_cpu
-        # AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: one pointer
-        # line for the Homebrew (Linuxbrew) channel. The prefix itself is
-        # deliberately NOT created by the installer — this is the NEWS step
-        # reminder: the operator runs Homebrew's official installer on first
-        # login to create ~/.linuxbrew. Declining the subvolume only leaves a
-        # correctly-owned plain ~/.linuxbrew inside @home.
-        echo "HOMEBREW=${INSTALL_BREW:-no} (deps: git/curl/file via xbps; install the prefix yourself: ~/.linuxbrew — see NEWS; isolation: ${PROVISION_LINUXBREW_SUBVOL:-false})"
-        # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-LAUNCHERS]: one pointer
-        # line listing the enabled launchers (flatpak-delivered ones tagged);
-        # full per-launcher flags live in install-config.
-        _doc_g=""
-        [ "$INSTALL_STEAM" = "true" ] && _doc_g="$_doc_g steam"
-        [ "$INSTALL_LUTRIS" = "true" ] && _doc_g="$_doc_g lutris"
-        [ "$INSTALL_HEROIC" = "true" ] && _doc_g="$_doc_g heroic(flatpak)"
-        [ "$INSTALL_BOTTLES" = "true" ] && _doc_g="$_doc_g bottles(flatpak)"
-        [ "$INSTALL_WINE" = "true" ] && _doc_g="$_doc_g wine"
-        [ "$INSTALL_GAMEMODE" = "true" ] && _doc_g="$_doc_g gamemode"
-        if [ -n "$_doc_g" ]; then
-            echo "GAMING=${_doc_g# } (@game isolation: ${PROVISION_GAME_SUBVOL:-false})"
-        else
-            echo "GAMING=no"
-        fi
-        unset _doc_g
-        # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: one secret-free
-        # pointer line listing ALL SIX data-region locations in fixed order
-        # with their resolved filesystem (btrfs subvol or carved ext4/partition);
-        # games omitted only when REGION_GAMES=none. Matches the recovered
-        # as-built record format (home:fs,var:fs,...,games:fs).
-        _doc_regions="home:${REGION_HOME_FS:-btrfs},var:${REGION_VAR_FS:-btrfs},cache:${REGION_CACHE_FS:-btrfs},srv:${REGION_SRV_FS:-btrfs},opt:${REGION_OPT_FS:-btrfs}"
-        [ "${REGION_GAMES:-none}" != "none" ] && _doc_regions="${_doc_regions},games:${REGION_GAMES}"
-        echo "DATA_REGIONS=${_doc_regions}"
-        unset _doc_regions
-        echo ""
-        # AI (Big Pickle) ADDITION — Beta-v2.7.6 [PKG-LIST]: append the FULL
-        # finished-system package inventory (every package on this box — the
-        # base-system, its dependencies, and everything the installer added on
-        # top) so the record shows not just the installer version and choices
-        # but precisely WHAT was installed. Captured in the chroot via
-        # `xbps-query -l` against the target's own /var/db/xbps, then normed:
-        # each line is stripped of xbps's `[installed] ` status prefix so it
-        # reads as clean `pkgname-version`, sorted for scannability.
-        # Kept secret-free (a package list contains no credentials) and the
-        # SCRIPT_VERSION line above still records which installer built it.
-        echo "# -------- INSTALLED PACKAGES (full xbps-query -l inventory) --------"
-        if command -v xbps-query >/dev/null 2>&1; then
-            xbps-query -l 2>/dev/null | sed -E 's/^\[installed\] //' | sort
-        else
-            echo "# xbps-query unavailable in chroot — package inventory omitted"
-        fi
-    } > "/home/${TARGET_USER}/Documents/Void_Install.txt"
-    chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/Documents/Void_Install.txt"
-    chmod 644 "/home/${TARGET_USER}/Documents/Void_Install.txt"
-fi
-
 # AI (Big Pickle) ADDITION — Beta-v2.5.1 [LIMINE-WALLPAPER]: if the user
 # opted in at the prompt, /tmp/limine-splash.<ext> (staged from /mnt/tmp in
 # the live env — same path chroot_env.sh uses) holds the image. Move it onto
@@ -11841,6 +11543,369 @@ fi
 # both bootloaders except where explicitly gated on $BOOTLOADER again
 # (rc.local service link, and the baseline-snapshot/final-regen block near
 # the end of this chroot phase).
+
+# AI (Big Pickle) CHANGE — Version-3.1.02 [INSTALL-CONFIG-GRUB]: the
+# install-config write below (and the [DOCS-LOG] record right after it) used
+# to sit INSIDE the Limine `else` branch of `if [ "$BOOTLOADER" = "grub" ]`
+# above — that branch does not close until the `fi` marked "End of
+# GRUB/Limine branch", so a GRUB install never wrote
+# /etc/void-installer/install-config (nor its chmod 644, nor
+# ~/Documents/Void_Install.txt) while the final summary advertised all of
+# them as archived on the machine. Found 2026-10-19 while root-causing a
+# Version-3.1.00 matrix failure: all three GRUB cases passed with the verify
+# probe's ---CFG--- section empty (TODO.md [INSTALL-CONFIG-GRUB],
+# Debug/qemu-matrix/README.md). Hoisted into the SHARED region so both
+# bootloaders write the records. What came WITH them, and why:
+#   - the `mkdir -p /etc/void-installer` — both mkdirs that ever created that
+#     directory lived in this Limine-only branch, so the first GRUB run
+#     against the hoist died at exactly this line with
+#     "line 3712: /etc/void-installer/install-config: No such file or
+#     directory" (install exit 1, driver rc=5; grub-install + grub-mkconfig
+#     had already succeeded — only the record write was lost). The mkdir that
+#     used to serve this heredoc moved with it.
+#   - the three branch-local ROW DERIVATIONS the body bakes, each consumed
+#     ONLY by this heredoc (verified by scanning every consumer):
+#     [INSTALL-CONFIG-SSHKEY]'s `_ssh_key_present`/`_ssh_key_rows`,
+#     [FLATPAK-PULL-DETECT]'s `FLATPAK_PULLED_BY` (including its WARNING
+#     echoes — the detection is bootloader-independent, so GRUB runs should
+#     perform it too), and [BR0-SKIP]'s `VIRT_BR0`. Without the move GRUB
+#     would bake `SSH_KEY_PRESENT=""`, lose the flatpak-pull detection
+#     entirely and say `VIRT_BR0=n/a` even on a box that got br0.
+# Byte-safety for Limine: all inputs (TARGET_USER, SSH_KEY_COMMENT/
+# _PROTECTED, INSTALL_FLATPAK, INSTALL_VIRT, NET_INTERFACE_MATCH) are
+# pre-branch chroot_env exports; nothing in the branch tail between the old
+# and new positions (wallpaper move, kernel-list build, YubiKey dracut
+# block, snapper plugin, write-conf resync) reassigns any input or output,
+# and no packages are installed there (so the [DOCS-LOG] `xbps-query -l`
+# inventory is unchanged) — a Limine run bakes exactly the same bytes as
+# before. The moved text is otherwise unmodified.
+
+# AI (Big Pickle) ADDITION — Beta-v2.5.1 [INSTALL-CONFIG]: write a
+# human-readable record of every install-time CHOICE into the target, so the
+# finished machine is self-documenting and reproducible without relying on
+# this shell's (now-gone) environment or a USB transfer. This is the recovery-
+# first project's equivalent of writing the "as-built" config onto the box
+# itself. It deliberately excludes secrets: NO password hashes, only booleans/
+# choices (limine-env, the resume-state file, or the account provisioning
+# already stores whatever secrets the system actually needs at runtime).
+mkdir -p /etc/void-installer
+# AI (Big Pickle) FIX — Beta-v2.9.68 [INSTALL-CONFIG-SSHKEY]: `SSH_KEY_COMMENT`/
+# `SSH_KEY_PROTECTED` are initialized to their prompt defaults BEFORE the
+# [SSH-KEYS] prompts and exported unconditionally, so a run that imported AND
+# generated nothing still wrote those two rows — a false positive that read as
+# if a key existed. Derive presence from the actual deposit (done earlier this
+# stage into ~/.ssh) and emit the comment/protection rows ONLY when present.
+_ssh_key_present="no"
+if [ -f "/home/${TARGET_USER}/.ssh/id_ed25519" ] || [ -f "/home/${TARGET_USER}/.ssh/imported" ]; then
+    _ssh_key_present="yes"
+fi
+if [ "$_ssh_key_present" = "yes" ]; then
+    _ssh_key_rows="SSH_KEY_COMMENT=\"${SSH_KEY_COMMENT:-<unset>}\"
+SSH_KEY_PROTECTED=\"${SSH_KEY_PROTECTED:-<unset>}\""
+else
+    _ssh_key_rows="# (no SSH key imported or generated — comment/protection rows omitted)"
+fi
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.84 [FLATPAK-PULL-DETECT]: safety net
+# for the toggle's blind spots. The [COSMIC-STORE] prompt only appears when
+# INSTALL_FLATPAK=true and its Stage-2 install site re-checks the flag (the
+# Brave rule) — but nothing can stop a FUTURE metapackage revision (or a
+# manual xbps-install) from pulling flatpak into a run where the operator
+# explicitly declined it at the prompt. When INSTALL_FLATPAK=false but flatpak
+# still ends up installed, this warns loudly and records WHO pulled it
+# (xbps-query -X flatpak = reverse dependencies) in the as-built install-config
+# — surfacing the opt-out violation instead of letting it pass silently. Never
+# FATAL: the operator's decline is a preference, and the detection exists to
+# inform, not abort.
+FLATPAK_PULLED_BY=""
+if [ "$INSTALL_FLATPAK" != "true" ] && xbps-query -p pkgver flatpak >/dev/null 2>&1; then
+    FLATPAK_PULLED_BY="$(xbps-query -X flatpak 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+    echo "WARNING: [FLATPAK-PULL-DETECT] Flatpak was declined at the prompt (INSTALL_FLATPAK=false) but IS installed on this system." >&2
+    echo "         Reverse dependencies (who pulled it): ${FLATPAK_PULLED_BY:-unknown}" >&2
+    echo "         This is recorded in /etc/void-installer/install-config as FLATPAK_PULLED_BY." >&2
+fi
+
+# AI (Big Pickle) ADDITION — Beta-v2.9.86 [BR0-SKIP]: as-built record of the
+# bridged-profile decision. Same condition as the Stage-2 profile gate, so the
+# row always matches what was actually written: "created" = the br0/br0-slave
+# pair exists; "skipped (no wired NIC; virbr0 kept)" = no physical wired NIC
+# at all (NET_INTERFACE_MATCH empty) — rc.local likewise suppressed the
+# virbr0 teardown, so virbr0 is the live VM-network path; "n/a" = no
+# virtualization chosen. Public fact only, per this file's secret-free rule.
+VIRT_BR0="n/a"
+if [ "$INSTALL_VIRT" = "true" ]; then
+    if [ -n "${NET_INTERFACE_MATCH:-}" ]; then
+        VIRT_BR0="created"
+    else
+        VIRT_BR0="skipped (no wired NIC; virbr0 kept)"
+    fi
+fi
+
+cat > /etc/void-installer/install-config << INNER_EOF
+# Void Linux Installer — install-time configuration for THIS machine.
+# Written by Void_Linux_Installer.sh (${SCRIPT_VERSION}) at install time.
+# Human-readable "as-built" summary for recovery/troubleshooting/reproducibility.
+SCRIPT_VERSION="${SCRIPT_VERSION:-<unknown>}"
+HOSTNAME="${TARGET_HOSTNAME:-<unset>}"
+USER="${TARGET_USER:-<unset>}"
+USER_FULL_NAME="${TARGET_FULL_NAME:-<unset>}"
+USER_SHELL="${USER_SHELL:-<unset>}"
+DESKTOP_ENV="${DESKTOP_ENV:-<unset>}"
+DISPLAY_MANAGER="${DISPLAY_MANAGER:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.48 [HEADLESS]: RECORD-ONLY copy of the
+# resolved graphics flags (the REAL in-chroot runtime defaults live at the
+# Stage-2 xorg/wayland gate — Beta-v2.9.60 [RESUME-GFX-FLAGS]). These lines
+# only print to this config file; they are never evaluated as shell code.
+HAS_GRAPHICAL="${HAS_GRAPHICAL:-yes}"
+INSTALL_XORG="${INSTALL_XORG:-false}"
+INSTALL_AUDIO="${INSTALL_AUDIO:-true}"
+BOOTLOADER="${BOOTLOADER:-<unset>}"
+# AI (Big Pickle) ADDITION — Version-3.1.00 [BIOS-BOOT]: as-built record of the
+# firmware the system was installed for (uefi|bios). Public, non-secret; lets a
+# later audit tell which bootloader path was taken. Missing on pre-3.1.00
+# records, hence the '<unset>' fallback.
+BOOT_MODE="${BOOT_MODE:-<unset>}"
+KERNEL_MODE="${KERNEL_MODE:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.16 [KERNEL-SELECT]: as-built record of
+# the resolved kernel set (always starts with linux; space-joined).
+KERNEL_PKGS="${KERNEL_PKGS:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.17 [DEVICE-PROFILE]: as-built record
+# of the resolved profile + the booleans that actually drove the install.
+DEVICE_PROFILE="${DEVICE_PROFILE:-<unset>}"
+PROFILE_TLP="${PROFILE_TLP:-<unset>}"
+PROFILE_BT="${PROFILE_BT:-<unset>}"
+PROFILE_PRELOAD="${PROFILE_PRELOAD:-<unset>}"
+POWER_PPD="${POWER_PPD:-false}"  # [COSMIC-PPD] true = COSMIC build carries PPD (tlp skipped)
+# AI (Big Pickle) ADDITION — Beta-v2.7.1 [CRYPT-NAME]: record the encryption
+# choice + LUKS mapper name in the as-built config. Both are PUBLIC (no
+# passphrase — matches the secret-free rule for this file and limine-env).
+ENCRYPT="${ENCRYPT:-no}"
+CRYPT_NAME="${CRYPT_NAME:-void-root}"
+SESSION_STACK="${SESSION_STACK:-<unset>}"
+LOCALE="${LOCALE:-<unset>}"
+TIMEZONE="${TIMEZONE:-<unset>}"
+REPO_PRIMARY="${REPO_PRIMARY:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.59 [LOCAL-CACHE]: flag only — the cache
+# PATH itself is media-scoped and meaningless after the install completes
+# (mirrors remain the installed system's package source).
+LOCAL_CACHE_REUSE="${LOCAL_CACHE_REUSE:-no}"
+SWAP_BACKEND="${SWAP_BACKEND:-<unset>}"
+ENABLE_HIBERNATION="${ENABLE_HIBERNATION:-<unset>}"
+SWAPFILE_SIZE="${SWAPFILE_SIZE:-<unset>}"
+LIMINE_WALLPAPER="${LIMINE_WALLPAPER:-<unset>}"
+LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE:-<unset>}"
+LIMINE_NVRAM="${LIMINE_NVRAM:-no}"
+LIMINE_NVRAM_LABEL="${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]/[SSH-KEYS]: as-built
+# record of the OpenSSH server decision + the PUBLIC key facts (comment /
+# protection flag). Never any key material or passphrase here — matches the
+# secret-free rule for this file.
+INSTALL_SSH_SERVER="${INSTALL_SSH_SERVER:-false}"
+SSH_PORT="${SSH_PORT:-<unset>}"
+SSH_PASSWORD_AUTH="${SSH_PASSWORD_AUTH:-<unset>}"
+SSH_ROOT_LOGIN="${SSH_ROOT_LOGIN:-<unset>}"
+SSH_KEY_PRESENT="${_ssh_key_present}"
+${_ssh_key_rows}
+# AI (Big Pickle) ADDITION — Beta-v2.9.25 [HARDWARE-REVIEW]/[NVIDIA-GATE]:
+# hardware facts are public as-built data; the driver decision is recorded
+# too (probe results persist for future use, e.g. the Steam/gaming TODO).
+GPU_FAMILIES="${GPU_FAMILIES:-<unset>}"
+WIFI_HW="${WIFI_HW:-<unset>}"
+HAS_NVIDIA_GPU="${HAS_NVIDIA_GPU:-<unset>}"
+HAS_AMD_GPU="${HAS_AMD_GPU:-<unset>}"
+HAS_INTEL_GPU="${HAS_INTEL_GPU:-<unset>}"
+INSTALL_NVIDIA="${INSTALL_NVIDIA:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.27 [CPU-DETECT]/[NIC-DETECT]: the
+# microcode package decision (the one genuinely pruned package) and the wired
+# NIC that feeds the bridged VM network are public as-built facts recorded here
+# alongside the other hardware review data.
+BR0_NIC="${BR0_NIC:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.86 [BR0-SKIP]: created / skipped /
+# n/a — computed just above this heredoc; mirrors the Stage-2 profile gate.
+VIRT_BR0="${VIRT_BR0:-n/a}"
+MICROCODE_PKG="${MICROCODE_PKG:-<unset>}"
+MICROCODE_DECIDED="${MICROCODE_DECIDED:-<unset>}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.46 [INSTALL-CONFIG-FLATPAK]: record the
+# Flatpak/Flathub channel + the Brave browser decision in the as-built config —
+# Heroic/Bottles ship via that first-boot Flatpak queue, so INSTALL_FLATPAK is
+# the gate row that explains why (or why not) they're present. Public flags only.
+INSTALL_FLATPAK="${INSTALL_FLATPAK:-false}"
+INSTALL_COSMIC_STORE="${INSTALL_COSMIC_STORE:-false}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.84 [FLATPAK-PULL-DETECT]: when Flatpak
+# was DECLINED at the prompt (INSTALL_FLATPAK=false) but is installed anyway
+# (a future metapackage revision or a manual install pulled it), this row
+# records who pulled it (reverse deps via xbps-query -X flatpak). Empty when
+# Flatpak is absent or was accepted. Public facts only.
+FLATPAK_PULLED_BY="${FLATPAK_PULLED_BY:-}"
+INSTALL_BRAVE="${INSTALL_BRAVE:-false}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: record the Homebrew
+# channel decision + its (separate, opt-in) subvolume isolation flag. Public
+# flags only — no brew credentials/prefix keys, matches secret-free rule.
+INSTALL_BREW="${INSTALL_BREW:-false}"
+PROVISION_LINUXBREW_SUBVOL="${PROVISION_LINUXBREW_SUBVOL:-false}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-LAUNCHERS]/[GAME-SUBVOL]:
+# as-built record of the game-launcher umbrella (Lutris/Heroic/Bottles/Wine/
+# gamemode + the shared INSTALL_ANY_GAME gate + the ONE @game subvolume flag).
+# Wine/gamemode have no isolated datadir so only launchers feed INSTALL_ANY_GAME.
+INSTALL_LUTRIS="${INSTALL_LUTRIS:-false}"
+INSTALL_HEROIC="${INSTALL_HEROIC:-false}"
+INSTALL_BOTTLES="${INSTALL_BOTTLES:-false}"
+INSTALL_WINE="${INSTALL_WINE:-false}"
+INSTALL_GAMEMODE="${INSTALL_GAMEMODE:-false}"
+INSTALL_ANY_GAME="${INSTALL_ANY_GAME:-false}"
+PROVISION_GAME_SUBVOL="${PROVISION_GAME_SUBVOL:-false}"
+# AI (Big Pickle) FIX — Beta-v2.9.68 [INSTALL-CONFIG-BACKENDS]: record the Steam
+# client + the container backend decisions. These were never emitted, so the
+# as-built config could not explain why steam/podman/docker were present (a
+# fresh install had steam + podman installed and @containers mounted with no
+# row for any of them). PROVISION_* rows name the subvols the [SUBVOL-GATES]
+# resolver actually created (@containers / @containers-user / @docker).
+INSTALL_STEAM="${INSTALL_STEAM:-false}"
+INSTALL_DOCKER="${INSTALL_DOCKER:-false}"
+INSTALL_PODMAN_ROOTLESS="${INSTALL_PODMAN_ROOTLESS:-false}"
+INSTALL_PODMAN_ROOTFUL="${INSTALL_PODMAN_ROOTFUL:-false}"
+PROVISION_DOCKER_SUBVOL="${PROVISION_DOCKER_SUBVOL:-false}"
+PROVISION_PODMAN_SUBVOL="${PROVISION_PODMAN_SUBVOL:-false}"
+PROVISION_PODMAN_ROOTLESS_SUBVOL="${PROVISION_PODMAN_ROOTLESS_SUBVOL:-false}"
+# AI (Big Pickle) FIX — Version-3.0.00 [INSTALL-CONFIG-VIRT]: the virtualization
+# umbrella and the VirtualBox choice were prompted (Beta-v2.8.4 [INSTALL-VBOX]),
+# exported to the chroot and consumed by the rc.local first-boot links — but
+# never emitted here. The Beta-v2.9.99 as-built record therefore explained
+# neither why virtualbox-ose/virtualbox-ose-dkms were installed nor which
+# subvol the [SUBVOL-GATES] resolver created for them (only the derived
+# VIRT_BR0 row above, which says nothing about the choice itself). Same
+# [INSTALL-CONFIG-BACKENDS] class of gap, same fix: public booleans only.
+INSTALL_VIRT="${INSTALL_VIRT:-false}"
+INSTALL_VIRTUALBOX="${INSTALL_VIRTUALBOX:-false}"
+PROVISION_VIRTUALBOX_SUBVOL="${PROVISION_VIRTUALBOX_SUBVOL:-false}"
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: as-built record of every
+# data-region decision (fs per location + carved sizes + the derived carve
+# list). Sizes/fs strings are public config, secret-free. REGION_PARTITIONED
+# is the space-joined carve list in fixed order; the per-location fs/size rows
+# let the recovery diagnosis map a mountpoint back to its partition.
+REGION_HOME_FS="${REGION_HOME_FS:-btrfs}"
+REGION_VAR_FS="${REGION_VAR_FS:-btrfs}"
+REGION_CACHE_FS="${REGION_CACHE_FS:-btrfs}"
+REGION_SRV_FS="${REGION_SRV_FS:-btrfs}"
+REGION_OPT_FS="${REGION_OPT_FS:-btrfs}"
+REGION_GAMES="${REGION_GAMES:-none}"
+REGION_PARTITIONED="${REGION_PARTITIONED:-}"
+REGION_HOME_SIZE="${REGION_HOME_SIZE:-}"
+REGION_VAR_SIZE="${REGION_VAR_SIZE:-}"
+REGION_CACHE_SIZE="${REGION_CACHE_SIZE:-}"
+REGION_SRV_SIZE="${REGION_SRV_SIZE:-}"
+REGION_OPT_SIZE="${REGION_OPT_SIZE:-}"
+REGION_GAMES_SIZE="${REGION_GAMES_SIZE:-}"
+INNER_EOF
+chmod 644 /etc/void-installer/install-config
+
+# AI (Big Pickle) ADDITION — Beta-v2.6.2 [DOCS-LOG]: drop a human-readable
+# install record into the target user's ~/Documents so the box itself
+# advertises which installer version built it (and where the full as-built
+# config + archived installer live), without booting rescue media to find
+# out. Kept secret-free like install-config — public facts and a pointer
+# only; nothing here unlocks anything.
+if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
+    mkdir -p "/home/${TARGET_USER}/Documents"
+    # mkdir -p above runs as root and the inner write only chowns the FILE —
+    # chown Documents itself too or the shell-owned xdg-user-dirs home leaves a
+    # root-owned Documents dir the user cannot chmod. [DOCS-LOG-CHOWN] Beta-v2.7.8.
+    chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/Documents"
+    {
+        echo "# ========================================================================="
+        echo "# VOID LINUX install record for THIS machine"
+        echo "# Written to ~/Documents by Void_Linux_Installer.sh ${SCRIPT_VERSION} at install time."
+        echo "# Secret-free 'as-built' tracking. Full install-time CHOICES + installer"
+        echo "# version live in /etc/void-installer/install-config; the installer itself"
+        echo "# is archived at /etc/void-installer/Void_Linux_Installer.sh."
+        echo "# ========================================================================="
+        echo "SCRIPT_VERSION=${SCRIPT_VERSION:-<unknown>}"
+        echo "INSTALLED_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "HOSTNAME=${TARGET_HOSTNAME:-<unset>}"
+        echo "USER=${TARGET_USER:-<unset>}"
+        echo "BOOTLOADER=${BOOTLOADER:-<unset>}"
+        if [ "${GRUB_ESP_BOOT}" = "true" ]; then
+            echo "ESP_MOUNTED_AT=/boot (GRUB+ENCRYPT combo: boot tree unencrypted, on the ESP)"
+        else
+            echo "ESP_MOUNTED_AT=/boot/efi"
+        fi
+        echo "ENCRYPT=${ENCRYPT:-no}"
+        echo "LUKS_MAPPER=${CRYPT_NAME:-void-root}"
+        echo "YUBIKEY_UNLOCK=${YK_MODE:-off}"
+        echo "SESSION_STACK=${SESSION_STACK:-<unset>}"
+        echo "DESKTOP_ENV=${DESKTOP_ENV:-<unset>}"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]: one pointer
+        # line for the OpenSSH decision; the port + a pointer to the
+        # authoritative as-built config (which holds auth/root-login policy).
+        # Public facts only.
+        echo "SSH_SERVER=${INSTALL_SSH_SERVER:-no} (port ${SSH_PORT:-22}; policy: /etc/void-installer/install-config)"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.25 [NVIDIA-GATE]: one pointer
+        # line for the hardware-gated driver; the wifi presence flag rides
+        # here alongside the GPU families (both are live-probed facts).
+        echo "NVIDIA_DRIVER=${INSTALL_NVIDIA:-no} (GPU: ${GPU_FAMILIES:-<none detected>}, wifi: ${WIFI_HW:-no})"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.25 [WIFI-HARDWARE]: the probe's
+        # raw vendor:device id(s) for the detected wireless radio(s), so a
+        # support person can map the box to its firmware without re-probing.
+        echo "WIFI_HARDWARE=${WIFI_IDS:-<none>}"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.27 [CPU-DETECT]: the CPU vendor
+        # (re-derived in-chroot from /proc/cpuinfo — same hardware as the live
+        # probe) + the microcode package the installer chose for it.
+        _doc_cpu="$(grep -m1 vendor_id /proc/cpuinfo 2>/dev/null | awk '{print $3}')"
+        echo "CPU=${_doc_cpu:-<unknown>} (microcode: ${MICROCODE_PKG:-none})"
+        unset _doc_cpu
+        # AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: one pointer
+        # line for the Homebrew (Linuxbrew) channel. The prefix itself is
+        # deliberately NOT created by the installer — this is the NEWS step
+        # reminder: the operator runs Homebrew's official installer on first
+        # login to create ~/.linuxbrew. Declining the subvolume only leaves a
+        # correctly-owned plain ~/.linuxbrew inside @home.
+        echo "HOMEBREW=${INSTALL_BREW:-no} (deps: git/curl/file via xbps; install the prefix yourself: ~/.linuxbrew — see NEWS; isolation: ${PROVISION_LINUXBREW_SUBVOL:-false})"
+        # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-LAUNCHERS]: one pointer
+        # line listing the enabled launchers (flatpak-delivered ones tagged);
+        # full per-launcher flags live in install-config.
+        _doc_g=""
+        [ "$INSTALL_STEAM" = "true" ] && _doc_g="$_doc_g steam"
+        [ "$INSTALL_LUTRIS" = "true" ] && _doc_g="$_doc_g lutris"
+        [ "$INSTALL_HEROIC" = "true" ] && _doc_g="$_doc_g heroic(flatpak)"
+        [ "$INSTALL_BOTTLES" = "true" ] && _doc_g="$_doc_g bottles(flatpak)"
+        [ "$INSTALL_WINE" = "true" ] && _doc_g="$_doc_g wine"
+        [ "$INSTALL_GAMEMODE" = "true" ] && _doc_g="$_doc_g gamemode"
+        if [ -n "$_doc_g" ]; then
+            echo "GAMING=${_doc_g# } (@game isolation: ${PROVISION_GAME_SUBVOL:-false})"
+        else
+            echo "GAMING=no"
+        fi
+        unset _doc_g
+        # AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: one secret-free
+        # pointer line listing ALL SIX data-region locations in fixed order
+        # with their resolved filesystem (btrfs subvol or carved ext4/partition);
+        # games omitted only when REGION_GAMES=none. Matches the recovered
+        # as-built record format (home:fs,var:fs,...,games:fs).
+        _doc_regions="home:${REGION_HOME_FS:-btrfs},var:${REGION_VAR_FS:-btrfs},cache:${REGION_CACHE_FS:-btrfs},srv:${REGION_SRV_FS:-btrfs},opt:${REGION_OPT_FS:-btrfs}"
+        [ "${REGION_GAMES:-none}" != "none" ] && _doc_regions="${_doc_regions},games:${REGION_GAMES}"
+        echo "DATA_REGIONS=${_doc_regions}"
+        unset _doc_regions
+        echo ""
+        # AI (Big Pickle) ADDITION — Beta-v2.7.6 [PKG-LIST]: append the FULL
+        # finished-system package inventory (every package on this box — the
+        # base-system, its dependencies, and everything the installer added on
+        # top) so the record shows not just the installer version and choices
+        # but precisely WHAT was installed. Captured in the chroot via
+        # `xbps-query -l` against the target's own /var/db/xbps, then normed:
+        # each line is stripped of xbps's `[installed] ` status prefix so it
+        # reads as clean `pkgname-version`, sorted for scannability.
+        # Kept secret-free (a package list contains no credentials) and the
+        # SCRIPT_VERSION line above still records which installer built it.
+        echo "# -------- INSTALLED PACKAGES (full xbps-query -l inventory) --------"
+        if command -v xbps-query >/dev/null 2>&1; then
+            xbps-query -l 2>/dev/null | sed -E 's/^\[installed\] //' | sort
+        else
+            echo "# xbps-query unavailable in chroot — package inventory omitted"
+        fi
+    } > "/home/${TARGET_USER}/Documents/Void_Install.txt"
+    chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/Documents/Void_Install.txt"
+    chmod 644 "/home/${TARGET_USER}/Documents/Void_Install.txt"
+fi
 
 # This whole block reconciles a conflict between OUR pre-existing dedicated
 # @snapshots subvolume (mounted at /.snapshots via fstab, created back in

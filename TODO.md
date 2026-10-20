@@ -41,7 +41,7 @@ re-extract the live kernel/initrd and what a passing case looks like).
   §Version-3.1.00 — CSM/legacy-CSI firmware quirks and non-GPT BIOS disks
   are out of scope.
 
-## OPEN — the disk picker offers the floppy drive (`/dev/fd0`) as an install target (found 2026-10-19 during QEMU BIOS validation; pre-existing, both modes)
+## RESOLVED — the disk picker offers the floppy drive (`/dev/fd0`) as an install target (found 2026-10-19 during QEMU BIOS validation; fixed 2026-10-20, Version-3.1.02 `[DISK-PICK-FLOOR]`)
 
 Not introduced by `[BIOS-BOOT]` and **not fixed in Version-3.1.00** (scope: a
 change to target selection is a pre-write risk and this release is about
@@ -61,8 +61,21 @@ firmware support).
 - **Worth doing later:** skip devices below a sane minimum size (or `fd*`)
   in the candidate loop — with care, because removable USB media must stay
   selectable.
+- **Fixed (Version-3.1.02 `[DISK-PICK-FLOOR]`):** the candidate loop now
+  skips `fd*` names outright and anything under a 1 GiB byte floor
+  (`lsblk -bdn -o SIZE`), fails **open** on an unreadable size (skip only on
+  positive evidence, mirroring `[DISK-BUDGET]`), and prints a `note` line
+  per skip. The 1 GiB floor is deliberately far below any real Void target,
+  so removable USB media stays selectable in both directions;
+  `[DISK-BUDGET]` still refuses undersized disks at select time.
+  See CHANGELOG §Version-3.1.02.
+- **Proven (2026-10-20):** the green `bios-grub-plain` matrix run's
+  transcript prints `==> Skipped /dev/fd0: floppy drive — never a valid
+  install target.` above a picker that then offered only `/dev/vda`
+  (chosen as option 1), and the install completed to a cold-boot
+  `voidtest login:`.
 
-## OPEN — `[INSTALL-CONFIG-GRUB]` the install-config record file is only written on the Limine branch (found 2026-10-19 while root-causing a Version-3.1.00 matrix failure; pre-existing)
+## RESOLVED — `[INSTALL-CONFIG-GRUB]` the install-config record file is only written on the Limine branch (found 2026-10-19 while root-causing a Version-3.1.00 matrix failure; fixed 2026-10-20, Version-3.1.02)
 
 `cat > /etc/void-installer/install-config << INNER_EOF` (stage 2) sits
 **inside** the `else` branch of `if [ "$BOOTLOADER" = "grub" ]` — that branch
@@ -83,6 +96,29 @@ the machine.
   branch's `fi` (or close the branch earlier), then confirm a GRUB case gains a
   non-empty `install-config` with `BOOT_MODE`/`BOOTLOADER` rows while Limine's
   stays unchanged.
+- **Fixed (Version-3.1.02 `[INSTALL-CONFIG-GRUB]`):** both the
+  `install-config` write + `chmod 644` **and** the `[DOCS-LOG]` block
+  (`~/Documents/Void_Install.txt` — same defect, same branch, not recorded
+  here until now) were hoisted, text otherwise unmodified, into the shared
+  region right after the branch `fi` — **together with** the
+  `mkdir -p /etc/void-installer` that creates their directory (both mkdirs
+  in the script were Limine-branch-local: the first matrix run against the
+  hoist passed `grub-install` + `grub-mkconfig` and then died at the write
+  with `No such file or directory`, driver rc=5 — the matrix caught this,
+  not review) and the three branch-local row derivations the body bakes
+  (`_ssh_key_present`/`_ssh_key_rows`, `FLATPAK_PULLED_BY`, `VIRT_BR0`,
+  each consumed only by this heredoc), so GRUB rows are correct rather
+  than empty/undetected/`n/a`. Limine output is byte-identical (all inputs
+  are pre-branch `chroot_env` exports; nothing in the jumped-over tail
+  reassigns them; no package installs there, so the `xbps-query -l`
+  inventory is unchanged).
+- **Runtime confirmation done (2026-10-20):** the green
+  `bios-grub-plain` matrix run (`driver rc=0`, case rc=0) shows the
+  non-empty `---CFG---` section with `BOOTLOADER="grub"` /
+  `BOOT_MODE="bios"` rows (plus `ENCRYPT="no"`, `LIMINE_NVRAM="no"`),
+  no write/`chmod`/`chown` error for either record in the transcript,
+  and the installed disk cold-boots to `voidtest login:`. See CHANGELOG
+  §Version-3.1.02.
 
 ## RESOLVED — `[LIMINE-NVRAM-LABEL]` + `[LIMINE-NVRAM-PROMPT-MOVE]` + `[LIMINE-NVRAM-RESUME]` (found 2026-10-19; fixed 2026-10-19, Version-3.0.01)
 

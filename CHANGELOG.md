@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Version-3.1.01** (`SCRIPT_VERSION` in the script).
+Current version: **Version-3.1.02** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -146,6 +146,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Version-3.0.01** | `[LIMINE-NVRAM-LABEL]`/`[LIMINE-NVRAM-PROMPT-MOVE]`/`[LIMINE-NVRAM-RESUME]` — the optional Limine UEFI NVRAM entry (Beta-v2.9.97) can now be **named**: a text prompt, asked only after the toggle is answered `y`, sets `LIMINE_NVRAM_LABEL` from `DEFAULT_LIMINE_NVRAM_LABEL` = the exact old literal `Void Linux (Limine)`, so a bare Enter reproduces the previous deploy byte-for-byte; Stage 2 now passes `${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}` to `efibootmgr --label` (the fallback covers a resumed state file predating this row). Input is trimmed in pure bash and must be non-empty, ≤80 characters (firmware menus truncate long descriptions) and free of quotes, backticks, `$`, backslashes and control characters, because the value is interpolated into double-quoted shell config at every consumer (chroot_env, install-config, DRY-RUN plan, NEXT-STEPS summary) — refusing up front beats escaping four writers; spaces and parentheses are accepted verbatim. Both prompts now run directly under `1) BOOTLOADER="limine"` (right after `esp_size_choose`), ~450 lines earlier than the old position after the kernel/device/hardware/network prompts. **Resume bug found while wiring the label:** `LIMINE_NVRAM` was never in the `[RESUME]` state-save list while the entire config block is skipped when `RESUME=1`, so a `-r` resumed run left it unset and `${LIMINE_NVRAM:-no}` silently skipped the entry the operator had already accepted; both names are now persisted (`printf %q`). `Debug/check-nvram-prompt.sh` — 23 cases over the verbatim-extracted prompt block; `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Version-3.0.00 below |
 | **Version-3.1.00** | `[BIOS-BOOT]` — the installer installs a **bootable system on legacy-BIOS (non-UEFI) machines**; until now it was UEFI-only and produced a disk with no BIOS boot path at all. `BOOT_MODE=uefi\|bios` is **derived** from `/sys/firmware/efi` before the RESUME prompt (re-derived on resume, never a question), exported through `chroot_env` and recorded in the resume state, `install-config` (`BOOT_MODE=` row, `<unset>` fallback for older records; the record file is written on the Limine branch only — pre-existing, see TODO `[INSTALL-CONFIG-GRUB]`), the DRY-RUN plan and the final summary — every firmware-dependent construct reads it with the **UEFI branch as the default**, so a UEFI run is byte-for-byte the 3.0.01 path. **BIOS keeps GPT** and appends a fixed 1 MiB `ef02` partition (`BIOSBOOT_PART_SIZE=1M`, deliberately not a prompt) immediately before the system partition: the ESP stays p1, carved regions keep `2..1+NREG`, and only the remainder row and any LUKS container shift by `BIOSBOOT_OFFSET` (`BIOSBOOT_PN = NREG+2` with outer regions and no ENCRYPT, else `2`), so `PART_SYS=$((2 + BIOSBOOT_OFFSET))` stays true for every combination; the `[DISK-BUDGET]` pre-write gate now sums that 1 MiB (UEFI adds 0) and its message names the extra row. **GRUB** runs `grub-install --target=i386-pc --recheck "$DISK"` behind the same BIOSBOOT_PN sanity check, with `--target=x86_64-efi` untouched in the UEFI branch. **Limine** runs `limine bios-install "$DISK" "$BIOSBOOT_PN"` (refusing loudly if the ef02 partition is missing or not the expected number) plus `limine-bios.sys` on the ESP, and the single config generator now re-emits its already-written `limine.conf` to `/boot/efi/limine.conf` right after the atomic `mv` — a Limine BIOS stage 2 searches only root/`/boot`/`/limine`, while `EFI/BOOT` is a UEFI-only location, so one generator keeps both copies in step for every trigger (install, kernel hooks, snapper). **UEFI-only by explicit gate:** the NVRAM registration prompts, the Stage-2 `efibootmgr --create` and the `/Reboot Into Firmware` menu entry (legacy BIOS has no NVRAM/runtime services), while the removable-path `BOOTX64.EFI` copy stays unconditional so a BIOS-installed disk still boots if the firmware is switched to UEFI; `efivarfs` mounting is gated too (an unguarded mount under `set -eE` would abort a BIOS run). `limine-env`/`install-config` carry the mode so hooks regenerate the right layout later. Gates: `bash -n`, `check-heredocs.sh` (77), `check-defaults.sh`, `check-pkg-preflight.sh` (168), `check-nvram-prompt.sh` (23/23) ALL CLEAN, plus the new **`Debug/check-bios-boot.sh` — 36 static checks** that every firmware-dependent construct sits behind `$BOOT_MODE` and the BIOS wiring is complete end to end | Version-3.0.01 below |
 | **Version-3.1.01** | `[REPO-PRIMARY-PERSIST]`/`[PKG-SNAP-NODRY]`/`[PKG-SNAP-ROOTGATE]`/`[PKG-SNAP-ERRSURFACE]` — four fixes from auditing the first Version-3.1.00 hardware install (a fresh KDE laptop, `<host>`) against this script. **(1)** The operator-chosen primary mirror (`REPO_PRIMARY`, e.g. `mirrors.summithq.com`) was recorded in `install-config` and drove the install-time chroot syncs, but was **never written to the target's `/etc/xbps.d`** — the only `/etc/xbps.d` write in the script is the COSMIC repo — so the booted system silently fell back to the vendor defaults in `/usr/share/xbps.d` (`repo-default.voidlinux.org`) and the recorded choice had no effect on the running box. Stage 2 now writes `/etc/xbps.d/00-repository-main.conf` with `repository=${REPO_PRIMARY}` whenever the variable is non-empty (idempotent rewrite of its own file), with a comment noting the xbps precedence subtlety: `/usr/share/xbps.d` is read **before** `/etc/xbps.d` and repositories accumulate, so the chosen mirror becomes a working additional source (syncs, version checks, installs) while the vendor entry stays primary for virtual-package resolution — honest and update-safe, rather than editing a vendor-owned file a `base-files` update would revert. **(2)** `void-xbps-snap`'s `_should_snap` matched any `-S*` short-flag cluster, so a **dry run** — `xbps-install -Sn`, exactly the command used to verify the install — attempted a snapshot and, non-root, printed a spurious `WARNING: could not take pre snapshot`; the wrapper's own doc comment already promised dry-runs were skipped. `_should_snap` now rejects `-n`/`--dry-run` alone or clustered (`-Sn`, `-nSu`, …) before the install/update matcher. **(3)** The wrapper never checked its own EUID: snapper can only create snapshots as root, so any non-root invocation that *did* match (a user running `xbps-install -S …` through the shadowed `/usr/bin/xbps-install`) failed and warned like a system fault — proven benign on the audited box (the pkexec root path created and removed a test pre-snapshot cleanly). `_main` now passes non-root invocations straight through to the real binary with a one-line note (`not root: skipping snapshots (run via sudo for the pre/post pair)`). **(4)** The pre-snapshot snapper call discarded stderr (`2>/dev/null`), which is precisely why the non-root failure above was undiagnosable; stderr is now captured to a `mktemp` file (keeping `--print-number` clean on stdout) and printed under the WARNING, prefixed `snapper: `, when the pre snapshot fails. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Version-3.1.00 below |
+| **Version-3.1.02** | `[INSTALL-CONFIG-GRUB]`/`[DISK-PICK-FLOOR]` — two fixes for two long-standing TODO.md items found during the Version-3.1.00 era. **(1)** The `/etc/void-installer/install-config` write (and the `[DOCS-LOG]` `~/Documents/Void_Install.txt` record immediately after it) sat INSIDE the Limine `else` branch of `if [ "$BOOTLOADER" = "grub" ]` — that branch does not close until the `fi` marked `# End of GRUB/Limine branch`, so a GRUB install wrote NEITHER record file while the final summary advertised both as archived on the machine; every GRUB matrix case passed with the verify probe's `---CFG---` section **empty**, which is how it stayed hidden. Both blocks — **together with the `mkdir -p /etc/void-installer` that creates their directory (both mkdirs in the script were Limine-branch-local; the first matrix run against the hoist drove `grub-install` + `grub-mkconfig` to success and then died at the write with `No such file or directory`, driver rc=5) and the three branch-local row derivations the body bakes (`_ssh_key_present`/`_ssh_key_rows`, `FLATPAK_PULLED_BY`, `VIRT_BR0` — each consumed only by this heredoc, so GRUB gets correct rows instead of `SSH_KEY_PRESENT=""`, missing flatpak-pull detection and `VIRT_BR0=n/a`)** — are hoisted into the shared region right after that `fi`, so both bootloaders write the records. Limine output stays byte-identical: every input the derivations read is a pre-branch `chroot_env` export, nothing in the branch tail between the old and new positions reassigns any input or output, and no packages install there (so the `xbps-query -l` inventory is over an identical package set). **(2)** The disk picker's candidate list offered `/dev/fd0` — `type=disk`, never mounted, so it passed both filters and listed FIRST (4096 B) ahead of the real disk on any machine with a floppy controller, which is exactly the legacy-BIOS class v3.1.00 targets (and QEMU's PC machine always has one). It was never dangerous — the destructive banner, the typed `ERASE!` confirmation and the `[DISK-BUDGET]` 4096-byte refusal all held, nothing was written — but an entry that can only fail is noise. The candidate loop now skips `fd*` names outright and anything below a 1 GiB byte floor (deliberately far below any real Void target, so removable USB media — which MUST stay selectable — is unaffected), fails OPEN on an unreadable size (skip only on positive evidence, mirroring `[DISK-BUDGET]`), and prints every skip so a vanished entry is always explained. No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.1.01 below |
 | **Beta-v2.9.99** | `[LIBVIRT-AUTOSTART]` — the Beta-v2.9.98 one-shot BR0-NAT teardown was **irreversible** against a `libvirt` package update. `net-autostart default --disable` disables autostart by removing the **package-owned** symlink `/etc/libvirt/qemu/networks/autostart/default.xml`, and a later `libvirt` update re-installs every package file, silently restoring that symlink so `default` autostarts `virbr0` again — with the `[BR0-NAT-ONESHOT]` stamp present the block skipped forever and never undid it (the latent virbr0 return). The gate now **re-enters** when that symlink is present again, not only when the stamp is absent (stamp absent = initial migration; stamp + symlink = a package update restored it, re-tear; stamp + no symlink = still torn down, a single `[ -e ]` no-op). The re-entry probe needs no libvirtd and costs nothing on an already-migrated box, and a re-entered run is idempotent — it re-verifies and re-stamps, logging `reason=` in `/var/log/void-br0-nat-teardown.log`. The permanent pkgdb `libvirt: files check FAILED` for the removed package-owned symlink is unchanged (known, by-design; tracked separately). No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.98 below |
 | **Beta-v2.9.98** | `[BR0-NAT-ONESHOT]` + `[BR0-NAT-BACKGROUND]` — the rc.local libvirt `default` NAT teardown (Beta-v2.9.96) no longer costs boot time. `/etc/runit/2` runs `rc.local` **synchronously before `runsvdir`**, so the teardown's wait loop (`virsh net-info default` polled up to 30× `sleep 1`) sat directly on the path to the display manager and **always burned its full 30 s**: libvirtd is started by `runsvdir`, so it is never up when the loop begins and every probe failed (measured on the operator's box 2026-10-17: kernel→Xorg 38.4 s, of which 30 s was this block). Two changes: **(1)** a **verified** teardown (`torn_down=yes`) now stamps `/var/lib/void-installer/br0-nat-torn-down.done` and the stamp's presence skips the block on every later boot (an unverified teardown still retries the next boot); **(2)** the whole block runs as `{ …; } &`, so `rc.local` returns immediately and even the first unstamped run cannot block the desktop — and because the backgrounded loop keeps polling while `runsvdir` starts libvirtd, it now actually **succeeds** mid-boot (previously impossible), gets verified, and stamps. Teardown semantics, the wired-NIC presence gate, the log and the `virbr0` cleanup are unchanged; the same box boots to Xorg in ~8 s. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.97 below |
 | **Beta-v2.9.97** | `[LIMINE-NVRAM]` — re-adds the optional Limine UEFI NVRAM registration that first landed on the public export line at Beta-v2.9.92 (commit `ae72d75`, "feat(limine): add optional NVRAM entry, default off") and was then clobbered there by the Release-v2.9.93 source sync (`Source-Ref`) before any release shipped it — it was never present on this canonical line. A new `DEFAULT_LIMINE_NVRAM` toggle (default `false`) drives a Limine-only prompt; on `yes` the Stage-2 Limine deploy `install_pkgs efibootmgr` and runs `efibootmgr --create` pointing at `BOOTX64.EFI` (ESP disk/partition derived via `findmnt` + `lsblk`), in addition to the always-present removable/fallback path; failure is non-fatal. Default/no keeps the deploy byte-identical to the historical NVRAM-free behavior. The prompt accepts `y`/`yes`/`true` and `n`/`no`/`false` (the `[HEADLESS-PROMPT-LOOP]` lesson) so a true/false default can never loop. Threaded through the DRY-RUN plan, `chroot_env`, `limine-env`, `install-config` and the NEXT-STEPS text. `efibootmgr` was already in `PKG_PREFLIGHT`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.96 below |
@@ -1070,6 +1071,117 @@ messages, and that `NVRAM=no` never shows the label prompt. Gates: `bash -n`
 clean; `check-heredocs.sh` ALL CLEAN; `check-defaults.sh` ALL CONSISTENT (the
 new `DEFAULT_` is declared *and* wired); `check-pkg-preflight.sh` ALL COVERED
 (no package surface changed).
+
+## Version-3.1.02 — `[INSTALL-CONFIG-GRUB]` + `[DISK-PICK-FLOOR]` (GRUB installs finally write their record files; the picker stops offering the floppy drive)
+`SCRIPT_VERSION` bumped to Version-3.1.01 → Version-3.1.02.
+
+A two-item hygiene release closing the last two OPEN items in `TODO.md`,
+both dating from the Version-3.1.00 (legacy-BIOS) era and both found by
+inspection rather than by an incident.
+
+### 1 — `[INSTALL-CONFIG-GRUB]` the record writes are hoisted out of the Limine branch
+
+The `if [ "$BOOTLOADER" = "grub" ] … else <Limine> … fi` block in stage 2 is
+~930 lines long, and the Limine branch carried two writes that belong to
+**both** bootloaders:
+
+- `cat > /etc/void-installer/install-config << INNER_EOF … INNER_EOF` +
+  `chmod 644` (the secret-free as-built record every later tooling read
+  depends on — resume, region recovery, the operator's own audit trail), and
+- the `[DOCS-LOG]` block writing `~/Documents/Void_Install.txt` (the
+  human-readable install record, with the package inventory).
+
+The branch did not close until the `fi` marked `# End of GRUB/Limine
+branch`, so a GRUB install wrote **neither** file — while the final summary
+advertised both as archived on the machine, and the `[BIOS-BOOT]` release
+explicitly documented `install-config`'s `BOOT_MODE=` row as existing (with
+an `<unset>` fallback that could never trigger from *this* script). This is
+exactly the "the record file is written on the Limine branch only" caveat
+the Version-3.1.00 changelog row had to carry; it is now gone. All three
+GRUB matrix cases had been passing with the verify probe's `---CFG---`
+section **empty** — the probe tolerated the absence precisely because the
+caveat existed.
+
+Both blocks are now moved — text otherwise unmodified — into the shared
+region immediately after that `fi`. The **first attempt at that move was
+caught by the matrix, not by review**: the 2026-10-20 `bios-grub-plain`
+run (state relocated to NVMe) drove `grub-install` + `grub-mkconfig` to
+success and then died at the hoisted write with
+`line 3712: /etc/void-installer/install-config: No such file or directory`
+(install exit 1, driver rc=5) — **both** `mkdir -p /etc/void-installer`
+calls in the script lived in the Limine branch, so the directory had never
+existed on a GRUB target because nothing had ever written one there. The
+mkdir that served this heredoc moved with it. The same audit found three
+branch-local **row derivations** the body bakes, each consumed only by this
+heredoc: `[INSTALL-CONFIG-SSHKEY]`'s `_ssh_key_present`/`_ssh_key_rows`,
+`[FLATPAK-PULL-DETECT]`'s `FLATPAK_PULLED_BY`, and `[BR0-SKIP]`'s
+`VIRT_BR0`. Leaving them behind would have yielded wrong GRUB rows
+(`SSH_KEY_PRESENT=""`, no flatpak-pull detection at all, `VIRT_BR0=n/a`
+even on a box that got br0), so all three moved too — including the
+flatpak WARNING echoes, which are bootloader-independent and belong on GRUB
+runs as well.
+
+Byte-safety for Limine holds: every input the derivations read
+(`TARGET_USER`, `SSH_KEY_COMMENT`/`_PROTECTED`, `INSTALL_FLATPAK`,
+`INSTALL_VIRT`, `NET_INTERFACE_MATCH`) is a pre-branch `chroot_env` export;
+nothing in the branch tail between the old and new positions (wallpaper
+move, `NEWEST_KVER`/`INSTALLED_KVERS` kernel-list build, the YubiKey dracut
+block, the snapper plugin, the write-conf resync) reassigns any input or
+output, and no packages are installed in it — so the `xbps-query -l`
+inventory below is captured at a different point in the script over an
+identical package set. A Limine run bakes exactly the same bytes as
+before.
+
+### 2 — `[DISK-PICK-FLOOR]` the disk picker stops offering `/dev/fd0`
+
+The candidate list is `lsblk -d -n -o NAME,TYPE` filtered to `type=disk`
+minus anything with a live mountpoint. A floppy drive satisfies both —
+`fd0` is `type=disk` and is never mounted — so on any machine exposing a
+floppy controller (the legacy-BIOS class Version-3.1.00 targets; and
+QEMU's PC machine always does) it listed **first** in the picker, ahead of
+the real disk, reporting 4096 bytes. Nothing was ever at risk: the
+`You selected: …` destructive banner, the typed `ERASE!` confirmation and
+the `[DISK-BUDGET]` 4096-byte refusal all held, and the observed matrix
+runs picked the right disk regardless. But a menu entry that can only ever
+fail is noise, and the failure mode it *invited* — an operator pressing
+Enter twice through the picker — deserves the fix.
+
+The loop now applies two independent tests before adding a candidate:
+
+- an `fd*` name is never an install target, whatever firmware reports; and
+- a 1 GiB byte floor (`lsblk -bdn -o SIZE`), **deliberately** far below any
+  system that could hold Void (`[DISK-BUDGET]` still refuses undersized
+  disks at select time), so removable USB media — which must stay
+  selectable in both directions — is unaffected.
+
+An unreadable size fails **open** (the device stays listed): the skip
+happens only on positive evidence, mirroring `[DISK-BUDGET]`'s own
+unreadable-size policy. Every skip prints a `note` line naming the device
+and the reason, so a vanished entry is always explained on screen.
+
+### Validation
+
+`bash -n` clean; `Debug/check-heredocs.sh` ALL CLEAN (the moved `INNER_EOF`
+heredoc is still one well-formed block); `check-defaults.sh` ALL CONSISTENT
+(no new `DEFAULT_*` surface); `check-pkg-preflight.sh` ALL COVERED (no
+package surface changed); `check-bios-boot.sh` 42/42 (the BIOS-boot
+constructs are untouched). Runtime proof **landed 2026-10-20**: the
+`bios-grub-plain` case ran green (`driver rc=0`, case rc=0, 380 s — package
+fetches served from a shared `xbps-cachedir` over writable 9p via the
+harness's new optional `VLI_CACHE` share, added the same day after two
+earlier attempts were lost to the harness's nondeterministic serial-dead
+watchdog (`rc=7`, host log clean) rather than to this code) and its verify
+block now shows the non-empty `---CFG---` section with
+`BOOTLOADER="grub"`, `BOOT_MODE="bios"`, `ENCRYPT="no"`,
+`LIMINE_NVRAM="no"` — the file the probe had to tolerate being absent now
+exists on a GRUB target, with no write/`chmod`/`chown` error anywhere in
+the transcript for it or for the `[DOCS-LOG]` record. Fix 2's proof rides
+in the same transcript: `==> Skipped /dev/fd0: floppy drive — never a
+valid install target.` printed above a picker that offered only the real
+disk (chosen as option 1); the MBR carries GRUB stage1 strings, the GPT
+shows the EF02 BIOSBOOT partition, and the cold boot of the installed disk
+reaches `voidtest login:` with the baseline snapper snapshot created — the
+full install + boot path exercised end to end.
 
 ## Version-3.1.01 — `[REPO-PRIMARY-PERSIST]` + `[PKG-SNAP-*]` (the chosen mirror now survives the install; the snapshot wrapper stops lying about dry-runs and non-root)
 `SCRIPT_VERSION` bumped to Version-3.1.00 → Version-3.1.01.
