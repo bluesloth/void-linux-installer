@@ -102,6 +102,7 @@ _warn_if_removable SRC     "$SRC"
 _warn_if_removable ISO     "$ISO"
 _warn_if_removable EXTRACT "$LIVE_EXTRACT"
 _warn_if_removable DATA    "$DATA"
+_warn_if_removable CACHE   "${VLI_CACHE:-}"
 
 case "$CASE" in
     dryrun-*)   DRY=1 ;;
@@ -224,6 +225,16 @@ if [ ! -r "$LIVE_EXTRACT/vmlinuz" ] || [ ! -r "$LIVE_EXTRACT/initrd" ]; then
     exit 9
 fi
 
+# Optional package cache, exposed read-WRITE into the guest: the installer's
+# cache path must pass `test -w` at the prompt, on the resume re-detect, and
+# for its bind-mount into the chroot — a read-only share would silently fall
+# back to a network-only install. VLI_CACHE is a host directory (an
+# mklive-style `xbps-cachedir-<arch>`); like the other VLI_* knobs it carries
+# no local path in this committed script, and UNSET keeps today's behavior
+# (no share, network-only install).
+CACHE_FS=()
+[ -n "${VLI_CACHE:-}" ] && CACHE_FS=(-virtfs "local,path=$VLI_CACHE,mount_tag=vlicache,security_model=none")
+
 qemu-system-x86_64 -machine pc -enable-kvm -m 3072 \
     -kernel "$LIVE_EXTRACT/vmlinuz" -initrd "$LIVE_EXTRACT/initrd" -append "$CMDLINE" \
     -drive "file=$IMG,format=qcow2,if=virtio" \
@@ -233,6 +244,7 @@ qemu-system-x86_64 -machine pc -enable-kvm -m 3072 \
     -netdev user,id=n0 \
     -device virtio-net-pci,netdev=n0 \
     -virtfs "local,path=$SRC,mount_tag=vlio,security_model=none,readonly" \
+    "${CACHE_FS[@]}" \
     -display none -vga std \
     -serial "unix:$SSOCK,server,nowait" \
     -qmp "unix:$QSOCK,server,nowait" >"$DATA/$CASE-qemu.log" 2>&1 &

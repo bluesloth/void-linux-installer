@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.1.01"
+SCRIPT_VERSION="Version-3.1.02"
 
 
 
@@ -2667,6 +2667,17 @@ DISK_LIST=()
 for _cand in "${DISK_CANDIDATE_NAMES[@]}"; do
     _dev="/dev/${_cand}"
     if lsblk -n -o MOUNTPOINT "$_dev" 2>/dev/null | grep -q '[^[:space:]]'; then
+        continue
+    fi
+    case "$_cand" in
+        fd*)
+            note "Skipped ${_dev}: floppy drive — never a valid install target."
+            continue
+            ;;
+    esac
+    _cand_bytes="$(lsblk -bdn -o SIZE "$_dev" 2>/dev/null | tr -d '[:space:]')"
+    if [[ "${_cand_bytes:-}" =~ ^[0-9]+$ ]] && [ "$_cand_bytes" -lt 1073741824 ]; then
+        note "Skipped ${_dev}: ${_cand_bytes} B is below the 1 GiB install floor."
         continue
     fi
     DISK_LIST+=("$_dev")
@@ -5706,186 +5717,6 @@ YK_TOUCH="${YK_TOUCH}"
 INNER_EOF
 chmod 644 /etc/void-installer/limine-env
 
-mkdir -p /etc/void-installer
-_ssh_key_present="no"
-if [ -f "/home/${TARGET_USER}/.ssh/id_ed25519" ] || [ -f "/home/${TARGET_USER}/.ssh/imported" ]; then
-    _ssh_key_present="yes"
-fi
-if [ "$_ssh_key_present" = "yes" ]; then
-    _ssh_key_rows="SSH_KEY_COMMENT=\"${SSH_KEY_COMMENT:-<unset>}\"
-SSH_KEY_PROTECTED=\"${SSH_KEY_PROTECTED:-<unset>}\""
-else
-    _ssh_key_rows="# (no SSH key imported or generated — comment/protection rows omitted)"
-fi
-
-FLATPAK_PULLED_BY=""
-if [ "$INSTALL_FLATPAK" != "true" ] && xbps-query -p pkgver flatpak >/dev/null 2>&1; then
-    FLATPAK_PULLED_BY="$(xbps-query -X flatpak 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
-    echo "WARNING: [FLATPAK-PULL-DETECT] Flatpak was declined at the prompt (INSTALL_FLATPAK=false) but IS installed on this system." >&2
-    echo "         Reverse dependencies (who pulled it): ${FLATPAK_PULLED_BY:-unknown}" >&2
-    echo "         This is recorded in /etc/void-installer/install-config as FLATPAK_PULLED_BY." >&2
-fi
-
-VIRT_BR0="n/a"
-if [ "$INSTALL_VIRT" = "true" ]; then
-    if [ -n "${NET_INTERFACE_MATCH:-}" ]; then
-        VIRT_BR0="created"
-    else
-        VIRT_BR0="skipped (no wired NIC; virbr0 kept)"
-    fi
-fi
-
-cat > /etc/void-installer/install-config << INNER_EOF
-SCRIPT_VERSION="${SCRIPT_VERSION:-<unknown>}"
-HOSTNAME="${TARGET_HOSTNAME:-<unset>}"
-USER="${TARGET_USER:-<unset>}"
-USER_FULL_NAME="${TARGET_FULL_NAME:-<unset>}"
-USER_SHELL="${USER_SHELL:-<unset>}"
-DESKTOP_ENV="${DESKTOP_ENV:-<unset>}"
-DISPLAY_MANAGER="${DISPLAY_MANAGER:-<unset>}"
-HAS_GRAPHICAL="${HAS_GRAPHICAL:-yes}"
-INSTALL_XORG="${INSTALL_XORG:-false}"
-INSTALL_AUDIO="${INSTALL_AUDIO:-true}"
-BOOTLOADER="${BOOTLOADER:-<unset>}"
-BOOT_MODE="${BOOT_MODE:-<unset>}"
-KERNEL_MODE="${KERNEL_MODE:-<unset>}"
-KERNEL_PKGS="${KERNEL_PKGS:-<unset>}"
-DEVICE_PROFILE="${DEVICE_PROFILE:-<unset>}"
-PROFILE_TLP="${PROFILE_TLP:-<unset>}"
-PROFILE_BT="${PROFILE_BT:-<unset>}"
-PROFILE_PRELOAD="${PROFILE_PRELOAD:-<unset>}"
-POWER_PPD="${POWER_PPD:-false}"  # [COSMIC-PPD] true = COSMIC build carries PPD (tlp skipped)
-ENCRYPT="${ENCRYPT:-no}"
-CRYPT_NAME="${CRYPT_NAME:-void-root}"
-SESSION_STACK="${SESSION_STACK:-<unset>}"
-LOCALE="${LOCALE:-<unset>}"
-TIMEZONE="${TIMEZONE:-<unset>}"
-REPO_PRIMARY="${REPO_PRIMARY:-<unset>}"
-LOCAL_CACHE_REUSE="${LOCAL_CACHE_REUSE:-no}"
-SWAP_BACKEND="${SWAP_BACKEND:-<unset>}"
-ENABLE_HIBERNATION="${ENABLE_HIBERNATION:-<unset>}"
-SWAPFILE_SIZE="${SWAPFILE_SIZE:-<unset>}"
-LIMINE_WALLPAPER="${LIMINE_WALLPAPER:-<unset>}"
-LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE:-<unset>}"
-LIMINE_NVRAM="${LIMINE_NVRAM:-no}"
-LIMINE_NVRAM_LABEL="${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}"
-INSTALL_SSH_SERVER="${INSTALL_SSH_SERVER:-false}"
-SSH_PORT="${SSH_PORT:-<unset>}"
-SSH_PASSWORD_AUTH="${SSH_PASSWORD_AUTH:-<unset>}"
-SSH_ROOT_LOGIN="${SSH_ROOT_LOGIN:-<unset>}"
-SSH_KEY_PRESENT="${_ssh_key_present}"
-${_ssh_key_rows}
-GPU_FAMILIES="${GPU_FAMILIES:-<unset>}"
-WIFI_HW="${WIFI_HW:-<unset>}"
-HAS_NVIDIA_GPU="${HAS_NVIDIA_GPU:-<unset>}"
-HAS_AMD_GPU="${HAS_AMD_GPU:-<unset>}"
-HAS_INTEL_GPU="${HAS_INTEL_GPU:-<unset>}"
-INSTALL_NVIDIA="${INSTALL_NVIDIA:-<unset>}"
-BR0_NIC="${BR0_NIC:-<unset>}"
-VIRT_BR0="${VIRT_BR0:-n/a}"
-MICROCODE_PKG="${MICROCODE_PKG:-<unset>}"
-MICROCODE_DECIDED="${MICROCODE_DECIDED:-<unset>}"
-INSTALL_FLATPAK="${INSTALL_FLATPAK:-false}"
-INSTALL_COSMIC_STORE="${INSTALL_COSMIC_STORE:-false}"
-FLATPAK_PULLED_BY="${FLATPAK_PULLED_BY:-}"
-INSTALL_BRAVE="${INSTALL_BRAVE:-false}"
-INSTALL_BREW="${INSTALL_BREW:-false}"
-PROVISION_LINUXBREW_SUBVOL="${PROVISION_LINUXBREW_SUBVOL:-false}"
-INSTALL_LUTRIS="${INSTALL_LUTRIS:-false}"
-INSTALL_HEROIC="${INSTALL_HEROIC:-false}"
-INSTALL_BOTTLES="${INSTALL_BOTTLES:-false}"
-INSTALL_WINE="${INSTALL_WINE:-false}"
-INSTALL_GAMEMODE="${INSTALL_GAMEMODE:-false}"
-INSTALL_ANY_GAME="${INSTALL_ANY_GAME:-false}"
-PROVISION_GAME_SUBVOL="${PROVISION_GAME_SUBVOL:-false}"
-INSTALL_STEAM="${INSTALL_STEAM:-false}"
-INSTALL_DOCKER="${INSTALL_DOCKER:-false}"
-INSTALL_PODMAN_ROOTLESS="${INSTALL_PODMAN_ROOTLESS:-false}"
-INSTALL_PODMAN_ROOTFUL="${INSTALL_PODMAN_ROOTFUL:-false}"
-PROVISION_DOCKER_SUBVOL="${PROVISION_DOCKER_SUBVOL:-false}"
-PROVISION_PODMAN_SUBVOL="${PROVISION_PODMAN_SUBVOL:-false}"
-PROVISION_PODMAN_ROOTLESS_SUBVOL="${PROVISION_PODMAN_ROOTLESS_SUBVOL:-false}"
-INSTALL_VIRT="${INSTALL_VIRT:-false}"
-INSTALL_VIRTUALBOX="${INSTALL_VIRTUALBOX:-false}"
-PROVISION_VIRTUALBOX_SUBVOL="${PROVISION_VIRTUALBOX_SUBVOL:-false}"
-REGION_HOME_FS="${REGION_HOME_FS:-btrfs}"
-REGION_VAR_FS="${REGION_VAR_FS:-btrfs}"
-REGION_CACHE_FS="${REGION_CACHE_FS:-btrfs}"
-REGION_SRV_FS="${REGION_SRV_FS:-btrfs}"
-REGION_OPT_FS="${REGION_OPT_FS:-btrfs}"
-REGION_GAMES="${REGION_GAMES:-none}"
-REGION_PARTITIONED="${REGION_PARTITIONED:-}"
-REGION_HOME_SIZE="${REGION_HOME_SIZE:-}"
-REGION_VAR_SIZE="${REGION_VAR_SIZE:-}"
-REGION_CACHE_SIZE="${REGION_CACHE_SIZE:-}"
-REGION_SRV_SIZE="${REGION_SRV_SIZE:-}"
-REGION_OPT_SIZE="${REGION_OPT_SIZE:-}"
-REGION_GAMES_SIZE="${REGION_GAMES_SIZE:-}"
-INNER_EOF
-chmod 644 /etc/void-installer/install-config
-
-if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
-    mkdir -p "/home/${TARGET_USER}/Documents"
-    chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/Documents"
-    {
-        echo "# ========================================================================="
-        echo "# VOID LINUX install record for THIS machine"
-        echo "# Written to ~/Documents by Void_Linux_Installer.sh ${SCRIPT_VERSION} at install time."
-        echo "# Secret-free 'as-built' tracking. Full install-time CHOICES + installer"
-        echo "# version live in /etc/void-installer/install-config; the installer itself"
-        echo "# is archived at /etc/void-installer/Void_Linux_Installer.sh."
-        echo "# ========================================================================="
-        echo "SCRIPT_VERSION=${SCRIPT_VERSION:-<unknown>}"
-        echo "INSTALLED_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        echo "HOSTNAME=${TARGET_HOSTNAME:-<unset>}"
-        echo "USER=${TARGET_USER:-<unset>}"
-        echo "BOOTLOADER=${BOOTLOADER:-<unset>}"
-        if [ "${GRUB_ESP_BOOT}" = "true" ]; then
-            echo "ESP_MOUNTED_AT=/boot (GRUB+ENCRYPT combo: boot tree unencrypted, on the ESP)"
-        else
-            echo "ESP_MOUNTED_AT=/boot/efi"
-        fi
-        echo "ENCRYPT=${ENCRYPT:-no}"
-        echo "LUKS_MAPPER=${CRYPT_NAME:-void-root}"
-        echo "YUBIKEY_UNLOCK=${YK_MODE:-off}"
-        echo "SESSION_STACK=${SESSION_STACK:-<unset>}"
-        echo "DESKTOP_ENV=${DESKTOP_ENV:-<unset>}"
-        echo "SSH_SERVER=${INSTALL_SSH_SERVER:-no} (port ${SSH_PORT:-22}; policy: /etc/void-installer/install-config)"
-        echo "NVIDIA_DRIVER=${INSTALL_NVIDIA:-no} (GPU: ${GPU_FAMILIES:-<none detected>}, wifi: ${WIFI_HW:-no})"
-        echo "WIFI_HARDWARE=${WIFI_IDS:-<none>}"
-        _doc_cpu="$(grep -m1 vendor_id /proc/cpuinfo 2>/dev/null | awk '{print $3}')"
-        echo "CPU=${_doc_cpu:-<unknown>} (microcode: ${MICROCODE_PKG:-none})"
-        unset _doc_cpu
-        echo "HOMEBREW=${INSTALL_BREW:-no} (deps: git/curl/file via xbps; install the prefix yourself: ~/.linuxbrew — see NEWS; isolation: ${PROVISION_LINUXBREW_SUBVOL:-false})"
-        _doc_g=""
-        [ "$INSTALL_STEAM" = "true" ] && _doc_g="$_doc_g steam"
-        [ "$INSTALL_LUTRIS" = "true" ] && _doc_g="$_doc_g lutris"
-        [ "$INSTALL_HEROIC" = "true" ] && _doc_g="$_doc_g heroic(flatpak)"
-        [ "$INSTALL_BOTTLES" = "true" ] && _doc_g="$_doc_g bottles(flatpak)"
-        [ "$INSTALL_WINE" = "true" ] && _doc_g="$_doc_g wine"
-        [ "$INSTALL_GAMEMODE" = "true" ] && _doc_g="$_doc_g gamemode"
-        if [ -n "$_doc_g" ]; then
-            echo "GAMING=${_doc_g# } (@game isolation: ${PROVISION_GAME_SUBVOL:-false})"
-        else
-            echo "GAMING=no"
-        fi
-        unset _doc_g
-        _doc_regions="home:${REGION_HOME_FS:-btrfs},var:${REGION_VAR_FS:-btrfs},cache:${REGION_CACHE_FS:-btrfs},srv:${REGION_SRV_FS:-btrfs},opt:${REGION_OPT_FS:-btrfs}"
-        [ "${REGION_GAMES:-none}" != "none" ] && _doc_regions="${_doc_regions},games:${REGION_GAMES}"
-        echo "DATA_REGIONS=${_doc_regions}"
-        unset _doc_regions
-        echo ""
-        echo "# -------- INSTALLED PACKAGES (full xbps-query -l inventory) --------"
-        if command -v xbps-query >/dev/null 2>&1; then
-            xbps-query -l 2>/dev/null | sed -E 's/^\[installed\] //' | sort
-        else
-            echo "# xbps-query unavailable in chroot — package inventory omitted"
-        fi
-    } > "/home/${TARGET_USER}/Documents/Void_Install.txt"
-    chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/Documents/Void_Install.txt"
-    chmod 644 "/home/${TARGET_USER}/Documents/Void_Install.txt"
-fi
-
 if [ "${LIMINE_WALLPAPER}" = "yes" ]; then
     for _wp in /tmp/limine-splash.*; do
         [ -f "$_wp" ] || continue
@@ -6162,6 +5993,187 @@ echo "Snapper event-driven Limine menu sync installed (/usr/lib/snapper/plugins/
 /usr/local/sbin/void-limine-sync-kernels
 /usr/local/sbin/void-limine-write-conf
 
+fi
+
+
+mkdir -p /etc/void-installer
+_ssh_key_present="no"
+if [ -f "/home/${TARGET_USER}/.ssh/id_ed25519" ] || [ -f "/home/${TARGET_USER}/.ssh/imported" ]; then
+    _ssh_key_present="yes"
+fi
+if [ "$_ssh_key_present" = "yes" ]; then
+    _ssh_key_rows="SSH_KEY_COMMENT=\"${SSH_KEY_COMMENT:-<unset>}\"
+SSH_KEY_PROTECTED=\"${SSH_KEY_PROTECTED:-<unset>}\""
+else
+    _ssh_key_rows="# (no SSH key imported or generated — comment/protection rows omitted)"
+fi
+
+FLATPAK_PULLED_BY=""
+if [ "$INSTALL_FLATPAK" != "true" ] && xbps-query -p pkgver flatpak >/dev/null 2>&1; then
+    FLATPAK_PULLED_BY="$(xbps-query -X flatpak 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+    echo "WARNING: [FLATPAK-PULL-DETECT] Flatpak was declined at the prompt (INSTALL_FLATPAK=false) but IS installed on this system." >&2
+    echo "         Reverse dependencies (who pulled it): ${FLATPAK_PULLED_BY:-unknown}" >&2
+    echo "         This is recorded in /etc/void-installer/install-config as FLATPAK_PULLED_BY." >&2
+fi
+
+VIRT_BR0="n/a"
+if [ "$INSTALL_VIRT" = "true" ]; then
+    if [ -n "${NET_INTERFACE_MATCH:-}" ]; then
+        VIRT_BR0="created"
+    else
+        VIRT_BR0="skipped (no wired NIC; virbr0 kept)"
+    fi
+fi
+
+cat > /etc/void-installer/install-config << INNER_EOF
+SCRIPT_VERSION="${SCRIPT_VERSION:-<unknown>}"
+HOSTNAME="${TARGET_HOSTNAME:-<unset>}"
+USER="${TARGET_USER:-<unset>}"
+USER_FULL_NAME="${TARGET_FULL_NAME:-<unset>}"
+USER_SHELL="${USER_SHELL:-<unset>}"
+DESKTOP_ENV="${DESKTOP_ENV:-<unset>}"
+DISPLAY_MANAGER="${DISPLAY_MANAGER:-<unset>}"
+HAS_GRAPHICAL="${HAS_GRAPHICAL:-yes}"
+INSTALL_XORG="${INSTALL_XORG:-false}"
+INSTALL_AUDIO="${INSTALL_AUDIO:-true}"
+BOOTLOADER="${BOOTLOADER:-<unset>}"
+BOOT_MODE="${BOOT_MODE:-<unset>}"
+KERNEL_MODE="${KERNEL_MODE:-<unset>}"
+KERNEL_PKGS="${KERNEL_PKGS:-<unset>}"
+DEVICE_PROFILE="${DEVICE_PROFILE:-<unset>}"
+PROFILE_TLP="${PROFILE_TLP:-<unset>}"
+PROFILE_BT="${PROFILE_BT:-<unset>}"
+PROFILE_PRELOAD="${PROFILE_PRELOAD:-<unset>}"
+POWER_PPD="${POWER_PPD:-false}"  # [COSMIC-PPD] true = COSMIC build carries PPD (tlp skipped)
+ENCRYPT="${ENCRYPT:-no}"
+CRYPT_NAME="${CRYPT_NAME:-void-root}"
+SESSION_STACK="${SESSION_STACK:-<unset>}"
+LOCALE="${LOCALE:-<unset>}"
+TIMEZONE="${TIMEZONE:-<unset>}"
+REPO_PRIMARY="${REPO_PRIMARY:-<unset>}"
+LOCAL_CACHE_REUSE="${LOCAL_CACHE_REUSE:-no}"
+SWAP_BACKEND="${SWAP_BACKEND:-<unset>}"
+ENABLE_HIBERNATION="${ENABLE_HIBERNATION:-<unset>}"
+SWAPFILE_SIZE="${SWAPFILE_SIZE:-<unset>}"
+LIMINE_WALLPAPER="${LIMINE_WALLPAPER:-<unset>}"
+LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE:-<unset>}"
+LIMINE_NVRAM="${LIMINE_NVRAM:-no}"
+LIMINE_NVRAM_LABEL="${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}"
+INSTALL_SSH_SERVER="${INSTALL_SSH_SERVER:-false}"
+SSH_PORT="${SSH_PORT:-<unset>}"
+SSH_PASSWORD_AUTH="${SSH_PASSWORD_AUTH:-<unset>}"
+SSH_ROOT_LOGIN="${SSH_ROOT_LOGIN:-<unset>}"
+SSH_KEY_PRESENT="${_ssh_key_present}"
+${_ssh_key_rows}
+GPU_FAMILIES="${GPU_FAMILIES:-<unset>}"
+WIFI_HW="${WIFI_HW:-<unset>}"
+HAS_NVIDIA_GPU="${HAS_NVIDIA_GPU:-<unset>}"
+HAS_AMD_GPU="${HAS_AMD_GPU:-<unset>}"
+HAS_INTEL_GPU="${HAS_INTEL_GPU:-<unset>}"
+INSTALL_NVIDIA="${INSTALL_NVIDIA:-<unset>}"
+BR0_NIC="${BR0_NIC:-<unset>}"
+VIRT_BR0="${VIRT_BR0:-n/a}"
+MICROCODE_PKG="${MICROCODE_PKG:-<unset>}"
+MICROCODE_DECIDED="${MICROCODE_DECIDED:-<unset>}"
+INSTALL_FLATPAK="${INSTALL_FLATPAK:-false}"
+INSTALL_COSMIC_STORE="${INSTALL_COSMIC_STORE:-false}"
+FLATPAK_PULLED_BY="${FLATPAK_PULLED_BY:-}"
+INSTALL_BRAVE="${INSTALL_BRAVE:-false}"
+INSTALL_BREW="${INSTALL_BREW:-false}"
+PROVISION_LINUXBREW_SUBVOL="${PROVISION_LINUXBREW_SUBVOL:-false}"
+INSTALL_LUTRIS="${INSTALL_LUTRIS:-false}"
+INSTALL_HEROIC="${INSTALL_HEROIC:-false}"
+INSTALL_BOTTLES="${INSTALL_BOTTLES:-false}"
+INSTALL_WINE="${INSTALL_WINE:-false}"
+INSTALL_GAMEMODE="${INSTALL_GAMEMODE:-false}"
+INSTALL_ANY_GAME="${INSTALL_ANY_GAME:-false}"
+PROVISION_GAME_SUBVOL="${PROVISION_GAME_SUBVOL:-false}"
+INSTALL_STEAM="${INSTALL_STEAM:-false}"
+INSTALL_DOCKER="${INSTALL_DOCKER:-false}"
+INSTALL_PODMAN_ROOTLESS="${INSTALL_PODMAN_ROOTLESS:-false}"
+INSTALL_PODMAN_ROOTFUL="${INSTALL_PODMAN_ROOTFUL:-false}"
+PROVISION_DOCKER_SUBVOL="${PROVISION_DOCKER_SUBVOL:-false}"
+PROVISION_PODMAN_SUBVOL="${PROVISION_PODMAN_SUBVOL:-false}"
+PROVISION_PODMAN_ROOTLESS_SUBVOL="${PROVISION_PODMAN_ROOTLESS_SUBVOL:-false}"
+INSTALL_VIRT="${INSTALL_VIRT:-false}"
+INSTALL_VIRTUALBOX="${INSTALL_VIRTUALBOX:-false}"
+PROVISION_VIRTUALBOX_SUBVOL="${PROVISION_VIRTUALBOX_SUBVOL:-false}"
+REGION_HOME_FS="${REGION_HOME_FS:-btrfs}"
+REGION_VAR_FS="${REGION_VAR_FS:-btrfs}"
+REGION_CACHE_FS="${REGION_CACHE_FS:-btrfs}"
+REGION_SRV_FS="${REGION_SRV_FS:-btrfs}"
+REGION_OPT_FS="${REGION_OPT_FS:-btrfs}"
+REGION_GAMES="${REGION_GAMES:-none}"
+REGION_PARTITIONED="${REGION_PARTITIONED:-}"
+REGION_HOME_SIZE="${REGION_HOME_SIZE:-}"
+REGION_VAR_SIZE="${REGION_VAR_SIZE:-}"
+REGION_CACHE_SIZE="${REGION_CACHE_SIZE:-}"
+REGION_SRV_SIZE="${REGION_SRV_SIZE:-}"
+REGION_OPT_SIZE="${REGION_OPT_SIZE:-}"
+REGION_GAMES_SIZE="${REGION_GAMES_SIZE:-}"
+INNER_EOF
+chmod 644 /etc/void-installer/install-config
+
+if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
+    mkdir -p "/home/${TARGET_USER}/Documents"
+    chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/Documents"
+    {
+        echo "# ========================================================================="
+        echo "# VOID LINUX install record for THIS machine"
+        echo "# Written to ~/Documents by Void_Linux_Installer.sh ${SCRIPT_VERSION} at install time."
+        echo "# Secret-free 'as-built' tracking. Full install-time CHOICES + installer"
+        echo "# version live in /etc/void-installer/install-config; the installer itself"
+        echo "# is archived at /etc/void-installer/Void_Linux_Installer.sh."
+        echo "# ========================================================================="
+        echo "SCRIPT_VERSION=${SCRIPT_VERSION:-<unknown>}"
+        echo "INSTALLED_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "HOSTNAME=${TARGET_HOSTNAME:-<unset>}"
+        echo "USER=${TARGET_USER:-<unset>}"
+        echo "BOOTLOADER=${BOOTLOADER:-<unset>}"
+        if [ "${GRUB_ESP_BOOT}" = "true" ]; then
+            echo "ESP_MOUNTED_AT=/boot (GRUB+ENCRYPT combo: boot tree unencrypted, on the ESP)"
+        else
+            echo "ESP_MOUNTED_AT=/boot/efi"
+        fi
+        echo "ENCRYPT=${ENCRYPT:-no}"
+        echo "LUKS_MAPPER=${CRYPT_NAME:-void-root}"
+        echo "YUBIKEY_UNLOCK=${YK_MODE:-off}"
+        echo "SESSION_STACK=${SESSION_STACK:-<unset>}"
+        echo "DESKTOP_ENV=${DESKTOP_ENV:-<unset>}"
+        echo "SSH_SERVER=${INSTALL_SSH_SERVER:-no} (port ${SSH_PORT:-22}; policy: /etc/void-installer/install-config)"
+        echo "NVIDIA_DRIVER=${INSTALL_NVIDIA:-no} (GPU: ${GPU_FAMILIES:-<none detected>}, wifi: ${WIFI_HW:-no})"
+        echo "WIFI_HARDWARE=${WIFI_IDS:-<none>}"
+        _doc_cpu="$(grep -m1 vendor_id /proc/cpuinfo 2>/dev/null | awk '{print $3}')"
+        echo "CPU=${_doc_cpu:-<unknown>} (microcode: ${MICROCODE_PKG:-none})"
+        unset _doc_cpu
+        echo "HOMEBREW=${INSTALL_BREW:-no} (deps: git/curl/file via xbps; install the prefix yourself: ~/.linuxbrew — see NEWS; isolation: ${PROVISION_LINUXBREW_SUBVOL:-false})"
+        _doc_g=""
+        [ "$INSTALL_STEAM" = "true" ] && _doc_g="$_doc_g steam"
+        [ "$INSTALL_LUTRIS" = "true" ] && _doc_g="$_doc_g lutris"
+        [ "$INSTALL_HEROIC" = "true" ] && _doc_g="$_doc_g heroic(flatpak)"
+        [ "$INSTALL_BOTTLES" = "true" ] && _doc_g="$_doc_g bottles(flatpak)"
+        [ "$INSTALL_WINE" = "true" ] && _doc_g="$_doc_g wine"
+        [ "$INSTALL_GAMEMODE" = "true" ] && _doc_g="$_doc_g gamemode"
+        if [ -n "$_doc_g" ]; then
+            echo "GAMING=${_doc_g# } (@game isolation: ${PROVISION_GAME_SUBVOL:-false})"
+        else
+            echo "GAMING=no"
+        fi
+        unset _doc_g
+        _doc_regions="home:${REGION_HOME_FS:-btrfs},var:${REGION_VAR_FS:-btrfs},cache:${REGION_CACHE_FS:-btrfs},srv:${REGION_SRV_FS:-btrfs},opt:${REGION_OPT_FS:-btrfs}"
+        [ "${REGION_GAMES:-none}" != "none" ] && _doc_regions="${_doc_regions},games:${REGION_GAMES}"
+        echo "DATA_REGIONS=${_doc_regions}"
+        unset _doc_regions
+        echo ""
+        echo "# -------- INSTALLED PACKAGES (full xbps-query -l inventory) --------"
+        if command -v xbps-query >/dev/null 2>&1; then
+            xbps-query -l 2>/dev/null | sed -E 's/^\[installed\] //' | sort
+        else
+            echo "# xbps-query unavailable in chroot — package inventory omitted"
+        fi
+    } > "/home/${TARGET_USER}/Documents/Void_Install.txt"
+    chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/Documents/Void_Install.txt"
+    chmod 644 "/home/${TARGET_USER}/Documents/Void_Install.txt"
 fi
 
 if ! command -v snapper >/dev/null 2>&1; then
