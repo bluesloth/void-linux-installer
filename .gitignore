@@ -9,6 +9,11 @@ INSTALL_PROMPTS.pdf
 *~
 .DS_Store
 # Local scratch / debug artifacts — never shipped.
-Debug/
+Debug/*
+# ...except the QEMU validation harness this release ships (tracked files
+# only: the ISO, the extracted live kernel/initrd and per-case artifacts
+# are not tracked and stay out). git cannot re-include under an excluded
+# directory, hence Debug/* + negation rather than a bare Debug/.
+!Debug/qemu-matrix/
 *.bak
 *.log

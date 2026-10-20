@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Beta-v2.9.99"
+SCRIPT_VERSION="Version-3.1.00"
 
 
 
@@ -13,6 +13,7 @@ DEFAULT_AUDIO="${DEFAULT_AUDIO:-false}"
 DEFAULT_SESSION_STACK="${DEFAULT_SESSION_STACK:-1}"
 DEFAULT_BOOTLOADER="${DEFAULT_BOOTLOADER:-1}"
 DEFAULT_LIMINE_NVRAM="${DEFAULT_LIMINE_NVRAM:-false}"
+DEFAULT_LIMINE_NVRAM_LABEL="${DEFAULT_LIMINE_NVRAM_LABEL:-Void Linux (Limine)}"
 DEFAULT_EFI_ESP_SIZE="${DEFAULT_EFI_ESP_SIZE:-1}"
 DEFAULT_KERNEL_MAINLINE="${DEFAULT_KERNEL_MAINLINE:-false}"
 DEFAULT_KERNEL_LTS="${DEFAULT_KERNEL_LTS:-true}"
@@ -111,6 +112,7 @@ save_log_to_usb() {
             echo "STAGE_CONTEXT=${STAGE_CONTEXT:-<pre-stage>}"
             echo "TARGET_DISK=${DISK:-<not yet selected>}"
             echo "BOOTLOADER=${BOOTLOADER:-<n/a>}"
+            echo "BOOT_MODE=${BOOT_MODE:-<n/a>}"
             echo "DESKTOP_ENV=${DESKTOP_ENV:-<n/a>}"
             echo "DISPLAY_MANAGER=${DISPLAY_MANAGER:-<n/a>}"
             echo "ENCRYPT=${ENCRYPT:-no} (public flag only; no passphrase ever)"
@@ -355,8 +357,8 @@ browse_pick() {
 }
 
 echo "=============================================================================="
-echo " ${C_BOLD}${C_CYN}Void Linux Unified Installer${C_RST} — version ${C_BOLD}${SCRIPT_VERSION}${C_RST}"
-echo " Bootloader: choose GRUB or Limine below — UEFI only, BIOS unsupported"
+echo " ${C_BOLD}${C_CYN}Void Linux Unified Installer${C_RST} — ${C_BOLD}${SCRIPT_VERSION}${C_RST}"
+echo " Bootloader: choose GRUB or Limine below — UEFI and legacy BIOS both supported"
 echo "=============================================================================="
 
 cleanup_on_failure() {
@@ -582,6 +584,22 @@ has_wired_nic_hw() {
     done
     return 1
 }
+
+
+if [ -d /sys/firmware/efi ]; then
+    BOOT_MODE="uefi"
+else
+    BOOT_MODE="bios"
+fi
+export BOOT_MODE
+BIOSBOOT_PART_SIZE="1M"
+export BIOSBOOT_PART_SIZE
+if [ "$BOOT_MODE" = "bios" ]; then
+    echo "==> Boot mode: legacy BIOS — bootloader steps use the BIOS paths"
+    echo "    (GRUB i386-pc / limine bios-install) and no NVRAM entry is offered."
+else
+    echo "==> Boot mode: UEFI"
+fi
 
 if [ "$RESUME" != "1" ]; then
 echo ""
@@ -945,32 +963,28 @@ else
 fi
 export SWAPFILE_SIZE
 
-if [ ! -d /sys/firmware/efi ]; then
-    echo "FATAL: this machine does not appear to be booted in UEFI mode." >&2
-    echo "       This installer only supports UEFI boot (GRUB and Limine" >&2
-    echo "       are both installed via their UEFI paths) — BIOS is not" >&2
-    echo "       implemented." >&2
-    exit 1
-fi
+LIMINE_NVRAM="no"
+LIMINE_NVRAM_LABEL="Void Linux (Limine)"
 
  echo ""
  echo "${C_BOLD}${C_BLU}Choose bootloader${C_RST}  (default: Limine)"
- echo "  ${C_BOLD}1)${C_RST} ${C_GRN}Limine${C_RST} — newer, simpler, single-file UEFI bootloader with no"
+ echo "  ${C_BOLD}1)${C_RST} ${C_GRN}Limine${C_RST} — newer, simpler, single-file bootloader with no"
  echo "     efibootmgr/NVRAM dependency (optional registration now available,"
- echo "     off by default: the removable/fallback boot path is always used)."
+ echo "     UEFI only and off by default: the removable/fallback boot path is"
+ echo "     always used; legacy BIOS installs the stages onto the disk instead)."
  echo "     Snapshot-boot menu support is a"
  echo "     static config this script writes itself (with the snapper plugin"
  echo "     auto-regenerating it on every snapshot create/delete). Requires"
- echo "     a 4GiB+ EFI partition (ArchWiki's own recommendation for"
- echo "     bootable snapshots, kernel versions, and large early-boot"
- echo "     modules)."
+ echo "     a 4GiB+ FAT boot partition (the ESP under UEFI — ArchWiki's own"
+ echo "     recommendation for bootable snapshots, kernel versions, and large"
+ echo "     early-boot modules)."
 echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snapshot-boot support via"
   echo "     grub-btrfs. Extensively real-hardware tested on this script's"
-  echo "     3.0.x line, including snapshot boot. 1GiB EFI partition."
+  echo "     3.0.x line, including snapshot boot. 1GiB boot partition (ESP under UEFI)."
   echo "     ${C_RED}NOTE: if you then enable full-disk encryption (next prompt), GRUB's"
- echo "     LUKS cryptodisk is bypassed entirely — the ESP is mounted AT /boot so"
- echo "     grub.cfg + kernels stay unencrypted and GRUB never unlocks the disk"
- echo "     (dracut prompts once, after handoff). The ESP grows to 4GiB in that"
+ echo "     LUKS cryptodisk is bypassed entirely — that FAT partition is mounted AT"
+ echo "     /boot so grub.cfg + kernels stay unencrypted and GRUB never unlocks the disk"
+ echo "     (dracut prompts once, after handoff). The partition grows to 4GiB in that"
  echo "     combo to hold every kernel/initramfs. YubiKey-only unlock still"
  echo "     clamps to passphrase-fallback on GRUB per [YUBIKEY].${C_RST}"
  while true; do
@@ -981,6 +995,64 @@ echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snaps
      case "${BOOTLOADER_INPUT:-$DEFAULT_BOOTLOADER}" in
          1) BOOTLOADER="limine"
             esp_size_choose
+            if [ "$BOOT_MODE" = "uefi" ]; then
+                echo ""
+                echo "${C_BOLD}${C_BLU}Limine NVRAM registration${C_RST}"
+                echo "  Register a UEFI NVRAM boot entry pointing at Limine's BOOTX64.EFI"
+                echo "  via efibootmgr? The default ('no') keeps the removable/fallback"
+                echo "  boot path only (current behaviour); 'yes' adds an explicit entry."
+                while true; do
+                    case "${DEFAULT_LIMINE_NVRAM}" in
+                        [yY]|[yY][eE][sS]|true) _nvram_default="Y";;
+                        *) _nvram_default="N";;
+                    esac
+                    ask "${C_GRN}Register Limine NVRAM entry?${C_RST} [y/N] (default ${_nvram_default}): "
+                    read -r LIMINE_NVRAM_INPUT
+                    case "${LIMINE_NVRAM_INPUT:-$DEFAULT_LIMINE_NVRAM}" in
+                        [yY]|[yY][eE][sS]|true)  LIMINE_NVRAM="yes"; break ;;
+                        [nN]|[nN][oO]|false)     LIMINE_NVRAM="no";  break ;;
+                        *) echo "Please enter y or n." >&2 ;;
+                    esac
+                done
+                unset _nvram_default LIMINE_NVRAM_INPUT
+                if [ "$LIMINE_NVRAM" = "yes" ]; then
+                    echo ""
+                    echo "${C_BOLD}${C_BLU}UEFI boot entry name${C_RST}"
+                    echo "  The description the firmware boot menu and 'efibootmgr -v' show"
+                    echo "  for this entry. Spaces and parentheses are fine; quotes, backticks,"
+                    echo "  dollar signs and backslashes are not (kept out of shell config)."
+                    while true; do
+                        ask "UEFI boot entry label (default ${DEFAULT_LIMINE_NVRAM_LABEL}): "
+                        read -r LIMINE_NVRAM_LABEL_INPUT
+                        _lbl="${LIMINE_NVRAM_LABEL_INPUT:-$DEFAULT_LIMINE_NVRAM_LABEL}"
+                        _lbl="${_lbl#"${_lbl%%[![:space:]]*}"}"
+                        _lbl="${_lbl%"${_lbl##*[![:space:]]}"}"
+                        if [ -z "$_lbl" ]; then
+                            echo "Label cannot be empty — press Enter for the default." >&2
+                            continue
+                        fi
+                        if [ "${#_lbl}" -gt 80 ]; then
+                            echo "Label too long — keep it under 80 characters." >&2
+                            continue
+                        fi
+                        case "$_lbl" in
+                            *\"*|*\`*|*\\*|*\$*|*[[:cntrl:]]*)
+                                echo "Label may not contain quotes, backticks, dollar signs," >&2
+                                echo "backslashes or control characters." >&2
+                                continue ;;
+                        esac
+                        LIMINE_NVRAM_LABEL="$_lbl"
+                        break
+                    done
+                    unset _lbl LIMINE_NVRAM_LABEL_INPUT
+                    echo "  NVRAM entry will be: ${LIMINE_NVRAM_LABEL}"
+                fi
+            else
+                echo ""
+                echo "  ${C_GRN}Legacy BIOS boot:${C_RST} this machine has no UEFI NVRAM, so no"
+                echo "  firmware boot entry is offered — Limine is installed to the"
+                echo "  disk's MBR/BIOS stages instead and boots from there."
+            fi
             break ;;
          2) BOOTLOADER="grub"
             EFI_PART_SIZE="1G"
@@ -990,6 +1062,8 @@ echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snaps
  done
 export BOOTLOADER
 export EFI_PART_SIZE
+export LIMINE_NVRAM
+export LIMINE_NVRAM_LABEL
 
 INSTALL_KERNEL_MAINLINE="${DEFAULT_KERNEL_MAINLINE}"
 INSTALL_KERNEL_LTS="${DEFAULT_KERNEL_LTS}"
@@ -1329,27 +1403,7 @@ export INSTALL_WIFI_FW WIFI_IDS WIFI_CHIPS WIFI_FW_PKG
 
 LIMINE_WALLPAPER="none"
 LIMINE_WALLPAPER_STYLE="stretched"
-LIMINE_NVRAM="no"
 if [ "$BOOTLOADER" = "limine" ]; then
-    echo ""
-    echo "${C_BOLD}${C_BLU}Limine NVRAM registration${C_RST}"
-    echo "  Register a UEFI NVRAM boot entry pointing at Limine's BOOTX64.EFI"
-    echo "  via efibootmgr? The default ('no') keeps the removable/fallback"
-    echo "  boot path only (current behaviour); 'yes' adds an explicit entry."
-    while true; do
-        case "${DEFAULT_LIMINE_NVRAM}" in
-            [yY]|[yY][eE][sS]|true) _nvram_default="Y";;
-            *) _nvram_default="N";;
-        esac
-        ask "${C_GRN}Register Limine NVRAM entry?${C_RST} [y/N] (default ${_nvram_default}): "
-        read -r LIMINE_NVRAM_INPUT
-        case "${LIMINE_NVRAM_INPUT:-$DEFAULT_LIMINE_NVRAM}" in
-            [yY]|[yY][eE][sS]|true)  LIMINE_NVRAM="yes"; break ;;
-            [nN]|[nN][oO]|false)     LIMINE_NVRAM="no";  break ;;
-            *) echo "Please enter y or n." >&2 ;;
-        esac
-    done
-    unset _nvram_default LIMINE_NVRAM_INPUT
     echo ""
     echo "${C_BOLD}${C_BLU}Limine boot-screen background${C_RST}"
     echo "  Add a wallpaper to the Limine boot menu? (BMP/PNG/JPEG/QOI)"
@@ -1398,7 +1452,6 @@ if [ "$BOOTLOADER" = "limine" ]; then
 fi
 export LIMINE_WALLPAPER
 export LIMINE_WALLPAPER_STYLE
-export LIMINE_NVRAM
 
 ENCRYPT="no"
 ENCRYPT_PASSPHRASE=""
@@ -2803,14 +2856,6 @@ esac
 unset _rev_de _rev_dm _rev_shell _rev_swapfmt _rev_swap _rev_acct _rev_ans
 fi
 
-if [[ "$DISK" =~ (nvme|mmcblk) ]]; then
-    export PART_EFI="${DISK}p1"
-    export PART_SYS="${DISK}p2"
-else
-    export PART_EFI="${DISK}1"
-    export PART_SYS="${DISK}2"
-fi
-
 for _rr in $REGION_PARTITIONED; do
     case "$_rr" in
         home|var|cache|srv|opt|games) ;;
@@ -2820,11 +2865,37 @@ done
 NREG=0
 for _rr in $REGION_PARTITIONED; do NREG=$((NREG + 1)); done
 unset _rr
+if [ "$BOOT_MODE" = "bios" ]; then
+    if [ -n "${REGION_PARTITIONED:-}" ] && [ "$ENCRYPT" != "yes" ]; then
+        BIOSBOOT_PN=$((NREG + 2))
+    else
+        BIOSBOOT_PN=2
+    fi
+    BIOSBOOT_OFFSET=1
+    if [[ "$DISK" =~ (nvme|mmcblk) ]]; then
+        export PART_BIOSBOOT="${DISK}p${BIOSBOOT_PN}"
+    else
+        export PART_BIOSBOOT="${DISK}${BIOSBOOT_PN}"
+    fi
+else
+    BIOSBOOT_PN=""
+    BIOSBOOT_OFFSET=0
+    PART_BIOSBOOT=""
+fi
+export NREG BIOSBOOT_PN BIOSBOOT_OFFSET PART_BIOSBOOT
+if [[ "$DISK" =~ (nvme|mmcblk) ]]; then
+    export PART_EFI="${DISK}p1"
+    export PART_SYS="${DISK}p$((2 + BIOSBOOT_OFFSET))"
+else
+    export PART_EFI="${DISK}1"
+    export PART_SYS="${DISK}$((2 + BIOSBOOT_OFFSET))"
+fi
+
 if [ -n "${REGION_PARTITIONED:-}" ] && [ "$ENCRYPT" != "yes" ]; then
     if [[ "$DISK" =~ (nvme|mmcblk) ]]; then
-        export PART_SYS="${DISK}p$((NREG + 2))"
+        export PART_SYS="${DISK}p$((NREG + 2 + BIOSBOOT_OFFSET))"
     else
-        export PART_SYS="${DISK}$((NREG + 2))"
+        export PART_SYS="${DISK}$((NREG + 2 + BIOSBOOT_OFFSET))"
     fi
     _rr_i=1
     for _rr in $REGION_PARTITIONED; do
@@ -2925,7 +2996,7 @@ _region_sizes_sum() {
 }
 
 _disk_budget_check() {
-    local _disk_b="${DISK_BYTES:-}" _esp_b _reg_b _need _lin_b
+    local _disk_b="${DISK_BYTES:-}" _esp_b _reg_b _need _lin_b _bb_b=0 _bb_txt=""
     if [ -z "$_disk_b" ] || ! [[ "$_disk_b" =~ ^[0-9]+$ ]]; then
         echo "WARN [DISK-BUDGET]: disk size for ${DISK:-<unset>} unreadable — skipping pre-write fit check."
         return 0
@@ -2935,17 +3006,25 @@ _disk_budget_check() {
         echo "FATAL [DISK-BUDGET]: could not parse ESP size '${EFI_PART_SIZE:-<unset>}' for the fit check." >&2
         return 1
     fi
+    if [ "${BOOT_MODE:-}" = "bios" ]; then
+        _bb_b="$(_size_to_bytes "${BIOSBOOT_PART_SIZE:-1M}")"
+        if [ -z "$_bb_b" ]; then
+            echo "FATAL [DISK-BUDGET]: could not parse BIOS boot partition size '${BIOSBOOT_PART_SIZE:-<unset>}'." >&2
+            return 1
+        fi
+        _bb_txt=" + ${BIOSBOOT_PART_SIZE} BIOS boot"
+    fi
     _reg_b="$(_region_sizes_sum)"
-    _need=$(( _esp_b + _reg_b + DISK_BUDGET_MIN_SYS ))
+    _need=$(( _esp_b + _bb_b + _reg_b + DISK_BUDGET_MIN_SYS ))
     _lin_b=$(( _disk_b - _need ))
     if [ "$_lin_b" -lt 0 ]; then
         echo "${C_RED}!! FATAL [DISK-BUDGET]: layout does NOT fit on ${DISK} (${_disk_b} bytes)." >&2
-        echo "     ESP(+${EFI_PART_SIZE}) + carved regions (${_reg_b} bytes) + >=1 GiB system" >&2
+        echo "     ESP(+${EFI_PART_SIZE})${_bb_txt} + carved regions (${_reg_b} bytes) + >=1 GiB system" >&2
         echo "     remainder would need ${_need} bytes total — ${_lin_b} bytes short. Nothing" >&2
         echo "     was written. Reduce the ESP and/or carved-region sizes and re-run.${C_RST}" >&2
         return 1
     fi
-    echo "OK [DISK-BUDGET]: ESP(+${EFI_PART_SIZE}) + regions (${_reg_b} B) + LINUX remainder (${_lin_b} B >= 1 GiB) fit inside ${_disk_b} B."
+    echo "OK [DISK-BUDGET]: ESP(+${EFI_PART_SIZE})${_bb_txt} + regions (${_reg_b} B) + LINUX remainder (${_lin_b} B >= 1 GiB) fit inside ${_disk_b} B."
     return 0
 }
 
@@ -3042,12 +3121,13 @@ fi
 {
     printf 'export RESUME_TYPE="coarse"\n'
     for _sv in ACCOUNT_MODEL ROOT_PASS_HASH TARGET_PASS_HASH TARGET_USER TARGET_HOSTNAME \
-               TARGET_DOMAIN TARGET_FQDN NET_INTERFACE_MATCH BOOTLOADER \
+               TARGET_DOMAIN TARGET_FQDN NET_INTERFACE_MATCH BOOTLOADER BOOT_MODE \
                EFI_PART_SIZE KERNEL_MODE DESKTOP_ENV DISPLAY_MANAGER \
                HAS_GRAPHICAL INSTALL_XORG INSTALL_AUDIO \
                USER_SHELL USER_SHELL_PKG \
                LIGHTDM_GREETER LIGHTDM_GREETER_PKG LIGHTDM_GREETER_SESSION \
                LIMINE_WALLPAPER LIMINE_WALLPAPER_STYLE \
+               LIMINE_NVRAM LIMINE_NVRAM_LABEL \
                SESSION_STACK ENABLE_SNAPSHOT_AUDIO \
                LOCALE LOCALE_CODESET TIMEZONE SWAP_BACKEND SWAPFILE_MODE ENABLE_HIBERNATION SWAPFILE_SIZE \
                INSTALL_KERNEL_MAINLINE INSTALL_KERNEL_LTS KERNEL_PKGS \
@@ -3100,14 +3180,18 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "${C_MAG}========================= DRY-RUN PLAN =========================${C_RST}"
     echo "  Mode                  : --dry-run — no disk changes performed."
     echo "  Target disk           : ${DISK:-<not selected>} (${DISK_BYTES:-<size unreadable>} bytes)"
-    echo "  Destructive steps     : sgdisk -Z + -og, ESP(+${EFI_PART_SIZE}) + LINUX parts,"
+    echo "  Destructive steps     : sgdisk -Z + -og, ESP(+${EFI_PART_SIZE})$([ "${BOOT_MODE:-}" = "bios" ] && echo " + ${BIOSBOOT_PART_SIZE:-1M} ef02 BIOS boot") + LINUX parts,"
     echo "                          mkfs.fat -F32 EFI, mkfs.btrfs -f, subvolume layout."
     echo "  Headroom              : >= 1 GiB LINUX system remainder required (DISK-BUDGET pass)"
+    echo "  Boot mode             : ${BOOT_MODE:-<unset>}"
     echo "  Bootloader            : ${BOOTLOADER:-<unset>}"
     if [ "$BOOTLOADER" = "limine" ]; then
         echo "  Kernel access         : ${KERNEL_MODE:-<unset>} (Limine)"
         echo "  Wallpaper             : ${LIMINE_WALLPAPER:-none}${LIMINE_WALLPAPER_STYLE:+ (style=${LIMINE_WALLPAPER_STYLE})}"
         echo "  Limine NVRAM entry    : ${LIMINE_NVRAM:-no}"
+        if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
+            echo "  Limine NVRAM label    : ${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}"
+        fi
     fi
     if [ "$HAS_GRAPHICAL" = "yes" ]; then
         echo "  Desktop / DM          : ${DESKTOP_ENV:-<unset>} / ${DISPLAY_MANAGER:-<unset>} (graphical)"
@@ -3192,6 +3276,7 @@ go
 greetd
 grub-btrfs
 grub-btrfs-runit
+grub
 grub-x86_64-efi
 udiskie
 udisks2
@@ -3306,6 +3391,7 @@ xtools
 ykpers
 zramen
 zsh
+zstd
 "
 echo ""
 echo "Stage-1 package preflight [PKG-PREFLIGHT]: verifying package names against the live union pool..."
@@ -3409,10 +3495,19 @@ if [ "$RESUME" != "1" ]; then
             sgdisk -n "${_rr_pn}::+${_rr_posn}" -t "${_rr_pn}":8300 -c "${_rr_pn}":"LINUX-${_rr}" "$DISK"
             _rr_pn=$((_rr_pn + 1))
         done
+        if [ "$BOOT_MODE" = "bios" ]; then
+            sgdisk -n "${_rr_pn}::+${BIOSBOOT_PART_SIZE}" -t "${_rr_pn}":ef02 -c "${_rr_pn}":'BIOSBOOT' "$DISK"
+            _rr_pn=$((_rr_pn + 1))
+        fi
         sgdisk -n "${_rr_pn}::" -t "${_rr_pn}":8300 -c "${_rr_pn}":'LINUX' "$DISK"
         unset _rr_pn _rr_posn _rr _rr_n
     else
-        sgdisk -n 2:: -t 2:8300 -c 2:'LINUX' "$DISK"
+        if [ "$BOOT_MODE" = "bios" ]; then
+            sgdisk -n "2::+${BIOSBOOT_PART_SIZE}" -t 2:ef02 -c 2:'BIOSBOOT' "$DISK"
+            sgdisk -n 3:: -t 3:8300 -c 3:'LINUX' "$DISK"
+        else
+            sgdisk -n 2:: -t 2:8300 -c 2:'LINUX' "$DISK"
+        fi
     fi
     jl "MULTI-FS-RUNLOG: outer carve on ${DISK} complete (regions: ${REGION_PARTITIONED:-none})"
     partprobe "$DISK"
@@ -3777,7 +3872,9 @@ for dir in dev proc sys run; do
     mount -v --rbind "/${dir}" "/mnt/${dir}"
     mount -v --make-rslave "/mnt/${dir}"
 done
-mount -v -t efivarfs efivarfs /mnt/sys/firmware/efi/efivars
+if [ "$BOOT_MODE" = "uefi" ]; then
+    mount -v -t efivarfs efivarfs /mnt/sys/firmware/efi/efivars
+fi
 cp /etc/resolv.conf /mnt/etc/
 
 BTRFS_UUID=$(blkid -s UUID -o value "$BTRFS_DEV")
@@ -4023,11 +4120,16 @@ fi
 echo "export SESSION_STACK=\"$SESSION_STACK\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_OCTOXBPS=\"$INSTALL_OCTOXBPS\"" >> /mnt/tmp/chroot_env.sh
 echo "export BOOTLOADER=\"$BOOTLOADER\"" >> /mnt/tmp/chroot_env.sh
+echo "export BOOT_MODE=\"$BOOT_MODE\"" >> /mnt/tmp/chroot_env.sh
+echo "export DISK=\"$DISK\"" >> /mnt/tmp/chroot_env.sh
+echo "export PART_BIOSBOOT=\"${PART_BIOSBOOT:-}\"" >> /mnt/tmp/chroot_env.sh
+echo "export BIOSBOOT_PN=\"${BIOSBOOT_PN:-}\"" >> /mnt/tmp/chroot_env.sh
 echo "export GRUB_ESP_BOOT=\"$GRUB_ESP_BOOT\"" >> /mnt/tmp/chroot_env.sh
 echo "export KERNEL_MODE=\"$KERNEL_MODE\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIMINE_WALLPAPER=\"$LIMINE_WALLPAPER\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIMINE_WALLPAPER_STYLE=\"$LIMINE_WALLPAPER_STYLE\"" >> /mnt/tmp/chroot_env.sh
 echo "export LIMINE_NVRAM=\"$LIMINE_NVRAM\"" >> /mnt/tmp/chroot_env.sh
+echo "export LIMINE_NVRAM_LABEL=\"$LIMINE_NVRAM_LABEL\"" >> /mnt/tmp/chroot_env.sh
 echo "export DEFAULT_QUIET_BOOT=\"$DEFAULT_QUIET_BOOT\"" >> /mnt/tmp/chroot_env.sh
 echo "export DEFAULT_TEE_BLACKLIST=\"$DEFAULT_TEE_BLACKLIST\"" >> /mnt/tmp/chroot_env.sh
 echo "export SCRIPT_VERSION=\"$SCRIPT_VERSION\"" >> /mnt/tmp/chroot_env.sh
@@ -4533,13 +4635,15 @@ install_pkgs ${MICROCODE_PKG} linux-firmware dracut sudo vim nano bash bash-comp
 [ "$ENCRYPT" = "yes" ] && [ -n "${REGION_PARTITIONED:-}" ] && install_pkgs kpartx parted
 [ "$YK_MODE" = "hmac-sha1" ] && install_pkgs ykpers
 
+if [ "$INSTALL_NVIDIA" = "true" ] || [ "${INSTALL_VIRTUALBOX:-false}" = "true" ]; then
+    for _dkms_kern in $KERNEL_PKGS; do
+        install_pkgs "${_dkms_kern}-headers"
+    done
+    unset _dkms_kern
+    install_pkgs zstd
+fi
 if [ "$INSTALL_NVIDIA" = "true" ]; then
     install_pkgs nvidia
-    case "$KERNEL_PKGS" in
-        *linux-mainline*) install_pkgs linux-mainline-headers ;;
-        *linux-lts*) install_pkgs linux-lts-headers ;;
-        *linux*) install_pkgs linux-headers ;;
-    esac
     cat > /etc/modprobe.d/50-nvidia.conf << 'INNER_EOF'
 blacklist nouveau
 options nouveau modeset=0
@@ -5008,6 +5112,15 @@ if [ "$INSTALL_VIRTUALBOX" = "true" ]; then
     install_pkgs virtualbox-ose virtualbox-ose-dkms
     usermod -aG vboxusers "$TARGET_USER"
 fi
+if [ "$INSTALL_NVIDIA" = "true" ] || [ "${INSTALL_VIRTUALBOX:-false}" = "true" ]; then
+    if command -v dkms >/dev/null 2>&1; then
+        if dkms autoinstall >> /var/log/dkms-autoinstall.log 2>&1; then
+            echo "==> dkms: kernel module build pass complete for every selected kernel (log: /var/log/dkms-autoinstall.log)"
+        else
+            echo "WARNING: dkms autoinstall reported errors — check /var/log/dkms-autoinstall.log" >&2
+        fi
+    fi
+fi
 if [ "$INSTALL_BRAVE" = "true" ]; then
     if [ "$INSTALL_FLATPAK" = "true" ]; then
         echo "==> Brave has no official Void package — will be installed via Flatpak on first boot (flathub remote added at install time; the app itself installs after first-boot network is up)."
@@ -5044,7 +5157,7 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
     cat > /etc/NetworkManager/dispatcher.d/99-flatpak-firstboot << 'DIS_EOF'
 #!/bin/sh
 case "$2" in
-    up|vpn-up|connectivity-change) ;;
+    up|vpn-up|connectivity-change|boot-drain) ;;
     *) exit 0 ;;
 esac
 command -v flatpak >/dev/null 2>&1 || exit 0
@@ -5052,28 +5165,78 @@ command -v flatpak >/dev/null 2>&1 || exit 0
 exec 9>/var/lock/flatpak-firstboot.lock
 flock -n 9 || exit 0
 ip route show default >/dev/null 2>&1 || exit 0
-_fp_queue="/home/__TARGET_USER__/.config/void-installer/flatpak-install-on-first-boot.txt"
-[ -f "$_fp_queue" ] || exit 0
-echo "=== flatpak-firstboot: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
-: > /var/log/flatpak-firstboot.log
+_fp_home="/home/__TARGET_USER__"
+_fp_qdir="${_fp_home}/.config/void-installer"
+_fp_queue="${_fp_qdir}/flatpak-install-on-first-boot.txt"
+[ -d "$_fp_home" ] || exit 0
+if [ ! -f "$_fp_queue" ]; then
+    touch /var/log/flatpak-firstboot.done
+    exit 0
+fi
+_fp_log=/var/log/flatpak-firstboot.log
+_fp_hdr="=== flatpak-firstboot: $(date '+%Y-%m-%d %H:%M:%S %Z') (action: ${2:-?}) ==="
+echo "$_fp_hdr"
+if [ -f "$_fp_log" ] && [ "$(wc -c < "$_fp_log")" -gt 262144 ]; then
+    tail -n 400 "$_fp_log" > "${_fp_log}.rotate" && mv -f "${_fp_log}.rotate" "$_fp_log"
+fi
+echo "$_fp_hdr" >> "$_fp_log"
+_fp_pending="$(mktemp /tmp/flatpak-queue.XXXXXX)" || exit 1
+_fp_failed="$(mktemp /tmp/flatpak-queue-failed.XXXXXX)" || exit 1
+grep -v '^#' "$_fp_queue" 2>/dev/null | grep -v '^[[:space:]]*$' > "$_fp_pending" || true
 _fp_fail=0
 while IFS= read -r _fp_app_id; do
     [ -n "$_fp_app_id" ] || continue
-    echo "==> Installing queued Flatpak app: ${_fp_app_id}"
-    if ! flatpak install -y --noninteractive flathub "$_fp_app_id" >> /var/log/flatpak-firstboot.log 2>&1; then
-        echo "WARNING: failed to install queued Flatpak app '${_fp_app_id}' — will retry on next up event." >&2
+    if flatpak info "$_fp_app_id" >/dev/null 2>&1; then
+        echo "==> Queued Flatpak app already present — dropped from queue: ${_fp_app_id}" | tee -a "$_fp_log"
+        continue
+    fi
+    echo "==> Installing queued Flatpak app: ${_fp_app_id}" | tee -a "$_fp_log"
+    if flatpak install -y --noninteractive flathub "$_fp_app_id" >> "$_fp_log" 2>&1; then
+        echo "==> Queued Flatpak app installed: ${_fp_app_id}" | tee -a "$_fp_log"
+    else
+        echo "WARNING: failed to install queued Flatpak app '${_fp_app_id}' — kept in the queue for the next drain." | tee -a "$_fp_log" >&2
+        printf '%s\n' "$_fp_app_id" >> "$_fp_failed"
         _fp_fail=1
     fi
-done < "$_fp_queue"
+done < "$_fp_pending"
+rm -f "$_fp_pending"
+if [ -s "$_fp_failed" ]; then
+    cat "$_fp_failed" > "$_fp_queue"
+else
+    : > "$_fp_queue"
+fi
+rm -f "$_fp_failed"
 if [ "$_fp_fail" -eq 0 ]; then
     touch /var/log/flatpak-firstboot.done
+    echo "==> flatpak-firstboot: queue drained — stamped /var/log/flatpak-firstboot.done" | tee -a "$_fp_log"
 else
-    echo "WARNING: one or more queued Flatpak installs failed — queue is still live." >&2
+    echo "WARNING: one or more queued Flatpak installs failed — queue is still live." | tee -a "$_fp_log" >&2
 fi
 DIS_EOF
     chmod 0755 /etc/NetworkManager/dispatcher.d/99-flatpak-firstboot
     sed -i "s/__TARGET_USER__/${TARGET_USER}/g" /etc/NetworkManager/dispatcher.d/99-flatpak-firstboot
     echo "==> NetworkManager flatpak-firstboot dispatcher installed → /etc/NetworkManager/dispatcher.d/99-flatpak-firstboot"
+    mkdir -p /etc/sv/flatpak-firstboot/log /var/log/flatpak-firstboot-svc
+    cat > /etc/sv/flatpak-firstboot/run << 'FPSVC_EOF'
+#!/bin/sh
+exec 2>&1
+_STAMP=/var/log/flatpak-firstboot.done
+_DISPATCH=/etc/NetworkManager/dispatcher.d/99-flatpak-firstboot
+while [ ! -f "$_STAMP" ]; do
+    if [ -x "$_DISPATCH" ]; then
+        "$_DISPATCH" flatpak boot-drain || true
+    fi
+    sleep 60
+done
+exec pause
+FPSVC_EOF
+    chmod 0755 /etc/sv/flatpak-firstboot/run
+    cat > /etc/sv/flatpak-firstboot/log/run << 'FPSVCLOG_EOF'
+#!/bin/sh
+exec svlogd -tt /var/log/flatpak-firstboot-svc
+FPSVCLOG_EOF
+    chmod 0755 /etc/sv/flatpak-firstboot/log/run
+    echo "==> Supervised flatpak first-boot retry service written → /etc/sv/flatpak-firstboot (linked on first boot)"
 fi
 
 [ "$INSTALL_PODMAN" = "true" ] && install_pkgs podman
@@ -5391,11 +5554,16 @@ install_pkgs snapper
 
 if [ "$BOOTLOADER" = "grub" ]; then
 
-install_pkgs grub-x86_64-efi efibootmgr
-if [ "$GRUB_ESP_BOOT" = "true" ]; then
-    grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id="Void_GRUB" --recheck
+if [ "$BOOT_MODE" = "bios" ]; then
+    install_pkgs grub
+    grub-install --target=i386-pc --recheck "$DISK"
 else
-    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id="Void_GRUB" --recheck
+    install_pkgs grub-x86_64-efi efibootmgr
+    if [ "$GRUB_ESP_BOOT" = "true" ]; then
+        grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id="Void_GRUB" --recheck
+    else
+        grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id="Void_GRUB" --recheck
+    fi
 fi
 
 if [ "$ENCRYPT" = "yes" ]; then
@@ -5470,7 +5638,23 @@ fi
 mkdir -p /boot/efi/EFI/BOOT
 cp -f "$LIMINE_EFI_SRC" /boot/efi/EFI/BOOT/BOOTX64.EFI
 
-if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
+if [ "$BOOT_MODE" = "bios" ]; then
+    _bb_pn="$(cat "/sys/class/block/${PART_BIOSBOOT##*/}/partition" 2>/dev/null || true)"
+    if [ -z "$_bb_pn" ]; then
+        _bb_pn="$(lsblk -no PARTN "$PART_BIOSBOOT" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)"
+    fi
+    if [ -n "$_bb_pn" ] && [ "$_bb_pn" != "${BIOSBOOT_PN}" ]; then
+        echo "FATAL: expected ef02 partition ${PART_BIOSBOOT} to be p${BIOSBOOT_PN} but the kernel reports p${_bb_pn} — refusing to install Limine BIOS stages." >&2; exit 1
+    fi
+    if [ -z "$_bb_pn" ] && [ ! -b "$PART_BIOSBOOT" ]; then
+        echo "FATAL: expected ef02 partition ${PART_BIOSBOOT} (p${BIOSBOOT_PN}) has no kernel partition number (/sys entry, lsblk answer, and device node all absent) — refusing to install Limine BIOS stages." >&2; exit 1
+    fi
+    echo "==> Installing Limine BIOS boot stages: MBR + stage 2 in ${PART_BIOSBOOT} (p${BIOSBOOT_PN}; kernel number: p${_bb_pn:-unconfirmed})"
+    limine bios-install "$DISK" "$BIOSBOOT_PN"
+    cp -f /usr/share/limine/limine-bios.sys /boot/efi/limine-bios.sys
+fi
+
+if [ "${LIMINE_NVRAM:-no}" = "yes" ] && [ "$BOOT_MODE" = "uefi" ]; then
     install_pkgs efibootmgr
     _esp_src="$(findmnt -no SOURCE /boot/efi 2>/dev/null)"
     _esp_disk="$(lsblk -no PKNAME "$_esp_src" 2>/dev/null | head -n1)"
@@ -5478,7 +5662,8 @@ if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
     echo "==> Creating Limine NVRAM boot entry (efibootmgr) ..."
     if [ -n "$_esp_disk" ] && [ -n "$_esp_part" ]; then
         efibootmgr --create --disk "/dev/$_esp_disk" --part "$_esp_part" \
-            --loader '\EFI\BOOT\BOOTX64.EFI' --label "Void Linux (Limine)" \
+            --loader '\EFI\BOOT\BOOTX64.EFI' \
+            --label "${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}" \
             || echo "WARNING: efibootmgr failed; system remains bootable via the fallback path." >&2
     else
         echo "WARNING: could not derive ESP disk/partition for efibootmgr; skipping NVRAM entry." >&2
@@ -5496,10 +5681,12 @@ KERNEL_MODE="${KERNEL_MODE}"
 BTRFS_UUID="${BTRFS_UUID}"
 SYSPREFIX_ESP="${SYSPREFIX_ESP}"
 SYSPREFIX_BTRFS="${SYSPREFIX_BTRFS}"
+BOOT_MODE="${BOOT_MODE}"
 HIBERNATION_ENABLED="${ENABLE_HIBERNATION}"
 LIMINE_WALLPAPER="${LIMINE_WALLPAPER}"
 LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE}"
 LIMINE_NVRAM="${LIMINE_NVRAM}"
+LIMINE_NVRAM_LABEL="${LIMINE_NVRAM_LABEL}"
 DEFAULT_QUIET_BOOT="${DEFAULT_QUIET_BOOT:-no}"
 DEFAULT_TEE_BLACKLIST="${DEFAULT_TEE_BLACKLIST:-no}"
 ENCRYPT="${ENCRYPT}"
@@ -5554,6 +5741,7 @@ HAS_GRAPHICAL="${HAS_GRAPHICAL:-yes}"
 INSTALL_XORG="${INSTALL_XORG:-false}"
 INSTALL_AUDIO="${INSTALL_AUDIO:-true}"
 BOOTLOADER="${BOOTLOADER:-<unset>}"
+BOOT_MODE="${BOOT_MODE:-<unset>}"
 KERNEL_MODE="${KERNEL_MODE:-<unset>}"
 KERNEL_PKGS="${KERNEL_PKGS:-<unset>}"
 DEVICE_PROFILE="${DEVICE_PROFILE:-<unset>}"
@@ -5574,6 +5762,7 @@ SWAPFILE_SIZE="${SWAPFILE_SIZE:-<unset>}"
 LIMINE_WALLPAPER="${LIMINE_WALLPAPER:-<unset>}"
 LIMINE_WALLPAPER_STYLE="${LIMINE_WALLPAPER_STYLE:-<unset>}"
 LIMINE_NVRAM="${LIMINE_NVRAM:-no}"
+LIMINE_NVRAM_LABEL="${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}"
 INSTALL_SSH_SERVER="${INSTALL_SSH_SERVER:-false}"
 SSH_PORT="${SSH_PORT:-<unset>}"
 SSH_PASSWORD_AUTH="${SSH_PASSWORD_AUTH:-<unset>}"
@@ -5610,6 +5799,9 @@ INSTALL_PODMAN_ROOTFUL="${INSTALL_PODMAN_ROOTFUL:-false}"
 PROVISION_DOCKER_SUBVOL="${PROVISION_DOCKER_SUBVOL:-false}"
 PROVISION_PODMAN_SUBVOL="${PROVISION_PODMAN_SUBVOL:-false}"
 PROVISION_PODMAN_ROOTLESS_SUBVOL="${PROVISION_PODMAN_ROOTLESS_SUBVOL:-false}"
+INSTALL_VIRT="${INSTALL_VIRT:-false}"
+INSTALL_VIRTUALBOX="${INSTALL_VIRTUALBOX:-false}"
+PROVISION_VIRTUALBOX_SUBVOL="${PROVISION_VIRTUALBOX_SUBVOL:-false}"
 REGION_HOME_FS="${REGION_HOME_FS:-btrfs}"
 REGION_VAR_FS="${REGION_VAR_FS:-btrfs}"
 REGION_CACHE_FS="${REGION_CACHE_FS:-btrfs}"
@@ -5632,7 +5824,7 @@ if [ -n "${TARGET_USER}" ] && [ -d "/home/${TARGET_USER}" ]; then
     {
         echo "# ========================================================================="
         echo "# VOID LINUX install record for THIS machine"
-        echo "# Written to ~/Documents by Void_Linux_Installer.sh v${SCRIPT_VERSION} at install time."
+        echo "# Written to ~/Documents by Void_Linux_Installer.sh ${SCRIPT_VERSION} at install time."
         echo "# Secret-free 'as-built' tracking. Full install-time CHOICES + installer"
         echo "# version live in /etc/void-installer/install-config; the installer itself"
         echo "# is archived at /etc/void-installer/Void_Linux_Installer.sh."
@@ -5846,11 +6038,16 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
         done
     fi
 
-    echo ""
-    echo "/Reboot Into Firmware"
-    echo "    protocol: efi_firmware_update_request"
+    if [ "${BOOT_MODE:-uefi}" = "uefi" ]; then
+        echo ""
+        echo "/Reboot Into Firmware"
+        echo "    protocol: efi_firmware_update_request"
+    fi
 } > "$TMP_CONF"
 mv -f "$TMP_CONF" /boot/efi/EFI/BOOT/limine.conf
+if [ "${BOOT_MODE:-uefi}" = "bios" ]; then
+    cp -f /boot/efi/EFI/BOOT/limine.conf /boot/efi/limine.conf
+fi
 INNER_EOF
 chmod 0755 /usr/local/sbin/void-limine-write-conf
 
@@ -7494,6 +7691,8 @@ if [ ! -f /var/log/firstboot.log ]; then
         ln -sfn /etc/sv/elogind /etc/runit/runsvdir/default/elogind
     ln -sfn /etc/sv/polkitd /etc/runit/runsvdir/default/polkitd
     ln -sfn /etc/sv/udisksd /etc/runit/runsvdir/default/udisksd
+    [ -d /etc/sv/flatpak-firstboot ] && \
+        ln -sfn /etc/sv/flatpak-firstboot /etc/runit/runsvdir/default/flatpak-firstboot
     [ "__SWAP_BACKEND__" = "zram" ] || [ "__SWAP_BACKEND__" = "both" ] && \
         ln -sfn /etc/sv/zramen /etc/runit/runsvdir/default/zramen
     for i in $(seq 1 15); do
@@ -7843,6 +8042,7 @@ if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
     echo "${C_BOLD}  Greeter:${C_RST}       ${_GREETER_FRIENDLY}"
     unset _GREETER_FRIENDLY
 fi
+echo "${C_BOLD}  Boot mode:${C_RST}     ${BOOT_MODE}"
 echo "${C_BOLD}  Bootloader:${C_RST}   ${BOOTLOADER}"
 echo "${C_BOLD}  Locale:${C_RST}        ${LOCALE}"
 echo "${C_BOLD}  Timezone:${C_RST}     ${TIMEZONE}"
@@ -7869,7 +8069,10 @@ else
 fi
 if [ "$BOOTLOADER" = "limine" ]; then
     if [ "${LIMINE_NVRAM:-no}" = "yes" ]; then
-        echo "${C_GRN}  3.${C_RST} Limine is registered in NVRAM (plus the removable fallback path)."
+        echo "${C_GRN}  3.${C_RST} Limine is registered in NVRAM (plus the removable fallback path)"
+        echo "     as ${C_BOLD}${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}${C_RST} — check with:  ${C_BOLD}efibootmgr${C_RST}"
+    elif [ "$BOOT_MODE" = "bios" ]; then
+        echo "${C_GRN}  3.${C_RST} Limine boots from its MBR/BIOS install (legacy boot — no NVRAM entry)."
     else
         echo "${C_GRN}  3.${C_RST} Limine boots automatically (no NVRAM entry needed on UEFI)."
     fi
@@ -7893,6 +8096,19 @@ echo "${C_GRN}  7.${C_RST} Re-runnable maintenance tools shipped in ${C_BOLD}/ro
 echo "     ${C_BOLD}re-shadow-xbps.sh${C_RST}  restore auto-update snapshots after an xbps update"
 echo "     ${C_BOLD}limine-sync.sh${C_RST}      force a manual Limine boot-menu resync"
 echo "     ${C_BOLD}re-provision-snapper.sh${C_RST}  safely restore snapshots/plugin (no data loss)"
+if [ "${INSTALL_SSH_SERVER:-false}" = "true" ] \
+   && [ "${SSH_PASSWORD_AUTH:-no}" = "no" ] \
+   && [ "${SSH_ROOT_LOGIN:-no}" = "no" ] \
+   && [ ! -s "/mnt/home/${TARGET_USER}/.ssh/authorized_keys" ]; then
+    echo ""
+    echo "${C_RED}  !! SSH remote access is installed but NOT yet usable:${C_RST}"
+    echo "     sshd listens on port ${SSH_PORT:-22} with password authentication OFF and root"
+    echo "     login OFF, and no public key was deposited — so no account can log in over"
+    echo "     SSH yet. Before you need it, copy a client public key into"
+    echo "     ${C_BOLD}/home/${TARGET_USER}/.ssh/authorized_keys${C_RST} (mode 600, owned by ${TARGET_USER}),"
+    echo "     or re-run and answer y to the import/generate SSH key prompts."
+    echo "     As-built facts: ${C_BOLD}/etc/void-installer/install-config${C_RST} (SSH_KEY_PRESENT)."
+fi
 echo ""
 echo "${C_GRN}======================================================================${C_RST}"
 STAGE_CONTEXT="DONE"

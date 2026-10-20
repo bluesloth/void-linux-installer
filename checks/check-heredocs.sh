@@ -19,6 +19,13 @@
 # they legitimately still contain source-level ${VAR} bake placeholders
 # (SC2154 noise). The big stage-2 chroot block is checked with bash -n only.
 #
+# UNQUOTED bodies get one extra, strict check: they must contain no backtick.
+# They are EXPANDED when the installer writes them, so a prose backtick opens a
+# live command substitution at run time — Version-3.1.00's QEMU matrix caught a
+# `<unset>` in the install-config record aborting every Limine install with
+# "syntax error near unexpected token `newline'" (check: quoted delimiter, or
+# no backticks).
+#
 # Exit 0: every extracted body present and shell ones syntax-clean.
 set -euo pipefail
 
@@ -108,6 +115,15 @@ while IFS=$'\t' read -r slug delim quoted target; do
     printf 'FAIL  %-46s body not extracted\n' "$target"
     fails=1
     continue
+  fi
+  # UNQUOTED bodies are expanded when the installer writes them: a backtick is
+  # a live command substitution at run time, not prose. Regression guard for the
+  # 3.1.00 matrix catch (a "`<unset>`" in install-config aborted every Limine
+  # install with a bash syntax error during heredoc expansion).
+  if [ "$quoted" = "0" ] && grep -q '`' "$f"; then
+    printf 'FAIL  %-46s backtick in UNQUOTED body (runs at write time)\n' "$target"
+    grep -n '`' "$f" | head -3 | sed 's/^/        /'
+    fails=1
   fi
   if ! is_shell "$slug" "$f"; then
     configs=$((configs + 1))
