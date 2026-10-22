@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.1.02"
+SCRIPT_VERSION="Version-3.2.00"
 
 
 
@@ -3259,6 +3259,7 @@ crun
 cryptsetup
 curl
 dbus
+discover
 docker
 dracut
 efibootmgr
@@ -4279,7 +4280,7 @@ install_pkgs() {
     fi
 }
 
-cosmic_key_fingerprint() {
+xbps_key_fingerprint() {
     local _b
     _b=$(sed -n '/<key>public-key<\/key>/,/<\/data>/p' "$1" 2>/dev/null \
          | tail -n +2 \
@@ -4291,14 +4292,49 @@ cosmic_key_fingerprint() {
         | openssl dgst -sha256 2>/dev/null | sed 's/.*= *//'
 }
 
+_xbps_keyring="/var/db/xbps/keys"
+_xbps_keyring_stock="
+05473705de6456ebfdda5bd4f18155cba80bd83fca1b120cf41099693c69187b
+f0da25a2877ccd5cba89e27fc744867914fd26031368a88f746f0f8096450d4d"
+_xbps_keyring_ours="
+83ffd154d1dee504ea384a0c31b12e072d5884f7f75eb950e30ace852d7d2e7b
+4e40218a79784f0e4cc559b835c8e9f7585000d5b678177827a853a0937f17cf"
+
+xbps_keyring_scan() {
+    local _expected="$1"
+    local _k _fp
+    _xbps_fp_ok=0
+    _xbps_fp_bad=""
+    _xbps_fp_seen=""
+    if [ -d "$_xbps_keyring" ]; then
+        for _k in "$_xbps_keyring"/*.plist; do
+            [ -e "$_k" ] || continue
+            _fp="$(xbps_key_fingerprint "$_k" || true)"
+            if [ -z "$_fp" ]; then
+                _xbps_fp_bad="${_xbps_fp_bad} UNREADABLE(${_k##*/})"
+                _xbps_fp_seen="${_xbps_fp_seen} UNREADABLE(${_k##*/})"
+                continue
+            fi
+            if [ "$_fp" = "$_expected" ]; then
+                _xbps_fp_ok=1
+                _xbps_fp_seen="${_xbps_fp_seen} ${_fp}(pinned)"
+            elif printf '%s\n' "$_xbps_keyring_stock" | grep -qx "$_fp"; then
+                _xbps_fp_seen="${_xbps_fp_seen} ${_fp}(stock-void)"
+            elif printf '%s\n' "$_xbps_keyring_ours" | grep -qx "$_fp"; then
+                _xbps_fp_seen="${_xbps_fp_seen} ${_fp}(our-store)"
+            else
+                _xbps_fp_bad="${_xbps_fp_bad} ${_fp}"
+                _xbps_fp_seen="${_xbps_fp_seen} ${_fp}(UNEXPECTED)"
+            fi
+        done
+    fi
+}
+
 install_cosmic() {
     _cosmic_repo="https://bluesloth.github.io/void-linux-cosmic/"
     _cosmic_repodata="https://bluesloth.github.io/void-linux-cosmic/x86_64-repodata"
     _cosmic_audit="https://github.com/bluesloth/void-linux-cosmic"
-    _cosmic_keyring="/var/db/xbps/keys"
     _cosmic_key_expected="83ffd154d1dee504ea384a0c31b12e072d5884f7f75eb950e30ace852d7d2e7b"
-    _cosmic_key_stock="05473705de6456ebfdda5bd4f18155cba80bd83fca1b120cf41099693c69187b
-f0da25a2877ccd5cba89e27fc744867914fd26031368a88f746f0f8096450d4d"
 
     if ! curl -fsSL --max-time 30 -o /dev/null "$_cosmic_repodata" 2>/dev/null; then
         echo "FATAL: the third-party COSMIC repository (${_cosmic_repo}) is not reachable right now." >&2
@@ -4325,49 +4361,26 @@ f0da25a2877ccd5cba89e27fc744867914fd26031368a88f746f0f8096450d4d"
         exit 1
     fi
 
-    _cosmic_fp_ok=0
-    _cosmic_fp_bad=""
-    _cosmic_fp_seen=""
-    if [ -d "$_cosmic_keyring" ]; then
-        for _cosmic_k in "$_cosmic_keyring"/*.plist; do
-            [ -e "$_cosmic_k" ] || continue
-            _cosmic_fp="$(cosmic_key_fingerprint "$_cosmic_k")"
-            if [ -z "$_cosmic_fp" ]; then
-                _cosmic_fp_bad="${_cosmic_fp_bad} UNREADABLE(${_cosmic_k##*/})"
-                _cosmic_fp_seen="${_cosmic_fp_seen} UNREADABLE(${_cosmic_k##*/})"
-                continue
-            fi
-            if [ "$_cosmic_fp" = "$_cosmic_key_expected" ]; then
-                _cosmic_fp_ok=1
-                _cosmic_fp_seen="${_cosmic_fp_seen} ${_cosmic_fp}(pinned)"
-            elif printf '%s\n' "$_cosmic_key_stock" | grep -qx "$_cosmic_fp"; then
-                _cosmic_fp_seen="${_cosmic_fp_seen} ${_cosmic_fp}(stock-void)"
-            else
-                _cosmic_fp_bad="${_cosmic_fp_bad} ${_cosmic_fp}"
-                _cosmic_fp_seen="${_cosmic_fp_seen} ${_cosmic_fp}(UNEXPECTED)"
-            fi
-        done
-    fi
-
-    if [ "$_cosmic_fp_ok" -ne 1 ] || [ -n "$_cosmic_fp_bad" ]; then
+    xbps_keyring_scan "$_cosmic_key_expected"
+    if [ "$_xbps_fp_ok" -ne 1 ] || [ -n "$_xbps_fp_bad" ]; then
         echo "FATAL: COSMIC repository trust anchor does not match this installer." >&2
-        if [ "$_cosmic_fp_ok" -ne 1 ]; then
-            echo "       Pinned key ABSENT from ${_cosmic_keyring}:" >&2
+        if [ "$_xbps_fp_ok" -ne 1 ]; then
+            echo "       Pinned key ABSENT from ${_xbps_keyring}:" >&2
             echo "         expected SHA256 ${_cosmic_key_expected}" >&2
             echo "       Either the sync did not import it, or the repo is presenting a" >&2
             echo "       DIFFERENT key. If you are offline or mid-key-rotation, say so" >&2
             echo "       before overriding this." >&2
         fi
-        if [ -n "$_cosmic_fp_bad" ]; then
-            echo "       UNEXPECTED key(s) present in ${_cosmic_keyring}:" >&2
-            for _cosmic_b in $_cosmic_fp_bad; do
-                echo "         ${_cosmic_b}" >&2
+        if [ -n "$_xbps_fp_bad" ]; then
+            echo "       UNEXPECTED key(s) present in ${_xbps_keyring}:" >&2
+            for _xbps_b in $_xbps_fp_bad; do
+                echo "         ${_xbps_b}" >&2
             done
             echo "       Refusing to continue: a key you did not expect is trusted for" >&2
             echo "       these packages. Remove it and re-run, or investigate before" >&2
             echo "       trusting anything from this repo." >&2
         fi
-        echo "       Keys seen:${_cosmic_fp_seen:- (none)}" >&2
+        echo "       Keys seen:${_xbps_fp_seen:- (none)}" >&2
         echo "       Repo docs / audit: ${_cosmic_audit}" >&2
         exit 1
     fi
@@ -4376,6 +4389,68 @@ f0da25a2877ccd5cba89e27fc744867914fd26031368a88f746f0f8096450d4d"
     if ! xbps-install "${_xbps_cache[@]}" -y "$@"; then
         echo "FATAL: xbps-install failed for COSMIC package(s): $*" >&2
         echo "       Repo docs / audit: ${_cosmic_audit}" >&2
+        exit 1
+    fi
+}
+
+install_discover() {
+    _discover_repo="https://bluesloth.github.io/void-linux-discover/"
+    _discover_repodata="https://bluesloth.github.io/void-linux-discover/x86_64-repodata"
+    _discover_audit="https://github.com/bluesloth/void-linux-discover"
+    _discover_key_expected="4e40218a79784f0e4cc559b835c8e9f7585000d5b678177827a853a0937f17cf"
+
+    if ! curl -fsSL --max-time 30 -o /dev/null "$_discover_repodata" 2>/dev/null; then
+        echo "WARNING: the Discover store repository (${_discover_repo}) is not reachable right now." >&2
+        echo "         Continuing with the stock upstream Discover package (no native xbps backend)." >&2
+        echo "         Repo docs / audit: ${_discover_audit}" >&2
+        install_pkgs discover
+        return 0
+    fi
+
+    mkdir -p /etc/xbps.d
+    if ! grep -q 'bluesloth.github.io' /etc/xbps.d/60-discover.conf 2>/dev/null; then
+        echo "repository=${_discover_repo}" > /etc/xbps.d/60-discover.conf
+    fi
+
+    echo "==> Importing the Discover store signing key (auto-answered; verified against the pin right after)."
+    echo "    Expected fingerprint:"
+    echo "      SHA256 ${_discover_key_expected}"
+    if ! printf 'y\n' | xbps-install "${_xbps_cache[@]}" -Sy; then
+        echo "FATAL: could not sync/trust the Discover store repository (${_discover_repo})." >&2
+        echo "       xbps refused the repository signing key, so the install aborted" >&2
+        echo "       cleanly and nothing was changed." >&2
+        echo "       Repo docs / audit: ${_discover_audit}" >&2
+        exit 1
+    fi
+
+    xbps_keyring_scan "$_discover_key_expected"
+    if [ "$_xbps_fp_ok" -ne 1 ] || [ -n "$_xbps_fp_bad" ]; then
+        echo "FATAL: Discover store trust anchor does not match this installer." >&2
+        if [ "$_xbps_fp_ok" -ne 1 ]; then
+            echo "       Pinned key ABSENT from ${_xbps_keyring}:" >&2
+            echo "         expected SHA256 ${_discover_key_expected}" >&2
+            echo "       Either the sync did not import it, or the repo is presenting a" >&2
+            echo "       DIFFERENT key. If you are offline or mid-key-rotation, say so" >&2
+            echo "       before overriding this." >&2
+        fi
+        if [ -n "$_xbps_fp_bad" ]; then
+            echo "       UNEXPECTED key(s) present in ${_xbps_keyring}:" >&2
+            for _xbps_b in $_xbps_fp_bad; do
+                echo "         ${_xbps_b}" >&2
+            done
+            echo "       Refusing to continue: a key you did not expect is trusted for" >&2
+            echo "       these packages. Remove it and re-run, or investigate before" >&2
+            echo "       trusting anything from this repo." >&2
+        fi
+        echo "       Keys seen:${_xbps_fp_seen:- (none)}" >&2
+        echo "       Repo docs / audit: ${_discover_audit}" >&2
+        exit 1
+    fi
+    echo "==> Discover store trust anchor verified: SHA256 ${_discover_key_expected}"
+
+    if ! xbps-install "${_xbps_cache[@]}" -y "$@"; then
+        echo "FATAL: xbps-install failed for Discover store package(s): $*" >&2
+        echo "       Repo docs / audit: ${_discover_audit}" >&2
         exit 1
     fi
 }
@@ -4920,6 +4995,7 @@ TP_EOF
     fi
 elif [ "$DESKTOP_ENV" = "kde" ]; then
     install_pkgs kde-plasma kde-baseapps ark kio-admin
+    install_discover discover
 fi
 
 if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
