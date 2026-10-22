@@ -585,7 +585,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Version-3.1.02"
+SCRIPT_VERSION="Version-3.2.00"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1301,6 +1301,70 @@ SCRIPT_VERSION="Version-3.1.02"
 #                     QEMU/SeaBIOS + OVMF: dry-run plan + full installs, cold
 #                     boot to the bootloader menu and login prompt.
 #                     SCRIPT_VERSION bumped Version-3.0.01 -> Version-3.1.00.
+#     Version-3.2.00 [DISCOVER-STORE] — the KDE Discover store joins the
+#                     COSMIC one: the installer now installs Discover from
+#                     this project's own signed repository instead of from the
+#                     official Void mirrors. The store's build of the SAME
+#                     upstream package (6.7.5) carries the native xbps backend
+#                     plugin, so Discover can see and install the system's
+#                     own packages; the stock upstream build (6.7.5_1 in the
+#                     official repos) has no such plugin. The store's build
+#                     carries the higher revision (6.7.5_7), so xbps prefers
+#                     it over the official one.
+#                     (1) A new install_discover() helper mirrors
+#                     install_cosmic(): it verifies the store is reachable,
+#                     writes /etc/xbps.d/60-discover.conf (the same one-line
+#                     `repository=` form as 59-cosmic.conf), syncs the index
+#                     with the key-import question answered by the installer
+#                     on a pipe of its own (never on the chroot's stdin,
+#                     never on /dev/tty), and installs the package with a
+#                     dedicated xbps-install. It does NOT go through
+#                     install_pkgs(): that helper pushes an official mirror to
+#                     the top of the repository list and cannot carry the
+#                     trust-anchor verification around the sync.
+#                     (2) [DISCOVER-STORE-TRUST] The store's key is PINNED in
+#                     the installer (DER SHA-256
+#                     4e40218a79784f0e4cc559b835c8e9f7585000d5b678177827a853a0937f17cf),
+#                     deliberately NOT read from the served index, and the
+#                     keyring is machine-checked after the sync: the pinned
+#                     key must be present and no key outside the allowlist may
+#                     be. ONE KEY PER SERVED REPO — the COSMIC store keeps its
+#                     own key, so a rotation or a compromise of one store never
+#                     couples the other.
+#                     (3) The keyring allowlist had to grow, and this is the
+#                     real fix in the COSMIC path: cosmic_key_fingerprint()
+#                     became xbps_key_fingerprint() (it reads ANY xbps key
+#                     plist — the name was a lie the moment a second store
+#                     needed it), and the scan moved into a shared
+#                     xbps_keyring_scan() helper whose allowlist is {the two
+#                     stock Void keys, our own store keys}. A machine can
+#                     legitimately trust BOTH stores at once — a KDE box that
+#                     took the Discover store and then opted into
+#                     cosmic-store (DE-independent) imports both keys — and the
+#                     old COSMIC-only allowlist would have aborted that
+#                     install with "UNEXPECTED key". The allowlist still
+#                     refuses every key that is not ours; the relaxation is
+#                     "ours", never "anything". The COSMIC path's wording,
+#                     fail-closed behaviour and FATAL are unchanged.
+#                     (4) FAILURE SEMANTICS differ from install_cosmic() on
+#                     purpose: an AVAILABILITY failure (the store is
+#                     unreachable) warns and falls back to the stock upstream
+#                     Discover build instead of aborting the install — at that
+#                     point nothing has been written to /etc/xbps.d and no key
+#                     has been imported, so the fallback is clean. An
+#                     INTEGRITY failure (the sync refused the key, or the
+#                     pinned fingerprint is not the one in the keyring) still
+#                     aborts: that is a disagreement between this installer
+#                     and the store it is about to trust, and it must not be
+#                     papered over with a stock package.
+#                     (5) `discover` was added to PKG_PREFLIGHT — the fallback
+#                     path installs it through install_pkgs(), so the drift
+#                     guard (Debug/check-pkg-preflight.sh) requires the name to
+#                     be covered there.
+#                     Gates: bash -n OK; check-heredocs.sh ALL CLEAN;
+#                     check-defaults.sh ALL CONSISTENT; check-pkg-preflight.sh
+#                     ALL COVERED; check-bios-boot.sh ALL CLEAN.
+#                     SCRIPT_VERSION bumped Version-3.1.02 -> Version-3.2.00.
 #
 #   BETA ERA — TRACKED (continued; these pre-3.0.00 entries were appended out
 #   of order, newest first — Beta-v2.9.99 CLOSED this era):
@@ -6474,6 +6538,7 @@ crun
 cryptsetup
 curl
 dbus
+discover
 docker
 dracut
 efibootmgr
@@ -8108,7 +8173,14 @@ install_pkgs() {
 # re-encode to DER first. These plists also put the blob and </data> on one
 # line, so the closing tag must be substituted away; deleting that line instead
 # silently drops the whole key.
-cosmic_key_fingerprint() {
+#
+# AI (Big Pickle) RENAME — Version-3.2.00 [DISCOVER-STORE]: this helper was
+# cosmic_key_fingerprint(), which was a lie of a name the moment the SECOND
+# project store (the Discover store) needed the same anchor: it reads ANY xbps
+# key plist, it is not COSMIC-specific. Renamed to xbps_key_fingerprint() so the
+# name says what it does; the body is unchanged (the traps it documents are
+# still live -- see the comment inside).
+xbps_key_fingerprint() {
     local _b
     _b=$(sed -n '/<key>public-key<\/key>/,/<\/data>/p' "$1" 2>/dev/null \
          | tail -n +2 \
@@ -8127,6 +8199,89 @@ cosmic_key_fingerprint() {
         | openssl dgst -sha256 2>/dev/null | sed 's/.*= *//'
 }
 
+# AI (Big Pickle) ADDITION — Version-3.2.00 [DISCOVER-STORE]: the keyring
+# trust model, shared by every project store this installer trusts.
+#
+# WHERE THE ANCHOR LIVES: libxbps does NOT sign the repository INDEX. The
+# index's index-meta.plist carries the PUBLIC KEY (plus signature-by and
+# signature-type) and each package carries its OWN .sig2 (RSA over the
+# package's sha256). A client's trust anchor is therefore the key's
+# FINGERPRINT in /var/db/xbps/keys/<hexfp>.plist -- which is exactly why the
+# fingerprint, and not the key, is what gets pinned in this installer.
+_xbps_keyring="/var/db/xbps/keys"
+# The stock Void keys that legitimately occupy this keyring on a real install.
+# Extracted from a real Void masterdir, not from void-packages/common/repo-keys
+# alone. Without this allowlist the check aborts every legitimate install,
+# because a provisioned system already trusts these two.
+_xbps_keyring_stock="
+05473705de6456ebfdda5bd4f18155cba80bd83fca1b120cf41099693c69187b
+f0da25a2877ccd5cba89e27fc744867914fd26031368a88f746f0f8096450d4d"
+# Our OWN store keys. A machine can legitimately trust BOTH of them at once: a
+# KDE box that took the Discover store imports the Discover key, and the same
+# box may additionally opt into cosmic-store, which imports the COSMIC key
+# (cosmic-store is DE-independent -- it installs on any desktop). So each
+# store's check has to tolerate the OTHER store's key; before Version-3.2.00
+# the COSMIC check treated any key outside {its own pin, the two stock keys}
+# as UNEXPECTED, which would have aborted a KDE install that took Discover
+# and then opted into cosmic-store. The allowlist still refuses every key
+# that is not ours -- the relaxation is "ours", never "anything".
+_xbps_keyring_ours="
+83ffd154d1dee504ea384a0c31b12e072d5884f7f75eb950e30ace852d7d2e7b
+4e40218a79784f0e4cc559b835c8e9f7585000d5b678177827a853a0937f17cf"
+
+# AI (Big Pickle) ADDITION — Version-3.2.00 [DISCOVER-STORE]: scan the xbps
+# keyring and classify every key it holds. Shared by the store helpers so
+# both use ONE definition of "the keyring holds only what we expect".
+#   $1 = the expected (pinned) fingerprint, DER SHA-256
+# Sets three globals for the caller to report in its own wording:
+#   _xbps_fp_ok=1  the pinned key IS present
+#   _xbps_fp_bad  space-separated list of unexpected / unreadable entries
+#   _xbps_fp_seen space-separated list of every key that was seen
+xbps_keyring_scan() {
+    local _expected="$1"
+    local _k _fp
+    _xbps_fp_ok=0
+    _xbps_fp_bad=""
+    _xbps_fp_seen=""
+    if [ -d "$_xbps_keyring" ]; then
+        for _k in "$_xbps_keyring"/*.plist; do
+            [ -e "$_k" ] || continue
+            # AI (Big Pickle) FIX — Version-3.2.00 [DISCOVER-STORE]: the `|| true`
+            # is LOAD-BEARING. xbps_key_fingerprint() returns 1 for a key it
+            # cannot parse, and a plain assignment takes the exit status of its
+            # command substitution -- under this block's `set -eEo pipefail` that
+            # would ABORT the whole chroot on the very first malformed entry,
+            # making the fail-closed UNREADABLE branch below unreachable (the
+            # same latent bug sat in the COSMIC path before this refactor: the
+            # comment claimed the scan CONTINUES past an unparseable key, but
+            # `set -e` killed the install before it could). Swallowing the
+            # status here is what makes "fail closed, then carry on and report
+            # it" the actual behaviour.
+            _fp="$(xbps_key_fingerprint "$_k" || true)"
+            if [ -z "$_fp" ]; then
+                # Fail CLOSED. A keyring entry we cannot parse is a key we cannot
+                # vouch for, and silently skipping it would let an attacker hide a
+                # malformed key here undetected. Note libxbps only supports RSA
+                # public keys, so "unparseable" means genuinely not-an-RSA-key.
+                _xbps_fp_bad="${_xbps_fp_bad} UNREADABLE(${_k##*/})"
+                _xbps_fp_seen="${_xbps_fp_seen} UNREADABLE(${_k##*/})"
+                continue
+            fi
+            if [ "$_fp" = "$_expected" ]; then
+                _xbps_fp_ok=1
+                _xbps_fp_seen="${_xbps_fp_seen} ${_fp}(pinned)"
+            elif printf '%s\n' "$_xbps_keyring_stock" | grep -qx "$_fp"; then
+                _xbps_fp_seen="${_xbps_fp_seen} ${_fp}(stock-void)"
+            elif printf '%s\n' "$_xbps_keyring_ours" | grep -qx "$_fp"; then
+                _xbps_fp_seen="${_xbps_fp_seen} ${_fp}(our-store)"
+            else
+                _xbps_fp_bad="${_xbps_fp_bad} ${_fp}"
+                _xbps_fp_seen="${_xbps_fp_seen} ${_fp}(UNEXPECTED)"
+            fi
+        done
+    fi
+}
+
 install_cosmic() {
     _cosmic_repo="https://bluesloth.github.io/void-linux-cosmic/"
     _cosmic_repodata="https://bluesloth.github.io/void-linux-cosmic/x86_64-repodata"
@@ -8136,14 +8291,13 @@ install_cosmic() {
     # index only proves the index is self-consistent -- an attacker controlling
     # the repo would serve their own key alongside it, which is precisely the
     # substitution this constant exists to reject.
-    _cosmic_keyring="/var/db/xbps/keys"
+    #
+    # AI (Big Pickle) CHANGE — Version-3.2.00 [DISCOVER-STORE]: the keyring
+    # path and the allowlists (stock Void keys + our own store keys) moved to
+    # the shared xbps_keyring_scan() helper, because a machine can legitimately
+    # trust BOTH project stores at once. Only the PIN is COSMIC-specific and it
+    # is unchanged.
     _cosmic_key_expected="83ffd154d1dee504ea384a0c31b12e072d5884f7f75eb950e30ace852d7d2e7b"
-    # Stock Void keys that legitimately occupy this keyring on a real install.
-    # Extracted from a real Void masterdir, not from void-packages/common/repo-keys
-    # alone. Without this allowlist the check below aborts every legitimate
-    # install, because a provisioned system already trusts these two.
-    _cosmic_key_stock="05473705de6456ebfdda5bd4f18155cba80bd83fca1b120cf41099693c69187b
-f0da25a2877ccd5cba89e27fc744867914fd26031368a88f746f0f8096450d4d"
 
     if ! curl -fsSL --max-time 30 -o /dev/null "$_cosmic_repodata" 2>/dev/null; then
         echo "FATAL: the third-party COSMIC repository (${_cosmic_repo}) is not reachable right now." >&2
@@ -8222,58 +8376,37 @@ f0da25a2877ccd5cba89e27fc744867914fd26031368a88f746f0f8096450d4d"
     #
     # Two conditions, both required:
     #   1. the pinned COSMIC key IS present, and
-    #   2. no key outside {pinned, two stock Void keys} is present.
+    #   2. no key outside {pinned, the two stock Void keys, our own other store
+    #      keys} is present.
     # Condition 2 is an allowlist, NOT "nothing else allowed": a provisioned Void
     # system already trusts the two stock keys, so rejecting them would abort
     # every legitimate install. Condition 2 exists to catch a stale anchor from a
     # previous repo or an injected third key -- neither of which belongs here.
-    _cosmic_fp_ok=0
-    _cosmic_fp_bad=""
-    _cosmic_fp_seen=""
-    if [ -d "$_cosmic_keyring" ]; then
-        for _cosmic_k in "$_cosmic_keyring"/*.plist; do
-            [ -e "$_cosmic_k" ] || continue
-            _cosmic_fp="$(cosmic_key_fingerprint "$_cosmic_k")"
-            if [ -z "$_cosmic_fp" ]; then
-                # Fail CLOSED. A keyring entry we cannot parse is a key we cannot
-                # vouch for, and silently skipping it would let an attacker hide a
-                # malformed key here undetected. Note libxbps only supports RSA
-                # public keys, so "unparseable" means genuinely not-an-RSA-key.
-                _cosmic_fp_bad="${_cosmic_fp_bad} UNREADABLE(${_cosmic_k##*/})"
-                _cosmic_fp_seen="${_cosmic_fp_seen} UNREADABLE(${_cosmic_k##*/})"
-                continue
-            fi
-            if [ "$_cosmic_fp" = "$_cosmic_key_expected" ]; then
-                _cosmic_fp_ok=1
-                _cosmic_fp_seen="${_cosmic_fp_seen} ${_cosmic_fp}(pinned)"
-            elif printf '%s\n' "$_cosmic_key_stock" | grep -qx "$_cosmic_fp"; then
-                _cosmic_fp_seen="${_cosmic_fp_seen} ${_cosmic_fp}(stock-void)"
-            else
-                _cosmic_fp_bad="${_cosmic_fp_bad} ${_cosmic_fp}"
-                _cosmic_fp_seen="${_cosmic_fp_seen} ${_cosmic_fp}(UNEXPECTED)"
-            fi
-        done
-    fi
-
-    if [ "$_cosmic_fp_ok" -ne 1 ] || [ -n "$_cosmic_fp_bad" ]; then
+    # AI (Big Pickle) CHANGE — Version-3.2.00 [DISCOVER-STORE]: the scan itself
+    # moved into the shared xbps_keyring_scan() helper (the keyring can hold
+    # our OTHER store's key too — a KDE box that took the Discover store and
+    # then opted into cosmic-store legitimately holds both). The wording, the
+    # fail-closed behaviour and the FATAL are unchanged.
+    xbps_keyring_scan "$_cosmic_key_expected"
+    if [ "$_xbps_fp_ok" -ne 1 ] || [ -n "$_xbps_fp_bad" ]; then
         echo "FATAL: COSMIC repository trust anchor does not match this installer." >&2
-        if [ "$_cosmic_fp_ok" -ne 1 ]; then
-            echo "       Pinned key ABSENT from ${_cosmic_keyring}:" >&2
+        if [ "$_xbps_fp_ok" -ne 1 ]; then
+            echo "       Pinned key ABSENT from ${_xbps_keyring}:" >&2
             echo "         expected SHA256 ${_cosmic_key_expected}" >&2
             echo "       Either the sync did not import it, or the repo is presenting a" >&2
             echo "       DIFFERENT key. If you are offline or mid-key-rotation, say so" >&2
             echo "       before overriding this." >&2
         fi
-        if [ -n "$_cosmic_fp_bad" ]; then
-            echo "       UNEXPECTED key(s) present in ${_cosmic_keyring}:" >&2
-            for _cosmic_b in $_cosmic_fp_bad; do
-                echo "         ${_cosmic_b}" >&2
+        if [ -n "$_xbps_fp_bad" ]; then
+            echo "       UNEXPECTED key(s) present in ${_xbps_keyring}:" >&2
+            for _xbps_b in $_xbps_fp_bad; do
+                echo "         ${_xbps_b}" >&2
             done
             echo "       Refusing to continue: a key you did not expect is trusted for" >&2
             echo "       these packages. Remove it and re-run, or investigate before" >&2
             echo "       trusting anything from this repo." >&2
         fi
-        echo "       Keys seen:${_cosmic_fp_seen:- (none)}" >&2
+        echo "       Keys seen:${_xbps_fp_seen:- (none)}" >&2
         echo "       Repo docs / audit: ${_cosmic_audit}" >&2
         exit 1
     fi
@@ -8282,6 +8415,127 @@ f0da25a2877ccd5cba89e27fc744867914fd26031368a88f746f0f8096450d4d"
     if ! xbps-install "${_xbps_cache[@]}" -y "$@"; then
         echo "FATAL: xbps-install failed for COSMIC package(s): $*" >&2
         echo "       Repo docs / audit: ${_cosmic_audit}" >&2
+        exit 1
+    fi
+}
+
+# AI (Big Pickle) ADDITION — Version-3.2.00 [DISCOVER-STORE]: the KDE Discover
+# store. The SECOND project store this installer trusts, and the same shape as
+# the COSMIC one: a repository this project signs and publishes itself, served
+# from its own GitHub Pages root (audit:
+# https://github.com/bluesloth/void-linux-discover).
+#
+# WHAT THE STORE CHANGES: the package is KDE Discover (6.7.5) — the very
+# package upstream Void also ships — but built from this project's packaging
+# templates, so it carries the native xbps backend plugin (the
+# `xbps-backend.so` Discover loads through PackageKit). The stock upstream
+# build has no such plugin, so Discover cannot see or install anything from
+# the system's own package manager. The store's build carries a HIGHER
+# revision than upstream's (upstream ships 6.7.5_1, the store ships 6.7.5_7),
+# so xbps prefers the store's build and upgrades over it when it is installed.
+#
+# WHY IT DOES NOT GO THROUGH install_pkgs(): install_pkgs() pushes the chosen
+# official mirror to the TOP of the repository list and installs from the
+# union pool. The store's package is only ever signed by the store's own key,
+# and — more importantly — the trust anchor below has to be verified around a
+# dedicated sync (the COSMIC-KEY-AUTOIMPORT rule: the "import this public
+# key?" question is answered by the installer on a pipe of its own, never by
+# the operator and never on the chroot's stdin).
+#
+# ONE KEY PER SERVED REPO: this store has its OWN signing key. The COSMIC
+# store's key stays with the COSMIC store, so a rotation or a compromise of
+# one store never couples the other. Both pins live in this file, and the
+# keyring allowlist (xbps_keyring_scan) tolerates either of them being
+# present.
+#
+# FAILURE SEMANTICS — the one deliberate difference from install_cosmic():
+#   * AVAILABILITY failure (the store is unreachable) does NOT abort the
+#     install. Discover is an enhancement on top of a package the official
+#     repositories already ship, so the install falls back to the stock
+#     upstream build with a loud WARNING. Nothing has been written to
+#     /etc/xbps.d and no key has been imported at that point, so the fallback
+#     is clean: the stock build is the only `discover` in the pool.
+#   * INTEGRITY failure (the sync refused the key, or the pinned fingerprint
+#     is not the one in the keyring) ABORTS the install. That is not an
+#     outage, it is a disagreement between this installer and the store it is
+#     about to trust, and it must not be papered over with a stock package:
+#     the operator has to see it.
+install_discover() {
+    _discover_repo="https://bluesloth.github.io/void-linux-discover/"
+    _discover_repodata="https://bluesloth.github.io/void-linux-discover/x86_64-repodata"
+    _discover_audit="https://github.com/bluesloth/void-linux-discover"
+    # The trust anchor is PINNED here, in the installer, and is deliberately
+    # not read from the repo being verified (same reasoning as the COSMIC
+    # anchor): a fingerprint fetched from the served index only proves the
+    # index is self-consistent. DER SHA-256 of the store key's DER encoding.
+    _discover_key_expected="4e40218a79784f0e4cc559b835c8e9f7585000d5b678177827a853a0937f17cf"
+
+    if ! curl -fsSL --max-time 30 -o /dev/null "$_discover_repodata" 2>/dev/null; then
+        echo "WARNING: the Discover store repository (${_discover_repo}) is not reachable right now." >&2
+        echo "         Continuing with the stock upstream Discover package (no native xbps backend)." >&2
+        echo "         Repo docs / audit: ${_discover_audit}" >&2
+        install_pkgs discover
+        return 0
+    fi
+
+    mkdir -p /etc/xbps.d
+    if ! grep -q 'bluesloth.github.io' /etc/xbps.d/60-discover.conf 2>/dev/null; then
+        echo "repository=${_discover_repo}" > /etc/xbps.d/60-discover.conf
+    fi
+
+    # Sync the (freshly added) Discover store index. This is the step that
+    # imports the store's signing key. The key question is answered on a pipe
+    # belonging to this command, never on the chroot's own stdin (Stage 2
+    # feeds this script through `chroot /mnt /bin/bash << 'CHROOT_EOF'`, so
+    # stdin IS the heredoc) and never on /dev/tty (unattended runs have none).
+    # One `printf 'y\n'` and done: a second question would then see EOF and
+    # fail loudly, and `yes` would fail this pipeline under `pipefail`
+    # (SIGPIPE) even after a successful sync.
+    echo "==> Importing the Discover store signing key (auto-answered; verified against the pin right after)."
+    echo "    Expected fingerprint:"
+    echo "      SHA256 ${_discover_key_expected}"
+    if ! printf 'y\n' | xbps-install "${_xbps_cache[@]}" -Sy; then
+        echo "FATAL: could not sync/trust the Discover store repository (${_discover_repo})." >&2
+        echo "       xbps refused the repository signing key, so the install aborted" >&2
+        echo "       cleanly and nothing was changed." >&2
+        echo "       Repo docs / audit: ${_discover_audit}" >&2
+        exit 1
+    fi
+
+    # Answering the import question does NOT establish trust — it only removes
+    # a prompt nobody needed to be asked. An operator who types 'Y' at a prompt
+    # showing a substituted key still trusts the attacker, so confirm the
+    # anchor MACHINE-CHECKABLY here, after the sync: the pinned key must be
+    # present, and no key outside {pinned, the stock Void keys, our own store
+    # keys} may be (see xbps_keyring_scan).
+    xbps_keyring_scan "$_discover_key_expected"
+    if [ "$_xbps_fp_ok" -ne 1 ] || [ -n "$_xbps_fp_bad" ]; then
+        echo "FATAL: Discover store trust anchor does not match this installer." >&2
+        if [ "$_xbps_fp_ok" -ne 1 ]; then
+            echo "       Pinned key ABSENT from ${_xbps_keyring}:" >&2
+            echo "         expected SHA256 ${_discover_key_expected}" >&2
+            echo "       Either the sync did not import it, or the repo is presenting a" >&2
+            echo "       DIFFERENT key. If you are offline or mid-key-rotation, say so" >&2
+            echo "       before overriding this." >&2
+        fi
+        if [ -n "$_xbps_fp_bad" ]; then
+            echo "       UNEXPECTED key(s) present in ${_xbps_keyring}:" >&2
+            for _xbps_b in $_xbps_fp_bad; do
+                echo "         ${_xbps_b}" >&2
+            done
+            echo "       Refusing to continue: a key you did not expect is trusted for" >&2
+            echo "       these packages. Remove it and re-run, or investigate before" >&2
+            echo "       trusting anything from this repo." >&2
+        fi
+        echo "       Keys seen:${_xbps_fp_seen:- (none)}" >&2
+        echo "       Repo docs / audit: ${_discover_audit}" >&2
+        exit 1
+    fi
+    echo "==> Discover store trust anchor verified: SHA256 ${_discover_key_expected}"
+
+    if ! xbps-install "${_xbps_cache[@]}" -y "$@"; then
+        echo "FATAL: xbps-install failed for Discover store package(s): $*" >&2
+        echo "       Repo docs / audit: ${_discover_audit}" >&2
         exit 1
     fi
 }
@@ -9491,6 +9745,18 @@ TP_EOF
     fi
 elif [ "$DESKTOP_ENV" = "kde" ]; then
     install_pkgs kde-plasma kde-baseapps ark kio-admin
+    # AI (Big Pickle) ADDITION — Version-3.2.00 [DISCOVER-STORE]: KDE Discover
+    # comes from this project's own store, not from the official repositories:
+    # the store's build of the SAME upstream package carries the native xbps
+    # backend plugin, so Discover can see and install the system's own
+    # packages. The stock upstream build (which the official repositories ship
+    # as 6.7.5_1) has no such plugin and shows an empty Sources list.
+    # It goes through install_discover() rather than install_pkgs() because the
+    # store's key has to be imported and its fingerprint pinned/verified
+    # around a dedicated sync — the same shape as install_cosmic(). If the
+    # store is unreachable the helper warns and falls back to the stock
+    # upstream build rather than aborting the install.
+    install_discover discover
 fi
 
 # [LIGHTDM-GREETER-BG] Set the greeter background so a fresh install doesn't
