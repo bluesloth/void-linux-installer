@@ -585,7 +585,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Version-3.2.00"
+SCRIPT_VERSION="Version-3.2.01"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1365,6 +1365,30 @@ SCRIPT_VERSION="Version-3.2.00"
 #                     check-defaults.sh ALL CONSISTENT; check-pkg-preflight.sh
 #                     ALL COVERED; check-bios-boot.sh ALL CLEAN.
 #                     SCRIPT_VERSION bumped Version-3.1.02 -> Version-3.2.00.
+#     Version-3.2.01 [DISCOVER-STORE-REPO-ORDER] — clean-box fix for the
+#                     Version-3.2.00 claim that the store's higher revision
+#                     alone makes xbps choose it. It does not: `xbps-install
+#                     <name>` resolves the name against the FIRST repository
+#                     that carries it, not the highest version in the pool.
+#                     A fresh KDE install (Version-3.2.00) therefore selected
+#                     official discover-6.7.5_1 even though 60-discover.conf
+#                     was present and the store serves 6.7.5_7 — and because
+#                     xbps recorded the official repo as the package's origin,
+#                     `xbps-install -u` never crossed over either. The stock
+#                     build has no xbps-backend.so, so the clean box silently
+#                     lost the whole feature. The final install now prepends
+#                     the store (-R "$_discover_repo"), making the selection
+#                     independent of config order; immediately after, the
+#                     recorded origin is asserted with `xbps-query -p
+#                     repository discover` and a non-store origin is a FATAL.
+#                     The reachability fallback (stock via install_pkgs) and
+#                     the integrity-failure abort are unchanged. Verified on
+#                     the clean box: _7 installed from the store, backend
+#                     loaded in the real GUI (232 ms), policy present, harness
+#                     30/30 (failed-helper) and 29/29 (success-helper), plus a
+#                     new repo-order harness over the extracted function (new
+#                     code PASS both cases; 3.2.00 code FAILs both).
+#                     SCRIPT_VERSION bumped Version-3.2.00 -> Version-3.2.01.
 #
 #   BETA ERA — TRACKED (continued; these pre-3.0.00 entries were appended out
 #   of order, newest first — Beta-v2.9.99 CLOSED this era):
@@ -8533,11 +8557,40 @@ install_discover() {
     fi
     echo "==> Discover store trust anchor verified: SHA256 ${_discover_key_expected}"
 
-    if ! xbps-install "${_xbps_cache[@]}" -y "$@"; then
+    # AI (Big Pickle) FIX — Version-3.2.01 [DISCOVER-STORE-REPO-ORDER]:
+    # `xbps-install <name>` resolves the name against the FIRST repository in
+    # the pool that carries it, NOT against the highest version across the
+    # pool (verified on the clean box: with 00-repository-main.conf before
+    # 60-discover.conf, `xbps-install discover` selected official 6.7.5_1 even
+    # though the store serves 6.7.5_7). Because xbps then records the official
+    # repo as the package's origin, `xbps-install -u` never sees the store's
+    # revision either. The higher revision alone is NOT enough — that was the
+    # 3.2.00 assumption. Prepending the store for this transaction makes the
+    # selection deterministic regardless of config order; the assertion below
+    # records the origin and fails loudly instead of silently shipping the
+    # backend-less stock build. The reachability fallback above still installs
+    # stock through install_pkgs() when the store is genuinely down.
+    if ! xbps-install "${_xbps_cache[@]}" -y -R "$_discover_repo" "$@"; then
         echo "FATAL: xbps-install failed for Discover store package(s): $*" >&2
         echo "       Repo docs / audit: ${_discover_audit}" >&2
         exit 1
     fi
+
+    # Regression guard for [DISCOVER-STORE-REPO-ORDER]: the installed origin
+    # is the machine-checkable proof that the transaction took the store build.
+    # Compare with trailing slashes normalised so a URL spelling difference
+    # cannot mask the failure.
+    _discover_installed_repo="$(xbps-query -p repository discover 2>/dev/null || true)"
+    if [ "${_discover_installed_repo%/}" != "${_discover_repo%/}" ]; then
+        echo "FATAL: 'discover' was not installed from the Discover store." >&2
+        echo "       Installed origin: ${_discover_installed_repo:-<unknown>}" >&2
+        echo "       Expected origin:  ${_discover_repo}" >&2
+        echo "       xbps selects an install-by-name from the first repository that" >&2
+        echo "       carries the name; the stock build has no native xbps backend." >&2
+        echo "       Repo docs / audit: ${_discover_audit}" >&2
+        exit 1
+    fi
+    echo "==> Discover installed from the store (origin: ${_discover_installed_repo})"
 }
 
 install_pkgs xbps
