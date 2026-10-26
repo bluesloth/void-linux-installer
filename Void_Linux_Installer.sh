@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.00"
+SCRIPT_VERSION="Version-3.2.01"
 
 
 
@@ -4448,11 +4448,23 @@ install_discover() {
     fi
     echo "==> Discover store trust anchor verified: SHA256 ${_discover_key_expected}"
 
-    if ! xbps-install "${_xbps_cache[@]}" -y "$@"; then
+    if ! xbps-install "${_xbps_cache[@]}" -y -R "$_discover_repo" "$@"; then
         echo "FATAL: xbps-install failed for Discover store package(s): $*" >&2
         echo "       Repo docs / audit: ${_discover_audit}" >&2
         exit 1
     fi
+
+    _discover_installed_repo="$(xbps-query -p repository discover 2>/dev/null || true)"
+    if [ "${_discover_installed_repo%/}" != "${_discover_repo%/}" ]; then
+        echo "FATAL: 'discover' was not installed from the Discover store." >&2
+        echo "       Installed origin: ${_discover_installed_repo:-<unknown>}" >&2
+        echo "       Expected origin:  ${_discover_repo}" >&2
+        echo "       xbps selects an install-by-name from the first repository that" >&2
+        echo "       carries the name; the stock build has no native xbps backend." >&2
+        echo "       Repo docs / audit: ${_discover_audit}" >&2
+        exit 1
+    fi
+    echo "==> Discover installed from the store (origin: ${_discover_installed_repo})"
 }
 
 install_pkgs xbps
