@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Version-3.2.01** (`SCRIPT_VERSION` in the script).
+Current version: **Version-3.2.02** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -148,7 +148,8 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Version-3.1.01** | `[REPO-PRIMARY-PERSIST]`/`[PKG-SNAP-NODRY]`/`[PKG-SNAP-ROOTGATE]`/`[PKG-SNAP-ERRSURFACE]` — four fixes from auditing the first Version-3.1.00 hardware install (a fresh KDE laptop, `<host>`) against this script. **(1)** The operator-chosen primary mirror (`REPO_PRIMARY`, e.g. `mirrors.summithq.com`) was recorded in `install-config` and drove the install-time chroot syncs, but was **never written to the target's `/etc/xbps.d`** — the only `/etc/xbps.d` write in the script is the COSMIC repo — so the booted system silently fell back to the vendor defaults in `/usr/share/xbps.d` (`repo-default.voidlinux.org`) and the recorded choice had no effect on the running box. Stage 2 now writes `/etc/xbps.d/00-repository-main.conf` with `repository=${REPO_PRIMARY}` whenever the variable is non-empty (idempotent rewrite of its own file), with a comment noting the xbps precedence subtlety: `/usr/share/xbps.d` is read **before** `/etc/xbps.d` and repositories accumulate, so the chosen mirror becomes a working additional source (syncs, version checks, installs) while the vendor entry stays primary for virtual-package resolution — honest and update-safe, rather than editing a vendor-owned file a `base-files` update would revert. **(2)** `void-xbps-snap`'s `_should_snap` matched any `-S*` short-flag cluster, so a **dry run** — `xbps-install -Sn`, exactly the command used to verify the install — attempted a snapshot and, non-root, printed a spurious `WARNING: could not take pre snapshot`; the wrapper's own doc comment already promised dry-runs were skipped. `_should_snap` now rejects `-n`/`--dry-run` alone or clustered (`-Sn`, `-nSu`, …) before the install/update matcher. **(3)** The wrapper never checked its own EUID: snapper can only create snapshots as root, so any non-root invocation that *did* match (a user running `xbps-install -S …` through the shadowed `/usr/bin/xbps-install`) failed and warned like a system fault — proven benign on the audited box (the pkexec root path created and removed a test pre-snapshot cleanly). `_main` now passes non-root invocations straight through to the real binary with a one-line note (`not root: skipping snapshots (run via sudo for the pre/post pair)`). **(4)** The pre-snapshot snapper call discarded stderr (`2>/dev/null`), which is precisely why the non-root failure above was undiagnosable; stderr is now captured to a `mktemp` file (keeping `--print-number` clean on stdout) and printed under the WARNING, prefixed `snapper: `, when the pre snapshot fails. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Version-3.1.00 below |
 | **Version-3.1.02** | `[INSTALL-CONFIG-GRUB]`/`[DISK-PICK-FLOOR]` — two fixes for two long-standing TODO.md items found during the Version-3.1.00 era. **(1)** The `/etc/void-installer/install-config` write (and the `[DOCS-LOG]` `~/Documents/Void_Install.txt` record immediately after it) sat INSIDE the Limine `else` branch of `if [ "$BOOTLOADER" = "grub" ]` — that branch does not close until the `fi` marked `# End of GRUB/Limine branch`, so a GRUB install wrote NEITHER record file while the final summary advertised both as archived on the machine; every GRUB matrix case passed with the verify probe's `---CFG---` section **empty**, which is how it stayed hidden. Both blocks — **together with the `mkdir -p /etc/void-installer` that creates their directory (both mkdirs in the script were Limine-branch-local; the first matrix run against the hoist drove `grub-install` + `grub-mkconfig` to success and then died at the write with `No such file or directory`, driver rc=5) and the three branch-local row derivations the body bakes (`_ssh_key_present`/`_ssh_key_rows`, `FLATPAK_PULLED_BY`, `VIRT_BR0` — each consumed only by this heredoc, so GRUB gets correct rows instead of `SSH_KEY_PRESENT=""`, missing flatpak-pull detection and `VIRT_BR0=n/a`)** — are hoisted into the shared region right after that `fi`, so both bootloaders write the records. Limine output stays byte-identical: every input the derivations read is a pre-branch `chroot_env` export, nothing in the branch tail between the old and new positions reassigns any input or output, and no packages install there (so the `xbps-query -l` inventory is over an identical package set). **(2)** The disk picker's candidate list offered `/dev/fd0` — `type=disk`, never mounted, so it passed both filters and listed FIRST (4096 B) ahead of the real disk on any machine with a floppy controller, which is exactly the legacy-BIOS class v3.1.00 targets (and QEMU's PC machine always has one). It was never dangerous — the destructive banner, the typed `ERASE!` confirmation and the `[DISK-BUDGET]` 4096-byte refusal all held, nothing was written — but an entry that can only fail is noise. The candidate loop now skips `fd*` names outright and anything below a 1 GiB byte floor (deliberately far below any real Void target, so removable USB media — which MUST stay selectable — is unaffected), fails OPEN on an unreadable size (skip only on positive evidence, mirroring `[DISK-BUDGET]`), and prints every skip so a vanished entry is always explained. No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.1.01 below |
 | **Version-3.2.00** | `[DISCOVER-STORE]`/`[DISCOVER-STORE-TRUST]` — the second project store joins the first: the installer now installs **KDE Discover from this project's own signed repository** instead of from the official Void mirrors, and the store's build of the SAME upstream package carries the **native xbps backend plugin** (`xbps-backend.so`, loaded through PackageKit), so Discover can see and install the system's own packages instead of showing an empty Sources list. The store is served from its own Pages root (`https://bluesloth.github.io/void-linux-discover/`, audit: `https://github.com/bluesloth/void-linux-discover`) and carries `discover-6.7.5_7` against the official `discover-6.7.5_1` — the higher revision is what makes xbps take the store's build and upgrade over the official one. A new `install_discover()` helper mirrors `install_cosmic()`: the index is probed for reachability FIRST, `/etc/xbps.d/60-discover.conf` is written in the same one-line `repository=` form as `59-cosmic.conf`, the index is synced with the key-import question answered by the installer on a pipe of its own (never on the chroot's stdin — Stage 2 feeds the script through `chroot /mnt /bin/bash << 'CHROOT_EOF'`, so stdin IS the heredoc — and never on `/dev/tty`), and the package goes in through a dedicated `xbps-install -y`. It does **not** go through `install_pkgs()`, which pushes the chosen official mirror to the top of the repository list and so cannot carry the trust-anchor verification around the sync. **ONE KEY PER SERVED REPO**: the store has its own signing key, PINNED in the installer as DER SHA-256 `4e40218a79784f0e4cc559b835c8e9f7585000d5b678177827a853a0937f17cf` and deliberately NOT read from the served index (a fingerprint fetched from the index only proves the index is self-consistent); after the sync the keyring is machine-checked — the pinned key must be present and no key outside the allowlist may be. **The keyring allowlist had to grow, and that is a COSMIC-path bug fix, not a relaxation**: `cosmic_key_fingerprint()` became `xbps_key_fingerprint()` (it reads ANY xbps key plist — the name was a lie the moment a second store needed the same anchor) and the scan moved into a shared `xbps_keyring_scan()` helper whose allowlist is *{the two stock Void keys, our own store keys}*. `cosmic-store` is DE-independent, so a KDE box that took the Discover store and then opted into cosmic-store legitimately holds BOTH store keys — the old COSMIC-only allowlist would have aborted that install with "UNEXPECTED key". The allowlist still refuses every key that is not ours; the relaxation is "ours", never "anything". The COSMIC path's wording, fail-closed behaviour and FATAL are unchanged. **A `set -e` trap in the scan, found by a synthetic-keyring harness and fixed**: the "fail CLOSED on an unparseable keyring entry" branch was UNREACHABLE — `xbps_key_fingerprint()` returns 1 for a key it cannot parse and a plain assignment takes the exit status of its command substitution, so under the chroot block's `set -eEo pipefail` the first malformed entry ABORTED the whole install before the branch that was supposed to report it (the same latent bug sat in the COSMIC path, whose comment claimed the scan continues past an unparseable key); the call is now `_fp="$(xbps_key_fingerprint "$_k" || true)"`. **Failure semantics differ from `install_cosmic()` on purpose**: an AVAILABILITY failure (the store unreachable) warns and falls back to the stock upstream build instead of aborting — at that point nothing has been written to `/etc/xbps.d` and no key has been imported, so the fallback is clean — while an INTEGRITY failure (the sync refused the key, or the pinned fingerprint is not the one in the keyring) still aborts, because that is a disagreement between this installer and the store it is about to trust and must not be papered over with a stock package. `discover` was added to `PKG_PREFLIGHT` (the fallback installs it through `install_pkgs()`, so the drift guard requires the name to be covered). Gates: `bash -n` clean; `check-heredocs.sh` ALL CLEAN (77); `check-defaults.sh` ALL CONSISTENT; `check-pkg-preflight.sh` ALL COVERED (169 preflight packages / 173 literals); `check-bios-boot.sh` 42/42. Plus a synthetic-keyring harness over the REAL extracted code: the served index's public key rebuilt into a keyring plist reproduces the pinned fingerprint exactly, and nine classification cases (pinned / stock-void / our-store / UNEXPECTED, both stores present at once, pinned absent, foreign key present) plus the unreadable-entry case all pass | Version-3.1.02 below |
-| **Version-3.2.01** | `[DISCOVER-STORE-REPO-ORDER]` — clean-box fix for Version-3.2.00's assumption that the store's higher revision is enough to make xbps choose it. It is not: `xbps-install <name>` resolves the name against the **first repository in config order that carries it**, not the highest version in the pool. A fresh KDE install (Version-3.2.00) therefore selected official `discover-6.7.5_1` even though `60-discover.conf` was written, the key was pinned/verified, and the store serves `6.7.5_7`; the stock build has no `xbps-backend.so`. Worse, xbps recorded the official repo as the package's origin, so `xbps-install -u` followed official and never crossed over either. The final transaction now prepends the store (`xbps-install … -y -R "$_discover_repo" "$@"`), making the selection independent of config order, and immediately after the install the recorded origin is machine-checked with `xbps-query -p repository discover`; a non-store origin is a FATAL instead of a silent stock install. The availability fallback (stock via `install_pkgs`) and the integrity-failure abort are unchanged. Verified on the clean box: `_7` installed from the store, `xbps-query -p repository discover` = the store URL, the backend loaded in the real GUI (232 ms), the policy carries all three `auth_admin` actions, the headless harness is **30/30** (failed-helper) and **29/29** (success-helper), and a new repo-order harness over the extracted function passes both new-code cases while the 3.2.00 code fails both. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN. **Not committed/published at time of writing — operator review pending.** | Version-3.2.00 below |
+| **Version-3.2.01** | `[DISCOVER-STORE-REPO-ORDER]` — clean-box fix for Version-3.2.00's assumption that the store's higher revision is enough to make xbps choose it. It is not: `xbps-install <name>` resolves the name against the **first repository in config order that carries it**, not the highest version in the pool. A fresh KDE install (Version-3.2.00) therefore selected official `discover-6.7.5_1` even though `60-discover.conf` was written, the key was pinned/verified, and the store serves `6.7.5_7`; the stock build has no `xbps-backend.so`. Worse, xbps recorded the official repo as the package's origin, so `xbps-install -u` followed official and never crossed over either. The final transaction now prepends the store (`xbps-install … -y -R "$_discover_repo" "$@"`), making the selection independent of config order, and immediately after the install the recorded origin is machine-checked with `xbps-query -p repository discover`; a non-store origin is a FATAL instead of a silent stock install. The availability fallback (stock via `install_pkgs`) and the integrity-failure abort are unchanged. Verified on the clean box: `_7` installed from the store, `xbps-query -p repository discover` = the store URL, the backend loaded in the real GUI (232 ms), the policy carries all three `auth_admin` actions, the headless harness is **30/30** (failed-helper) and **29/29** (success-helper), and a new repo-order harness over the extracted function passes both new-code cases while the 3.2.00 code fails both. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN. **Published as `Version-3.2.01` (public export `ffb09d8…`).** | Version-3.2.00 below |
+| **Version-3.2.02** | `[GNOME-SOFTWARE-STORE]` — the third project store joins COSMIC and Discover: choosing the **GNOME** desktop now installs `gnome-software` from `https://bluesloth.github.io/void-linux-gnome-software/`, whose build of the same upstream 50.2 carries the **native xbps backend**, instead of the official mirrors' flatpak-only build (whose own summary is "GNOME Software Center (flatpak only)"). The helper is a deliberate clone of `install_discover()`: repodata probe → `/etc/xbps.d/61-gnome-software.conf` → a dedicated `xbps-install -Sy` with the key-import question answered on the installer's own pipe → machine-checked trust anchor (pin `9bdf4599…0d60`, and added to the shared `xbps_keyring_ours` allowlist so all three store keys can coexist) → `xbps-install -y -R "$_gnome_software_repo" gnome-software` → `xbps-query -p repository` origin assertion. Coverage of Version-3.2.01's lesson is built in from the start (`-R` + origin assert, because `61-…conf` sorts after `00-repository-main.conf`). Fail-open on an **availability** failure now really installs the stock package: the `gnome` metapackage carries **no** run_depend on `gnome-software` (verified against `gnome`, `gnome-core`, `gnome-apps`), so the first cut of this feature said "continuing with the stock … package" while installing nothing — the fallback now runs `install_pkgs gnome-software`. The call also moved **after** `install_pkgs gnome` (mirroring Discover) so the store transaction is the last word. **Integrity** failures (key refused / pin absent) still abort. GNOME-only: KDE, COSMIC and every other desktop are untouched. `gnome-software` added to `PKG_PREFLIGHT` for the fallback's drift guard. | Version-3.2.01 below |
 | **Beta-v2.9.99** | `[LIBVIRT-AUTOSTART]` — the Beta-v2.9.98 one-shot BR0-NAT teardown was **irreversible** against a `libvirt` package update. `net-autostart default --disable` disables autostart by removing the **package-owned** symlink `/etc/libvirt/qemu/networks/autostart/default.xml`, and a later `libvirt` update re-installs every package file, silently restoring that symlink so `default` autostarts `virbr0` again — with the `[BR0-NAT-ONESHOT]` stamp present the block skipped forever and never undid it (the latent virbr0 return). The gate now **re-enters** when that symlink is present again, not only when the stamp is absent (stamp absent = initial migration; stamp + symlink = a package update restored it, re-tear; stamp + no symlink = still torn down, a single `[ -e ]` no-op). The re-entry probe needs no libvirtd and costs nothing on an already-migrated box, and a re-entered run is idempotent — it re-verifies and re-stamps, logging `reason=` in `/var/log/void-br0-nat-teardown.log`. The permanent pkgdb `libvirt: files check FAILED` for the removed package-owned symlink is unchanged (known, by-design; tracked separately). No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.98 below |
 | **Beta-v2.9.98** | `[BR0-NAT-ONESHOT]` + `[BR0-NAT-BACKGROUND]` — the rc.local libvirt `default` NAT teardown (Beta-v2.9.96) no longer costs boot time. `/etc/runit/2` runs `rc.local` **synchronously before `runsvdir`**, so the teardown's wait loop (`virsh net-info default` polled up to 30× `sleep 1`) sat directly on the path to the display manager and **always burned its full 30 s**: libvirtd is started by `runsvdir`, so it is never up when the loop begins and every probe failed (measured on the operator's box 2026-10-17: kernel→Xorg 38.4 s, of which 30 s was this block). Two changes: **(1)** a **verified** teardown (`torn_down=yes`) now stamps `/var/lib/void-installer/br0-nat-torn-down.done` and the stamp's presence skips the block on every later boot (an unverified teardown still retries the next boot); **(2)** the whole block runs as `{ …; } &`, so `rc.local` returns immediately and even the first unstamped run cannot block the desktop — and because the backgrounded loop keeps polling while `runsvdir` starts libvirtd, it now actually **succeeds** mid-boot (previously impossible), gets verified, and stamps. Teardown semantics, the wired-NIC presence gate, the log and the `virbr0` cleanup are unchanged; the same box boots to Xorg in ~8 s. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.97 below |
 | **Beta-v2.9.97** | `[LIMINE-NVRAM]` — re-adds the optional Limine UEFI NVRAM registration that first landed on the public export line at Beta-v2.9.92 (commit `ae72d75`, "feat(limine): add optional NVRAM entry, default off") and was then clobbered there by the Release-v2.9.93 source sync (`Source-Ref`) before any release shipped it — it was never present on this canonical line. A new `DEFAULT_LIMINE_NVRAM` toggle (default `false`) drives a Limine-only prompt; on `yes` the Stage-2 Limine deploy `install_pkgs efibootmgr` and runs `efibootmgr --create` pointing at `BOOTX64.EFI` (ESP disk/partition derived via `findmnt` + `lsblk`), in addition to the always-present removable/fallback path; failure is non-fatal. Default/no keeps the deploy byte-identical to the historical NVRAM-free behavior. The prompt accepts `y`/`yes`/`true` and `n`/`no`/`false` (the `[HEADLESS-PROMPT-LOOP]` lesson) so a true/false default can never loop. Threaded through the DRY-RUN plan, `chroot_env`, `limine-env`, `install-config` and the NEXT-STEPS text. `efibootmgr` was already in `PKG_PREFLIGHT`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.96 below |
@@ -1073,6 +1074,116 @@ messages, and that `NVRAM=no` never shows the label prompt. Gates: `bash -n`
 clean; `check-heredocs.sh` ALL CLEAN; `check-defaults.sh` ALL CONSISTENT (the
 new `DEFAULT_` is declared *and* wired); `check-pkg-preflight.sh` ALL COVERED
 (no package surface changed).
+
+## Version-3.2.02 — `[GNOME-SOFTWARE-STORE]` (choosing GNOME now installs GNOME Software from this project's own store, with the native xbps backend)
+
+`SCRIPT_VERSION` bumped to Version-3.2.01 → Version-3.2.02. Published as
+`Version-3.2.02`.
+
+A feature release: the **third** project store joins COSMIC and Discover. Pick
+the GNOME desktop and `gnome-software` comes from
+`https://bluesloth.github.io/void-linux-gnome-software/` instead of the
+official mirrors — and the difference the user sees is that the store's build
+carries the **native xbps backend**, so GNOME Software can list, install and
+remove the system's own packages. The official build cannot: its summary is
+literally `GNOME Software Center (flatpak only)`, and it is built with
+`-Dpackagekit=false -Dfwupd=false -Dmalcontent=false`, leaving flatpak as the
+only backend.
+
+### 1 — What was there before, and why it did nothing
+
+Two commits carried this work unpublished (`4d6ec6c` feature, `51dbd99` fix).
+The fix matters: the helper was first defined **after** the `CHROOT_EOF`
+heredoc but called from **inside** it, so stage 2 died with
+`install_gnome_software_store: command not found` (exit 127). It now lives
+inside the chroot block, above its call site, like `install_discover()`.
+
+Two further defects were found while preparing this release, both fixed here:
+
+1. **The availability fallback installed nothing.** It warned "Continuing with
+   the stock upstream GNOME Software package (flatpak-only)" and returned —
+   relying on `install_pkgs gnome`. But the `gnome` metapackage has **no**
+   run_depend on `gnome-software`; checked against the official index, neither
+   `gnome` nor `gnome-core` nor `gnome-apps` mentions it. An unreachable store
+   therefore left the box with **no Software app at all** while the warning
+   said otherwise. The fallback now runs `install_pkgs gnome-software`
+   (official `50.2_1`, flatpak-only) — the same shape as `install_discover()`'s
+   fallback to the stock `discover`.
+2. **Ordering.** The call sat *before* `install_pkgs gnome`. Nothing pulls
+   `gnome-software` in today, so the outcome happened to be the same, but
+   depending on that is precisely the assumption `Version-3.2.01` had to fix
+   for `discover`. The call now runs **after** the metapackage, so the store
+   transaction is the last word on the package and the origin assertion runs
+   after all official-repo activity.
+
+### 2 — The helper, and the trust model it inherits
+
+Modeled deliberately on `install_discover()` (COSMIC and Discover already share
+this shape, and the keyring scan is shared code):
+
+```sh
+_gnome_software_repo="https://bluesloth.github.io/void-linux-gnome-software/"
+_gnome_software_repodata="${_gnome_software_repo}x86_64-repodata"
+_gnome_software_key_expected="9bdf45994696427ede0ca504674066e7276a0cadb6eccba8eb7cd4ae0be70d60"
+```
+
+1. **Reachability first** — `curl -fsSL --max-time 30` on the repodata. If the
+   store is down, nothing has been written to `/etc/xbps.d` and no key has been
+   imported, so the fallback to the official package is clean.
+2. **Repository config** — a one-line `repository=` entry in
+   `/etc/xbps.d/61-gnome-software.conf`, the same form `59-cosmic.conf` and
+   `60-discover.conf` use. `61-` keeps the three stores in a predictable order
+   and, like them, sorts after `00-repository-main.conf` — which is why step 5
+   cannot rely on config order.
+3. **Dedicated sync with the key question answered** —
+   `printf 'y\n' | xbps-install "${_xbps_cache[@]}" -Sy`, on a pipe **of its
+   own**: never the chroot's stdin (stage 2 feeds the script through
+   `chroot /mnt /bin/bash << 'CHROOT_EOF'`, so stdin *is* the heredoc) and
+   never `/dev/tty` (unattended runs have none).
+4. **Machine-checked trust anchor** — `xbps_keyring_scan` classifies every key
+   in `/var/db/xbps/keys`. The GNOME Software fingerprint is added to the
+   shared `xbps_keyring_ours` allowlist, because a machine may legitimately
+   hold COSMIC's key, Discover's key and this one at once; anything not ours is
+   still `UNEXPECTED` and aborts. The pin lives **in the installer**, never
+   read from the repository it is verifying — a fingerprint fetched from the
+   served index only proves the index is self-consistent.
+5. **Install from the store, then assert the origin** —
+   `xbps-install -y -R "$_gnome_software_repo" gnome-software`, then
+   `xbps-query -p repository gnome-software` must equal the store URL
+   (trailing slashes normalised). Without `-R` and this assertion the install
+   would silently take official `50.2_1`, exactly as the clean box did with
+   `discover` in Version-3.2.00 — the free 50.2_1 is found first because
+   `00-repository-main.conf` precedes `61-gnome-software.conf`.
+
+Failure semantics are the same split as Discover's: an **availability** failure
+warns and installs the stock package; an **integrity** failure (the sync
+refused the key, or the pin is not in the keyring) aborts, because that is a
+disagreement about trust rather than an outage.
+
+### 3 — Scope
+
+`DESKTOP_ENV=gnome` only. KDE still gets Discover from its store, COSMIC still
+gets cosmic-store, and every other desktop is untouched. `gnome-software` was
+added to `PKG_PREFLIGHT` (169 → 170 package names) because the fallback path
+installs it through `install_pkgs()`, which the drift guard
+(`checks/check-pkg-preflight.sh`) checks.
+
+### 4 — Verification
+
+* `bash -n` clean; `check-heredocs.sh` **77 ALL CLEAN** (the helper is inside
+  the extracted chroot body); `check-defaults.sh` ALL CONSISTENT;
+  `check-pkg-preflight.sh` ALL COVERED; `check-bios-boot.sh` **42/42**.
+* The served side was verified independently: the store's `x86_64-repodata`,
+  `gnome-software-50.2_6.x86_64.xbps` and `…-devel-50.2_6…` fetch over HTTPS
+  byte-identical to the local copies, the index embeds a key whose DER SHA-256
+  equals the pin above, and both `.sig2` files verify. `check-pins.sh` asserts
+  the installer's `_gnome_software_key_expected` equals that recomputed
+  fingerprint and that the installer URL points at the store.
+* The published script is checked for the code itself (not just for a version
+  string) after staging: `install_gnome_software_store`, the `-R` install, the
+  origin assertion and the pin must all be present in the stripped bytes.
+* The end-to-end proof on a real GNOME install is the outstanding item:
+  `docs/CHECKLIST-FRESH-INSTALL-GNOME-XBPS-BACKEND.md`.
 
 ## Version-3.2.01 — `[DISCOVER-STORE-REPO-ORDER]` (the store build is selected by repository, not by revision)
 
