@@ -585,7 +585,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Version-3.2.01"
+SCRIPT_VERSION="Version-3.2.02"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1389,6 +1389,59 @@ SCRIPT_VERSION="Version-3.2.01"
 #                     new repo-order harness over the extracted function (new
 #                     code PASS both cases; 3.2.00 code FAILs both).
 #                     SCRIPT_VERSION bumped Version-3.2.00 -> Version-3.2.01.
+#     Version-3.2.02 [GNOME-SOFTWARE-STORE] — the third project store joins
+#                     COSMIC and Discover: when the operator picks the GNOME
+#                     desktop, `gnome-software` now comes from
+#                     https://bluesloth.github.io/void-linux-gnome-software/
+#                     instead of the official mirrors. The store's build is
+#                     the same upstream 50.2 with the native xbps backend
+#                     compiled in, so GNOME Software can manage the system's
+#                     own packages; the official build is flatpak-only (its
+#                     own summary says so) and cannot see xbps at all.
+#                     The helper is a deliberate clone of install_discover():
+#                     repodata reachability probe first (curl), then
+#                     /etc/xbps.d/61-gnome-software.conf (a one-line
+#                     `repository=` entry, the same shape 59-cosmic.conf and
+#                     60-discover.conf use), then a dedicated `xbps-install
+#                     -Sy` whose key-import question is answered on the
+#                     installer's OWN pipe (never the chroot's stdin, which is
+#                     the heredoc, and never /dev/tty), then a machine check of
+#                     the trust anchor, then the install. The pin lives here,
+#                     not in the served index: `4e40218a…` was Discover and
+#                     `83ffd154…` was COSMIC; GNOME Software's key is DER
+#                     SHA-256 9bdf4599…0d60. It is also added to the SHARED
+#                     keyring allowlist (xbps_keyring_ours), which is what lets
+#                     one machine hold COSMIC + Discover + GNOME keys without
+#                     the scan calling our own key UNEXPECTED.
+#                     (1) The final transaction prepends the store with
+#                     `-R "$_gnome_software_repo"` and the recorded origin is
+#                     asserted right after with `xbps-query -p repository
+#                     gnome-software` — Version-3.2.01's lesson applied from
+#                     the start, since `xbps-install <name>` resolves against
+#                     the FIRST repository in config order and
+#                     61-gnome-software.conf sorts after 00-repository-main.
+#                     (2) Availability failure (store unreachable) does NOT
+#                     abort: it warns and installs the stock upstream
+#                     `gnome-software` through install_pkgs(). That explicit
+#                     install matters: the `gnome` metapackage carries no
+#                     run_depend on gnome-software at all, so the pre-3.2.02
+#                     fallback left the box with no Software app while telling
+#                     the operator the stock build had been installed.
+#                     (3) Integrity failure (the sync refused the key, or the
+#                     pin is not in the keyring) still aborts: that is not an
+#                     outage, it is a disagreement about trust.
+#                     (4) The call moved AFTER `install_pkgs gnome`, mirroring
+#                     install_discover(), so the store transaction is the last
+#                     word on gnome-software and the origin assertion runs
+#                     after all official-repo activity.
+#                     (5) `gnome-software` was added to PKG_PREFLIGHT — the
+#                     fallback installs it through install_pkgs(), so the
+#                     drift guard (Debug/check-pkg-preflight.sh) requires the
+#                     name to be covered there.
+#                     Scoped to DESKTOP_ENV=gnome only: KDE keeps Discover,
+#                     cosmic keeps cosmic-store, every other desktop is
+#                     untouched.
+#                     SCRIPT_VERSION bumped Version-3.2.01 -> Version-3.2.02.
 #
 #   BETA ERA — TRACKED (continued; these pre-3.0.00 entries were appended out
 #   of order, newest first — Beta-v2.9.99 CLOSED this era):
@@ -6586,6 +6639,7 @@ git
 glibc-locales
 gnome
 gnome-backgrounds
+gnome-software
 gnome-terminal
 go
 greetd
@@ -9603,8 +9657,15 @@ install_gnome_software_store() {
 
     if ! curl -fsSL --max-time 30 -o /dev/null "$_gnome_software_repodata" 2>/dev/null; then
         echo "WARNING: the GNOME Software store repository (${_gnome_software_repo}) is not reachable right now." >&2
-        echo "         Continuing with the stock upstream GNOME Software package (flatpak-only)." >&2
+        echo "         Falling back to the stock upstream GNOME Software (flatpak-only)." >&2
         echo "         Repo docs / audit: ${_gnome_software_audit}" >&2
+        # AI (Big Pickle) FIX — Version-3.2.02 [GNOME-SOFTWARE-STORE]: the old
+        # fallback only returned and relied on `install_pkgs gnome`, but that
+        # metapackage has NO run_depend on gnome-software (checked against the
+        # official index: gnome, gnome-core and gnome-apps all lack it), so the
+        # box would have ended up with no Software app at all while this
+        # warning claimed the stock package was installed. Install it.
+        install_pkgs gnome-software
         return 0
     fi
 
@@ -9662,8 +9723,15 @@ install_gnome_software_store() {
 
     # AI (Big Pickle) ADDITION — [GNOME-SOFTWARE-STORE]: use our xbps-backed
     # GNOME Software from the store (replaces the flatpak-only official build).
-    install_gnome_software_store
+    # Runs AFTER the metapackage, mirroring install_discover(): the store
+    # transaction is then the LAST thing to touch gnome-software, and the
+    # origin assertion covers whatever the official repositories did.
+    # Version-3.2.02 [GNOME-SOFTWARE-STORE] — the call used to come BEFORE
+    # `install_pkgs gnome`; nothing pulls gnome-software in that metapackage
+    # today (no run_depend on it in gnome/gnome-core/gnome-apps), but relying
+    # on that is exactly the mistake Version-3.2.01 had to fix for discover.
     install_pkgs gnome
+    install_gnome_software_store
 elif [ "$DESKTOP_ENV" = "xfce" ]; then
     # AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 2]: Xfce via the `xfce4`
     # metapackage, Void's own documented route (also the DE shipped on
@@ -15464,11 +15532,4 @@ else
 fi
 # (No code after the reboot branch is reachable; a stopped run falls through
 # to EOF and returns the user to the live shell prompt.)
-
-# AI (Big Pickle) ADDITION — [GNOME-SOFTWARE-STORE]: the GNOME Software
-# store. GNOME's official package is flatpak-only; this store serves our
-# xbps-backed build (AppStream-free backend) with native xbps management.
-# Modeled after install_discover(): same keyring trust model, same repo-order
-# hardening (use -R), same origin assertion. Only installed when GNOME is
-# selected. Fails open to the stock build if unreachable (enhancement).
 
