@@ -8249,9 +8249,12 @@ f0da25a2877ccd5cba89e27fc744867914fd26031368a88f746f0f8096450d4d"
 # as UNEXPECTED, which would have aborted a KDE install that took Discover
 # and then opted into cosmic-store. The allowlist still refuses every key
 # that is not ours -- the relaxation is "ours", never "anything".
+# AI (Big Pickle) ADDITION — [GNOME-SOFTWARE-STORE]: add the GNOME Software
+# store key so machines can trust it alongside COSMIC and Discover.
 _xbps_keyring_ours="
 83ffd154d1dee504ea384a0c31b12e072d5884f7f75eb950e30ace852d7d2e7b
-4e40218a79784f0e4cc559b835c8e9f7585000d5b678177827a853a0937f17cf"
+4e40218a79784f0e4cc559b835c8e9f7585000d5b678177827a853a0937f17cf
+9bdf45994696427ede0ca504674066e7276a0cadb6eccba8eb7cd4ae0be70d60"
 
 # AI (Big Pickle) ADDITION — Version-3.2.00 [DISCOVER-STORE]: scan the xbps
 # keyring and classify every key it holds. Shared by the store helpers so
@@ -9592,6 +9595,9 @@ elif [ "$DESKTOP_ENV" = "gnome" ]; then
     # itself, and its Wayland session is confirmed working on Void
     # (unlike Cinnamon's experimental one), so there's nothing broken here
     # to work around.
+    # AI (Big Pickle) ADDITION — [GNOME-SOFTWARE-STORE]: use our xbps-backed
+    # GNOME Software from the store (replaces the flatpak-only official build).
+    install_gnome_software_store
     install_pkgs gnome
 elif [ "$DESKTOP_ENV" = "xfce" ]; then
     # AI (Big Pickle) ADDITION — Beta-v2.4.0 [item 2]: Xfce via the `xfce4`
@@ -15393,3 +15399,72 @@ else
 fi
 # (No code after the reboot branch is reachable; a stopped run falls through
 # to EOF and returns the user to the live shell prompt.)
+
+# AI (Big Pickle) ADDITION — [GNOME-SOFTWARE-STORE]: the GNOME Software
+# store. GNOME's official package is flatpak-only; this store serves our
+# xbps-backed build (AppStream-free backend) with native xbps management.
+# Modeled after install_discover(): same keyring trust model, same repo-order
+# hardening (use -R), same origin assertion. Only installed when GNOME is
+# selected. Fails open to the stock build if unreachable (enhancement).
+install_gnome_software_store() {
+    _gnome_software_repo="https://bluesloth.github.io/void-linux-gnome-software/"
+    _gnome_software_repodata="https://bluesloth.github.io/void-linux-gnome-software/x86_64-repodata"
+    _gnome_software_audit="https://github.com/bluesloth/void-linux-gnome-software"
+    _gnome_software_key_expected="9bdf45994696427ede0ca504674066e7276a0cadb6eccba8eb7cd4ae0be70d60"
+
+    if ! curl -fsSL --max-time 30 -o /dev/null "$_gnome_software_repodata" 2>/dev/null; then
+        echo "WARNING: the GNOME Software store repository (${_gnome_software_repo}) is not reachable right now." >&2
+        echo "         Continuing with the stock upstream GNOME Software package (flatpak-only)." >&2
+        echo "         Repo docs / audit: ${_gnome_software_audit}" >&2
+        return 0
+    fi
+
+    mkdir -p /etc/xbps.d
+    if ! grep -q 'bluesloth.github.io/void-linux-gnome-software' /etc/xbps.d/61-gnome-software.conf 2>/dev/null; then
+        echo "repository=${_gnome_software_repo}" > /etc/xbps.d/61-gnome-software.conf
+    fi
+
+    echo "==> Importing the GNOME Software store signing key (auto-answered; verified against the pin right after)."
+    echo "    Expected fingerprint:"
+    echo "      SHA256 ${_gnome_software_key_expected}"
+    if ! printf 'y\n' | xbps-install "${_xbps_cache[@]}" -Sy; then
+        echo "FATAL: could not sync/trust the GNOME Software store repository (${_gnome_software_repo})." >&2
+        echo "       Repo docs / audit: ${_gnome_software_audit}" >&2
+        exit 1
+    fi
+
+    xbps_keyring_scan "$_gnome_software_key_expected"
+    if [ "$_xbps_fp_ok" -ne 1 ] || [ -n "$_xbps_fp_bad" ]; then
+        echo "FATAL: GNOME Software store trust anchor does not match this installer." >&2
+        if [ "$_xbps_fp_ok" -ne 1 ]; then
+            echo "       Pinned key ABSENT from ${_xbps_keyring}:" >&2
+            echo "         expected SHA256 ${_gnome_software_key_expected}" >&2
+        fi
+        if [ -n "$_xbps_fp_bad" ]; then
+            echo "       UNEXPECTED key(s) present in ${_xbps_keyring}:" >&2
+            for _xbps_b in $_xbps_fp_bad; do
+                echo "         ${_xbps_b}" >&2
+            done
+        fi
+        echo "       Keys seen:${_xbps_fp_seen:- (none)}" >&2
+        echo "       Repo docs / audit: ${_gnome_software_audit}" >&2
+        exit 1
+    fi
+    echo "==> GNOME Software store trust anchor verified: SHA256 ${_gnome_software_key_expected}"
+
+    if ! xbps-install "${_xbps_cache[@]}" -y -R "$_gnome_software_repo" gnome-software; then
+        echo "FATAL: xbps-install failed for gnome-software from the GNOME Software store." >&2
+        echo "       Repo docs / audit: ${_gnome_software_audit}" >&2
+        exit 1
+    fi
+
+    _gnome_software_installed_repo="$(xbps-query -p repository gnome-software 2>/dev/null || true)"
+    if [ "${_gnome_software_installed_repo%/}" != "${_gnome_software_repo%/}" ]; then
+        echo "FATAL: 'gnome-software' was not installed from the GNOME Software store." >&2
+        echo "       Installed origin: ${_gnome_software_installed_repo:-<unknown>}" >&2
+        echo "       Expected origin:  ${_gnome_software_repo}" >&2
+        echo "       Repo docs / audit: ${_gnome_software_audit}" >&2
+        exit 1
+    fi
+    echo "==> GNOME Software installed from the store (origin: ${_gnome_software_installed_repo})"
+}
