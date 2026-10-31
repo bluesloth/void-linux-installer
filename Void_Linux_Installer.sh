@@ -585,7 +585,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Version-3.2.02"
+SCRIPT_VERSION="Version-3.2.03"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1442,6 +1442,50 @@ SCRIPT_VERSION="Version-3.2.02"
 #                     cosmic keeps cosmic-store, every other desktop is
 #                     untouched.
 #                     SCRIPT_VERSION bumped Version-3.2.01 -> Version-3.2.02.
+#     Version-3.2.03 [ELOGIND-NO-DBUS-ACTIVATION] + [GDM-WAIT-LOGIND] — two
+#                     boot-race fixes found on the first fresh GNOME install
+#                     (Version-3.2.02), both reproducible and neither
+#                     desktop-cosmetic: the box booted to a black screen with
+#                     no login prompt on two of three boots.
+#                     (1) [ELOGIND-NO-DBUS-ACTIVATION] is the ROOT CAUSE and is
+#                     DESKTOP-INDEPENDENT. elogind ships a D-Bus activation
+#                     file, /usr/share/dbus-1/system-services/
+#                     org.freedesktop.login1.service, whose Exec starts the
+#                     daemon directly — bypassing /usr/libexec/elogind/
+#                     elogind.wrapper, which is what mounts
+#                     /sys/fs/cgroup/elogind, /run/systemd and /run/user — while
+#                     runsv supervises a second instance. Whichever wins the
+#                     race, the loser is wrong: an activated win leaves the
+#                     daemon unsupervised with runsv reporting "elogind is
+#                     already running as PID <n>", and the wrapper mounts come
+#                     from whichever instance got there first. The fix renames
+#                     the activation file to `.service.disabled` so runsv is the
+#                     ONLY starter, applied at install time and re-applied from
+#                     rc.local every boot (an elogind upgrade restores it).
+#                     Gated on SESSION_STACK=elogind, NOT on any desktop — the
+#                     same double-start had already been observed on a COSMIC
+#                     install as one "already running as PID <n>" line and
+#                     dismissed as benign, because that greeter happened to
+#                     recover. GDM is simply the one display manager here that
+#                     cannot retry, which is why the defect surfaced on GNOME.
+#                     (2) [GDM-WAIT-LOGIND] is the defence-in-depth half and is
+#                     GDM-ONLY by design. gdm links libelogind and needs a
+#                     registered seat: the greeter session IS a logind session,
+#                     and gdm (not in the video/render groups) reaches
+#                     /dev/dri/card0 only through the logind ACL. Started before
+#                     elogind registers seat0, the first attempt fails and gdm
+#                     does not retry. /etc/sv/gdm/run now waits (bounded, 30s)
+#                     for /run/systemd/seats/seat0 before exec-ing gdm and then
+#                     starts gdm anyway rather than leaving no display manager
+#                     at all. Scoped out on purpose: SDDM does its own
+#                     seat/DRM handling, and the cosmic-greeter run script gates
+#                     on `sv check elogind` (service state) and is re-run by
+#                     runsv. Both halves follow the [ELOGIND-RUN-SELFHEAL]
+#                     pattern (/root/tools/<name>.fixed + an rc.local re-apply)
+#                     because both edit package-owned files: gdm's run script
+#                     therefore adds a second by-design `xbps-pkgdb -a`
+#                     "files check FAILED" row, alongside elogind's.
+#                     SCRIPT_VERSION bumped Version-3.2.02 -> Version-3.2.03.
 #
 #   BETA ERA — TRACKED (continued; these pre-3.0.00 entries were appended out
 #   of order, newest first — Beta-v2.9.99 CLOSED this era):
@@ -9342,6 +9386,11 @@ elif [ "$DISPLAY_MANAGER" = "gdm" ]; then
     # install for a GDM choice. `gdm` alone is what Void ships.
     install_pkgs gdm
     DM_SERVICE_NAME="gdm"
+    # Version-3.2.03 [GDM-WAIT-LOGIND]: the seat0-waiting run script is NOT
+    # written here — it is written and applied later in this same chroot by the
+    # /root/tools block (near [ELOGIND-RUN-SELFHEAL]), because the gdm package
+    # must be installed first and the tool file is created there. See the
+    # "2d)" block there and the matching rc.local self-heal.
 elif [ "$DISPLAY_MANAGER" = "cosmic-greeter" ]; then
     # AI (Big Pickle) ADDITION — Beta-v2.4.0 [COSMIC]: cosmic-greeter is COSMIC's
     # own greeter, available only from the third-party COSMIC repo (NOT the
@@ -12778,6 +12827,156 @@ echo "elogind run script restored to fixed copy (was reverted, likely by upgrade
 INNER_EOF
 chmod 0755 /root/tools/re-fix-elogind-run.sh
 
+# 2c) AI ADDITION — Version-3.2.03 [ELOGIND-NO-DBUS-ACTIVATION]: elogind must
+#     be started by runsv, never by the D-Bus activation machinery.
+#     /usr/share/dbus-1/system-services/org.freedesktop.login1.service runs
+#     `Exec=/usr/libexec/elogind/elogind --daemon`, which starts the daemon
+#     DIRECTLY and bypasses /usr/libexec/elogind/elogind.wrapper — and the
+#     wrapper is what mounts /sys/fs/cgroup/elogind, /run/systemd and /run/user,
+#     while runsv is what supervises (restarts) the daemon. Two starters
+#     therefore race. When the activated instance wins it reparents to PID 1
+#     (unsupervised) and runsv's own instance exits with "elogind is already
+#     running as PID <n>", leaving the wrapper mounts to the losing instance.
+#     Disabling the activation file makes runsv the only starter. Nothing else
+#     needs to activate login1: rc.local runs before runsvdir and makes no
+#     logind calls, and (GNOME) /etc/sv/gdm/run waits for the seat0 marker file
+#     before exec-ing gdm.
+#     THIS IS NOT GNOME-SPECIFIC. The same double-start had already been seen on
+#     a COSMIC install as a single "elogind is already running as PID <n>"
+#     kernel-log line at boot+37s, and was dismissed as benign because the
+#     greeter happened to recover. The root cause is the activation file, so the
+#     fix ships for EVERY install that chooses SESSION_STACK=elogind; GDM is
+#     merely the one display manager here that cannot retry, which is why the
+#     defect only became visible on a GNOME box.
+#     An elogind package upgrade restores the file, so the rc.local self-heal
+#     below re-applies this on every boot — before dbus starts, the safe moment.
+cat > /root/tools/re-disable-elogind-dbus-activation.sh << 'INNER_EOF'
+#!/bin/sh
+# [ELOGIND-NO-DBUS-ACTIVATION] — keep elogind started by runsv, not by D-Bus.
+#
+# /usr/share/dbus-1/system-services/org.freedesktop.login1.service runs
+#   Exec=/usr/libexec/elogind/elogind --daemon
+# which starts the daemon DIRECTLY, bypassing /usr/libexec/elogind/elogind.wrapper.
+# The wrapper is what mounts /sys/fs/cgroup/elogind, /run/systemd and /run/user,
+# and runsv is what supervises (restarts) the daemon.
+#
+# Two starters therefore race. When the D-Bus-activated instance wins it
+# reparents to PID 1 (unsupervised) and runsv's own instance exits with
+# "elogind is already running as PID <n>"; the wrapper mounts were made by the
+# losing instance, or not at all. If that happens before seat0 is registered, a
+# display manager that needs the logind ACL (gdm) never gets its greeter up.
+#
+# Disabling the activation file makes runsv the only starter. Nothing else needs
+# to activate login1: rc.local runs before runsvdir and makes no logind calls,
+# and /etc/sv/gdm/run waits for /run/systemd/seats/seat0 before starting gdm.
+#
+# An elogind package upgrade restores the file, so this is re-applied on every
+# boot from /etc/rc.local (before dbus starts, which is the safe moment).
+set -eu
+
+svc=/usr/share/dbus-1/system-services/org.freedesktop.login1.service
+
+[ -f "$svc" ] || exit 0
+
+mv -f "$svc" "$svc.disabled"
+echo "elogind D-Bus activation disabled: $svc -> $svc.disabled"
+INNER_EOF
+chmod 0755 /root/tools/re-disable-elogind-dbus-activation.sh
+
+# 2d) AI ADDITION — Version-3.2.03 [GDM-WAIT-LOGIND]: gdm links libelogind and
+#     needs a REGISTERED SEAT. The greeter session IS a logind session, and gdm
+#     (not in the video/render groups) only reaches /dev/dri/card0 through the
+#     logind ACL. Starting gdm before elogind has registered seat0 makes the
+#     first greeter attempt fail, and gdm does not retry: the box boots to a
+#     black screen with no login prompt at all.
+#     /run/systemd/seats/seat0 is written by elogind exactly when the seat is
+#     registered, so the run script waits for that file before exec-ing gdm.
+#     The wait is BOUNDED: if logind never comes up, gdm still starts rather
+#     than leaving the machine with no display manager.
+#     Scoped to DISPLAY_MANAGER=gdm — SDDM does its own seat/DRM handling and
+#     the cosmic-greeter run script gates on `sv check elogind` (service state)
+#     and is re-run by runsv, so neither needs this.
+#     The gdm package OWNS /etc/sv/gdm/run, so an upgrade reverts the wait; the
+#     rc.local self-heal below restores it, the same pattern as
+#     [ELOGIND-RUN-SELFHEAL]. NOTE: patching a package-owned file makes
+#     `xbps-pkgdb -a` report `gdm: files check FAILED` — expected, by design,
+#     exactly like elogind's run script; the stock file is kept at
+#     /etc/sv/gdm/run.orig.
+#     Kept even though [ELOGIND-NO-DBUS-ACTIVATION] makes the wrapper the only
+#     elogind starter (and therefore makes the seat deterministic): it also
+#     covers a slow seat registration that has nothing to do with the race.
+cat > /root/tools/gdm.run.fixed << 'INNER_EOF'
+#!/bin/sh
+exec 2>&1
+sv check dbus > /dev/null || exit 1
+
+# [GDM-WAIT-LOGIND] gdm links libelogind and needs a registered seat: the greeter
+# session is a logind session, and gdm (not in the video/render groups) only gets
+# access to /dev/dri/card0 through the logind ACL. Starting gdm before elogind has
+# registered seat0 makes the first greeter attempt fail, and gdm does not retry.
+# /run/systemd/seats/seat0 is written by elogind exactly when the seat is
+# registered, so wait for it before exec-ing gdm. The wait is bounded: if logind
+# never comes up we still start gdm instead of leaving the box with no display
+# manager at all.
+_n=0
+while [ ! -e /run/systemd/seats/seat0 ] && [ "$_n" -lt 30 ]; do
+    _n=$((_n + 1))
+    sleep 1
+done
+if [ "$_n" -ge 30 ]; then
+    echo "gdm: warning: seat0 not registered after 30s; starting gdm anyway"
+fi
+
+[ ! -d /run/gdm ] && mkdir -p -m 0711 /run/gdm && chown root:gdm /run/gdm
+exec gdm
+INNER_EOF
+chmod 0755 /root/tools/gdm.run.fixed
+
+cat > /root/tools/re-fix-gdm-run.sh << 'INNER_EOF'
+#!/bin/sh
+# =============================================================================
+# [GDM-WAIT-LOGIND] — keep /etc/sv/gdm/run waiting for seat0 across upgrades.
+#
+# Problem: gdm needs a registered logind seat (it is not in the video/render
+# groups, so /dev/dri/card0 is reachable only through the logind ACL). Started
+# before elogind has registered seat0, the first greeter attempt fails and gdm
+# does not retry — the machine ends up with no login prompt.
+#
+# Fix: a run script that waits (bounded, 30s) for /run/systemd/seats/seat0
+# before exec-ing gdm, then falls back to starting gdm anyway.
+#
+# The gdm xbps package OWNS /etc/sv/gdm/run, so any package upgrade overwrites
+# the fix. This script (invoked from /etc/rc.local each boot, the same pattern
+# as re-fix-elogind-run.sh / re-shadow-xbps.sh) restores the canonical fixed
+# copy from /root/tools/gdm.run.fixed, but ONLY when the on-disk run script does
+# not already match. Idempotent; it never signals the running gdm — runsv picks
+# up the file on its next respawn, and rc.local runs before runsvdir anyway.
+#
+# To revert: remove this script's rc.local call and restore the stock run
+# script (backup is /etc/sv/gdm/run.orig).
+# =============================================================================
+set -eu
+export PATH="/usr/bin:/usr/sbin:/bin:/sbin"
+
+FIXED="/root/tools/gdm.run.fixed"
+TARGET="/etc/sv/gdm/run"
+
+[ -f "$FIXED" ] || { echo "ERROR: $FIXED missing" >&2; exit 1; }
+# gdm is not installed on this box: nothing to do (not an error).
+[ -f "$TARGET" ] || exit 0
+
+# Fast path: already fixed (compare bytes).
+if cmp -s "$FIXED" "$TARGET"; then
+    exit 0
+fi
+
+# The target is the stock (or otherwise different) script. Restore ours.
+# Use `install` to preserve mode 0755. Never touch the running gdm.
+install -m 0755 "$FIXED" "$TARGET"
+echo "gdm run script restored to seat0-waiting copy (was reverted, likely by upgrade)."
+INNER_EOF
+chmod 0755 /root/tools/re-fix-gdm-run.sh
+
 # Apply the fix IMMEDIATELY at install time (when the elogind session stack
 # was chosen): replace the stock run script with the fixed copy and keep the
 # stock one aside. No signal is sent to any daemon — elogind is not running
@@ -12786,6 +12985,25 @@ if [ "${SESSION_STACK:-}" = "elogind" ] && [ -f /etc/sv/elogind/run ]; then
     [ -e /etc/sv/elogind/run.orig ] || cp /etc/sv/elogind/run /etc/sv/elogind/run.orig
     install -m 0755 /root/tools/elogind.run.fixed /etc/sv/elogind/run
     echo "elogind run script replaced with fixed copy (stock kept at /etc/sv/elogind/run.orig)"
+fi
+
+# [ELOGIND-NO-DBUS-ACTIVATION] Apply at install time too, so the target's very
+# FIRST boot cannot race: without this, boot 1 is exactly the case that has been
+# observed to lose seat0. Nothing in the chroot calls logind, so renaming the
+# file here is inert; the rc.local self-heal re-applies it every boot after.
+if [ "${SESSION_STACK:-}" = "elogind" ] && \
+   [ -f /usr/share/dbus-1/system-services/org.freedesktop.login1.service ]; then
+    mv -f /usr/share/dbus-1/system-services/org.freedesktop.login1.service \
+          /usr/share/dbus-1/system-services/org.freedesktop.login1.service.disabled
+    echo "elogind D-Bus activation disabled (org.freedesktop.login1.service.disabled)"
+fi
+
+# [GDM-WAIT-LOGIND] Apply at install time (gdm only): the target's first boot
+# must not start gdm before seat0 exists. Stock run script kept aside.
+if [ "${DISPLAY_MANAGER:-}" = "gdm" ] && [ -f /etc/sv/gdm/run ]; then
+    [ -e /etc/sv/gdm/run.orig ] || cp /etc/sv/gdm/run /etc/sv/gdm/run.orig
+    install -m 0755 /root/tools/gdm.run.fixed /etc/sv/gdm/run
+    echo "gdm run script replaced with seat0-waiting copy (stock kept at /etc/sv/gdm/run.orig)"
 fi
 
 # 3) limine-sync.sh — manual, on-demand Limine boot-menu resync. Normally the
@@ -14658,6 +14876,36 @@ fi
 if [ "__SESSION_STACK__" = "elogind" ] && [ -x /root/tools/re-fix-elogind-run.sh ]; then
     { echo "=== void-elogind-selfheal: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
       /root/tools/re-fix-elogind-run.sh || echo "WARNING: elogind run self-heal failed."
+    } >> /var/log/void-elogind-selfheal.log 2>&1
+fi
+
+# [ELOGIND-NO-DBUS-ACTIVATION] — elogind must be started by runsv, never by the
+# D-Bus activation machinery. The activation file starts the daemon directly and
+# bypasses elogind.wrapper (which mounts /sys/fs/cgroup/elogind, /run/systemd,
+# /run/user) while runsv supervises it; the two starters race, and losing the
+# race leaves an unsupervised daemon and possibly no registered seat0. The
+# elogind package OWNS the activation file, so an upgrade restores it; re-apply
+# on every boot. Runs BEFORE runsvdir starts (rc.local is executed by runit
+# stage 2 ahead of it), so dbus never sees the file during a live boot.
+# Idempotent. Desktop-independent: it is gated on the SESSION_STACK, not on any
+# desktop or display manager. Logs to the same file, distinct tag.
+if [ "__SESSION_STACK__" = "elogind" ] && [ -x /root/tools/re-disable-elogind-dbus-activation.sh ]; then
+    { echo "=== void-elogind-noactivation: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+      /root/tools/re-disable-elogind-dbus-activation.sh || echo "WARNING: elogind dbus-activation self-heal failed."
+    } >> /var/log/void-elogind-selfheal.log 2>&1
+fi
+
+# [GDM-WAIT-LOGIND] — gdm needs a registered logind seat before it starts (the
+# greeter session is a logind session and /dev/dri/card0 is reachable only
+# through the logind ACL); started early, its first attempt fails and it does
+# not retry. /root/tools/gdm.run.fixed waits (bounded, 30s) for
+# /run/systemd/seats/seat0. The gdm package OWNS /etc/sv/gdm/run, so an upgrade
+# reverts the wait; restore it on every boot. GDM-ONLY by design (SDDM handles
+# its own seat/DRM, and cosmic-greeter gates on `sv check elogind` and is re-run
+# by runsv). Idempotent, never signals the running gdm.
+if [ "__DISPLAY_MANAGER__" = "gdm" ] && [ -x /root/tools/re-fix-gdm-run.sh ]; then
+    { echo "=== void-gdm-wait-logind: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+      /root/tools/re-fix-gdm-run.sh || echo "WARNING: gdm seat0-wait self-heal failed."
     } >> /var/log/void-elogind-selfheal.log 2>&1
 fi
 

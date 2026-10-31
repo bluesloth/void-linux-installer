@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Version-3.2.02** (`SCRIPT_VERSION` in the script).
+Current version: **Version-3.2.03** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -150,6 +150,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Version-3.2.00** | `[DISCOVER-STORE]`/`[DISCOVER-STORE-TRUST]` — the second project store joins the first: the installer now installs **KDE Discover from this project's own signed repository** instead of from the official Void mirrors, and the store's build of the SAME upstream package carries the **native xbps backend plugin** (`xbps-backend.so`, loaded through PackageKit), so Discover can see and install the system's own packages instead of showing an empty Sources list. The store is served from its own Pages root (`https://bluesloth.github.io/void-linux-discover/`, audit: `https://github.com/bluesloth/void-linux-discover`) and carries `discover-6.7.5_7` against the official `discover-6.7.5_1` — the higher revision is what makes xbps take the store's build and upgrade over the official one. A new `install_discover()` helper mirrors `install_cosmic()`: the index is probed for reachability FIRST, `/etc/xbps.d/60-discover.conf` is written in the same one-line `repository=` form as `59-cosmic.conf`, the index is synced with the key-import question answered by the installer on a pipe of its own (never on the chroot's stdin — Stage 2 feeds the script through `chroot /mnt /bin/bash << 'CHROOT_EOF'`, so stdin IS the heredoc — and never on `/dev/tty`), and the package goes in through a dedicated `xbps-install -y`. It does **not** go through `install_pkgs()`, which pushes the chosen official mirror to the top of the repository list and so cannot carry the trust-anchor verification around the sync. **ONE KEY PER SERVED REPO**: the store has its own signing key, PINNED in the installer as DER SHA-256 `4e40218a79784f0e4cc559b835c8e9f7585000d5b678177827a853a0937f17cf` and deliberately NOT read from the served index (a fingerprint fetched from the index only proves the index is self-consistent); after the sync the keyring is machine-checked — the pinned key must be present and no key outside the allowlist may be. **The keyring allowlist had to grow, and that is a COSMIC-path bug fix, not a relaxation**: `cosmic_key_fingerprint()` became `xbps_key_fingerprint()` (it reads ANY xbps key plist — the name was a lie the moment a second store needed the same anchor) and the scan moved into a shared `xbps_keyring_scan()` helper whose allowlist is *{the two stock Void keys, our own store keys}*. `cosmic-store` is DE-independent, so a KDE box that took the Discover store and then opted into cosmic-store legitimately holds BOTH store keys — the old COSMIC-only allowlist would have aborted that install with "UNEXPECTED key". The allowlist still refuses every key that is not ours; the relaxation is "ours", never "anything". The COSMIC path's wording, fail-closed behaviour and FATAL are unchanged. **A `set -e` trap in the scan, found by a synthetic-keyring harness and fixed**: the "fail CLOSED on an unparseable keyring entry" branch was UNREACHABLE — `xbps_key_fingerprint()` returns 1 for a key it cannot parse and a plain assignment takes the exit status of its command substitution, so under the chroot block's `set -eEo pipefail` the first malformed entry ABORTED the whole install before the branch that was supposed to report it (the same latent bug sat in the COSMIC path, whose comment claimed the scan continues past an unparseable key); the call is now `_fp="$(xbps_key_fingerprint "$_k" || true)"`. **Failure semantics differ from `install_cosmic()` on purpose**: an AVAILABILITY failure (the store unreachable) warns and falls back to the stock upstream build instead of aborting — at that point nothing has been written to `/etc/xbps.d` and no key has been imported, so the fallback is clean — while an INTEGRITY failure (the sync refused the key, or the pinned fingerprint is not the one in the keyring) still aborts, because that is a disagreement between this installer and the store it is about to trust and must not be papered over with a stock package. `discover` was added to `PKG_PREFLIGHT` (the fallback installs it through `install_pkgs()`, so the drift guard requires the name to be covered). Gates: `bash -n` clean; `check-heredocs.sh` ALL CLEAN (77); `check-defaults.sh` ALL CONSISTENT; `check-pkg-preflight.sh` ALL COVERED (169 preflight packages / 173 literals); `check-bios-boot.sh` 42/42. Plus a synthetic-keyring harness over the REAL extracted code: the served index's public key rebuilt into a keyring plist reproduces the pinned fingerprint exactly, and nine classification cases (pinned / stock-void / our-store / UNEXPECTED, both stores present at once, pinned absent, foreign key present) plus the unreadable-entry case all pass | Version-3.1.02 below |
 | **Version-3.2.01** | `[DISCOVER-STORE-REPO-ORDER]` — clean-box fix for Version-3.2.00's assumption that the store's higher revision is enough to make xbps choose it. It is not: `xbps-install <name>` resolves the name against the **first repository in config order that carries it**, not the highest version in the pool. A fresh KDE install (Version-3.2.00) therefore selected official `discover-6.7.5_1` even though `60-discover.conf` was written, the key was pinned/verified, and the store serves `6.7.5_7`; the stock build has no `xbps-backend.so`. Worse, xbps recorded the official repo as the package's origin, so `xbps-install -u` followed official and never crossed over either. The final transaction now prepends the store (`xbps-install … -y -R "$_discover_repo" "$@"`), making the selection independent of config order, and immediately after the install the recorded origin is machine-checked with `xbps-query -p repository discover`; a non-store origin is a FATAL instead of a silent stock install. The availability fallback (stock via `install_pkgs`) and the integrity-failure abort are unchanged. Verified on the clean box: `_7` installed from the store, `xbps-query -p repository discover` = the store URL, the backend loaded in the real GUI (232 ms), the policy carries all three `auth_admin` actions, the headless harness is **30/30** (failed-helper) and **29/29** (success-helper), and a new repo-order harness over the extracted function passes both new-code cases while the 3.2.00 code fails both. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN. **Published as `Version-3.2.01` (public export `ffb09d8…`).** | Version-3.2.00 below |
 | **Version-3.2.02** | `[GNOME-SOFTWARE-STORE]` — the third project store joins COSMIC and Discover: choosing the **GNOME** desktop now installs `gnome-software` from `https://bluesloth.github.io/void-linux-gnome-software/`, whose build of the same upstream 50.2 carries the **native xbps backend**, instead of the official mirrors' flatpak-only build (whose own summary is "GNOME Software Center (flatpak only)"). The helper is a deliberate clone of `install_discover()`: repodata probe → `/etc/xbps.d/61-gnome-software.conf` → a dedicated `xbps-install -Sy` with the key-import question answered on the installer's own pipe → machine-checked trust anchor (pin `9bdf4599…0d60`, and added to the shared `xbps_keyring_ours` allowlist so all three store keys can coexist) → `xbps-install -y -R "$_gnome_software_repo" gnome-software` → `xbps-query -p repository` origin assertion. Coverage of Version-3.2.01's lesson is built in from the start (`-R` + origin assert, because `61-…conf` sorts after `00-repository-main.conf`). Fail-open on an **availability** failure now really installs the stock package: the `gnome` metapackage carries **no** run_depend on `gnome-software` (verified against `gnome`, `gnome-core`, `gnome-apps`), so the first cut of this feature said "continuing with the stock … package" while installing nothing — the fallback now runs `install_pkgs gnome-software`. The call also moved **after** `install_pkgs gnome` (mirroring Discover) so the store transaction is the last word. **Integrity** failures (key refused / pin absent) still abort. GNOME-only: KDE, COSMIC and every other desktop are untouched. `gnome-software` added to `PKG_PREFLIGHT` for the fallback's drift guard. | Version-3.2.01 below |
+| **Version-3.2.03** | `[ELOGIND-NO-DBUS-ACTIVATION]` + `[GDM-WAIT-LOGIND]` — two boot-race fixes found on the first fresh **GNOME** install made by Version-3.2.02, which booted to a **black screen with no login prompt on two of three boots**. **(1) The root cause, and it is not GNOME-specific.** elogind ships a D-Bus activation file, `/usr/share/dbus-1/system-services/org.freedesktop.login1.service`, whose `Exec` starts the daemon **directly** — bypassing `/usr/libexec/elogind/elogind.wrapper`, which is what mounts `/sys/fs/cgroup/elogind`, `/run/systemd` and `/run/user` — while runsv supervises a **second** instance. Two starters therefore race, and whichever wins the loser is wrong: an activated win leaves the daemon reparented to PID 1 (unsupervised) with runsv reporting `elogind is already running as PID <n>`, and the wrapper mounts belong to whichever instance got there first. The fix renames the activation file to `.service.disabled` so **runsv is the only starter**, applied at install time *and* re-applied from `/etc/rc.local` every boot (`/root/tools/re-disable-elogind-dbus-activation.sh`, since an elogind upgrade restores the file). Gated on `SESSION_STACK=elogind`, **never on a desktop**: the same double-start had already been seen on a COSMIC install as a single `already running as PID 1873` line at boot+37 s and dismissed as benign, because that greeter recovers. GDM is simply the only display manager here that **cannot retry**, which is why the defect only became visible on a GNOME box — so KDE, COSMIC and every other desktop get the fix too, and it removes the `already running` kernel-log noise there as a side effect. **(2) The defence-in-depth half, GDM-only by design.** gdm links libelogind and needs a **registered seat**: the greeter session *is* a logind session, and gdm (not in the `video`/`render` groups) reaches `/dev/dri/card0` only through the logind ACL. Started before elogind registers seat0 its first attempt fails and gdm does not retry. `/etc/sv/gdm/run` now waits (bounded, 30 s) for `/run/systemd/seats/seat0` and then starts gdm **anyway** rather than leaving no display manager at all. Scoped out deliberately: SDDM does its own seat/DRM handling, and the cosmic-greeter run script gates on `sv check elogind` (service state) and is re-run by runsv. Both halves follow the `[ELOGIND-RUN-SELFHEAL]` pattern (`/root/tools/<name>.fixed` + an rc.local re-apply) **because both edit package-owned files** — so `gdm` now adds a second by-design `xbps-pkgdb -a` `files check FAILED` row, alongside elogind's; the stock run script is kept at `/etc/sv/gdm/run.orig`. Verified live on the box: elogind's PPID is `runsv elogind`, `/run/systemd/seats/seat0` exists, the wrapper mounts are present, and the session registers as `gdm-password; type wayland; Seat: seat0`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.02 below |
 | **Beta-v2.9.99** | `[LIBVIRT-AUTOSTART]` — the Beta-v2.9.98 one-shot BR0-NAT teardown was **irreversible** against a `libvirt` package update. `net-autostart default --disable` disables autostart by removing the **package-owned** symlink `/etc/libvirt/qemu/networks/autostart/default.xml`, and a later `libvirt` update re-installs every package file, silently restoring that symlink so `default` autostarts `virbr0` again — with the `[BR0-NAT-ONESHOT]` stamp present the block skipped forever and never undid it (the latent virbr0 return). The gate now **re-enters** when that symlink is present again, not only when the stamp is absent (stamp absent = initial migration; stamp + symlink = a package update restored it, re-tear; stamp + no symlink = still torn down, a single `[ -e ]` no-op). The re-entry probe needs no libvirtd and costs nothing on an already-migrated box, and a re-entered run is idempotent — it re-verifies and re-stamps, logging `reason=` in `/var/log/void-br0-nat-teardown.log`. The permanent pkgdb `libvirt: files check FAILED` for the removed package-owned symlink is unchanged (known, by-design; tracked separately). No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.98 below |
 | **Beta-v2.9.98** | `[BR0-NAT-ONESHOT]` + `[BR0-NAT-BACKGROUND]` — the rc.local libvirt `default` NAT teardown (Beta-v2.9.96) no longer costs boot time. `/etc/runit/2` runs `rc.local` **synchronously before `runsvdir`**, so the teardown's wait loop (`virsh net-info default` polled up to 30× `sleep 1`) sat directly on the path to the display manager and **always burned its full 30 s**: libvirtd is started by `runsvdir`, so it is never up when the loop begins and every probe failed (measured on the operator's box 2026-10-17: kernel→Xorg 38.4 s, of which 30 s was this block). Two changes: **(1)** a **verified** teardown (`torn_down=yes`) now stamps `/var/lib/void-installer/br0-nat-torn-down.done` and the stamp's presence skips the block on every later boot (an unverified teardown still retries the next boot); **(2)** the whole block runs as `{ …; } &`, so `rc.local` returns immediately and even the first unstamped run cannot block the desktop — and because the backgrounded loop keeps polling while `runsvdir` starts libvirtd, it now actually **succeeds** mid-boot (previously impossible), gets verified, and stamps. Teardown semantics, the wired-NIC presence gate, the log and the `virbr0` cleanup are unchanged; the same box boots to Xorg in ~8 s. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.97 below |
 | **Beta-v2.9.97** | `[LIMINE-NVRAM]` — re-adds the optional Limine UEFI NVRAM registration that first landed on the public export line at Beta-v2.9.92 (commit `ae72d75`, "feat(limine): add optional NVRAM entry, default off") and was then clobbered there by the Release-v2.9.93 source sync (`Source-Ref`) before any release shipped it — it was never present on this canonical line. A new `DEFAULT_LIMINE_NVRAM` toggle (default `false`) drives a Limine-only prompt; on `yes` the Stage-2 Limine deploy `install_pkgs efibootmgr` and runs `efibootmgr --create` pointing at `BOOTX64.EFI` (ESP disk/partition derived via `findmnt` + `lsblk`), in addition to the always-present removable/fallback path; failure is non-fatal. Default/no keeps the deploy byte-identical to the historical NVRAM-free behavior. The prompt accepts `y`/`yes`/`true` and `n`/`no`/`false` (the `[HEADLESS-PROMPT-LOOP]` lesson) so a true/false default can never loop. Threaded through the DRY-RUN plan, `chroot_env`, `limine-env`, `install-config` and the NEXT-STEPS text. `efibootmgr` was already in `PKG_PREFLIGHT`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.96 below |
@@ -1074,6 +1075,104 @@ messages, and that `NVRAM=no` never shows the label prompt. Gates: `bash -n`
 clean; `check-heredocs.sh` ALL CLEAN; `check-defaults.sh` ALL CONSISTENT (the
 new `DEFAULT_` is declared *and* wired); `check-pkg-preflight.sh` ALL COVERED
 (no package surface changed).
+
+## Version-3.2.03 — `[ELOGIND-NO-DBUS-ACTIVATION]` + `[GDM-WAIT-LOGIND]` (two elogind/GDM boot races, found on the first fresh GNOME install)
+
+`SCRIPT_VERSION` bumped to Version-3.2.02 → Version-3.2.03.
+
+A fix release, and an unusual one: both defects were found on a **fresh install
+of the previous release** (Version-3.2.02, GNOME desktop), and both are boot
+races rather than packaging errors. The symptom was blunt — the machine booted
+to a **black screen with no login prompt on two of three boots**, and only the
+third produced a session (19 ms after `seat0` appeared).
+
+### 1 — The root cause: elogind had two starters, and one bypasses the wrapper
+
+`elogind` ships a D-Bus activation file:
+
+```
+/usr/share/dbus-1/system-services/org.freedesktop.login1.service
+  Exec=/usr/libexec/elogind/elogind --daemon
+```
+
+That `Exec` starts the daemon **directly**, and it does not go through
+`/usr/libexec/elogind/elogind.wrapper`. The wrapper is not decoration: it is
+what mounts `/sys/fs/cgroup/elogind`, `/run/systemd` and `/run/user`. runsv, at
+the same time, is starting the same daemon through `/etc/sv/elogind/run`.
+
+Two starters, one daemon, and **both outcomes are wrong**:
+
+- if the **activated** instance wins, it reparents to PID 1 and is therefore
+  **unsupervised** (nothing restarts it), while runsv's instance exits with
+  `elogind is already running as PID <n>`;
+- the **wrapper mounts** are whatever the first instance to get there made, so
+  an activated win means they may be missing entirely.
+
+Whether `seat0` gets registered then becomes a coin toss on that boot, which is
+exactly what the three boots showed.
+
+**The fix** renames the activation file to `.service.disabled`, so **runsv is
+the only starter**. Nothing else needs to activate `login1`: `rc.local` runs
+before `runsvdir` and makes no logind calls, and (on GNOME) the gdm run script
+waits for the seat marker instead. It is applied **at install time** and
+re-applied from `/etc/rc.local` **every boot**, because an `elogind` upgrade
+restores the file — `/root/tools/re-disable-elogind-dbus-activation.sh`, the
+same `[ELOGIND-RUN-SELFHEAL]` pattern.
+
+**Why this is not a GNOME fix.** The identical double-start had already been
+observed on a **COSMIC** install, as a single `elogind is already running as
+PID 1873` kernel-log line at boot+37 s, and was recorded and dismissed as
+benign — because COSMIC's greeter recovered from it. That dismissal is what let
+the defect ship. The gate is therefore `SESSION_STACK=elogind`, **never a
+desktop or a display manager**: KDE, COSMIC, GNOME and every other desktop get
+the fix, and the `already running` kernel-log noise disappears on all of them as
+a side effect. A `turnstile` + `seatd` install is unaffected, because elogind is
+not its session stack at all.
+
+### 2 — The defence-in-depth half: gdm needs a registered seat, and does not retry
+
+`gdm` links `libelogind` and its greeter session **is** a logind session. gdm
+is not in the `video`/`render` groups, so its only route to `/dev/dri/card0` is
+the **logind ACL** — which requires the seat to exist. Started before elogind
+has registered `seat0`, the first greeter attempt fails, and **gdm does not
+retry**.
+
+`/etc/sv/gdm/run` now waits for `/run/systemd/seats/seat0` (the file elogind
+writes exactly when the seat is registered) before `exec gdm`. The wait is
+**bounded at 30 s**, and on timeout gdm is started anyway with a warning: a
+display manager that may fail is still better than a machine with none.
+
+Scoped to `DISPLAY_MANAGER=gdm` **on purpose**:
+
+- **SDDM** does its own seat/DRM handling and never showed this failure;
+- **cosmic-greeter** gates on `sv check elogind` — service state, not the seat
+  — and runsv re-runs it, which is precisely why COSMIC recovers.
+
+The gdm package **owns** `/etc/sv/gdm/run`, so an upgrade reverts the wait;
+`/root/tools/re-fix-gdm-run.sh` restores it from `/root/tools/gdm.run.fixed` on
+every boot, and the stock script is kept at `/etc/sv/gdm/run.orig`.
+
+### 3 — The cost, stated plainly: one more `xbps-pkgdb -a` row
+
+Both fixes edit **package-owned files**, so both add a by-design
+`xbps-pkgdb -a` mismatch. elogind's was already there; `gdm` now adds a second
+(`gdm: files check FAILED`). That is the same accepted trade as the
+`void-xbps-snap` shadow and the installer-owned `/etc/sv/*` entries: the file
+is intentionally not what the package shipped, and the stock copy is on disk
+next to it. It is recorded here so a future audit does not "fix" it back.
+
+### 4 — Verification
+
+Live, on the affected box after both fixes: elogind's PPID is `runsv elogind`
+(supervised, not PID 1), `/run/systemd/seats/seat0` exists, the wrapper mounts
+are present, and `loginctl session-status` reports
+`gdm-password; type wayland; Seat: seat0`. The self-heal log carries
+`void-elogind-selfheal` and `void-elogind-noactivation` entries per boot.
+
+Gates: `bash -n` clean; `check-heredocs.sh` ALL CLEAN (the two new tool bodies
+and the modified rc.local are extracted and syntax-checked); `check-defaults.sh`
+ALL CONSISTENT (no prompt surface changed); `check-pkg-preflight.sh` ALL COVERED
+(no package surface changed); `check-bios-boot.sh` unchanged.
 
 ## Version-3.2.02 — `[GNOME-SOFTWARE-STORE]` (choosing GNOME now installs GNOME Software from this project's own store, with the native xbps backend)
 
