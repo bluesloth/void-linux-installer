@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.02"
+SCRIPT_VERSION="Version-3.2.03"
 
 
 
@@ -6549,10 +6549,75 @@ echo "elogind run script restored to fixed copy (was reverted, likely by upgrade
 INNER_EOF
 chmod 0755 /root/tools/re-fix-elogind-run.sh
 
+cat > /root/tools/re-disable-elogind-dbus-activation.sh << 'INNER_EOF'
+#!/bin/sh
+set -eu
+
+svc=/usr/share/dbus-1/system-services/org.freedesktop.login1.service
+
+[ -f "$svc" ] || exit 0
+
+mv -f "$svc" "$svc.disabled"
+echo "elogind D-Bus activation disabled: $svc -> $svc.disabled"
+INNER_EOF
+chmod 0755 /root/tools/re-disable-elogind-dbus-activation.sh
+
+cat > /root/tools/gdm.run.fixed << 'INNER_EOF'
+#!/bin/sh
+exec 2>&1
+sv check dbus > /dev/null || exit 1
+
+_n=0
+while [ ! -e /run/systemd/seats/seat0 ] && [ "$_n" -lt 30 ]; do
+    _n=$((_n + 1))
+    sleep 1
+done
+if [ "$_n" -ge 30 ]; then
+    echo "gdm: warning: seat0 not registered after 30s; starting gdm anyway"
+fi
+
+[ ! -d /run/gdm ] && mkdir -p -m 0711 /run/gdm && chown root:gdm /run/gdm
+exec gdm
+INNER_EOF
+chmod 0755 /root/tools/gdm.run.fixed
+
+cat > /root/tools/re-fix-gdm-run.sh << 'INNER_EOF'
+#!/bin/sh
+set -eu
+export PATH="/usr/bin:/usr/sbin:/bin:/sbin"
+
+FIXED="/root/tools/gdm.run.fixed"
+TARGET="/etc/sv/gdm/run"
+
+[ -f "$FIXED" ] || { echo "ERROR: $FIXED missing" >&2; exit 1; }
+[ -f "$TARGET" ] || exit 0
+
+if cmp -s "$FIXED" "$TARGET"; then
+    exit 0
+fi
+
+install -m 0755 "$FIXED" "$TARGET"
+echo "gdm run script restored to seat0-waiting copy (was reverted, likely by upgrade)."
+INNER_EOF
+chmod 0755 /root/tools/re-fix-gdm-run.sh
+
 if [ "${SESSION_STACK:-}" = "elogind" ] && [ -f /etc/sv/elogind/run ]; then
     [ -e /etc/sv/elogind/run.orig ] || cp /etc/sv/elogind/run /etc/sv/elogind/run.orig
     install -m 0755 /root/tools/elogind.run.fixed /etc/sv/elogind/run
     echo "elogind run script replaced with fixed copy (stock kept at /etc/sv/elogind/run.orig)"
+fi
+
+if [ "${SESSION_STACK:-}" = "elogind" ] && \
+   [ -f /usr/share/dbus-1/system-services/org.freedesktop.login1.service ]; then
+    mv -f /usr/share/dbus-1/system-services/org.freedesktop.login1.service \
+          /usr/share/dbus-1/system-services/org.freedesktop.login1.service.disabled
+    echo "elogind D-Bus activation disabled (org.freedesktop.login1.service.disabled)"
+fi
+
+if [ "${DISPLAY_MANAGER:-}" = "gdm" ] && [ -f /etc/sv/gdm/run ]; then
+    [ -e /etc/sv/gdm/run.orig ] || cp /etc/sv/gdm/run /etc/sv/gdm/run.orig
+    install -m 0755 /root/tools/gdm.run.fixed /etc/sv/gdm/run
+    echo "gdm run script replaced with seat0-waiting copy (stock kept at /etc/sv/gdm/run.orig)"
 fi
 
 cat > /root/tools/limine-sync.sh << 'INNER_EOF'
@@ -7842,6 +7907,18 @@ fi
 if [ "__SESSION_STACK__" = "elogind" ] && [ -x /root/tools/re-fix-elogind-run.sh ]; then
     { echo "=== void-elogind-selfheal: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
       /root/tools/re-fix-elogind-run.sh || echo "WARNING: elogind run self-heal failed."
+    } >> /var/log/void-elogind-selfheal.log 2>&1
+fi
+
+if [ "__SESSION_STACK__" = "elogind" ] && [ -x /root/tools/re-disable-elogind-dbus-activation.sh ]; then
+    { echo "=== void-elogind-noactivation: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+      /root/tools/re-disable-elogind-dbus-activation.sh || echo "WARNING: elogind dbus-activation self-heal failed."
+    } >> /var/log/void-elogind-selfheal.log 2>&1
+fi
+
+if [ "__DISPLAY_MANAGER__" = "gdm" ] && [ -x /root/tools/re-fix-gdm-run.sh ]; then
+    { echo "=== void-gdm-wait-logind: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+      /root/tools/re-fix-gdm-run.sh || echo "WARNING: gdm seat0-wait self-heal failed."
     } >> /var/log/void-elogind-selfheal.log 2>&1
 fi
 
