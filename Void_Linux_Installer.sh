@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.03"
+SCRIPT_VERSION="Version-3.2.04"
 
 
 
@@ -6396,10 +6396,10 @@ _should_snap() {
     done
     for _a in "$@"; do
         case "$_a" in
-            -S) return 0 ;;
+            -S|--sync) return 0 ;;
             -Su|-us|-Su*|-S*) return 0 ;;
-            -u) return 0 ;;
-            -U) return 0 ;;
+            -u|--update) return 0 ;;
+            -U|--upgrade) return 0 ;;
             --) break ;;
         esac
     done
