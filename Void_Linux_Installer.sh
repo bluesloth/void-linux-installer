@@ -585,7 +585,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Version-3.2.03"
+SCRIPT_VERSION="Version-3.2.04"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1486,6 +1486,32 @@ SCRIPT_VERSION="Version-3.2.03"
 #                     therefore adds a second by-design `xbps-pkgdb -a`
 #                     "files check FAILED" row, alongside elogind's.
 #                     SCRIPT_VERSION bumped Version-3.2.02 -> Version-3.2.03.
+#     Version-3.2.04 [PKG-SNAP-LONGOPT] — the update-snapshot wrapper only
+#                     understood SHORT xbps flags, so a system update driven
+#                     from a GUI could run with no rollback pair at all. Found
+#                     on the fresh Version-3.2.03 GNOME install: snapper held
+#                     five `xbps system update` pre/post pairs, every one from
+#                     a CLI run, and NONE for the GNOME Software "Update" that
+#                     had just been exercised in the GUI. Cause:
+#                     /usr/local/sbin/void-xbps-snap's `_should_snap` matched
+#                     only -S / -Su* / -u / -U, while the GNOME Software xbps
+#                     backend spawns `xbps-install --sync --update --yes` —
+#                     long options, so every argument took the `--*` continue
+#                     branch and the matcher answered "do not snapshot". The
+#                     transaction then went straight through the wrapper's
+#                     `exec "$REAL_XBPS" "$@"` fast path: the packages really
+#                     were updated, but with no pre/post pair, so the one
+#                     operation the wrapper exists for was the one that could
+#                     not be rolled back. KDE Discover (`xbps-install -Syu`)
+#                     and cosmic-store (`xbps-install -Syu -y`) escaped only by
+#                     spelling the operation with short flags. `_should_snap`
+#                     now also accepts --sync, --update and --upgrade. This is
+#                     a spelling fix, not a policy change: a plain package
+#                     install (`--yes -- pkg`, no -S) still takes no snapshot,
+#                     exactly like `xbps-install -y pkg` on the CLI, and the
+#                     -n/--dry-run gate is still evaluated FIRST so a
+#                     long-option dry run cannot snapshot either.
+#                     SCRIPT_VERSION bumped Version-3.2.03 -> Version-3.2.04.
 #
 #   BETA ERA — TRACKED (continued; these pre-3.0.00 entries were appended out
 #   of order, newest first — Beta-v2.9.99 CLOSED this era):
@@ -12553,12 +12579,25 @@ _should_snap() {
             -*n*) return 1 ;;
         esac
     done
+    # [PKG-SNAP-LONGOPT] (Version-3.2.04): recognise the LONG spellings of the
+    # same three operations (--sync/-S, --update/-u, --upgrade/-U). The
+    # pre-3.2.04 matcher only honoured the short forms, so a caller that spells
+    # the operation out — which is exactly what the GNOME Software xbps backend
+    # does, spawning `xbps-install --sync --update --yes` — silently took NO
+    # snapshot pair, while the same system update typed by hand as `-Syu` did.
+    # That was observed on a fresh Version-3.2.03 GNOME install: five
+    # `void-xbps-snap` pairs existed for CLI updates, none for the store's
+    # GUI update. Discover (`xbps-install -Syu`) and cosmic-store
+    # (`xbps-install -Syu -y`) were unaffected only because they happen to use
+    # short flags. This is a spelling bug, not a policy change: a plain package
+    # install (`--yes -- pkg`, no -S) still takes no snapshot, exactly like
+    # `xbps-install -y pkg` on the CLI.
     for _a in "$@"; do
         case "$_a" in
-            -S) return 0 ;;
+            -S|--sync) return 0 ;;
             -Su|-us|-Su*|-S*) return 0 ;;
-            -u) return 0 ;;
-            -U) return 0 ;;
+            -u|--update) return 0 ;;
+            -U|--upgrade) return 0 ;;
             --) break ;;
         esac
     done

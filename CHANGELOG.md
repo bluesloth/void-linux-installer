@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Version-3.2.03** (`SCRIPT_VERSION` in the script).
+Current version: **Version-3.2.04** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -151,6 +151,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Version-3.2.01** | `[DISCOVER-STORE-REPO-ORDER]` — clean-box fix for Version-3.2.00's assumption that the store's higher revision is enough to make xbps choose it. It is not: `xbps-install <name>` resolves the name against the **first repository in config order that carries it**, not the highest version in the pool. A fresh KDE install (Version-3.2.00) therefore selected official `discover-6.7.5_1` even though `60-discover.conf` was written, the key was pinned/verified, and the store serves `6.7.5_7`; the stock build has no `xbps-backend.so`. Worse, xbps recorded the official repo as the package's origin, so `xbps-install -u` followed official and never crossed over either. The final transaction now prepends the store (`xbps-install … -y -R "$_discover_repo" "$@"`), making the selection independent of config order, and immediately after the install the recorded origin is machine-checked with `xbps-query -p repository discover`; a non-store origin is a FATAL instead of a silent stock install. The availability fallback (stock via `install_pkgs`) and the integrity-failure abort are unchanged. Verified on the clean box: `_7` installed from the store, `xbps-query -p repository discover` = the store URL, the backend loaded in the real GUI (232 ms), the policy carries all three `auth_admin` actions, the headless harness is **30/30** (failed-helper) and **29/29** (success-helper), and a new repo-order harness over the extracted function passes both new-code cases while the 3.2.00 code fails both. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN. **Published as `Version-3.2.01` (public export `ffb09d8…`).** | Version-3.2.00 below |
 | **Version-3.2.02** | `[GNOME-SOFTWARE-STORE]` — the third project store joins COSMIC and Discover: choosing the **GNOME** desktop now installs `gnome-software` from `https://bluesloth.github.io/void-linux-gnome-software/`, whose build of the same upstream 50.2 carries the **native xbps backend**, instead of the official mirrors' flatpak-only build (whose own summary is "GNOME Software Center (flatpak only)"). The helper is a deliberate clone of `install_discover()`: repodata probe → `/etc/xbps.d/61-gnome-software.conf` → a dedicated `xbps-install -Sy` with the key-import question answered on the installer's own pipe → machine-checked trust anchor (pin `9bdf4599…0d60`, and added to the shared `xbps_keyring_ours` allowlist so all three store keys can coexist) → `xbps-install -y -R "$_gnome_software_repo" gnome-software` → `xbps-query -p repository` origin assertion. Coverage of Version-3.2.01's lesson is built in from the start (`-R` + origin assert, because `61-…conf` sorts after `00-repository-main.conf`). Fail-open on an **availability** failure now really installs the stock package: the `gnome` metapackage carries **no** run_depend on `gnome-software` (verified against `gnome`, `gnome-core`, `gnome-apps`), so the first cut of this feature said "continuing with the stock … package" while installing nothing — the fallback now runs `install_pkgs gnome-software`. The call also moved **after** `install_pkgs gnome` (mirroring Discover) so the store transaction is the last word. **Integrity** failures (key refused / pin absent) still abort. GNOME-only: KDE, COSMIC and every other desktop are untouched. `gnome-software` added to `PKG_PREFLIGHT` for the fallback's drift guard. | Version-3.2.01 below |
 | **Version-3.2.03** | `[ELOGIND-NO-DBUS-ACTIVATION]` + `[GDM-WAIT-LOGIND]` — two boot-race fixes found on the first fresh **GNOME** install made by Version-3.2.02, which booted to a **black screen with no login prompt on two of three boots**. **(1) The root cause, and it is not GNOME-specific.** elogind ships a D-Bus activation file, `/usr/share/dbus-1/system-services/org.freedesktop.login1.service`, whose `Exec` starts the daemon **directly** — bypassing `/usr/libexec/elogind/elogind.wrapper`, which is what mounts `/sys/fs/cgroup/elogind`, `/run/systemd` and `/run/user` — while runsv supervises a **second** instance. Two starters therefore race, and whichever wins the loser is wrong: an activated win leaves the daemon reparented to PID 1 (unsupervised) with runsv reporting `elogind is already running as PID <n>`, and the wrapper mounts belong to whichever instance got there first. The fix renames the activation file to `.service.disabled` so **runsv is the only starter**, applied at install time *and* re-applied from `/etc/rc.local` every boot (`/root/tools/re-disable-elogind-dbus-activation.sh`, since an elogind upgrade restores the file). Gated on `SESSION_STACK=elogind`, **never on a desktop**: the same double-start had already been seen on a COSMIC install as a single `already running as PID 1873` line at boot+37 s and dismissed as benign, because that greeter recovers. GDM is simply the only display manager here that **cannot retry**, which is why the defect only became visible on a GNOME box — so KDE, COSMIC and every other desktop get the fix too, and it removes the `already running` kernel-log noise there as a side effect. **(2) The defence-in-depth half, GDM-only by design.** gdm links libelogind and needs a **registered seat**: the greeter session *is* a logind session, and gdm (not in the `video`/`render` groups) reaches `/dev/dri/card0` only through the logind ACL. Started before elogind registers seat0 its first attempt fails and gdm does not retry. `/etc/sv/gdm/run` now waits (bounded, 30 s) for `/run/systemd/seats/seat0` and then starts gdm **anyway** rather than leaving no display manager at all. Scoped out deliberately: SDDM does its own seat/DRM handling, and the cosmic-greeter run script gates on `sv check elogind` (service state) and is re-run by runsv. Both halves follow the `[ELOGIND-RUN-SELFHEAL]` pattern (`/root/tools/<name>.fixed` + an rc.local re-apply) **because both edit package-owned files** — so `gdm` now adds a second by-design `xbps-pkgdb -a` `files check FAILED` row, alongside elogind's; the stock run script is kept at `/etc/sv/gdm/run.orig`. Verified live on the box: elogind's PPID is `runsv elogind`, `/run/systemd/seats/seat0` exists, the wrapper mounts are present, and the session registers as `gdm-password; type wayland; Seat: seat0`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.02 below |
+| **Version-3.2.04** | `[PKG-SNAP-LONGOPT]` — the update-snapshot wrapper only understood **short** xbps flags, so a system update started from a **GUI** could run with no rollback pair. Found on the fresh Version-3.2.03 GNOME install: snapper held five `xbps system update` pre/post pairs, every one from a CLI run, and **none** for the GNOME Software "Update" that had just been exercised in the GUI — the operation had plainly happened (and the box was up to date afterwards), yet nothing was rollback-able. Cause: `/usr/local/sbin/void-xbps-snap`'s `_should_snap` matched only `-S` / `-Su*` / `-u` / `-U`, while the GNOME Software xbps backend spawns `xbps-install --sync --update --yes` — long options, so each argument hit the `--*) continue` branch and the matcher answered "do not snapshot"; the wrapper then took its `exec "$REAL_XBPS" "$@"` fast path. KDE Discover (`xbps-install -Syu`) and cosmic-store (`xbps-install -Syu -y`) escaped only because they spell the operation with short flags, so this was a **spelling** bug in the wrapper, not a defect in any one store. `_should_snap` now also accepts `--sync`, `--update` and `--upgrade`. Deliberately **not** a policy change: a plain package install (`--yes -- pkg`, no `-S`) still takes no snapshot, exactly like `xbps-install -y pkg` on the CLI (whether installs *should* be snapshotted remains an open question, separate from this fix), and the `-n`/`--dry-run` gate is still evaluated **first**, so a long-option dry run cannot snapshot. Verified by running the shipped matcher over the three GUI argv vectors plus the CLI equivalents, then driving the real wrapper as root with the store's exact update argv — pre-fix: no pair; post-fix: a normal pre/post pair. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.03 below |
 | **Beta-v2.9.99** | `[LIBVIRT-AUTOSTART]` — the Beta-v2.9.98 one-shot BR0-NAT teardown was **irreversible** against a `libvirt` package update. `net-autostart default --disable` disables autostart by removing the **package-owned** symlink `/etc/libvirt/qemu/networks/autostart/default.xml`, and a later `libvirt` update re-installs every package file, silently restoring that symlink so `default` autostarts `virbr0` again — with the `[BR0-NAT-ONESHOT]` stamp present the block skipped forever and never undid it (the latent virbr0 return). The gate now **re-enters** when that symlink is present again, not only when the stamp is absent (stamp absent = initial migration; stamp + symlink = a package update restored it, re-tear; stamp + no symlink = still torn down, a single `[ -e ]` no-op). The re-entry probe needs no libvirtd and costs nothing on an already-migrated box, and a re-entered run is idempotent — it re-verifies and re-stamps, logging `reason=` in `/var/log/void-br0-nat-teardown.log`. The permanent pkgdb `libvirt: files check FAILED` for the removed package-owned symlink is unchanged (known, by-design; tracked separately). No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.98 below |
 | **Beta-v2.9.98** | `[BR0-NAT-ONESHOT]` + `[BR0-NAT-BACKGROUND]` — the rc.local libvirt `default` NAT teardown (Beta-v2.9.96) no longer costs boot time. `/etc/runit/2` runs `rc.local` **synchronously before `runsvdir`**, so the teardown's wait loop (`virsh net-info default` polled up to 30× `sleep 1`) sat directly on the path to the display manager and **always burned its full 30 s**: libvirtd is started by `runsvdir`, so it is never up when the loop begins and every probe failed (measured on the operator's box 2026-10-17: kernel→Xorg 38.4 s, of which 30 s was this block). Two changes: **(1)** a **verified** teardown (`torn_down=yes`) now stamps `/var/lib/void-installer/br0-nat-torn-down.done` and the stamp's presence skips the block on every later boot (an unverified teardown still retries the next boot); **(2)** the whole block runs as `{ …; } &`, so `rc.local` returns immediately and even the first unstamped run cannot block the desktop — and because the backgrounded loop keeps polling while `runsvdir` starts libvirtd, it now actually **succeeds** mid-boot (previously impossible), gets verified, and stamps. Teardown semantics, the wired-NIC presence gate, the log and the `virbr0` cleanup are unchanged; the same box boots to Xorg in ~8 s. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.97 below |
 | **Beta-v2.9.97** | `[LIMINE-NVRAM]` — re-adds the optional Limine UEFI NVRAM registration that first landed on the public export line at Beta-v2.9.92 (commit `ae72d75`, "feat(limine): add optional NVRAM entry, default off") and was then clobbered there by the Release-v2.9.93 source sync (`Source-Ref`) before any release shipped it — it was never present on this canonical line. A new `DEFAULT_LIMINE_NVRAM` toggle (default `false`) drives a Limine-only prompt; on `yes` the Stage-2 Limine deploy `install_pkgs efibootmgr` and runs `efibootmgr --create` pointing at `BOOTX64.EFI` (ESP disk/partition derived via `findmnt` + `lsblk`), in addition to the always-present removable/fallback path; failure is non-fatal. Default/no keeps the deploy byte-identical to the historical NVRAM-free behavior. The prompt accepts `y`/`yes`/`true` and `n`/`no`/`false` (the `[HEADLESS-PROMPT-LOOP]` lesson) so a true/false default can never loop. Threaded through the DRY-RUN plan, `chroot_env`, `limine-env`, `install-config` and the NEXT-STEPS text. `efibootmgr` was already in `PKG_PREFLIGHT`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.96 below |
@@ -1075,6 +1076,111 @@ messages, and that `NVRAM=no` never shows the label prompt. Gates: `bash -n`
 clean; `check-heredocs.sh` ALL CLEAN; `check-defaults.sh` ALL CONSISTENT (the
 new `DEFAULT_` is declared *and* wired); `check-pkg-preflight.sh` ALL COVERED
 (no package surface changed).
+
+## Version-3.2.04 — `[PKG-SNAP-LONGOPT]` (a GUI system update took no rollback pair)
+
+`SCRIPT_VERSION` bumped to Version-3.2.03 → Version-3.2.04.
+
+A three-arm fix to one `case` statement, but the defect it closes is the kind
+that only surfaces when you go looking for the safety net *after* the fact —
+and find it was not there.
+
+### 1 — The finding: five pairs, and none of them the GUI's
+
+The `[PKG-SNAPSHOT]` wrapper (`/usr/local/sbin/void-xbps-snap`, shadowing
+`/usr/bin/xbps-install`) exists for exactly one reason: take a snapper pre/post
+pair around a mutating package transaction so the update can be rolled back. On
+a fresh **Version-3.2.03** GNOME install, `snapper -c root list` held five
+`xbps system update` pairs — all of them from updates typed at a terminal — and
+`/var/log/snapper.log` recorded **nothing** during the minutes in which a system
+update had been driven through GNOME Software. The transaction had plainly
+happened (the box was up to date immediately afterwards), yet the one operation
+the wrapper exists for was the one that could not be rolled back.
+
+### 2 — Why only the long spelling failed
+
+`_should_snap` inspected the argv for the **short** flags only:
+
+```sh
+-S) return 0 ;;
+-Su|-us|-Su*|-S*) return 0 ;;
+-u) return 0 ;;
+-U) return 0 ;;
+```
+
+and every other long option fell through a `--*) continue` arm. GNOME Software's
+xbps backend spawns, per the carried plugin patch,
+
+```
+xbps-install --yes -- <pkg>                     # install
+xbps-install --yes --recursive -- <pkg>         # remove
+xbps-install --sync --update --yes              # system update
+```
+
+so the update vector is *entirely* long-option: `--sync`, `--update`, `--yes`.
+Each argument hit the `--*` continue, the loop ended, and the matcher answered
+"do not snapshot". The wrapper took its `exec "$REAL_XBPS" "$@"` fast path and
+the update ran with no pair at all.
+
+This was never a GNOME-software defect: it is a **spelling** asymmetry in the
+wrapper. KDE Discover (`xbps-install -Syu`) and cosmic-store
+(`xbps-install -Syu -y`) escaped only because they happen to abbreviate. Any
+future caller — a script, another store, a long-form habit at the CLI — would
+have hit the same gap.
+
+### 3 — The fix, and what it deliberately does not change
+
+`_should_snap` now accepts the long spelling of the same three operations:
+
+```sh
+-S|--sync) return 0 ;;
+-u|--update) return 0 ;;
+-U|--upgrade) return 0 ;;
+```
+
+Three things stay exactly as they were, on purpose:
+
+1. **A plain package install still takes no snapshot.** `--yes -- <pkg>` (and
+   CLI `xbps-install -y <pkg>`) mutate the system without a `-S`, so no pair is
+   taken — the wrapper snapshots *system updates*, not every package add. This
+   is the pre-existing policy, unchanged: whether individual installs should
+   also be snapshotted is a separate question and is **not** answered here.
+2. **The dry-run gate is still first.** `-n` / `--dry-run` returns "do not
+   snapshot" before the long-option loop, so `xbps-install -n --sync --update`
+   cannot create a stray pair either.
+3. **`--` still terminates detection.** A package literally named after a flag
+   cannot trip the matcher.
+
+The canonical copy at `/root/tools/void-xbps-snap` is a `cp -f` of this file, so
+`re-shadow-xbps.sh` recovers the fixed wrapper too — no second edit was needed.
+
+### Validation
+
+The matcher was extracted **verbatim** from two wrapper copies (the pre-fix
+body from `git show HEAD:Void_Linux_Installer.sh`, the post-fix body from the
+working tree) and run over eleven argv vectors — the three GNOME Software
+spawn shapes, Discover's and cosmic-store's, the CLI equivalents, a bare `-u`,
+`--upgrade`, a long-option dry run, and the no-argument cancel case. Exactly one
+verdict flips: `--sync --update --yes` goes `nosnap` → `SNAP`. Everything else,
+including all three "no snapshot" cases that must stay that way
+(`--yes -- vlc`, `--yes --recursive -- vlc`, `-n --sync --update`), is
+identical. Then the real wrapper was driven as root with the store's exact
+update argv. The **control** used the still-installed pre-3.2.04 copy
+(`sha256 f2091c41…`, no `[PKG-SNAP-LONGOPT]` in it): repos synced, snapper list
+unchanged at the 22:09 CLI pair 17/18, and `/var/log/snapper.log` recorded
+**nothing** for the run. The **fixed** body, same argv, produced
+`before-update snapshot` → sync → `after-update snapshot (pre #20)`, and
+`snapper --no-dbus -c root list` showed a real pair — `20 │ pre` /
+`21 │ post │ pre #20` with the wrapper's description — while
+`/.snapshots/21/info.xml` carried `<pre_num>20</pre_num>`. (Read the pair back
+with `--no-dbus`: `snapperd` had cached its snapshot set before the creates,
+which use `--no-dbus` by design, so a plain `snapper list` in the same minute
+still showed the old set — a cache artefact, not a missing pair.) Both test
+snapshots were then deleted and their empty `/.snapshots/2[01]` mount dirs
+removed, restoring the box's real history. Gates: `bash -n` clean;
+`check-heredocs.sh` **80 heredocs, ALL CLEAN**; `check-defaults.sh` ALL
+CONSISTENT; `check-pkg-preflight.sh` ALL COVERED (170 packages); 
+`check-bios-boot.sh` 42/42.
 
 ## Version-3.2.03 — `[ELOGIND-NO-DBUS-ACTIVATION]` + `[GDM-WAIT-LOGIND]` (two elogind/GDM boot races, found on the first fresh GNOME install)
 
