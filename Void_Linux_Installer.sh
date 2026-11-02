@@ -585,7 +585,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Version-3.2.04"
+SCRIPT_VERSION="Version-3.2.05"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1512,6 +1512,36 @@ SCRIPT_VERSION="Version-3.2.04"
 #                     -n/--dry-run gate is still evaluated FIRST so a
 #                     long-option dry run cannot snapshot either.
 #                     SCRIPT_VERSION bumped Version-3.2.03 -> Version-3.2.04.
+#     Version-3.2.05 [COSMIC-STORE-REPO-ORDER] + [COSMIC-CONF-STALE-URL] — the
+#                     Version-3.2.01 lesson applied to the COSMIC path, plus a
+#                     stale-config-file fix found while auditing it. Both are
+#                     latent rather than live on today's repos, which is why
+#                     neither had shown up in an install:
+#                     (1) install_cosmic() ran a plain
+#                     `xbps-install -y "$@"`, which leaves name resolution to
+#                     config order: `xbps-install <name>` resolves against the
+#                     FIRST repository in the pool that carries the name, not
+#                     the highest version across the pool. No official Void
+#                     template ships a cosmic-* package, so there is nothing
+#                     to shadow it today; the moment one exists, or the moment
+#                     an official repo records itself as the origin, the store
+#                     build silently loses and a later `xbps-install -u` never
+#                     crosses over (exactly what happened to Discover in
+#                     3.2.00). The final transaction now prepends the store
+#                     (`-y -R "$_cosmic_repo"`, which xbps appends to the TOP
+#                     of the pool, so official repos still satisfy ordinary
+#                     dependencies) and then asserts the recorded origin of
+#                     every package it installed, FATALing on a non-store one.
+#                     (2) The "is our repo already configured?" guard matched
+#                     the bare host 'bluesloth.github.io'. This project's repo
+#                     was served from bluesloth.github.io/void-cosmic-repo/
+#                     until 2026-10-11 and moved to
+#                     bluesloth.github.io/void-linux-cosmic/; a box carrying a
+#                     stale 59-cosmic.conf from that era matched the loose
+#                     pattern, the file was never rewritten, and the sync then
+#                     talked to a repository that no longer exists. The guard
+#                     now matches the full current path.
+#                     SCRIPT_VERSION bumped Version-3.2.04 -> Version-3.2.05.
 #
 #   BETA ERA — TRACKED (continued; these pre-3.0.00 entries were appended out
 #   of order, newest first — Beta-v2.9.99 CLOSED this era):
@@ -8460,7 +8490,13 @@ install_cosmic() {
     fi
 
     mkdir -p /etc/xbps.d
-    if ! grep -q 'bluesloth.github.io' /etc/xbps.d/59-cosmic.conf 2>/dev/null; then
+    # The guard matches the CURRENT store path, not the host: this project's
+    # repo was served from bluesloth.github.io/void-cosmic-repo/ until
+    # 2026-10-11, when it moved to bluesloth.github.io/void-linux-cosmic/.
+    # A host-only match ('bluesloth.github.io') also matches the retired URL,
+    # so a box carrying a stale 59-cosmic.conf from that era kept it and the
+    # sync below then talked to a repository that no longer exists.
+    if ! grep -q 'bluesloth\.github\.io/void-linux-cosmic/' /etc/xbps.d/59-cosmic.conf 2>/dev/null; then
         echo "repository=${_cosmic_repo}" > /etc/xbps.d/59-cosmic.conf
     fi
 
@@ -8563,11 +8599,48 @@ install_cosmic() {
     fi
     echo "==> COSMIC trust anchor verified: SHA256 ${_cosmic_key_expected}"
 
-    if ! xbps-install "${_xbps_cache[@]}" -y "$@"; then
+    # AI (Big Pickle) FIX — Version-3.2.05 [COSMIC-STORE-REPO-ORDER]:
+    # `xbps-install <name>` resolves the name against the FIRST repository in
+    # the pool that carries it, NOT against the highest version across the
+    # pool — the same defect Version-3.2.01 fixed for Discover, verified there
+    # on a clean box. It is latent rather than live for COSMIC today: no
+    # official Void template ships a cosmic-* package, so there is nothing for
+    # 00-repository-main.conf to shadow. It stops being latent the moment an
+    # official repo carries a same-named package, and it also decides which
+    # repo is recorded as the installed origin — and `xbps-install -u` will
+    # not cross that origin later. Prepending the store with -R makes the
+    # selection deterministic regardless of config order (xbps appends -R to
+    # the TOP of the pool, so official repos still satisfy ordinary
+    # dependencies such as polkit and flatpak). The assertion below records
+    # the origin and fails loudly instead of silently shipping a build from
+    # somewhere other than the store this function just pinned and verified.
+    if ! xbps-install "${_xbps_cache[@]}" -y -R "$_cosmic_repo" "$@"; then
         echo "FATAL: xbps-install failed for COSMIC package(s): $*" >&2
         echo "       Repo docs / audit: ${_cosmic_audit}" >&2
         exit 1
     fi
+
+    # Regression guard for [COSMIC-STORE-REPO-ORDER]: the installed origin is
+    # the machine-checkable proof that the transaction took the store build.
+    # Every package this function was asked to install is checked, because the
+    # call sites pass one package each (cosmic-desktop-full, cosmic-greeter,
+    # cosmic-store) and each of them is what a later `-u` follows. Trailing
+    # slashes are normalised so a URL spelling difference cannot mask it.
+    for _cosmic_p in "$@"; do
+        _cosmic_installed_repo="$(xbps-query -p repository "$_cosmic_p" 2>/dev/null || true)"
+        if [ "${_cosmic_installed_repo%/}" != "${_cosmic_repo%/}" ]; then
+            echo "FATAL: '${_cosmic_p}' was not installed from the COSMIC repository." >&2
+            echo "       Installed origin: ${_cosmic_installed_repo:-<unknown>}" >&2
+            echo "       Expected origin:  ${_cosmic_repo}" >&2
+            echo "       xbps selects an install-by-name from the first repository" >&2
+            echo "       that carries the name, so a package of the same name in an" >&2
+            echo "       official repo would win over the store. The store is the only" >&2
+            echo "       source whose signing key this installer pins and verifies." >&2
+            echo "       Repo docs / audit: ${_cosmic_audit}" >&2
+            exit 1
+        fi
+    done
+    echo "==> COSMIC installed from the store (origin: ${_cosmic_repo})"
 }
 
 # AI (Big Pickle) ADDITION — Version-3.2.00 [DISCOVER-STORE]: the KDE Discover
