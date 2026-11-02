@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.04"
+SCRIPT_VERSION="Version-3.2.05"
 
 
 
@@ -4348,7 +4348,7 @@ install_cosmic() {
     fi
 
     mkdir -p /etc/xbps.d
-    if ! grep -q 'bluesloth.github.io' /etc/xbps.d/59-cosmic.conf 2>/dev/null; then
+    if ! grep -q 'bluesloth\.github\.io/void-linux-cosmic/' /etc/xbps.d/59-cosmic.conf 2>/dev/null; then
         echo "repository=${_cosmic_repo}" > /etc/xbps.d/59-cosmic.conf
     fi
 
@@ -4388,11 +4388,27 @@ install_cosmic() {
     fi
     echo "==> COSMIC trust anchor verified: SHA256 ${_cosmic_key_expected}"
 
-    if ! xbps-install "${_xbps_cache[@]}" -y "$@"; then
+    if ! xbps-install "${_xbps_cache[@]}" -y -R "$_cosmic_repo" "$@"; then
         echo "FATAL: xbps-install failed for COSMIC package(s): $*" >&2
         echo "       Repo docs / audit: ${_cosmic_audit}" >&2
         exit 1
     fi
+
+    for _cosmic_p in "$@"; do
+        _cosmic_installed_repo="$(xbps-query -p repository "$_cosmic_p" 2>/dev/null || true)"
+        if [ "${_cosmic_installed_repo%/}" != "${_cosmic_repo%/}" ]; then
+            echo "FATAL: '${_cosmic_p}' was not installed from the COSMIC repository." >&2
+            echo "       Installed origin: ${_cosmic_installed_repo:-<unknown>}" >&2
+            echo "       Expected origin:  ${_cosmic_repo}" >&2
+            echo "       xbps selects an install-by-name from the first repository" >&2
+            echo "       that carries the name, so a package of the same name in an" >&2
+            echo "       official repo would win over the store. The store is the only" >&2
+            echo "       source whose signing key this installer pins and verifies." >&2
+            echo "       Repo docs / audit: ${_cosmic_audit}" >&2
+            exit 1
+        fi
+    done
+    echo "==> COSMIC installed from the store (origin: ${_cosmic_repo})"
 }
 
 install_discover() {

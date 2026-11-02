@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Version-3.2.04** (`SCRIPT_VERSION` in the script).
+Current version: **Version-3.2.05** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -152,6 +152,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Version-3.2.02** | `[GNOME-SOFTWARE-STORE]` — the third project store joins COSMIC and Discover: choosing the **GNOME** desktop now installs `gnome-software` from `https://bluesloth.github.io/void-linux-gnome-software/`, whose build of the same upstream 50.2 carries the **native xbps backend**, instead of the official mirrors' flatpak-only build (whose own summary is "GNOME Software Center (flatpak only)"). The helper is a deliberate clone of `install_discover()`: repodata probe → `/etc/xbps.d/61-gnome-software.conf` → a dedicated `xbps-install -Sy` with the key-import question answered on the installer's own pipe → machine-checked trust anchor (pin `9bdf4599…0d60`, and added to the shared `xbps_keyring_ours` allowlist so all three store keys can coexist) → `xbps-install -y -R "$_gnome_software_repo" gnome-software` → `xbps-query -p repository` origin assertion. Coverage of Version-3.2.01's lesson is built in from the start (`-R` + origin assert, because `61-…conf` sorts after `00-repository-main.conf`). Fail-open on an **availability** failure now really installs the stock package: the `gnome` metapackage carries **no** run_depend on `gnome-software` (verified against `gnome`, `gnome-core`, `gnome-apps`), so the first cut of this feature said "continuing with the stock … package" while installing nothing — the fallback now runs `install_pkgs gnome-software`. The call also moved **after** `install_pkgs gnome` (mirroring Discover) so the store transaction is the last word. **Integrity** failures (key refused / pin absent) still abort. GNOME-only: KDE, COSMIC and every other desktop are untouched. `gnome-software` added to `PKG_PREFLIGHT` for the fallback's drift guard. | Version-3.2.01 below |
 | **Version-3.2.03** | `[ELOGIND-NO-DBUS-ACTIVATION]` + `[GDM-WAIT-LOGIND]` — two boot-race fixes found on the first fresh **GNOME** install made by Version-3.2.02, which booted to a **black screen with no login prompt on two of three boots**. **(1) The root cause, and it is not GNOME-specific.** elogind ships a D-Bus activation file, `/usr/share/dbus-1/system-services/org.freedesktop.login1.service`, whose `Exec` starts the daemon **directly** — bypassing `/usr/libexec/elogind/elogind.wrapper`, which is what mounts `/sys/fs/cgroup/elogind`, `/run/systemd` and `/run/user` — while runsv supervises a **second** instance. Two starters therefore race, and whichever wins the loser is wrong: an activated win leaves the daemon reparented to PID 1 (unsupervised) with runsv reporting `elogind is already running as PID <n>`, and the wrapper mounts belong to whichever instance got there first. The fix renames the activation file to `.service.disabled` so **runsv is the only starter**, applied at install time *and* re-applied from `/etc/rc.local` every boot (`/root/tools/re-disable-elogind-dbus-activation.sh`, since an elogind upgrade restores the file). Gated on `SESSION_STACK=elogind`, **never on a desktop**: the same double-start had already been seen on a COSMIC install as a single `already running as PID 1873` line at boot+37 s and dismissed as benign, because that greeter recovers. GDM is simply the only display manager here that **cannot retry**, which is why the defect only became visible on a GNOME box — so KDE, COSMIC and every other desktop get the fix too, and it removes the `already running` kernel-log noise there as a side effect. **(2) The defence-in-depth half, GDM-only by design.** gdm links libelogind and needs a **registered seat**: the greeter session *is* a logind session, and gdm (not in the `video`/`render` groups) reaches `/dev/dri/card0` only through the logind ACL. Started before elogind registers seat0 its first attempt fails and gdm does not retry. `/etc/sv/gdm/run` now waits (bounded, 30 s) for `/run/systemd/seats/seat0` and then starts gdm **anyway** rather than leaving no display manager at all. Scoped out deliberately: SDDM does its own seat/DRM handling, and the cosmic-greeter run script gates on `sv check elogind` (service state) and is re-run by runsv. Both halves follow the `[ELOGIND-RUN-SELFHEAL]` pattern (`/root/tools/<name>.fixed` + an rc.local re-apply) **because both edit package-owned files** — so `gdm` now adds a second by-design `xbps-pkgdb -a` `files check FAILED` row, alongside elogind's; the stock run script is kept at `/etc/sv/gdm/run.orig`. Verified live on the box: elogind's PPID is `runsv elogind`, `/run/systemd/seats/seat0` exists, the wrapper mounts are present, and the session registers as `gdm-password; type wayland; Seat: seat0`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.02 below |
 | **Version-3.2.04** | `[PKG-SNAP-LONGOPT]` — the update-snapshot wrapper only understood **short** xbps flags, so a system update started from a **GUI** could run with no rollback pair. Found on the fresh Version-3.2.03 GNOME install: snapper held five `xbps system update` pre/post pairs, every one from a CLI run, and **none** for the GNOME Software "Update" that had just been exercised in the GUI — the operation had plainly happened (and the box was up to date afterwards), yet nothing was rollback-able. Cause: `/usr/local/sbin/void-xbps-snap`'s `_should_snap` matched only `-S` / `-Su*` / `-u` / `-U`, while the GNOME Software xbps backend spawns `xbps-install --sync --update --yes` — long options, so each argument hit the `--*) continue` branch and the matcher answered "do not snapshot"; the wrapper then took its `exec "$REAL_XBPS" "$@"` fast path. KDE Discover (`xbps-install -Syu`) and cosmic-store (`xbps-install -Syu -y`) escaped only because they spell the operation with short flags, so this was a **spelling** bug in the wrapper, not a defect in any one store. `_should_snap` now also accepts `--sync`, `--update` and `--upgrade`. Deliberately **not** a policy change: a plain package install (`--yes -- pkg`, no `-S`) still takes no snapshot, exactly like `xbps-install -y pkg` on the CLI (whether installs *should* be snapshotted remains an open question, separate from this fix), and the `-n`/`--dry-run` gate is still evaluated **first**, so a long-option dry run cannot snapshot. Verified by running the shipped matcher over the three GUI argv vectors plus the CLI equivalents, then driving the real wrapper as root with the store's exact update argv — pre-fix: no pair; post-fix: a normal pre/post pair. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.03 below |
+| **Version-3.2.05** | `[COSMIC-STORE-REPO-ORDER]` + `[COSMIC-CONF-STALE-URL]` — Version-3.2.01's lesson applied to the COSMIC path, plus a stale-config-file fix found while auditing it. Both are **latent** rather than live on today's repositories, which is why neither has shown up in a real install. **(1)** `install_cosmic()` ran a plain `xbps-install -y "$@"`, leaving name resolution to config order — `xbps-install <name>` resolves against the **first repository in the pool that carries it**, not the highest version across the pool, and it records that repo as the package's origin, which `xbps-install -u` then refuses to cross. No official Void template ships a `cosmic-*` package, so nothing shadows the store today; the day one exists (or a stale origin is recorded), the store build silently loses and the box stops receiving store updates — exactly what happened to Discover in Version-3.2.00. The final transaction now prepends the store (`-y -R "$_cosmic_repo"`; xbps appends `-R` to the **top** of the pool, so official repos still satisfy ordinary dependencies such as `polkit` and `flatpak`) and then asserts the recorded origin of every package it installed, FATALing on a non-store one. **(2)** The "is our repo already configured?" guard matched the bare host `bluesloth.github.io`, but this project's repo was served from `bluesloth.github.io/void-cosmic-repo/` until 2026-10-11 before moving to `bluesloth.github.io/void-linux-cosmic/`. A box carrying a stale `59-cosmic.conf` from that era matched the loose pattern, so the file was never rewritten and the sync then talked to a repository that no longer exists. The guard now matches the full current path. The store's own `cosmic-store` polkit fix (`cosmic-store-1.11.0_10`, published as `epoch-1.11.0-r6`) is independent of this release and rides the store, not the installer. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.04 below |
 | **Beta-v2.9.99** | `[LIBVIRT-AUTOSTART]` — the Beta-v2.9.98 one-shot BR0-NAT teardown was **irreversible** against a `libvirt` package update. `net-autostart default --disable` disables autostart by removing the **package-owned** symlink `/etc/libvirt/qemu/networks/autostart/default.xml`, and a later `libvirt` update re-installs every package file, silently restoring that symlink so `default` autostarts `virbr0` again — with the `[BR0-NAT-ONESHOT]` stamp present the block skipped forever and never undid it (the latent virbr0 return). The gate now **re-enters** when that symlink is present again, not only when the stamp is absent (stamp absent = initial migration; stamp + symlink = a package update restored it, re-tear; stamp + no symlink = still torn down, a single `[ -e ]` no-op). The re-entry probe needs no libvirtd and costs nothing on an already-migrated box, and a re-entered run is idempotent — it re-verifies and re-stamps, logging `reason=` in `/var/log/void-br0-nat-teardown.log`. The permanent pkgdb `libvirt: files check FAILED` for the removed package-owned symlink is unchanged (known, by-design; tracked separately). No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.98 below |
 | **Beta-v2.9.98** | `[BR0-NAT-ONESHOT]` + `[BR0-NAT-BACKGROUND]` — the rc.local libvirt `default` NAT teardown (Beta-v2.9.96) no longer costs boot time. `/etc/runit/2` runs `rc.local` **synchronously before `runsvdir`**, so the teardown's wait loop (`virsh net-info default` polled up to 30× `sleep 1`) sat directly on the path to the display manager and **always burned its full 30 s**: libvirtd is started by `runsvdir`, so it is never up when the loop begins and every probe failed (measured on the operator's box 2026-10-17: kernel→Xorg 38.4 s, of which 30 s was this block). Two changes: **(1)** a **verified** teardown (`torn_down=yes`) now stamps `/var/lib/void-installer/br0-nat-torn-down.done` and the stamp's presence skips the block on every later boot (an unverified teardown still retries the next boot); **(2)** the whole block runs as `{ …; } &`, so `rc.local` returns immediately and even the first unstamped run cannot block the desktop — and because the backgrounded loop keeps polling while `runsvdir` starts libvirtd, it now actually **succeeds** mid-boot (previously impossible), gets verified, and stamps. Teardown semantics, the wired-NIC presence gate, the log and the `virbr0` cleanup are unchanged; the same box boots to Xorg in ~8 s. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.97 below |
 | **Beta-v2.9.97** | `[LIMINE-NVRAM]` — re-adds the optional Limine UEFI NVRAM registration that first landed on the public export line at Beta-v2.9.92 (commit `ae72d75`, "feat(limine): add optional NVRAM entry, default off") and was then clobbered there by the Release-v2.9.93 source sync (`Source-Ref`) before any release shipped it — it was never present on this canonical line. A new `DEFAULT_LIMINE_NVRAM` toggle (default `false`) drives a Limine-only prompt; on `yes` the Stage-2 Limine deploy `install_pkgs efibootmgr` and runs `efibootmgr --create` pointing at `BOOTX64.EFI` (ESP disk/partition derived via `findmnt` + `lsblk`), in addition to the always-present removable/fallback path; failure is non-fatal. Default/no keeps the deploy byte-identical to the historical NVRAM-free behavior. The prompt accepts `y`/`yes`/`true` and `n`/`no`/`false` (the `[HEADLESS-PROMPT-LOOP]` lesson) so a true/false default can never loop. Threaded through the DRY-RUN plan, `chroot_env`, `limine-env`, `install-config` and the NEXT-STEPS text. `efibootmgr` was already in `PKG_PREFLIGHT`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.96 below |
@@ -1076,6 +1077,108 @@ messages, and that `NVRAM=no` never shows the label prompt. Gates: `bash -n`
 clean; `check-heredocs.sh` ALL CLEAN; `check-defaults.sh` ALL CONSISTENT (the
 new `DEFAULT_` is declared *and* wired); `check-pkg-preflight.sh` ALL COVERED
 (no package surface changed).
+
+## Version-3.2.05 — `[COSMIC-STORE-REPO-ORDER]` + `[COSMIC-CONF-STALE-URL]` (the COSMIC store build is selected by repository, and a retired URL can no longer survive in `59-cosmic.conf`)
+
+`SCRIPT_VERSION` bumped to Version-3.2.04 → Version-3.2.05.
+
+Both halves are **latent** defects: neither can fire on the repositories as they
+stand today, which is precisely why they survived four releases and a
+fresh-install audit each. They are the same two classes of mistake that already
+cost a clean-box rebuild on the Discover path, so the fix is applied to the
+COSMIC path before it costs one there too.
+
+### 1 — `[COSMIC-STORE-REPO-ORDER]`: selection was left to config order
+
+`install_cosmic()` ended with a plain `xbps-install "${_xbps_cache[@]}" -y "$@"`.
+That works today, but only by accident of repository naming: it relies on no
+official repository carrying a `cosmic-*` package.
+
+`xbps-install <name>` does **not** pick the highest version across the pool. It
+resolves the name against the **first repository in the pool that carries it**,
+and it records that repository as the installed origin. `59-cosmic.conf` sorts
+after `00-repository-main.conf`, so the official mirror is always first in the
+pool. Two consequences follow:
+
+- the moment an official template ships a same-named package, the official build
+  wins the name even though the store's revision is higher;
+- once an official origin is recorded, `xbps-install -u` will not cross over to
+  the store later. The box simply stops receiving store updates, silently.
+
+That is not a hypothetical: it is exactly what Version-3.2.00 shipped on the
+Discover path, where the clean box ended up with `discover-6.7.5_1` (no native
+backend) while the store served `6.7.5_7`, with the config file written, the key
+pinned and the anchor verified. Version-3.2.01 fixed it for Discover. This
+release applies the same two-part shape to COSMIC:
+
+```sh
+xbps-install "${_xbps_cache[@]}" -y -R "$_cosmic_repo" "$@"
+```
+
+`-R` appends the store to the **top** of the pool (verified against
+`man xbps-install` and `xbps-install --help` on the box: "Add repository to the
+top of the list"), so selection is deterministic regardless of config order and
+the official repositories still satisfy ordinary dependencies — `cosmic-store`
+alone needs `polkit`, `flatpak` and `cosmic-icons`, none of which the store
+serves. Then, for **every** package named on the command line, the recorded
+origin is machine-checked:
+
+```sh
+_cosmic_installed_repo="$(xbps-query -p repository "$_cosmic_p" 2>/dev/null || true)"
+[ "${_cosmic_installed_repo%/}" = "${_cosmic_repo%/}" ] || FATAL
+```
+
+All three call sites are covered — `cosmic-desktop-full`, `cosmic-greeter` and
+the opt-in `cosmic-store` — because each one is what a later `-u` follows.
+Trailing slashes are normalised so a URL spelling difference cannot mask a
+failure.
+
+### 2 — `[COSMIC-CONF-STALE-URL]`: the guard matched a retired repository
+
+The "is our repository already configured?" test was:
+
+```sh
+grep -q 'bluesloth.github.io' /etc/xbps.d/59-cosmic.conf
+```
+
+That matches the **host**, and this project has served its packages from two
+different paths on that host. Until 2026-10-11 the repository lived at
+`https://bluesloth.github.io/void-cosmic-repo/`; it moved to
+`https://bluesloth.github.io/void-linux-cosmic/` when the packaging sources and
+the served binaries were unified in one repository. A box carrying a
+`59-cosmic.conf` written against the old path therefore still matches the loose
+pattern, the file is never rewritten, and the sync that follows talks to a
+repository that no longer exists — the install aborts with a reachability or
+key error that points nowhere near the real cause.
+
+The guard now matches the full current path:
+
+```sh
+grep -q 'bluesloth\.github\.io/void-linux-cosmic/' /etc/xbps.d/59-cosmic.conf
+```
+
+so any `59-cosmic.conf` that does not name the live repository is overwritten
+with the correct one. The file is installer-owned and holds exactly one line, so
+rewriting it is the whole fix; nothing else in `/etc/xbps.d` is touched.
+
+### Gates
+
+`bash -n` clean; `check-heredocs.sh` ALL CLEAN; `check-defaults.sh` ALL
+CONSISTENT (no prompt or `DEFAULT_*` surface changed); `check-pkg-preflight.sh`
+ALL COVERED (no package-name surface changed — `cosmic-*` names were already
+covered); `check-bios-boot.sh` 42/42 (no boot path touched).
+
+### Not in this release
+
+The `cosmic-store` polkit `exec.path` defect (its install and update actions
+annotated `/usr/bin/xbps-install`, which pkexec canonicalises through the
+`void-xbps-snap` symlink, making the dedicated action unreachable) is fixed in
+the **store**, as `cosmic-store-1.11.0_10` — published first as
+`epoch-1.11.0-r5` and re-cut as `epoch-1.11.0-r6` because r5's index still
+advertised `_9` (the `xbps-rindex -a` last-wins defect, fixed in that repo's
+`tools/publish.sh`) — and it reaches boxes through a normal store update. It is
+not an installer concern: a stock Void box with no `void-xbps-snap` shadow
+already behaves correctly there.
 
 ## Version-3.2.04 — `[PKG-SNAP-LONGOPT]` (a GUI system update took no rollback pair)
 
