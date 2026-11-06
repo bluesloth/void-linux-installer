@@ -585,7 +585,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Version-3.2.05"
+SCRIPT_VERSION="Version-3.2.06"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1477,10 +1477,14 @@ SCRIPT_VERSION="Version-3.2.05"
 #                     does not retry. /etc/sv/gdm/run now waits (bounded, 30s)
 #                     for /run/systemd/seats/seat0 before exec-ing gdm and then
 #                     starts gdm anyway rather than leaving no display manager
-#                     at all. Scoped out on purpose: SDDM does its own
-#                     seat/DRM handling, and the cosmic-greeter run script gates
-#                     on `sv check elogind` (service state) and is re-run by
-#                     runsv. Both halves follow the [ELOGIND-RUN-SELFHEAL]
+#                     at all. [CORRECTION, Version-3.2.06: this entry originally
+#                     said "Scoped out on purpose: SDDM does its own seat/DRM
+#                     handling" — that was WRONG, see the 3.2.06 entry below;
+#                     SDDM gets the same wait because its stock run script
+#                     CANNOT survive [ELOGIND-NO-DBUS-ACTIVATION].] Still scoped
+#                     out: the cosmic-greeter run script gates on `sv check
+#                     elogind` (service state) and is re-run by runsv. Both
+#                     halves follow the [ELOGIND-RUN-SELFHEAL]
 #                     pattern (/root/tools/<name>.fixed + an rc.local re-apply)
 #                     because both edit package-owned files: gdm's run script
 #                     therefore adds a second by-design `xbps-pkgdb -a`
@@ -1542,6 +1546,44 @@ SCRIPT_VERSION="Version-3.2.05"
 #                     talked to a repository that no longer exists. The guard
 #                     now matches the full current path.
 #                     SCRIPT_VERSION bumped Version-3.2.04 -> Version-3.2.05.
+#     Version-3.2.06 [SDDM-WAIT-LOGIND] — the SDDM half of the 3.2.03 defect,
+#                     found on the first fresh KDE install (Version-3.2.05),
+#                     which never reached a graphical desktop at all. Text
+#                     login worked, so the box was up; SDDM simply never ran.
+#                     Root cause is a HARD failure, not a race: Void's stock
+#                     /etc/sv/sddm/run (sddm-0.21.0_2) runs under `set -e` and
+#                     calls `dbus-send --system ... StartServiceByName \
+#                     string:org.freedesktop.login1 uint32:0`. D-Bus refuses
+#                     that request when there is no ACTIVATION ENTRY for the
+#                     name — `org.freedesktop.DBus.Error.ServiceUnknown: The
+#                     name org.freedesktop.login1 was not provided by any
+#                     .service files` — even though elogind currently OWNS the
+#                     name (GetNameOwner and NameHasOwner both succeed; do not
+#                     gate on ownership alone). 3.2.03's
+#                     [ELOGIND-NO-DBUS-ACTIVATION] renames exactly that entry
+#                     to `.service.disabled`, so the call fails, `set -e` kills
+#                     the script before `exec sddm`, and runsv cycles the
+#                     service forever: no greeter, no Xorg, an empty
+#                     /tmp/.X11-unix, and only text consoles on tty1.
+#                     The fix is the [GDM-WAIT-LOGIND] shape applied to SDDM:
+#                     /root/tools/sddm.run.fixed waits (bounded, 30s) for
+#                     /run/systemd/seats/seat0 and then starts sddm anyway. The
+#                     seat/DRM reason the stock script wanted login1 up first is
+#                     still real — sddm links libelogind and reaches
+#                     /dev/dri/card0 only through the logind ACL — so the wait
+#                     is kept, it just no longer depends on D-Bus activation.
+#                     Applied at install time (stock kept as
+#                     /etc/sv/sddm/run.orig) and re-applied from rc.local every
+#                     boot by /root/tools/re-fix-sddm-run.sh, because the sddm
+#                     package owns the file. That adds a by-design
+#                     `xbps-pkgdb -a` "files check FAILED" row for sddm, the
+#                     same pattern as elogind's and gdm's run scripts.
+#                     This also CORRECTS 3.2.03's claim that SDDM needs
+#                     nothing here; the scoping notes in 2c, 2d and the
+#                     rc.local [GDM-WAIT-LOGIND] comment were rewritten to match.
+#                     Not in scope here: the sddm greeter theme/session choice is
+#                     untouched — this only makes sddm start at all.
+#                     SCRIPT_VERSION bumped Version-3.2.05 -> Version-3.2.06.
 #
 #   BETA ERA — TRACKED (continued; these pre-3.0.00 entries were appended out
 #   of order, newest first — Beta-v2.9.99 CLOSED this era):
@@ -12951,8 +12993,11 @@ chmod 0755 /root/tools/re-fix-elogind-run.sh
 #     running as PID <n>", leaving the wrapper mounts to the losing instance.
 #     Disabling the activation file makes runsv the only starter. Nothing else
 #     needs to activate login1: rc.local runs before runsvdir and makes no
-#     logind calls, and (GNOME) /etc/sv/gdm/run waits for the seat0 marker file
-#     before exec-ing gdm.
+#     logind calls. Every display manager that used to rely on the activation
+#     file instead waits for the seat0 marker itself — /etc/sv/gdm/run
+#     ([GDM-WAIT-LOGIND]) and /etc/sv/sddm/run ([SDDM-WAIT-LOGIND], 3.2.06,
+#     because sddm's STOCK run script dbus-sends StartServiceByName and aborts
+#     under `set -e` once this rename lands — see 2e below).
 #     THIS IS NOT GNOME-SPECIFIC. The same double-start had already been seen on
 #     a COSMIC install as a single "elogind is already running as PID <n>"
 #     kernel-log line at boot+37s, and was dismissed as benign because the
@@ -13005,9 +13050,13 @@ chmod 0755 /root/tools/re-disable-elogind-dbus-activation.sh
 #     registered, so the run script waits for that file before exec-ing gdm.
 #     The wait is BOUNDED: if logind never comes up, gdm still starts rather
 #     than leaving the machine with no display manager.
-#     Scoped to DISPLAY_MANAGER=gdm — SDDM does its own seat/DRM handling and
-#     the cosmic-greeter run script gates on `sv check elogind` (service state)
-#     and is re-run by runsv, so neither needs this.
+#     Scoped to DISPLAY_MANAGER=gdm — the cosmic-greeter run script gates on
+#     `sv check elogind` (service state) and is re-run by runsv, so it needs no
+#     such wait. SDDM was originally listed here as "does its own seat/DRM
+#     handling" and left out; Version-3.2.06 proved that WRONG (see 2e): stock
+#     sddm's run script dbus-sends StartServiceByName and dies under `set -e`
+#     once [ELOGIND-NO-DBUS-ACTIVATION] removes the activation file, so SDDM
+#     gets the identical bounded seat0 wait.
 #     The gdm package OWNS /etc/sv/gdm/run, so an upgrade reverts the wait; the
 #     rc.local self-heal below restores it, the same pattern as
 #     [ELOGIND-RUN-SELFHEAL]. NOTE: patching a package-owned file makes
@@ -13089,6 +13138,119 @@ echo "gdm run script restored to seat0-waiting copy (was reverted, likely by upg
 INNER_EOF
 chmod 0755 /root/tools/re-fix-gdm-run.sh
 
+# 2e) AI ADDITION — Version-3.2.06 [SDDM-WAIT-LOGIND]: SDDM has the SAME defect
+#     class as gdm, and it is not merely a race — it is a guaranteed failure.
+#     Void's stock /etc/sv/sddm/run (sddm-0.21.0_2) runs under `set -e` and its
+#     second line is
+#         dbus-send --system ... org.freedesktop.DBus.StartServiceByName \
+#                  string:org.freedesktop.login1 uint32:0
+#     D-Bus refuses that request when there is no ACTIVATION ENTRY for the name
+#     — `org.freedesktop.DBus.Error.ServiceUnknown: The name
+#     org.freedesktop.login1 was not provided by any .service files` — even
+#     though the name IS currently owned by the running elogind (GetNameOwner
+#     and NameHasOwner both succeed; do not gate on ownership alone). Since
+#     [ELOGIND-NO-DBUS-ACTIVATION] renames that entry to `.service.disabled`,
+#     the call fails, `set -e` kills the script BEFORE `exec sddm`, and runsv
+#     cycles the service forever: no greeter, no Xorg, an empty /tmp/.X11-unix,
+#     and nothing on tty1 but text consoles.
+#     That is exactly what happened on the first fresh KDE install made by
+#     Version-3.2.05. The seat/DRM reasoning that kept SDDM out of
+#     [GDM-WAIT-LOGIND] is still true — sddm does need a registered seat for
+#     its DRM ACL — so the fix is the same bounded wait for
+#     /run/systemd/seats/seat0, followed by starting sddm anyway.
+#     The sddm package OWNS /etc/sv/sddm/run, so an upgrade reverts the fix; the
+#     rc.local self-heal below restores it every boot, the same pattern as
+#     [ELOGIND-RUN-SELFHEAL] / [GDM-WAIT-LOGIND]. NOTE: patching a package-owned
+#     file makes `xbps-pkgdb -a` report `sddm: files check FAILED` — expected,
+#     by design, exactly like elogind's and gdm's run scripts; the stock file is
+#     kept at /etc/sv/sddm/run.orig.
+cat > /root/tools/sddm.run.fixed << 'INNER_EOF'
+#!/bin/sh
+exec 2>&1
+set -e
+sv check dbus >/dev/null || exit 1
+
+# [SDDM-WAIT-LOGIND] sddm links libelogind: the greeter session IS a logind
+# session, and sddm is not in the video/render groups, so it only reaches
+# /dev/dri/card0 through the logind ACL. Wait (bounded) for elogind to register
+# seat0 before exec-ing sddm, then start anyway.
+#
+# The stock script instead called dbus-send StartServiceByName on
+# org.freedesktop.login1, which ABORTS under `set -e` whenever the D-Bus
+# activation file is absent (Version-3.2.03's [ELOGIND-NO-DBUS-ACTIVATION]
+# renames it) — even though the name IS owned. That killed the run script
+# before `exec sddm`, so runsv cycled it forever and no greeter ever started.
+_n=0
+while [ ! -e /run/systemd/seats/seat0 ] && [ "$_n" -lt 30 ]; do
+    _n=$((_n + 1))
+    sleep 1
+done
+if [ "$_n" -ge 30 ]; then
+    echo "sddm: warning: seat0 not registered after 30s; starting sddm anyway"
+fi
+
+# respect system locale
+[ -r /etc/locale.conf ] && . /etc/locale.conf && export LANG
+
+[ -f ./conf ] && . ./conf
+
+exec sddm 2>&1
+INNER_EOF
+chmod 0755 /root/tools/sddm.run.fixed
+
+cat > /root/tools/re-fix-sddm-run.sh << 'INNER_EOF'
+#!/bin/sh
+# =============================================================================
+# [SDDM-WAIT-LOGIND] — keep /etc/sv/sddm/run working across package upgrades.
+#
+# Problem: the sddm package's stock run script calls
+#   dbus-send --system ... org.freedesktop.DBus.StartServiceByName \
+#            string:org.freedesktop.login1 uint32:0
+# under `set -e`. Since Version-3.2.03 ([ELOGIND-NO-DBUS-ACTIVATION]) renames
+# /usr/share/dbus-1/system-services/org.freedesktop.login1.service to
+# .service.disabled so runsv is the only elogind starter, that call now fails
+# with org.freedesktop.DBus.Error.ServiceUnknown — D-Bus needs the ACTIVATION
+# entry even when the name is already owned — and `set -e` kills the script
+# before `exec sddm`. runsv then cycles the service forever: no greeter, no
+# Xorg, an empty /tmp/.X11-unix, and nothing on tty1 but text consoles.
+#
+# Fix: a run script that waits (bounded, 30s) for the logind seat0 marker
+# /run/systemd/seats/seat0 before exec-ing sddm, then starts sddm anyway. That
+# covers both the reason the stock script wanted login1 up first (sddm needs a
+# registered seat for the DRM ACL) and the case where logind is slow.
+#
+# The sddm xbps package OWNS /etc/sv/sddm/run, so any package upgrade overwrites
+# the fix. This script (invoked from /etc/rc.local each boot, the same pattern
+# as re-fix-elogind-run.sh / re-fix-gdm-run.sh / re-shadow-xbps.sh) restores the
+# canonical fixed copy from /root/tools/sddm.run.fixed, but ONLY when the
+# on-disk run script does not already match. Idempotent; it never signals the
+# running sddm — rc.local runs before runsvdir anyway.
+#
+# To revert: remove this script's rc.local call and restore the stock run
+# script (backup is /etc/sv/sddm/run.orig).
+# =============================================================================
+set -eu
+export PATH="/usr/bin:/usr/sbin:/bin:/sbin"
+
+FIXED="/root/tools/sddm.run.fixed"
+TARGET="/etc/sv/sddm/run"
+
+[ -f "$FIXED" ] || { echo "ERROR: $FIXED missing" >&2; exit 1; }
+# sddm is not installed on this box: nothing to do (not an error).
+[ -f "$TARGET" ] || exit 0
+
+# Fast path: already fixed (compare bytes).
+if cmp -s "$FIXED" "$TARGET"; then
+    exit 0
+fi
+
+# The target is the stock (or otherwise different) script. Restore ours.
+# Use `install` to preserve mode 0755. Never touch the running sddm.
+install -m 0755 "$FIXED" "$TARGET"
+echo "sddm run script restored to seat0-waiting copy (was reverted, likely by upgrade)."
+INNER_EOF
+chmod 0755 /root/tools/re-fix-sddm-run.sh
+
 # Apply the fix IMMEDIATELY at install time (when the elogind session stack
 # was chosen): replace the stock run script with the fixed copy and keep the
 # stock one aside. No signal is sent to any daemon — elogind is not running
@@ -13116,6 +13278,17 @@ if [ "${DISPLAY_MANAGER:-}" = "gdm" ] && [ -f /etc/sv/gdm/run ]; then
     [ -e /etc/sv/gdm/run.orig ] || cp /etc/sv/gdm/run /etc/sv/gdm/run.orig
     install -m 0755 /root/tools/gdm.run.fixed /etc/sv/gdm/run
     echo "gdm run script replaced with seat0-waiting copy (stock kept at /etc/sv/gdm/run.orig)"
+fi
+
+# [SDDM-WAIT-LOGIND] Apply at install time (sddm only — i.e. the default DM for
+# every desktop that is not GNOME/COSMIC/LightDM). This one is not a race fix
+# but a hard prerequisite: the stock script cannot survive the
+# [ELOGIND-NO-DBUS-ACTIVATION] rename above, so without this the target's very
+# first boot has runsv cycling sddm forever. Stock run script kept aside.
+if [ "${DISPLAY_MANAGER:-}" = "sddm" ] && [ -f /etc/sv/sddm/run ]; then
+    [ -e /etc/sv/sddm/run.orig ] || cp /etc/sv/sddm/run /etc/sv/sddm/run.orig
+    install -m 0755 /root/tools/sddm.run.fixed /etc/sv/sddm/run
+    echo "sddm run script replaced with seat0-waiting copy (stock kept at /etc/sv/sddm/run.orig)"
 fi
 
 # 3) limine-sync.sh — manual, on-demand Limine boot-menu resync. Normally the
@@ -15012,12 +15185,27 @@ fi
 # through the logind ACL); started early, its first attempt fails and it does
 # not retry. /root/tools/gdm.run.fixed waits (bounded, 30s) for
 # /run/systemd/seats/seat0. The gdm package OWNS /etc/sv/gdm/run, so an upgrade
-# reverts the wait; restore it on every boot. GDM-ONLY by design (SDDM handles
-# its own seat/DRM, and cosmic-greeter gates on `sv check elogind` and is re-run
-# by runsv). Idempotent, never signals the running gdm.
+# reverts the wait; restore it on every boot. cosmic-greeter is excluded by
+# design (it gates on `sv check elogind` and is re-run by runsv); SDDM has its
+# own hook below. Idempotent, never signals the running gdm.
 if [ "__DISPLAY_MANAGER__" = "gdm" ] && [ -x /root/tools/re-fix-gdm-run.sh ]; then
     { echo "=== void-gdm-wait-logind: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
       /root/tools/re-fix-gdm-run.sh || echo "WARNING: gdm seat0-wait self-heal failed."
+    } >> /var/log/void-elogind-selfheal.log 2>&1
+fi
+
+# [SDDM-WAIT-LOGIND] — SDDM's stock run script dbus-sends StartServiceByName on
+# org.freedesktop.login1 under `set -e`; with the activation file renamed away
+# (see [ELOGIND-NO-DBUS-ACTIVATION] above) that call fails with ServiceUnknown
+# EVEN THOUGH the name is owned, and the script dies before `exec sddm` — runsv
+# then cycles it forever and the box never gets a greeter. /root/tools/
+# sddm.run.fixed waits (bounded, 30s) for /run/systemd/seats/seat0 instead. The
+# sddm package OWNS /etc/sv/sddm/run, so an upgrade reverts the fix; restore it
+# on every boot. Idempotent, never signals the running sddm (rc.local runs
+# before runsvdir anyway).
+if [ "__DISPLAY_MANAGER__" = "sddm" ] && [ -x /root/tools/re-fix-sddm-run.sh ]; then
+    { echo "=== void-sddm-wait-logind: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+      /root/tools/re-fix-sddm-run.sh || echo "WARNING: sddm seat0-wait self-heal failed."
     } >> /var/log/void-elogind-selfheal.log 2>&1
 fi
 
