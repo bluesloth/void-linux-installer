@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Version-3.2.05** (`SCRIPT_VERSION` in the script).
+Current version: **Version-3.2.06** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -153,6 +153,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Version-3.2.03** | `[ELOGIND-NO-DBUS-ACTIVATION]` + `[GDM-WAIT-LOGIND]` — two boot-race fixes found on the first fresh **GNOME** install made by Version-3.2.02, which booted to a **black screen with no login prompt on two of three boots**. **(1) The root cause, and it is not GNOME-specific.** elogind ships a D-Bus activation file, `/usr/share/dbus-1/system-services/org.freedesktop.login1.service`, whose `Exec` starts the daemon **directly** — bypassing `/usr/libexec/elogind/elogind.wrapper`, which is what mounts `/sys/fs/cgroup/elogind`, `/run/systemd` and `/run/user` — while runsv supervises a **second** instance. Two starters therefore race, and whichever wins the loser is wrong: an activated win leaves the daemon reparented to PID 1 (unsupervised) with runsv reporting `elogind is already running as PID <n>`, and the wrapper mounts belong to whichever instance got there first. The fix renames the activation file to `.service.disabled` so **runsv is the only starter**, applied at install time *and* re-applied from `/etc/rc.local` every boot (`/root/tools/re-disable-elogind-dbus-activation.sh`, since an elogind upgrade restores the file). Gated on `SESSION_STACK=elogind`, **never on a desktop**: the same double-start had already been seen on a COSMIC install as a single `already running as PID 1873` line at boot+37 s and dismissed as benign, because that greeter recovers. GDM is simply the only display manager here that **cannot retry**, which is why the defect only became visible on a GNOME box — so KDE, COSMIC and every other desktop get the fix too, and it removes the `already running` kernel-log noise there as a side effect. **(2) The defence-in-depth half, GDM-only by design.** gdm links libelogind and needs a **registered seat**: the greeter session *is* a logind session, and gdm (not in the `video`/`render` groups) reaches `/dev/dri/card0` only through the logind ACL. Started before elogind registers seat0 its first attempt fails and gdm does not retry. `/etc/sv/gdm/run` now waits (bounded, 30 s) for `/run/systemd/seats/seat0` and then starts gdm **anyway** rather than leaving no display manager at all. Scoped out deliberately: SDDM does its own seat/DRM handling, and the cosmic-greeter run script gates on `sv check elogind` (service state) and is re-run by runsv. Both halves follow the `[ELOGIND-RUN-SELFHEAL]` pattern (`/root/tools/<name>.fixed` + an rc.local re-apply) **because both edit package-owned files** — so `gdm` now adds a second by-design `xbps-pkgdb -a` `files check FAILED` row, alongside elogind's; the stock run script is kept at `/etc/sv/gdm/run.orig`. Verified live on the box: elogind's PPID is `runsv elogind`, `/run/systemd/seats/seat0` exists, the wrapper mounts are present, and the session registers as `gdm-password; type wayland; Seat: seat0`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.02 below |
 | **Version-3.2.04** | `[PKG-SNAP-LONGOPT]` — the update-snapshot wrapper only understood **short** xbps flags, so a system update started from a **GUI** could run with no rollback pair. Found on the fresh Version-3.2.03 GNOME install: snapper held five `xbps system update` pre/post pairs, every one from a CLI run, and **none** for the GNOME Software "Update" that had just been exercised in the GUI — the operation had plainly happened (and the box was up to date afterwards), yet nothing was rollback-able. Cause: `/usr/local/sbin/void-xbps-snap`'s `_should_snap` matched only `-S` / `-Su*` / `-u` / `-U`, while the GNOME Software xbps backend spawns `xbps-install --sync --update --yes` — long options, so each argument hit the `--*) continue` branch and the matcher answered "do not snapshot"; the wrapper then took its `exec "$REAL_XBPS" "$@"` fast path. KDE Discover (`xbps-install -Syu`) and cosmic-store (`xbps-install -Syu -y`) escaped only because they spell the operation with short flags, so this was a **spelling** bug in the wrapper, not a defect in any one store. `_should_snap` now also accepts `--sync`, `--update` and `--upgrade`. Deliberately **not** a policy change: a plain package install (`--yes -- pkg`, no `-S`) still takes no snapshot, exactly like `xbps-install -y pkg` on the CLI (whether installs *should* be snapshotted remains an open question, separate from this fix), and the `-n`/`--dry-run` gate is still evaluated **first**, so a long-option dry run cannot snapshot. Verified by running the shipped matcher over the three GUI argv vectors plus the CLI equivalents, then driving the real wrapper as root with the store's exact update argv — pre-fix: no pair; post-fix: a normal pre/post pair. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.03 below |
 | **Version-3.2.05** | `[COSMIC-STORE-REPO-ORDER]` + `[COSMIC-CONF-STALE-URL]` — Version-3.2.01's lesson applied to the COSMIC path, plus a stale-config-file fix found while auditing it. Both are **latent** rather than live on today's repositories, which is why neither has shown up in a real install. **(1)** `install_cosmic()` ran a plain `xbps-install -y "$@"`, leaving name resolution to config order — `xbps-install <name>` resolves against the **first repository in the pool that carries it**, not the highest version across the pool, and it records that repo as the package's origin, which `xbps-install -u` then refuses to cross. No official Void template ships a `cosmic-*` package, so nothing shadows the store today; the day one exists (or a stale origin is recorded), the store build silently loses and the box stops receiving store updates — exactly what happened to Discover in Version-3.2.00. The final transaction now prepends the store (`-y -R "$_cosmic_repo"`; xbps appends `-R` to the **top** of the pool, so official repos still satisfy ordinary dependencies such as `polkit` and `flatpak`) and then asserts the recorded origin of every package it installed, FATALing on a non-store one. **(2)** The "is our repo already configured?" guard matched the bare host `bluesloth.github.io`, but this project's repo was served from `bluesloth.github.io/void-cosmic-repo/` until 2026-10-11 before moving to `bluesloth.github.io/void-linux-cosmic/`. A box carrying a stale `59-cosmic.conf` from that era matched the loose pattern, so the file was never rewritten and the sync then talked to a repository that no longer exists. The guard now matches the full current path. The store's own `cosmic-store` polkit fix (`cosmic-store-1.11.0_10`, published as `epoch-1.11.0-r6`) is independent of this release and rides the store, not the installer. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.04 below |
+| **Version-3.2.06** | `[SDDM-WAIT-LOGIND]` — the first fresh **KDE** install made by Version-3.2.05 never reached a graphical desktop, and the cause was this project's own Version-3.2.03 fix. `[ELOGIND-NO-DBUS-ACTIVATION]` renames `/usr/share/dbus-1/system-services/org.freedesktop.login1.service` to `.service.disabled` so runsv is the only elogind starter — correct, and it stays. But `sddm-0.21.0_2`'s **package-owned** `/etc/sv/sddm/run` runs `dbus-send … StartServiceByName string:org.freedesktop.login1` under `set -e`, and D-Bus needs the **activation entry** for that call even when the name is already owned (`GetNameOwner`/`NameHasOwner` both succeed while `StartServiceByName` fails with `ServiceUnknown`; do not gate on ownership alone). The call returned rc=1, `set -e` killed the script before `exec sddm`, and runsv cycled the service forever: text login worked, no greeter, no Xorg, `/tmp/.X11-unix` empty. The seat/DRM reasoning that scoped Version-3.2.03's `[GDM-WAIT-LOGIND]` away from SDDM was right about the requirement and wrong about the conclusion — sddm *does* need a registered seat for the logind ACL — so the fix is the same shape: `/root/tools/sddm.run.fixed` waits (bounded, 30 s) for `/run/systemd/seats/seat0`, then `exec sddm` anyway with a warning rather than leaving no display manager. Applied at install time (stock kept at `/etc/sv/sddm/run.orig`) and re-applied every boot by `/root/tools/re-fix-sddm-run.sh` from `/etc/rc.local`, because the package owns the file. Adds one by-design `sddm: files check FAILED` row to `xbps-pkgdb -a`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.05 below |
 | **Beta-v2.9.99** | `[LIBVIRT-AUTOSTART]` — the Beta-v2.9.98 one-shot BR0-NAT teardown was **irreversible** against a `libvirt` package update. `net-autostart default --disable` disables autostart by removing the **package-owned** symlink `/etc/libvirt/qemu/networks/autostart/default.xml`, and a later `libvirt` update re-installs every package file, silently restoring that symlink so `default` autostarts `virbr0` again — with the `[BR0-NAT-ONESHOT]` stamp present the block skipped forever and never undid it (the latent virbr0 return). The gate now **re-enters** when that symlink is present again, not only when the stamp is absent (stamp absent = initial migration; stamp + symlink = a package update restored it, re-tear; stamp + no symlink = still torn down, a single `[ -e ]` no-op). The re-entry probe needs no libvirtd and costs nothing on an already-migrated box, and a re-entered run is idempotent — it re-verifies and re-stamps, logging `reason=` in `/var/log/void-br0-nat-teardown.log`. The permanent pkgdb `libvirt: files check FAILED` for the removed package-owned symlink is unchanged (known, by-design; tracked separately). No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.98 below |
 | **Beta-v2.9.98** | `[BR0-NAT-ONESHOT]` + `[BR0-NAT-BACKGROUND]` — the rc.local libvirt `default` NAT teardown (Beta-v2.9.96) no longer costs boot time. `/etc/runit/2` runs `rc.local` **synchronously before `runsvdir`**, so the teardown's wait loop (`virsh net-info default` polled up to 30× `sleep 1`) sat directly on the path to the display manager and **always burned its full 30 s**: libvirtd is started by `runsvdir`, so it is never up when the loop begins and every probe failed (measured on the operator's box 2026-10-17: kernel→Xorg 38.4 s, of which 30 s was this block). Two changes: **(1)** a **verified** teardown (`torn_down=yes`) now stamps `/var/lib/void-installer/br0-nat-torn-down.done` and the stamp's presence skips the block on every later boot (an unverified teardown still retries the next boot); **(2)** the whole block runs as `{ …; } &`, so `rc.local` returns immediately and even the first unstamped run cannot block the desktop — and because the backgrounded loop keeps polling while `runsvdir` starts libvirtd, it now actually **succeeds** mid-boot (previously impossible), gets verified, and stamps. Teardown semantics, the wired-NIC presence gate, the log and the `virbr0` cleanup are unchanged; the same box boots to Xorg in ~8 s. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.97 below |
 | **Beta-v2.9.97** | `[LIMINE-NVRAM]` — re-adds the optional Limine UEFI NVRAM registration that first landed on the public export line at Beta-v2.9.92 (commit `ae72d75`, "feat(limine): add optional NVRAM entry, default off") and was then clobbered there by the Release-v2.9.93 source sync (`Source-Ref`) before any release shipped it — it was never present on this canonical line. A new `DEFAULT_LIMINE_NVRAM` toggle (default `false`) drives a Limine-only prompt; on `yes` the Stage-2 Limine deploy `install_pkgs efibootmgr` and runs `efibootmgr --create` pointing at `BOOTX64.EFI` (ESP disk/partition derived via `findmnt` + `lsblk`), in addition to the always-present removable/fallback path; failure is non-fatal. Default/no keeps the deploy byte-identical to the historical NVRAM-free behavior. The prompt accepts `y`/`yes`/`true` and `n`/`no`/`false` (the `[HEADLESS-PROMPT-LOOP]` lesson) so a true/false default can never loop. Threaded through the DRY-RUN plan, `chroot_env`, `limine-env`, `install-config` and the NEXT-STEPS text. `efibootmgr` was already in `PKG_PREFLIGHT`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.96 below |
@@ -1078,6 +1079,150 @@ clean; `check-heredocs.sh` ALL CLEAN; `check-defaults.sh` ALL CONSISTENT (the
 new `DEFAULT_` is declared *and* wired); `check-pkg-preflight.sh` ALL COVERED
 (no package surface changed).
 
+## Version-3.2.06 — `[SDDM-WAIT-LOGIND]` (the first fresh KDE install never reached a desktop, because Version-3.2.03's elogind fix killed SDDM's package-owned run script)
+
+`SCRIPT_VERSION` bumped to Version-3.2.05 → Version-3.2.06.
+
+The second "found on a fresh install of the previous release" fix in a row, and
+the more uncomfortable kind: **the release that broke this box was this
+project's own correction of an earlier bug.** The symptom was blunt — the
+machine booted, text login on the consoles worked perfectly, and there was no
+greeter, no Xorg, and nothing in `/tmp/.X11-unix`. It looked like a missing
+package or a broken KDE install. It was neither.
+
+### 1 — The root cause: `set -e`, a package-owned script, and an activation file we renamed
+
+`sddm-0.21.0_2` ships `/etc/sv/sddm/run` (494 B), and the xbps package **owns**
+that path. The stock script is:
+
+```sh
+#!/bin/sh
+exec 2>&1
+set -e
+sv check dbus >/dev/null || exit 1
+
+if [ -x /usr/bin/elogind-inhibit ]; then
+        dbus-send --system --print-reply --dest=org.freedesktop.DBus \
+                /org/freedesktop/DBus                           \
+                org.freedesktop.DBus.StartServiceByName         \
+                string:org.freedesktop.login1 uint32:0
+fi
+…
+exec sddm 2>&1
+```
+
+Version-3.2.03's `[ELOGIND-NO-DBUS-ACTIVATION]` renames
+`/usr/share/dbus-1/system-services/org.freedesktop.login1.service` to
+`.service.disabled`, so runsv is the only elogind starter. That fix is correct
+and it stays. But the `dbus-send … StartServiceByName` above now returns:
+
+```
+Error org.freedesktop.DBus.Error.ServiceUnknown:
+  The name org.freedesktop.login1 was not provided by any .service files
+```
+
+rc=1, `set -e` aborts the script **before `exec sddm`**, and runsv restarts it
+forever. The service never reaches `sddm`, so there is no X server, no greeter,
+and no seat session — while the text consoles are entirely healthy, which is
+what makes the symptom read as "KDE is broken" rather than "the DM never ran".
+
+**The fact worth keeping:** `StartServiceByName` needs the *activation entry*
+even when the name is **currently owned**. On the affected box,
+`GetNameOwner("org.freedesktop.login1")` and `NameHasOwner(…)` both succeeded
+against the running elogind while `StartServiceByName` still failed. A check
+that gates on ownership alone would have declared logind healthy and left this
+unexplained — the same class of mistake as reading "service state" where a
+marker file was needed.
+
+### 2 — The scoping decision in Version-3.2.03 was half right
+
+That release scoped `[GDM-WAIT-LOGIND]` to `DISPLAY_MANAGER=gdm` and wrote, in
+the script and here, that "SDDM does its own seat/DRM handling and never showed
+this failure". The requirement it names is real — sddm links `libelogind`, its
+greeter session **is** a logind session, and it is not in the `video`/`render`
+groups, so its only route to `/dev/dri/card0` is the logind ACL, which needs a
+registered seat. The conclusion drawn from it was wrong: SDDM does not avoid
+the seat, it *depends* on it, and it had simply never been run on this project's
+elogind configuration. The scoping comments are corrected at every site in this
+release (2c, 2d, `rc.local`, the header `VERSION-HISTORY`), so no future session
+reads the old claim as current design.
+
+### 3 — The fix: the same bounded wait, applied where SDDM can use it
+
+`/root/tools/sddm.run.fixed` (1054 B) is the stock script with the failing
+`dbus-send` replaced by the marker wait `[GDM-WAIT-LOGIND]` already uses:
+
+- wait, **bounded at 30 s**, for `/run/systemd/seats/seat0`;
+- on timeout, print a warning and start sddm **anyway** — a display manager
+  that may fail is still better than a machine with none;
+- then the stock locale/`conf`/`exec sddm` tail, unchanged.
+
+`set -e` is deliberately retained for parity with the stock script; the marker
+loop cannot fail under it, and `conf` always exists because the installer
+writes it.
+
+Because the package owns the file, the fix needs both halves of the house
+pattern:
+
+- **install time** — `[SDDM-WAIT-LOGIND]` runs right after the gdm apply block,
+  gated `DISPLAY_MANAGER=sddm` **and** `[ -f /etc/sv/sddm/run ]`; it keeps the
+  stock copy at `/etc/sv/sddm/run.orig` (`cp`, only if absent) and installs the
+  fixed copy with `install -m 0755`;
+- **every boot** — `/root/tools/re-fix-sddm-run.sh` (2469 B) is called from
+  `/etc/rc.local` under the same `__DISPLAY_MANAGER__ = sddm` gate, appends to
+  `/var/log/void-elogind-selfheal.log` under the `void-sddm-wait-logind` tag,
+  and only writes when `cmp -s` shows the on-disk script differs. It is
+  idempotent and never signals a running sddm — `rc.local` runs before
+  `runsvdir` anyway.
+
+A `sddm` upgrade reverts the file; the rc.local hook restores it on the next
+boot. To revert by hand: drop the rc.local call and copy `run.orig` back.
+
+### 4 — The cost, stated plainly: one more `xbps-pkgdb -a` row
+
+`/etc/sv/sddm/run` is now intentionally not what the package shipped, so
+`xbps-pkgdb -a` reports `sddm: files check FAILED` — the same accepted trade as
+elogind's run script, gdm's run script, installer-owned `/etc/sv/*` entries and
+the `void-xbps-snap` shadow. The stock copy sits next to it as `run.orig`. It is
+recorded here so a future audit does not "fix" it back.
+
+### 5 — Verification
+
+- **Hermetic harness** (`xbps-work/scratch/sddm-fix-test/run-test.sh`, four
+  cases): the stock script fails at `dbus-send` with rc=1 and never reaches
+  `sddm`; the fixed script execs with `seat0` present (no delay) and with it
+  absent (warning only, still execs). **ALL CASES PASS.**
+- **Negative control on the affected box:** running `sh ./run.orig` from
+  `/etc/sv/sddm` reproduced the exact `ServiceUnknown` error and rc=1, proving
+  the diagnosis on the same bytes the package ships.
+- **The installed script, as root, in place:** `sv check dbus` passes, the seat
+  marker is already present so the loop does not wait, locale and `conf` are
+  read, and the script reaches `exec sddm` with rc=0. (The `sv check` first line
+  needs root, so an unprivileged run exits 1 there — the script must be tested
+  with `sudo`, or the run stops at the gate for the wrong reason.)
+- **The embedded heredocs are byte-identical to the proved artifacts:**
+  extracting both bodies from the installer and comparing against
+  `/root/tools/sddm.run.fixed` and `/root/tools/re-fix-sddm-run.sh` gives
+  `cmp`-clean matches (1054 B and 2469 B), and `sh -n` is clean on both.
+
+Gates: `bash -n` clean; `check-heredocs.sh` ALL CLEAN (the two new tool bodies
+and the modified rc.local are extracted and syntax-checked); `check-defaults.sh`
+ALL CONSISTENT (no prompt surface changed); `check-pkg-preflight.sh` ALL COVERED
+(no package surface changed); `check-bios-boot.sh` unchanged.
+
+### 6 — Correction recorded in Version-3.2.03
+
+The 3.2.03 section's claim that SDDM "does its own seat/DRM handling and never
+showed this failure" is corrected in place above (in `§2`) with a dated note,
+rather than silently rewritten: the requirement was right, the conclusion was
+not, and the cost of reading it as design was this release.
+
+**Not in this release:** the sddm greeter theme, the session choice and the
+`/etc/sddm.conf.d` contents are untouched — this release only makes sddm start
+at all. elogind's activation file stays renamed; nothing restores
+`org.freedesktop.login1.service`, because that would reintroduce the
+double-start race Version-3.2.03 fixed.
+
 ## Version-3.2.05 — `[COSMIC-STORE-REPO-ORDER]` + `[COSMIC-CONF-STALE-URL]` (the COSMIC store build is selected by repository, and a retired URL can no longer survive in `59-cosmic.conf`)
 
 `SCRIPT_VERSION` bumped to Version-3.2.04 → Version-3.2.05.
@@ -1356,6 +1501,24 @@ Scoped to `DISPLAY_MANAGER=gdm` **on purpose**:
 - **SDDM** does its own seat/DRM handling and never showed this failure;
 - **cosmic-greeter** gates on `sv check elogind` — service state, not the seat
   — and runsv re-runs it, which is precisely why COSMIC recovers.
+
+> **CORRECTION (2026-11-05, Version-3.2.06 `[SDDM-WAIT-LOGIND]`).** The SDDM
+> bullet above is **half right and the conclusion is wrong**, and reading it as
+> design cost the first fresh KDE install its graphical desktop. The requirement
+> it names is real — sddm links `libelogind`, its greeter session *is* a logind
+> session, and it reaches `/dev/dri/card0` only through the logind ACL — so SDDM
+> does **not** avoid the seat, it **depends** on it. It had simply never been run
+> on this project's elogind configuration. Worse, the `[ELOGIND-NO-DBUS-ACTIVATION]`
+> half of *this* release is what broke it: sddm's package-owned
+> `/etc/sv/sddm/run` calls `dbus-send … StartServiceByName
+> string:org.freedesktop.login1` under `set -e`, and D-Bus needs the **activation
+> entry** for that call even when the name is already owned, so renaming the file
+> made it return rc=1 and `set -e` killed the script before `exec sddm`. SDDM now
+> gets the same bounded seat0 wait, applied at install time and re-applied every
+> boot. Full record: the `Version-3.2.06` section above.
+>
+> The cosmic-greeter bullet stands as written (it was verified on the COSMIC
+> box); the SDDM one does not — do not cite it as current design.
 
 The gdm package **owns** `/etc/sv/gdm/run`, so an upgrade reverts the wait;
 `/root/tools/re-fix-gdm-run.sh` restores it from `/root/tools/gdm.run.fixed` on

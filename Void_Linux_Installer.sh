@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.05"
+SCRIPT_VERSION="Version-3.2.06"
 
 
 
@@ -6617,6 +6617,49 @@ echo "gdm run script restored to seat0-waiting copy (was reverted, likely by upg
 INNER_EOF
 chmod 0755 /root/tools/re-fix-gdm-run.sh
 
+cat > /root/tools/sddm.run.fixed << 'INNER_EOF'
+#!/bin/sh
+exec 2>&1
+set -e
+sv check dbus >/dev/null || exit 1
+
+_n=0
+while [ ! -e /run/systemd/seats/seat0 ] && [ "$_n" -lt 30 ]; do
+    _n=$((_n + 1))
+    sleep 1
+done
+if [ "$_n" -ge 30 ]; then
+    echo "sddm: warning: seat0 not registered after 30s; starting sddm anyway"
+fi
+
+[ -r /etc/locale.conf ] && . /etc/locale.conf && export LANG
+
+[ -f ./conf ] && . ./conf
+
+exec sddm 2>&1
+INNER_EOF
+chmod 0755 /root/tools/sddm.run.fixed
+
+cat > /root/tools/re-fix-sddm-run.sh << 'INNER_EOF'
+#!/bin/sh
+set -eu
+export PATH="/usr/bin:/usr/sbin:/bin:/sbin"
+
+FIXED="/root/tools/sddm.run.fixed"
+TARGET="/etc/sv/sddm/run"
+
+[ -f "$FIXED" ] || { echo "ERROR: $FIXED missing" >&2; exit 1; }
+[ -f "$TARGET" ] || exit 0
+
+if cmp -s "$FIXED" "$TARGET"; then
+    exit 0
+fi
+
+install -m 0755 "$FIXED" "$TARGET"
+echo "sddm run script restored to seat0-waiting copy (was reverted, likely by upgrade)."
+INNER_EOF
+chmod 0755 /root/tools/re-fix-sddm-run.sh
+
 if [ "${SESSION_STACK:-}" = "elogind" ] && [ -f /etc/sv/elogind/run ]; then
     [ -e /etc/sv/elogind/run.orig ] || cp /etc/sv/elogind/run /etc/sv/elogind/run.orig
     install -m 0755 /root/tools/elogind.run.fixed /etc/sv/elogind/run
@@ -6634,6 +6677,12 @@ if [ "${DISPLAY_MANAGER:-}" = "gdm" ] && [ -f /etc/sv/gdm/run ]; then
     [ -e /etc/sv/gdm/run.orig ] || cp /etc/sv/gdm/run /etc/sv/gdm/run.orig
     install -m 0755 /root/tools/gdm.run.fixed /etc/sv/gdm/run
     echo "gdm run script replaced with seat0-waiting copy (stock kept at /etc/sv/gdm/run.orig)"
+fi
+
+if [ "${DISPLAY_MANAGER:-}" = "sddm" ] && [ -f /etc/sv/sddm/run ]; then
+    [ -e /etc/sv/sddm/run.orig ] || cp /etc/sv/sddm/run /etc/sv/sddm/run.orig
+    install -m 0755 /root/tools/sddm.run.fixed /etc/sv/sddm/run
+    echo "sddm run script replaced with seat0-waiting copy (stock kept at /etc/sv/sddm/run.orig)"
 fi
 
 cat > /root/tools/limine-sync.sh << 'INNER_EOF'
@@ -7935,6 +7984,12 @@ fi
 if [ "__DISPLAY_MANAGER__" = "gdm" ] && [ -x /root/tools/re-fix-gdm-run.sh ]; then
     { echo "=== void-gdm-wait-logind: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
       /root/tools/re-fix-gdm-run.sh || echo "WARNING: gdm seat0-wait self-heal failed."
+    } >> /var/log/void-elogind-selfheal.log 2>&1
+fi
+
+if [ "__DISPLAY_MANAGER__" = "sddm" ] && [ -x /root/tools/re-fix-sddm-run.sh ]; then
+    { echo "=== void-sddm-wait-logind: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+      /root/tools/re-fix-sddm-run.sh || echo "WARNING: sddm seat0-wait self-heal failed."
     } >> /var/log/void-elogind-selfheal.log 2>&1
 fi
 
