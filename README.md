@@ -1,4 +1,4 @@
-# Void Linux Advanced Recovery Installer
+# Void Linux Advanced Installer
 
 A self-documenting, runit-based Void Linux installer that runs **exclusively on
 the outer host terminal of a Void Linux Live CD** and produces a
