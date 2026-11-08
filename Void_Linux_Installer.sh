@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.06"
+SCRIPT_VERSION="Version-3.2.07"
 
 
 
@@ -24,9 +24,10 @@ DEFAULT_SWAP_BACKEND="${DEFAULT_SWAP_BACKEND:-1}"
 DEFAULT_HIBERNATION="${DEFAULT_HIBERNATION:-false}"
 DEFAULT_SNAPSHOT_AUDIO="${DEFAULT_SNAPSHOT_AUDIO:-false}"
 DEFAULT_OCTOXBPS="${DEFAULT_OCTOXBPS:-false}"
-DEFAULT_FLATPAK="${DEFAULT_FLATPAK:-false}"
+DEFAULT_FLATPAK="${DEFAULT_FLATPAK:-true}"
 DEFAULT_COSMIC_STORE="${DEFAULT_COSMIC_STORE:-false}"
-DEFAULT_COSMIC_TOUCHPAD_RCLICK="${DEFAULT_COSMIC_TOUCHPAD_RCLICK:-false}"
+DEFAULT_GNOME_SOFTWARE="${DEFAULT_GNOME_SOFTWARE:-false}"
+DEFAULT_DISCOVER="${DEFAULT_DISCOVER:-false}"
 DEFAULT_BREW="${DEFAULT_BREW:-false}"
 DEFAULT_FIREFOX="${DEFAULT_FIREFOX:-true}"
 DEFAULT_CHROMIUM="${DEFAULT_CHROMIUM:-true}"
@@ -1903,16 +1904,48 @@ echo ""
 echo "The following are independent yes/no choices — answer each on its own,"
 echo "any combination is fine."
 
-ask "Install OctoXBPS (graphical package manager + update notifier)? [y/N]: "
-read -r INSTALL_OCTOXBPS_INPUT
-case "$INSTALL_OCTOXBPS_INPUT" in
-    "") INSTALL_OCTOXBPS="$DEFAULT_OCTOXBPS" ;;
-    [nN]*) INSTALL_OCTOXBPS="false" ;;
-    *) INSTALL_OCTOXBPS="true" ;;
-esac
-export INSTALL_OCTOXBPS
+if [ "$DESKTOP_ENV" != "none" ] && [ "$DESKTOP_ENV" != "gnome" ] && \
+   [ "$DESKTOP_ENV" != "cosmic" ] && [ "$DESKTOP_ENV" != "kde" ]; then
+    _INSTALL_STORE_OFFERED="true"
+else
+    _INSTALL_STORE_OFFERED="false"
+fi
 
-ask "Install Flatpak (+ Flathub)? [y/N]: "
+if [ "$_INSTALL_STORE_OFFERED" = "true" ]; then
+    ask "Install OctoXBPS (graphical package manager + update notifier)? [y/N]: "
+    read -r INSTALL_OCTOXBPS_INPUT
+    case "$INSTALL_OCTOXBPS_INPUT" in
+        "") INSTALL_OCTOXBPS="$DEFAULT_OCTOXBPS" ;;
+        [nN]*) INSTALL_OCTOXBPS="false" ;;
+        *) INSTALL_OCTOXBPS="true" ;;
+    esac
+    export INSTALL_OCTOXBPS
+
+    ask "Install GNOME Software (xbps-backed app store)? [y/N]: "
+    read -r INSTALL_GNOME_SOFTWARE_INPUT
+    case "$INSTALL_GNOME_SOFTWARE_INPUT" in
+        "") INSTALL_GNOME_SOFTWARE="$DEFAULT_GNOME_SOFTWARE" ;;
+        [nN]*) INSTALL_GNOME_SOFTWARE="false" ;;
+        *) INSTALL_GNOME_SOFTWARE="true" ;;
+    esac
+    export INSTALL_GNOME_SOFTWARE
+
+    ask "Install KDE Discover (xbps-backed app store)? [y/N]: "
+    read -r INSTALL_DISCOVER_INPUT
+    case "$INSTALL_DISCOVER_INPUT" in
+        "") INSTALL_DISCOVER="$DEFAULT_DISCOVER" ;;
+        [nN]*) INSTALL_DISCOVER="false" ;;
+        *) INSTALL_DISCOVER="true" ;;
+    esac
+    export INSTALL_DISCOVER
+else
+    INSTALL_OCTOXBPS="false"
+    INSTALL_GNOME_SOFTWARE="false"
+    INSTALL_DISCOVER="false"
+    export INSTALL_OCTOXBPS INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER
+fi
+
+ask "Install Flatpak (+ Flathub)? [Y/n]: "
 read -r INSTALL_FLATPAK_INPUT
 case "$INSTALL_FLATPAK_INPUT" in
     "") INSTALL_FLATPAK="$DEFAULT_FLATPAK" ;;
@@ -1935,7 +1968,7 @@ esac
 export INSTALL_BREW
 
 INSTALL_COSMIC_STORE="false"
-if [ "$INSTALL_FLATPAK" = "true" ]; then
+if [ "$INSTALL_FLATPAK" = "true" ] && [ "$_INSTALL_STORE_OFFERED" = "true" ]; then
     ask "Install cosmic-store (COSMIC app store; Flatpak-only)? [y/N]: "
     read -r INSTALL_COSMIC_STORE_INPUT
     case "$INSTALL_COSMIC_STORE_INPUT" in
@@ -1945,18 +1978,7 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
     esac
 fi
 export INSTALL_COSMIC_STORE
-
-INSTALL_COSMIC_TOUCHPAD_RCLICK="false"
-if [ "$DESKTOP_ENV" = "cosmic" ]; then
-    ask "Configure COSMIC touchpad right-click (two-finger tap + corner-click)? [y/N]: "
-    read -r INSTALL_COSMIC_TOUCHPAD_RCLICK_INPUT
-    case "$INSTALL_COSMIC_TOUCHPAD_RCLICK_INPUT" in
-        "") INSTALL_COSMIC_TOUCHPAD_RCLICK="$DEFAULT_COSMIC_TOUCHPAD_RCLICK" ;;
-        [yY]*) INSTALL_COSMIC_TOUCHPAD_RCLICK="true" ;;
-        *) INSTALL_COSMIC_TOUCHPAD_RCLICK="false" ;;
-    esac
-fi
-export INSTALL_COSMIC_TOUCHPAD_RCLICK
+unset _INSTALL_STORE_OFFERED
 
 ask "Install Thunderbird (email client)? [y/N]: "
 read -r INSTALL_THUNDERBIRD_INPUT
@@ -3155,6 +3177,7 @@ DEVICE_PROFILE PROFILE_TLP PROFILE_BT PROFILE_PRELOAD \
                REPO_PRIMARY REPO_BACKUP1 REPO_BACKUP2 REPO_EXTRA1 REPO_EXTRA2 \
                LOCAL_CACHE_REUSE LOCAL_CACHE_DIR \
 DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
+INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER \
 INSTALL_FLATPAK INSTALL_COSMIC_STORE INSTALL_BREW INSTALL_FIREFOX INSTALL_CHROMIUM \
                  INSTALL_VIVALDI INSTALL_FALKON INSTALL_BRAVE \
                  INSTALL_THUNDERBIRD INSTALL_STEAM INSTALL_VIRTUALBOX \
@@ -3219,6 +3242,7 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "  Data regions (MULTI-FS): carved=['${REGION_PARTITIONED:-}'] home=${REGION_HOME_FS:-btrfs} var=${REGION_VAR_FS:-btrfs} cache=${REGION_CACHE_FS:-btrfs} srv=${REGION_SRV_FS:-btrfs} opt=${REGION_OPT_FS:-btrfs} games=${REGION_GAMES:-none}"
     echo "  Accounts model        : ${ACCOUNT_MODEL:-<unset>}"
     echo "  App channels          : Flatpak=${INSTALL_FLATPAK:-no} cosmic-store=${INSTALL_COSMIC_STORE:-no} Homebrew=${INSTALL_BREW:-no}"
+    echo "  Store choices         : octoxbps=${INSTALL_OCTOXBPS:-no} gnome-software=${INSTALL_GNOME_SOFTWARE:-no} discover=${INSTALL_DISCOVER:-no}"
     echo "  Game launchers        : steam=${INSTALL_STEAM:-no} lutris=${INSTALL_LUTRIS:-no} heroic=${INSTALL_HEROIC:-no} bottles=${INSTALL_BOTTLES:-no} wine=${INSTALL_WINE:-no} gamemode=${INSTALL_GAMEMODE:-no}"
     echo "  Hardware              : GPU=${GPU_FAMILIES:-<none detected>} wireless=${WIFI_HW:-unknown}"
     echo "  NVIDIA driver         : ${INSTALL_NVIDIA:-auto}"
@@ -4023,7 +4047,6 @@ echo "export PROFILE_TLP=\"$PROFILE_TLP\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROFILE_BT=\"$PROFILE_BT\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROFILE_PRELOAD=\"$PROFILE_PRELOAD\"" >> /mnt/tmp/chroot_env.sh
 echo "export POWER_PPD=\"$POWER_PPD\"" >> /mnt/tmp/chroot_env.sh
-echo "export INSTALL_COSMIC_TOUCHPAD_RCLICK=\"$INSTALL_COSMIC_TOUCHPAD_RCLICK\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_USER=\"$TARGET_USER\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_FULL_NAME=\"$TARGET_FULL_NAME\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_HOSTNAME=\"$TARGET_HOSTNAME\"" >> /mnt/tmp/chroot_env.sh
@@ -4132,6 +4155,8 @@ if [ "$YK_MODE" = "hmac-sha1" ]; then
 fi
 echo "export SESSION_STACK=\"$SESSION_STACK\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_OCTOXBPS=\"$INSTALL_OCTOXBPS\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_GNOME_SOFTWARE=\"$INSTALL_GNOME_SOFTWARE\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_DISCOVER=\"$INSTALL_DISCOVER\"" >> /mnt/tmp/chroot_env.sh
 echo "export BOOTLOADER=\"$BOOTLOADER\"" >> /mnt/tmp/chroot_env.sh
 echo "export BOOT_MODE=\"$BOOT_MODE\"" >> /mnt/tmp/chroot_env.sh
 echo "export DISK=\"$DISK\"" >> /mnt/tmp/chroot_env.sh
@@ -5047,6 +5072,7 @@ elif [ "$DESKTOP_ENV" = "lxqt" ]; then
     install_pkgs lxqt gvfs FeatherPad
 elif [ "$DESKTOP_ENV" = "cosmic" ]; then
     install_cosmic cosmic-desktop-full
+    install_cosmic cosmic-store
     _xkb_layout="$(sed -n 's/^[[:space:]]*KEYMAP=["]*\([^"[:space:]]*\)["]*[[:space:]]*\(#.*\)\{0,1\}$/\1/p' /etc/rc.conf 2>/dev/null | tail -1)"
     case "${_xkb_layout:-}" in
         ''|*[!a-zA-Z0-9_-]*) _xkb_layout="us" ;;
@@ -5068,31 +5094,15 @@ repeat_rate: 25,
 XKB_EOF
     fi
     unset _xkb_layout _xkb_conf
-    if [ "$INSTALL_COSMIC_TOUCHPAD_RCLICK" = "true" ]; then
-        if [ -n "$TARGET_USER" ] && id -u "$TARGET_USER" >/dev/null 2>&1; then
-            _tp_src="/usr/share/cosmic/com.system76.CosmicComp/v1/input_touchpad"
-            _tp_dir="/home/${TARGET_USER}/.config/cosmic/com.system76.CosmicComp/v1"
-            _tp_dst="${_tp_dir}/input_touchpad"
-            mkdir -p "$_tp_dir"
-            if [ -f "$_tp_src" ] && grep -q "click_method:Some(Clickfinger)" "$_tp_src"; then
-                sed 's/click_method:Some(Clickfinger)/click_method:Some(ButtonAreas)/' \
-                    "$_tp_src" > "$_tp_dst"
-            else
-                cat > "$_tp_dst" << 'TP_EOF'
-(state:Enabled,click_method:Some(ButtonAreas),scroll_config:Some((method:Some(TwoFinger),natural_scroll:None,scroll_button:None,scroll_factor:None)),tap_config:Some((enabled:true,button_map:Some(LeftRightMiddle),drag:true,drag_lock:false)))
-TP_EOF
-            fi
-            chmod 0644 "$_tp_dst"
-            chown "${TARGET_USER}:${TARGET_USER}" "$_tp_dst"
-            echo "==> COSMIC touchpad right-click override written for ${TARGET_USER}"
-        else
-            echo "  WARNING: touchpad right-click requested, but target account does not exist yet — skipping." >&2
-        fi
-        unset _tp_src _tp_dir _tp_dst
-    fi
 elif [ "$DESKTOP_ENV" = "kde" ]; then
     install_pkgs kde-plasma kde-baseapps ark kio-admin
     install_discover discover
+fi
+
+if [ "$DESKTOP_ENV" != "gnome" ] && [ "$DESKTOP_ENV" != "cosmic" ] && [ "$DESKTOP_ENV" != "kde" ]; then
+    [ "$INSTALL_GNOME_SOFTWARE" = "true" ] && install_gnome_software_store
+    [ "$INSTALL_DISCOVER" = "true" ] && install_discover discover
+    [ "$INSTALL_COSMIC_STORE" = "true" ] && install_cosmic cosmic-store
 fi
 
 if [ "$DISPLAY_MANAGER" = "lightdm" ]; then
@@ -6250,6 +6260,9 @@ MICROCODE_PKG="${MICROCODE_PKG:-<unset>}"
 MICROCODE_DECIDED="${MICROCODE_DECIDED:-<unset>}"
 INSTALL_FLATPAK="${INSTALL_FLATPAK:-false}"
 INSTALL_COSMIC_STORE="${INSTALL_COSMIC_STORE:-false}"
+INSTALL_OCTOXBPS="${INSTALL_OCTOXBPS:-false}"
+INSTALL_GNOME_SOFTWARE="${INSTALL_GNOME_SOFTWARE:-false}"
+INSTALL_DISCOVER="${INSTALL_DISCOVER:-false}"
 FLATPAK_PULLED_BY="${FLATPAK_PULLED_BY:-}"
 INSTALL_BRAVE="${INSTALL_BRAVE:-false}"
 INSTALL_BREW="${INSTALL_BREW:-false}"

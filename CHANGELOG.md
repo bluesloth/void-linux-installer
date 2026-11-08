@@ -17,7 +17,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Version-3.2.06** (`SCRIPT_VERSION` in the script).
+Current version: **Version-3.2.07** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -160,8 +160,7 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.96** | `[BR0-NAT-TEARDOWN]` + `[HEADLESS-PROMPT-LOOP]` — two fixes. **(1)** the libvirt `default` NAT teardown left the one-shot first-boot guard for the **every-boot** section of `/etc/rc.local`: it now polls until `virsh net-info default` actually succeeds (the old code trusted libvirtd's socket, which appears *before* the net is defined, so `net-destroy`/`net-autostart --disable` no-op'd under `|| true` — finding **F1**), destroys+disables then **verifies**, logs to `/var/log/void-br0-nat-teardown.log`, removes the orphaned `virbr0`, and only tears down when a physical wired NIC is present (a NIC-absent boot keeps the NAT fallback, so a virt box is never left with zero VM networking). **(2)** the two headless `[y/N]` opt-in prompts now accept `y`/`yes`/`true` and `n`/`no`/`false` case-insensitively, so bare Enter (= the `false` default) no longer loops forever. No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.95 below |
 | **Beta-v2.9.95** | `[SSH-DEFAULT-HARDEN]` — the two `[SSH-SERVER]` access sub-prompts now default to the **secure** posture: `DEFAULT_SSH_PASSWORD_AUTH` `yes` → `no` and `DEFAULT_SSH_ROOT_LOGIN` `prohibit-password` → `no`, with the prompt labels flipped `[Y/n]` → `[y/N]`. A bare Enter can therefore no longer write a password-reachable sshd (`PasswordAuthentication yes` + `PermitRootLogin prohibit-password`); a `y` answer still yields exactly the previous values (`yes` / `prohibit-password`, i.e. public-key-only root login), so no prompt was removed — only the Enter-default moved. Server toggle, port, key prompts, packages and the prompt set are unchanged. This re-applies in the canonical source the hardening that had landed only on the public export (2026-10-15) and was then clobbered there by the Release-v2.9.93 source sync. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.94 below |
 | **Beta-v2.9.94** | `[BASELINE-SNAPSHOT-FIRSTBOOT]` — the baseline snapper snapshot ("Baseline Automated System Installation") is **no longer taken at the end of the chroot install**; it is now created at the **end of the one-shot first-boot provisioning** in `/etc/rc.local`, right after the service symlinks (display manager, dbus, NetworkManager, polkitd, ...) are linked and right before the `/var/log/firstboot.log` marker is written. Root cause: those symlinks are the only thing that starts the greeter/desktop and they are created at **first boot** (deferred from the install), so the install-time snapshot captured a console-only system — rolling back to it, or booting it from the GRUB/Limine snapshot menu, landed on a bare `agetty` instead of the greeter, and the rollback could not self-heal because `/var/log/firstboot.log` lives on the separate `@log` subvolume (never restored by an `@` snapshot), so `rc.local` skipped first-boot provisioning on the restored system. Snapshotting after provisioning makes the baseline a fully-functional, rollback-ready clean-system image. The existing `[ ! -f /var/log/firstboot.log ]` guard already makes this exactly-once, so **no self-deleting script/cron is needed**. The install-time `41_snapshots-btrfs` `chmod -x`/`+x` dance (which only existed to keep the just-created snapshot out of the initial `grub-mkconfig`) is removed; `grub-mkconfig` now runs normally and the first-boot snapshot is picked up afterwards by `grub-btrfsd` (GRUB) or the Limine snapper plugin. Install-success NEXT-STEPS text updated to state the baseline is taken on first boot. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Beta-v2.9.93 below |
-| **Beta-v2.9.93** | `[OCTOXBPS-NOPASS-POLKIT]` — when `INSTALL_OCTOXBPS=true`, Stage 2 now also deposits a polkit **action + rules** pair (`/usr/share/polkit-1/actions/99-octoxbps-check-nopass.policy`, `/etc/polkit-1/rules.d/90-octoxbps-nopass.rules`) that allows **passwordless repository sync** (`xbps-install -Sy` / `-Syy`) for active, local users in `wheel`, suppressing the OctoXBPS notifier's startup / network-reconnect password prompt; installing and updating packages still requires normal authentication. *(Backfilled entry: the release commit bumped `SCRIPT_VERSION` to Beta-v2.9.93 but predated its changelog row.)* | Beta-v2.9.92 below |
-| **Beta-v2.9.92** | `[COSMIC-TOUCHPAD-RCLICK]` — new **opt-in COSMIC-only** prompt: "Configure COSMIC touchpad right-click (two-finger tap + corner-click)? [y/N]", default OFF. cosmic-settings ships `input_touchpad` with `click_method:Some(Clickfinger)` which on real hardware (AMD Ryzen x360 laptop) yields no usable right-click; the proven daily-driver fix is a per-user override with `click_method:Some(ButtonAreas)` (bottom-corner right-click; two-finger tap preserved via the shipped `button_map:Some(LeftRightMiddle)`). Stage-2 deposits the override **derived** from the in-tree shipped default (`sed` of only the `click_method` token — never a stale hardcoded struct), per-user only (greeter untouched), with a fallback canonical write if the shipped file/token is absent. Guard + chown follow the dotfile-deposit pattern. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.91 below |
+| **Beta-v2.9.93** | `[OCTOXBPS-NOPASS-POLKIT]` — when `INSTALL_OCTOXBPS=true`, Stage 2 now also deposits a polkit **action + rules** pair (`/usr/share/polkit-1/actions/99-octoxbps-check-nopass.policy`, `/etc/polkit-1/rules.d/90-octoxbps-nopass.rules`) that allows **passwordless repository sync** (`xbps-install -Sy` / `-Syy`) for active, local users in `wheel`, suppressing the OctoXBPS notifier's startup / network-reconnect password prompt; installing and updating packages still requires normal authentication. *(Backfilled entry: the release commit bumped `SCRIPT_VERSION` to Beta-v2.9.93 but predated its changelog row.)* | Beta-v2.9.91 below |
 | **Beta-v2.9.91** | `[COSMIC-GREETER-DEFAULT]` — cosmic-greeter becomes the **recommended/default DM for the COSMIC DE** (was SDDM). The old preference traced to a maintainer report that the greeter could not recognize elogind sessions; real hardware (COSMIC 1.10 + cosmic-greeter) sessions cleanly under elogind and is the daily driver, so `RECOMMENDED_DM="cosmic-greeter"` for COSMIC, the DM prompt's Debug caveat is removed, and the Enter-default now follows `RECOMMENDED_DM` exactly as it already does for KDE/GNOME/etc. No package/prompt-index/default changed; pairing text + header comment updated. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.90 below |
 | **Beta-v2.9.90** | `[COSMIC-PPD]` — COSMIC's `cosmic-settings` hard-depends on `power-profiles-daemon` (D-Bus `net.hadess.PowerProfiles`), yet nothing ever linked its runit service, so the DE's powermode picker showed **"Backend not found"** while tlp (laptop profile) ran alongside as the second power manager — a documented PPD+tlp conflict. The Stage-1 resolution now derives `POWER_PPD=true` for EVERY COSMIC build and suppresses tlp on COSMIC laptops (`PROFILE_TLP=false` for the install + first-boot link sites); COSMIC builds install `power-profiles-daemon` (added to `PKG_PREFLIGHT`) and first-boot-link `/etc/sv/power-profiles-daemon`. Scope is COSMIC-only — all other DEs keep the existing tlp laptop behavior. Proven on the reference install (AMD Ryzen laptop): PPD drives `quiet/balanced/performance` through `amd_pstate` + the firmware `platform_profile`; tlp/tlp-rdw removed. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.89 below |
 | **Beta-v2.9.89** | `[SMART-BASELINE]` — smartmontools now ships on EVERY install regardless of DE / greeter / profile (added to the unconditional roll-up line), so a S.M.A.R.T. health baseline (`smartctl -a`) exists on day one — found when the first post-install audit box's healthy 1 TB NVMe could only be verified because the operator had added the package by hand. The `smartd` monitoring daemon stays unenabled by default (operator choice). New package on the always-on surface; no prompt/default changed; `smartmontools` also added to the stage-1 validation-only `PKG_PREFLIGHT` superset per the `[PKG-PREFLIGHT]` drift-guard rule. `bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED | Beta-v2.9.88 below |
@@ -2691,44 +2690,6 @@ and updating packages still authenticates normally). Both files are `chmod 644`.
 *(Backfilled entry: the Beta-v2.9.93 release commit bumped `SCRIPT_VERSION`
 ahead of its changelog row, leaving a gap between Beta-v2.9.92 and this
 version.)*
-
-## Beta-v2.9.92 — `[COSMIC-TOUCHPAD-RCLICK]` (opt-in COSMIC touchpad right-click override)
-
-`SCRIPT_VERSION` bumped to Beta-v2.9.92. Adds a new **opt-in prompt, COSMIC
-builds only**, default OFF (lean posture — must be opted into, matching the
-other app/feature toggles):
-
-```
-Configure COSMIC touchpad right-click (two-finger tap + corner-click)? [y/N]:
-```
-
-Background: `cosmic-settings` ships `/usr/share/cosmic/.../v1/input_touchpad`
-with `click_method:Some(Clickfinger)` — verified via `xbps-query -o` that the
-package owns the file. On the reference install (AMD Ryzen x360 laptop)
-Clickfinger produced **no usable right-click**; the daily-driver fix is the
-per-user override `click_method:Some(ButtonAreas)`, which restores
-right-click via bottom-corner clicks while the two-finger-tap right-click is
-preserved by the same shipped `button_map:Some(LeftRightMiddle)`. The override
-is written **per-user** to
-`~/.config/cosmic/com.system76.CosmicComp/v1/input_touchpad` (the greeter's own
-touchpad behavior is intentionally out of scope — the tested fix was desktop
-sessions only).
-
-Stage-2 mechanics:
-- `DEFAULT_COSMIC_TOUCHPAD_RCLICK="false"` in the defaults block;
-  `INSTALL_COSMIC_TOUCHPAD_RCLICK` prompted only when `DESKTOP_ENV=cosmic`,
-  then carried through `chroot_env.sh` next to `POWER_PPD`.
-- The override is **derived** from the in-tree shipped default (`sed` replacing
-  only the `click_method:Some(Clickfinger)` token) so it always mirrors the
-  current schema — the `[XKB-CONFIG-CREATE]` lesson: never hardcode a struct
-  the package owns. If the shipped file or the Clickfinger token is absent, a
-  canonical known-good override is written instead (the same content proven on
-  the reference box) so the toggle never silently installs a broken/empty
-  config.
-- Runs inside the cosmic branch after the account exists; same presence guard,
-  `chmod 0644` + `chown TARGET_USER:TARGET_USER` as the dotfile deposits.
-`bash -n`, `check-heredocs.sh` ALL CLEAN, `check-defaults.sh` ALL CONSISTENT,
-`check-pkg-preflight.sh` ALL COVERED.
 
 ## Beta-v2.9.91 — `[COSMIC-GREETER-DEFAULT]` (cosmic-greeter becomes the recommended/default DM for the COSMIC DE)
 
