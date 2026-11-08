@@ -999,21 +999,6 @@ SCRIPT_VERSION="Version-3.2.06"
 #                     Debug caveat is removed, and the Enter-default follows
 #                     RECOMMENDED_DM as it already does for every other DE.
 #                     SCRIPT_VERSION bumped Beta-v2.9.90 -> Beta-v2.9.91.
-#     Beta-v2.9.92   [COSMIC-TOUCHPAD-RCLICK] — opt-in COSMIC-only touchpad
-#                     right-click fix. cosmic-settings ships input_touchpad
-#                     with click_method:Some(Clickfinger), which on real
-#                     hardware (AMD Ryzen x360 laptop) yields no usable
-#                     right-click; the daily-driver fix is a per-user override
-#                     with click_method:Some(ButtonAreas) (bottom-corner
-#                     right-click + two-finger tap preserved). NEW prompt
-#                     (COSMIC builds only, default OFF): "Configure COSMIC
-#                     touchpad right-click (two-finger tap + corner-click)?
-#                     [y/N]". Stage-2 deposits the override DERIVED from the
-#                     in-tree shipped default (sed of only the click_method
-#                     token — never a stale hardcoded struct), per-user only
-#                     (greeter untouched), guard + chown like the dotfile
-#                     deposits. SCRIPT_VERSION bumped Beta-v2.9.91
-#                     -> Beta-v2.9.92.
 #     Beta-v2.9.93   [OCTOXBPS-NOPASS-POLKIT] — when INSTALL_OCTOXBPS=true,
 #                     Stage 2 also deposits a polkit action + rules pair
 #                     (99-octoxbps-check-nopass.policy +
@@ -1804,9 +1789,10 @@ DEFAULT_SWAP_BACKEND="${DEFAULT_SWAP_BACKEND:-1}"     # 1=swapfile 2=zram 3=both
 DEFAULT_HIBERNATION="${DEFAULT_HIBERNATION:-false}"   # enable suspend-to-disk? [y/N]
 DEFAULT_SNAPSHOT_AUDIO="${DEFAULT_SNAPSHOT_AUDIO:-false}"  # audio on snapshot boots? [y/N]
 DEFAULT_OCTOXBPS="${DEFAULT_OCTOXBPS:-false}"         # OctoXBPS GUI pkg mgr? [y/N]
-DEFAULT_FLATPAK="${DEFAULT_FLATPAK:-false}"           # Flatpak + Flathub? [y/N]
+DEFAULT_FLATPAK="${DEFAULT_FLATPAK:-true}"            # Flatpak + Flathub? [Y/n]
 DEFAULT_COSMIC_STORE="${DEFAULT_COSMIC_STORE:-false}"      # COSMIC app store (needs Flatpak)? [y/N]
-DEFAULT_COSMIC_TOUCHPAD_RCLICK="${DEFAULT_COSMIC_TOUCHPAD_RCLICK:-false}"  # COSMIC touchpad right-click fix (ButtonAreas)? [y/N]
+DEFAULT_GNOME_SOFTWARE="${DEFAULT_GNOME_SOFTWARE:-false}"   # GNOME Software store? [y/N]
+DEFAULT_DISCOVER="${DEFAULT_DISCOVER:-false}"           # KDE Discover store? [y/N]
 # AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: opt-in complement to
 # Flatpak — Homebrew (classic Linuxbrew) is the unsandboxed, user-owned
 # ~/.linuxbrew CLI/dev channel. Installs only the xbps runtime deps (git curl
@@ -4700,20 +4686,65 @@ echo ""
 echo "The following are independent yes/no choices — answer each on its own,"
 echo "any combination is fine."
 
-# AI (Claude, Sonnet 5, Medium) ADDITION: OctoXBPS (graphical xbps package manager/update
-# notifier) is now a real install-time choice — not everyone wants a
-# graphical package manager or its update-notifier autostarting. Default
-# No ([y/N]).
-ask "Install OctoXBPS (graphical package manager + update notifier)? [y/N]: "
-read -r INSTALL_OCTOXBPS_INPUT
-case "$INSTALL_OCTOXBPS_INPUT" in
-    "") INSTALL_OCTOXBPS="$DEFAULT_OCTOXBPS" ;;
-    [nN]*) INSTALL_OCTOXBPS="false" ;;
-    *) INSTALL_OCTOXBPS="true" ;;
-esac
-export INSTALL_OCTOXBPS
+# AI (Big Pickle) ADDITION — [STORE-DE-MAP]: store mapping by desktop.
+# GNOME, Cosmic and KDE get their related store automatically, with NO
+# prompt:
+#   GNOME    -> gnome-software   (install_gnome_software_store, gnome branch)
+#   Cosmic   -> cosmic-store     (install_cosmic cosmic-store, cosmic branch)
+#   KDE      -> discover         (install_discover discover, kde branch)
+# Every other *graphical* desktop (cinnamon/xfce/mate/lxqt) is offered the
+# four stores/package-managers as opt-in choices; a headless box
+# (DESKTOP_ENV=none) gets none of them. cosmic-store additionally needs
+# Flatpak (hard run-depend), so it is only offered when INSTALL_FLATPAK=true.
+# All four variables default to false when not offered, so Stage-2 gates are
+# simple equality tests and no store is ever installed on GNOME/Cosmic/KDE
+# beyond the automatic one for that desktop.
+if [ "$DESKTOP_ENV" != "none" ] && [ "$DESKTOP_ENV" != "gnome" ] && \
+   [ "$DESKTOP_ENV" != "cosmic" ] && [ "$DESKTOP_ENV" != "kde" ]; then
+    _INSTALL_STORE_OFFERED="true"
+else
+    _INSTALL_STORE_OFFERED="false"
+fi
 
-ask "Install Flatpak (+ Flathub)? [y/N]: "
+if [ "$_INSTALL_STORE_OFFERED" = "true" ]; then
+    # AI (Claude, Sonnet 5, Medium) ADDITION: OctoXBPS (graphical package
+    # manager/update notifier) is a real install-time choice — not everyone
+    # wants a graphical package manager or its update-notifier autostarting.
+    # Default No ([y/N]).
+    ask "Install OctoXBPS (graphical package manager + update notifier)? [y/N]: "
+    read -r INSTALL_OCTOXBPS_INPUT
+    case "$INSTALL_OCTOXBPS_INPUT" in
+        "") INSTALL_OCTOXBPS="$DEFAULT_OCTOXBPS" ;;
+        [nN]*) INSTALL_OCTOXBPS="false" ;;
+        *) INSTALL_OCTOXBPS="true" ;;
+    esac
+    export INSTALL_OCTOXBPS
+
+    ask "Install GNOME Software (xbps-backed app store)? [y/N]: "
+    read -r INSTALL_GNOME_SOFTWARE_INPUT
+    case "$INSTALL_GNOME_SOFTWARE_INPUT" in
+        "") INSTALL_GNOME_SOFTWARE="$DEFAULT_GNOME_SOFTWARE" ;;
+        [nN]*) INSTALL_GNOME_SOFTWARE="false" ;;
+        *) INSTALL_GNOME_SOFTWARE="true" ;;
+    esac
+    export INSTALL_GNOME_SOFTWARE
+
+    ask "Install KDE Discover (xbps-backed app store)? [y/N]: "
+    read -r INSTALL_DISCOVER_INPUT
+    case "$INSTALL_DISCOVER_INPUT" in
+        "") INSTALL_DISCOVER="$DEFAULT_DISCOVER" ;;
+        [nN]*) INSTALL_DISCOVER="false" ;;
+        *) INSTALL_DISCOVER="true" ;;
+    esac
+    export INSTALL_DISCOVER
+else
+    INSTALL_OCTOXBPS="false"
+    INSTALL_GNOME_SOFTWARE="false"
+    INSTALL_DISCOVER="false"
+    export INSTALL_OCTOXBPS INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER
+fi
+
+ask "Install Flatpak (+ Flathub)? [Y/n]: "
 read -r INSTALL_FLATPAK_INPUT
 case "$INSTALL_FLATPAK_INPUT" in
     "") INSTALL_FLATPAK="$DEFAULT_FLATPAK" ;;
@@ -4741,16 +4772,17 @@ case "$INSTALL_BREW_INPUT" in
 esac
 export INSTALL_BREW
 
-# AI (Big Pickle) ADDITION — Beta-v2.9.84 [COSMIC-STORE]: opt-in COSMIC app
-# store. cosmic-store (bluesloth repo) hard run-depends on flatpak, so it
-# follows the SAME gate rule as Brave ([BRAVE-FLATPAK-GATE]): the prompt is
-# only shown when the Flatpak channel is on, and the Stage-2 install site
-# re-checks INSTALL_FLATPAK and refuses to install if a stale resume state
-# ever carried store=yes alongside flatpak=no — never a silent flatpak pull
-# past an explicit opt-out. Offered on ANY desktop, not just COSMIC (the store
-# is a Flathub GUI; it runs under any DE). Default NO.
+# AI (Big Pickle) ADDITION — Beta-v2.9.84 [COSMIC-STORE]: cosmic-store
+# (bluesloth repo) hard run-depends on flatpak, so the prompt is only shown
+# when the Flatpak channel is on AND this is not a desktop that already gets a
+# store automatically (GNOME/Cosmic/KDE). On Cosmic DE the store is installed
+# automatically by install_cosmic() instead (see the [STORE-DE-MAP] block
+# above), so the Stage-2 site below only serves non-Cosmic desktops that opted
+# in. The flatpak re-check is defense-in-depth for a resume from an older state
+# file carrying store=yes alongside flatpak=no — never a silent flatpak pull
+# past an explicit opt-out. Default NO.
 INSTALL_COSMIC_STORE="false"
-if [ "$INSTALL_FLATPAK" = "true" ]; then
+if [ "$INSTALL_FLATPAK" = "true" ] && [ "$_INSTALL_STORE_OFFERED" = "true" ]; then
     ask "Install cosmic-store (COSMIC app store; Flatpak-only)? [y/N]: "
     read -r INSTALL_COSMIC_STORE_INPUT
     case "$INSTALL_COSMIC_STORE_INPUT" in
@@ -4760,27 +4792,7 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
     esac
 fi
 export INSTALL_COSMIC_STORE
-
-# AI (Big Pickle) ADDITION — Beta-v2.9.92 [COSMIC-TOUCHPAD-RCLICK]: opt-in
-# COSMIC-only touchpad right-click fix. cosmic-settings ships input_touchpad
-# with click_method:Some(Clickfinger), which on real hardware (AMD Ryzen x360
-# laptop) does NOT produce a usable right-click; switching the touchpad's
-# click_method to Some(ButtonAreas) (bottom-corner clicks; two-finger tap
-# right-click preserved via button_map:Some(LeftRightMiddle)) fixes it and has
-# been the daily-driver config on the reference box. Written as a PER-USER
-# override in ~/.config/cosmic/... — the greeter's own touchpad behavior is
-# out of scope. Default OFF (lean posture); only offered on COSMIC builds.
-INSTALL_COSMIC_TOUCHPAD_RCLICK="false"
-if [ "$DESKTOP_ENV" = "cosmic" ]; then
-    ask "Configure COSMIC touchpad right-click (two-finger tap + corner-click)? [y/N]: "
-    read -r INSTALL_COSMIC_TOUCHPAD_RCLICK_INPUT
-    case "$INSTALL_COSMIC_TOUCHPAD_RCLICK_INPUT" in
-        "") INSTALL_COSMIC_TOUCHPAD_RCLICK="$DEFAULT_COSMIC_TOUCHPAD_RCLICK" ;;
-        [yY]*) INSTALL_COSMIC_TOUCHPAD_RCLICK="true" ;;
-        *) INSTALL_COSMIC_TOUCHPAD_RCLICK="false" ;;
-    esac
-fi
-export INSTALL_COSMIC_TOUCHPAD_RCLICK
+unset _INSTALL_STORE_OFFERED
 
 # AI (Big Pickle) ADDITION — Beta-v2.8.3 [INSTALL-APPS]: Thunderbird and Steam
 # become real install-time choices. Previously these only existed as
@@ -6606,6 +6618,7 @@ DEVICE_PROFILE PROFILE_TLP PROFILE_BT PROFILE_PRELOAD \
                REPO_PRIMARY REPO_BACKUP1 REPO_BACKUP2 REPO_EXTRA1 REPO_EXTRA2 \
                LOCAL_CACHE_REUSE LOCAL_CACHE_DIR \
 DISTROBOX_TRACK DISTROBOX_DEFAULT_ENGINE INSTALL_OCTOXBPS \
+INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER \
 INSTALL_FLATPAK INSTALL_COSMIC_STORE INSTALL_BREW INSTALL_FIREFOX INSTALL_CHROMIUM \
                  INSTALL_VIVALDI INSTALL_FALKON INSTALL_BRAVE \
                  INSTALL_THUNDERBIRD INSTALL_STEAM INSTALL_VIRTUALBOX \
@@ -6685,6 +6698,7 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "  Data regions (MULTI-FS): carved=['${REGION_PARTITIONED:-}'] home=${REGION_HOME_FS:-btrfs} var=${REGION_VAR_FS:-btrfs} cache=${REGION_CACHE_FS:-btrfs} srv=${REGION_SRV_FS:-btrfs} opt=${REGION_OPT_FS:-btrfs} games=${REGION_GAMES:-none}"
     echo "  Accounts model        : ${ACCOUNT_MODEL:-<unset>}"
     echo "  App channels          : Flatpak=${INSTALL_FLATPAK:-no} cosmic-store=${INSTALL_COSMIC_STORE:-no} Homebrew=${INSTALL_BREW:-no}"
+    echo "  Store choices         : octoxbps=${INSTALL_OCTOXBPS:-no} gnome-software=${INSTALL_GNOME_SOFTWARE:-no} discover=${INSTALL_DISCOVER:-no}"
     echo "  Game launchers        : steam=${INSTALL_STEAM:-no} lutris=${INSTALL_LUTRIS:-no} heroic=${INSTALL_HEROIC:-no} bottles=${INSTALL_BOTTLES:-no} wine=${INSTALL_WINE:-no} gamemode=${INSTALL_GAMEMODE:-no}"
     echo "  Hardware              : GPU=${GPU_FAMILIES:-<none detected>} wireless=${WIFI_HW:-unknown}"
     echo "  NVIDIA driver         : ${INSTALL_NVIDIA:-auto}"
@@ -7969,7 +7983,6 @@ echo "export PROFILE_TLP=\"$PROFILE_TLP\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROFILE_BT=\"$PROFILE_BT\"" >> /mnt/tmp/chroot_env.sh
 echo "export PROFILE_PRELOAD=\"$PROFILE_PRELOAD\"" >> /mnt/tmp/chroot_env.sh
 echo "export POWER_PPD=\"$POWER_PPD\"" >> /mnt/tmp/chroot_env.sh
-echo "export INSTALL_COSMIC_TOUCHPAD_RCLICK=\"$INSTALL_COSMIC_TOUCHPAD_RCLICK\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_USER=\"$TARGET_USER\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_FULL_NAME=\"$TARGET_FULL_NAME\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_HOSTNAME=\"$TARGET_HOSTNAME\"" >> /mnt/tmp/chroot_env.sh
@@ -8145,6 +8158,8 @@ fi
 # shellcheck disable=SC2129  # per-line appends, grouped for readability
 echo "export SESSION_STACK=\"$SESSION_STACK\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_OCTOXBPS=\"$INSTALL_OCTOXBPS\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_GNOME_SOFTWARE=\"$INSTALL_GNOME_SOFTWARE\"" >> /mnt/tmp/chroot_env.sh
+echo "export INSTALL_DISCOVER=\"$INSTALL_DISCOVER\"" >> /mnt/tmp/chroot_env.sh
 echo "export BOOTLOADER=\"$BOOTLOADER\"" >> /mnt/tmp/chroot_env.sh
 # AI (Big Pickle) ADDITION — Version-3.1.00 [BIOS-BOOT]: which firmware path
 # Stage 2's bootloader branch takes (grub-install --target=i386-pc +
@@ -10010,10 +10025,14 @@ elif [ "$DESKTOP_ENV" = "cosmic" ]; then
     # handled by the independent DISPLAY_MANAGER choice above, and Firefox by
     # the independent browser toggles — both may be selected separately, so
     # only the metapackage is installed here.
-    # (cosmic-store is installed at its own DE-independent site next to the
-    # Brave/flatpak-gated deliveries — Beta-v2.9.84 [COSMIC-STORE] — so it is
-    # not bundled into this call.)
+    #
+    # [STORE-DE-MAP]: Cosmic gets its related store automatically —
+    # install_cosmic cosmic-store runs right after the metapackage. cosmic-store
+    # hard run-depends on flatpak, so xbps pulls flatpak in as a dependency
+    # even when Flatpak was not independently chosen; that is required for the
+    # store to function and is intentional here.
     install_cosmic cosmic-desktop-full
+    install_cosmic cosmic-store
     # AI (Big Pickle) FIX — Beta-v2.9.75 [XKB-CONFIG-QUOTING]: the
     # cosmic-desktop-full xbps post-install hook (srcpkgs/cosmic-desktop-full/INSTALL)
     # does `layout=$(grep KEYMAP= /etc/rc.conf | cut -d= -f2)` — which keeps
@@ -10084,47 +10103,6 @@ repeat_rate: 25,
 XKB_EOF
     fi
     unset _xkb_layout _xkb_conf
-    # AI (Big Pickle) ADDITION — Beta-v2.9.92 [COSMIC-TOUCHPAD-RCLICK]: opt-in
-    # per-user COSMIC touchpad right-click override. cosmic-settings ships
-    # /usr/share/cosmic/.../v1/input_touchpad with click_method:Some(Clickfinger)
-    # (the file is owned by the cosmic-settings package, NOT created by a hook —
-    # verified via `xbps-query -o`): Clickfinger needs a physical two-finger
-    # click and on the reference hardware yielded no right-click at all.
-    # Overriding the user copy to Some(ButtonAreas) gives bottom-corner
-    # right-click while the two-finger tap stays right-click via the shipped
-    # button_map:Some(LeftRightMiddle). The override is DERIVED from the
-    # in-tree shipped default by rewriting ONLY the click_method token — when
-    # cosmic later evolves the RON schema, this still mirrors whatever the
-    # package currently ships instead of going stale (the [XKB-CONFIG-CREATE]
-    # lesson: never hardcode a struct that the package owns). Runs in the
-    # cosmic branch AFTER the account exists (same presence guard as the fish/
-    # zsh dotfile deposit), so owner/permissions are set right. Greeter (its
-    # own user) is intentionally untouched.
-    if [ "$INSTALL_COSMIC_TOUCHPAD_RCLICK" = "true" ]; then
-        if [ -n "$TARGET_USER" ] && id -u "$TARGET_USER" >/dev/null 2>&1; then
-            _tp_src="/usr/share/cosmic/com.system76.CosmicComp/v1/input_touchpad"
-            _tp_dir="/home/${TARGET_USER}/.config/cosmic/com.system76.CosmicComp/v1"
-            _tp_dst="${_tp_dir}/input_touchpad"
-            mkdir -p "$_tp_dir"
-            if [ -f "$_tp_src" ] && grep -q "click_method:Some(Clickfinger)" "$_tp_src"; then
-                sed 's/click_method:Some(Clickfinger)/click_method:Some(ButtonAreas)/' \
-                    "$_tp_src" > "$_tp_dst"
-            else
-                # Shipped source absent or already diverged (Clickfinger token gone) —
-                # fall back to the canonical proven override so the toggle never
-                # silently installs a broken/empty config.
-                cat > "$_tp_dst" << 'TP_EOF'
-(state:Enabled,click_method:Some(ButtonAreas),scroll_config:Some((method:Some(TwoFinger),natural_scroll:None,scroll_button:None,scroll_factor:None)),tap_config:Some((enabled:true,button_map:Some(LeftRightMiddle),drag:true,drag_lock:false)))
-TP_EOF
-            fi
-            chmod 0644 "$_tp_dst"
-            chown "${TARGET_USER}:${TARGET_USER}" "$_tp_dst"
-            echo "==> COSMIC touchpad right-click override written for ${TARGET_USER}"
-        else
-            echo "  WARNING: touchpad right-click requested, but target account does not exist yet — skipping." >&2
-        fi
-        unset _tp_src _tp_dir _tp_dst
-    fi
 elif [ "$DESKTOP_ENV" = "kde" ]; then
     install_pkgs kde-plasma kde-baseapps ark kio-admin
     # AI (Big Pickle) ADDITION — Version-3.2.00 [DISCOVER-STORE]: KDE Discover
@@ -10139,6 +10117,17 @@ elif [ "$DESKTOP_ENV" = "kde" ]; then
     # store is unreachable the helper warns and falls back to the stock
     # upstream build rather than aborting the install.
     install_discover discover
+fi
+
+# [STORE-DE-MAP]: non-store graphical desktops (cinnamon/xfce/mate/lxqt) —
+# install the stores/package-managers opted into at Stage-1. Headless
+# (DESKTOP_ENV=none) reaches here with all four flags false, so nothing is
+# installed. GNOME/Cosmic/KDE already got their automatic store in their own
+# branch and never reach here with a true flag.
+if [ "$DESKTOP_ENV" != "gnome" ] && [ "$DESKTOP_ENV" != "cosmic" ] && [ "$DESKTOP_ENV" != "kde" ]; then
+    [ "$INSTALL_GNOME_SOFTWARE" = "true" ] && install_gnome_software_store
+    [ "$INSTALL_DISCOVER" = "true" ] && install_discover discover
+    [ "$INSTALL_COSMIC_STORE" = "true" ] && install_cosmic cosmic-store
 fi
 
 # [LIGHTDM-GREETER-BG] Set the greeter background so a fresh install doesn't
@@ -10569,11 +10558,13 @@ fi
 # deliveries — because cosmic-store is a flatpak-ecosystem GUI that runs under
 # any desktop, not just COSMIC. install_cosmic() (bluesloth repo, pinned-key
 # verification, bare `xbps-install` path excluded from PKG_PREFLIGHT) installs
-# it on ANY desktop when opted in. The flatpak re-check mirrors the Brave rule
-# exactly: the Stage-1 prompt only offers the store when INSTALL_FLATPAK=true,
-# so this second check is defense-in-depth for a resume from an older state
-# file that could carry store=yes alongside flatpak=no — then we WARN and
-# SKIP, never let xbps pull flatpak in past an explicit opt-out.
+# it on any NON-Cosmic desktop when opted in at Stage-1 (the prompt is only
+# shown when INSTALL_FLATPAK=true). Cosmic DE gets the store automatically in
+# its own branch (see [STORE-DE-MAP]), so INSTALL_COSMIC_STORE is always false
+# there and this site is skipped — no double install. The flatpak re-check is
+# defense-in-depth for a resume from an older state file carrying
+# store=yes alongside flatpak=no — then we WARN and SKIP, never let xbps pull
+# flatpak in past an explicit opt-out.
 if [ "$INSTALL_COSMIC_STORE" = "true" ]; then
     if [ "$INSTALL_FLATPAK" = "true" ]; then
         echo "==> cosmic-store has no official Void package — installed from the bluesloth COSMIC repo (Flatpak is already on per the channel choice)."
@@ -12379,6 +12370,9 @@ MICROCODE_DECIDED="${MICROCODE_DECIDED:-<unset>}"
 # the gate row that explains why (or why not) they're present. Public flags only.
 INSTALL_FLATPAK="${INSTALL_FLATPAK:-false}"
 INSTALL_COSMIC_STORE="${INSTALL_COSMIC_STORE:-false}"
+INSTALL_OCTOXBPS="${INSTALL_OCTOXBPS:-false}"
+INSTALL_GNOME_SOFTWARE="${INSTALL_GNOME_SOFTWARE:-false}"
+INSTALL_DISCOVER="${INSTALL_DISCOVER:-false}"
 # AI (Big Pickle) ADDITION — Beta-v2.9.84 [FLATPAK-PULL-DETECT]: when Flatpak
 # was DECLINED at the prompt (INSTALL_FLATPAK=false) but is installed anyway
 # (a future metapackage revision or a manual install pulled it), this row
