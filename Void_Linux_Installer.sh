@@ -1788,11 +1788,7 @@ DEFAULT_LOCAL_CACHE="${DEFAULT_LOCAL_CACHE:-no}"
 DEFAULT_SWAP_BACKEND="${DEFAULT_SWAP_BACKEND:-1}"     # 1=swapfile 2=zram 3=both 4=none
 DEFAULT_HIBERNATION="${DEFAULT_HIBERNATION:-false}"   # enable suspend-to-disk? [y/N]
 DEFAULT_SNAPSHOT_AUDIO="${DEFAULT_SNAPSHOT_AUDIO:-false}"  # audio on snapshot boots? [y/N]
-DEFAULT_OCTOXBPS="${DEFAULT_OCTOXBPS:-false}"         # OctoXBPS GUI pkg mgr? [y/N]
 DEFAULT_FLATPAK="${DEFAULT_FLATPAK:-true}"            # Flatpak + Flathub? [Y/n]
-DEFAULT_COSMIC_STORE="${DEFAULT_COSMIC_STORE:-false}"      # COSMIC app store (needs Flatpak)? [y/N]
-DEFAULT_GNOME_SOFTWARE="${DEFAULT_GNOME_SOFTWARE:-false}"   # GNOME Software store? [y/N]
-DEFAULT_DISCOVER="${DEFAULT_DISCOVER:-false}"           # KDE Discover store? [y/N]
 # AI (Big Pickle) ADDITION — Beta-v2.9.36 [INSTALL-BREW]: opt-in complement to
 # Flatpak — Homebrew (classic Linuxbrew) is the unsandboxed, user-owned
 # ~/.linuxbrew CLI/dev channel. Installs only the xbps runtime deps (git curl
@@ -4692,56 +4688,16 @@ echo "any combination is fine."
 #   GNOME    -> gnome-software   (install_gnome_software_store, gnome branch)
 #   Cosmic   -> cosmic-store     (install_cosmic cosmic-store, cosmic branch)
 #   KDE      -> discover         (install_discover discover, kde branch)
-# Every other *graphical* desktop (cinnamon/xfce/mate/lxqt) is offered the
-# four stores/package-managers as opt-in choices; a headless box
-# (DESKTOP_ENV=none) gets none of them. cosmic-store additionally needs
-# Flatpak (hard run-depend), so it is only offered when INSTALL_FLATPAK=true.
-# All four variables default to false when not offered, so Stage-2 gates are
-# simple equality tests and no store is ever installed on GNOME/Cosmic/KDE
-# beyond the automatic one for that desktop.
+# Every other *graphical* desktop (cinnamon/xfce/mate/lxqt) is offered a
+# single choice of store/package-manager; a headless box (DESKTOP_ENV=none)
+# gets none. cosmic-store is xbps-only by default; if Flatpak was also
+# selected, the flatpak-enabled build (cosmic-store-flatpak) is installed
+# instead so the store can manage flatpak apps.
 if [ "$DESKTOP_ENV" != "none" ] && [ "$DESKTOP_ENV" != "gnome" ] && \
    [ "$DESKTOP_ENV" != "cosmic" ] && [ "$DESKTOP_ENV" != "kde" ]; then
     _INSTALL_STORE_OFFERED="true"
 else
     _INSTALL_STORE_OFFERED="false"
-fi
-
-if [ "$_INSTALL_STORE_OFFERED" = "true" ]; then
-    # AI (Claude, Sonnet 5, Medium) ADDITION: OctoXBPS (graphical package
-    # manager/update notifier) is a real install-time choice — not everyone
-    # wants a graphical package manager or its update-notifier autostarting.
-    # Default No ([y/N]).
-    ask "Install OctoXBPS (graphical package manager + update notifier)? [y/N]: "
-    read -r INSTALL_OCTOXBPS_INPUT
-    case "$INSTALL_OCTOXBPS_INPUT" in
-        "") INSTALL_OCTOXBPS="$DEFAULT_OCTOXBPS" ;;
-        [nN]*) INSTALL_OCTOXBPS="false" ;;
-        *) INSTALL_OCTOXBPS="true" ;;
-    esac
-    export INSTALL_OCTOXBPS
-
-    ask "Install GNOME Software (xbps-backed app store)? [y/N]: "
-    read -r INSTALL_GNOME_SOFTWARE_INPUT
-    case "$INSTALL_GNOME_SOFTWARE_INPUT" in
-        "") INSTALL_GNOME_SOFTWARE="$DEFAULT_GNOME_SOFTWARE" ;;
-        [nN]*) INSTALL_GNOME_SOFTWARE="false" ;;
-        *) INSTALL_GNOME_SOFTWARE="true" ;;
-    esac
-    export INSTALL_GNOME_SOFTWARE
-
-    ask "Install KDE Discover (xbps-backed app store)? [y/N]: "
-    read -r INSTALL_DISCOVER_INPUT
-    case "$INSTALL_DISCOVER_INPUT" in
-        "") INSTALL_DISCOVER="$DEFAULT_DISCOVER" ;;
-        [nN]*) INSTALL_DISCOVER="false" ;;
-        *) INSTALL_DISCOVER="true" ;;
-    esac
-    export INSTALL_DISCOVER
-else
-    INSTALL_OCTOXBPS="false"
-    INSTALL_GNOME_SOFTWARE="false"
-    INSTALL_DISCOVER="false"
-    export INSTALL_OCTOXBPS INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER
 fi
 
 ask "Install Flatpak (+ Flathub)? [Y/n]: "
@@ -4772,27 +4728,64 @@ case "$INSTALL_BREW_INPUT" in
 esac
 export INSTALL_BREW
 
-# AI (Big Pickle) ADDITION — Beta-v2.9.84 [COSMIC-STORE]: cosmic-store
-# (bluesloth repo) hard run-depends on flatpak, so the prompt is only shown
-# when the Flatpak channel is on AND this is not a desktop that already gets a
-# store automatically (GNOME/Cosmic/KDE). On Cosmic DE the store is installed
-# automatically by install_cosmic() instead (see the [STORE-DE-MAP] block
-# above), so the Stage-2 site below only serves non-Cosmic desktops that opted
-# in. The flatpak re-check is defense-in-depth for a resume from an older state
-# file carrying store=yes alongside flatpak=no — never a silent flatpak pull
-# past an explicit opt-out. Default NO.
-INSTALL_COSMIC_STORE="false"
-if [ "$INSTALL_FLATPAK" = "true" ] && [ "$_INSTALL_STORE_OFFERED" = "true" ]; then
-    ask "Install cosmic-store (COSMIC app store; Flatpak-only)? [y/N]: "
-    read -r INSTALL_COSMIC_STORE_INPUT
-    case "$INSTALL_COSMIC_STORE_INPUT" in
-        "") INSTALL_COSMIC_STORE="$DEFAULT_COSMIC_STORE" ;;
-        [yY]*) INSTALL_COSMIC_STORE="true" ;;
-        *) INSTALL_COSMIC_STORE="false" ;;
-    esac
+# Consolidated store choice: pick at most one store/package-manager.
+# Offered only on non-store graphical desktops (cinnamon/xfce/mate/lxqt).
+if [ "$_INSTALL_STORE_OFFERED" = "true" ]; then
+    echo ""
+    echo "${C_BOLD}${C_BLU}Choose an app store / package manager${C_RST}"
+    echo "  ${C_BOLD}1)${C_RST} ${C_GRN}None${C_RST} — no store/package-manager installed (default)"
+    echo "  ${C_BOLD}2)${C_RST} OctoXBPS — graphical xbps package manager + update notifier"
+    echo "  ${C_BOLD}3)${C_RST} GNOME Software — xbps-backed app store"
+    echo "  ${C_BOLD}4)${C_RST} KDE Discover — xbps-backed app store"
+    echo "  ${C_BOLD}5)${C_RST} cosmic-store — COSMIC app store (xbps-only; flatpak-enabled"
+    echo "                 build if Flatpak was selected above)"
+    while true; do
+        ask "Enter choice [1-5] (default 1: None): "
+        read -r INSTALL_STORE_CHOICE_INPUT
+        case "${INSTALL_STORE_CHOICE_INPUT:-1}" in
+            1|"")
+                INSTALL_OCTOXBPS="false"
+                INSTALL_GNOME_SOFTWARE="false"
+                INSTALL_DISCOVER="false"
+                INSTALL_COSMIC_STORE="false"
+                break ;;
+            2)
+                INSTALL_OCTOXBPS="true"
+                INSTALL_GNOME_SOFTWARE="false"
+                INSTALL_DISCOVER="false"
+                INSTALL_COSMIC_STORE="false"
+                break ;;
+            3)
+                INSTALL_OCTOXBPS="false"
+                INSTALL_GNOME_SOFTWARE="true"
+                INSTALL_DISCOVER="false"
+                INSTALL_COSMIC_STORE="false"
+                break ;;
+            4)
+                INSTALL_OCTOXBPS="false"
+                INSTALL_GNOME_SOFTWARE="false"
+                INSTALL_DISCOVER="true"
+                INSTALL_COSMIC_STORE="false"
+                break ;;
+            5)
+                INSTALL_OCTOXBPS="false"
+                INSTALL_GNOME_SOFTWARE="false"
+                INSTALL_DISCOVER="false"
+                INSTALL_COSMIC_STORE="true"
+                break ;;
+            *)
+                echo "Please enter 1, 2, 3, 4, or 5." >&2 ;;
+        esac
+    done
+    export INSTALL_OCTOXBPS INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER INSTALL_COSMIC_STORE
+else
+    INSTALL_OCTOXBPS="false"
+    INSTALL_GNOME_SOFTWARE="false"
+    INSTALL_DISCOVER="false"
+    INSTALL_COSMIC_STORE="false"
+    export INSTALL_OCTOXBPS INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER INSTALL_COSMIC_STORE
 fi
-export INSTALL_COSMIC_STORE
-unset _INSTALL_STORE_OFFERED
+unset _INSTALL_STORE_OFFERED INSTALL_STORE_CHOICE_INPUT
 
 # AI (Big Pickle) ADDITION — Beta-v2.8.3 [INSTALL-APPS]: Thunderbird and Steam
 # become real install-time choices. Previously these only existed as
@@ -10027,12 +10020,16 @@ elif [ "$DESKTOP_ENV" = "cosmic" ]; then
     # only the metapackage is installed here.
     #
     # [STORE-DE-MAP]: Cosmic gets its related store automatically —
-    # install_cosmic cosmic-store runs right after the metapackage. cosmic-store
-    # hard run-depends on flatpak, so xbps pulls flatpak in as a dependency
-    # even when Flatpak was not independently chosen; that is required for the
-    # store to function and is intentional here.
+    # install_cosmic cosmic-store runs right after the metapackage. If Flatpak
+    # was also selected, install the flatpak-enabled build (cosmic-store-flatpak)
+    # so the store can manage flatpak apps; otherwise the xbps-only build
+    # (cosmic-store) is used and does not pull flatpak in.
     install_cosmic cosmic-desktop-full
-    install_cosmic cosmic-store
+    if [ "$INSTALL_FLATPAK" = "true" ]; then
+        install_cosmic cosmic-store-flatpak
+    else
+        install_cosmic cosmic-store
+    fi
     # AI (Big Pickle) FIX — Beta-v2.9.75 [XKB-CONFIG-QUOTING]: the
     # cosmic-desktop-full xbps post-install hook (srcpkgs/cosmic-desktop-full/INSTALL)
     # does `layout=$(grep KEYMAP= /etc/rc.conf | cut -d= -f2)` — which keeps
@@ -10558,19 +10555,19 @@ fi
 # deliveries — because cosmic-store is a flatpak-ecosystem GUI that runs under
 # any desktop, not just COSMIC. install_cosmic() (bluesloth repo, pinned-key
 # verification, bare `xbps-install` path excluded from PKG_PREFLIGHT) installs
-# it on any NON-Cosmic desktop when opted in at Stage-1 (the prompt is only
-# shown when INSTALL_FLATPAK=true). Cosmic DE gets the store automatically in
-# its own branch (see [STORE-DE-MAP]), so INSTALL_COSMIC_STORE is always false
-# there and this site is skipped — no double install. The flatpak re-check is
-# defense-in-depth for a resume from an older state file carrying
-# store=yes alongside flatpak=no — then we WARN and SKIP, never let xbps pull
-# flatpak in past an explicit opt-out.
+# it on any NON-Cosmic desktop when opted in at Stage-1. Cosmic DE gets the
+# store automatically in its own branch (see [STORE-DE-MAP]), so INSTALL_COSMIC_STORE
+# is always false there and this site is skipped — no double install.
+# When Flatpak is also selected, the flatpak-enabled build (cosmic-store-flatpak)
+# is installed so the store can manage flatpak apps; otherwise the xbps-only
+# build (cosmic-store) is used and does not pull flatpak in.
 if [ "$INSTALL_COSMIC_STORE" = "true" ]; then
     if [ "$INSTALL_FLATPAK" = "true" ]; then
-        echo "==> cosmic-store has no official Void package — installed from the bluesloth COSMIC repo (Flatpak is already on per the channel choice)."
-        install_cosmic cosmic-store
+        echo "==> cosmic-store has no official Void package — installed from the bluesloth COSMIC repo (flatpak-enabled build, Flatpak is on per the channel choice)."
+        install_cosmic cosmic-store-flatpak
     else
-        echo "WARNING: cosmic-store was selected but Flatpak was not — the store hard run-depends on flatpak, so it will NOT be installed." >&2
+        echo "==> cosmic-store has no official Void package — installed from the bluesloth COSMIC repo (xbps-only build)."
+        install_cosmic cosmic-store
     fi
 fi
 

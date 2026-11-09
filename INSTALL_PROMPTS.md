@@ -242,15 +242,15 @@
 
 ## 7. Apps & packages
 
-- **Install OctoXBPS (graphical package manager + update notifier)? [y/N]**
 - **Install Flatpak (+ Flathub)? [Y/n]**
+- **Choose an app store / package manager** (non-store graphical desktops only: cinnamon/xfce/mate/lxqt; headless and store-desktops get none):
+  - 1) None (default) — no store/package-manager installed
+  - 2) OctoXBPS — graphical xbps package manager + update notifier
+  - 3) GNOME Software — xbps-backed app store
+  - 4) KDE Discover — xbps-backed app store
+  - 5) cosmic-store — COSMIC app store (xbps-only; flatpak-enabled build if Flatpak is selected)
 - **Install Homebrew (Linuxbrew CLI/dev channel, opt-in; ~/.linuxbrew)? [y/N]** —
   independent of Flatpak; either, both, or neither.
-- **Install cosmic-store (COSMIC app store; Flatpak-only)? [y/N]** → only offered
-  when Flatpak was accepted (`INSTALL_FLATPAK=true`), on any desktop — the store
-  hard run-depends on `flatpak`, and the Stage-2 install re-checks the flag
-  (a stale resume state can't drag flatpak in past an opt-out). Default YES.
-  (Beta-v2.9.84 `[COSMIC-STORE]`.)
 - **Install Thunderbird (email client)? [y/N]** → if `y`: package installed, `@thunderbird` per-user subvol provisioned
 - **Game launchers & runtimes** — each independent, all default OFF; a launcher never
   auto-pulls Wine (each launcher self-manages its own Wine):
