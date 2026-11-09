@@ -23,11 +23,7 @@ DEFAULT_LOCAL_CACHE="${DEFAULT_LOCAL_CACHE:-no}"
 DEFAULT_SWAP_BACKEND="${DEFAULT_SWAP_BACKEND:-1}"
 DEFAULT_HIBERNATION="${DEFAULT_HIBERNATION:-false}"
 DEFAULT_SNAPSHOT_AUDIO="${DEFAULT_SNAPSHOT_AUDIO:-false}"
-DEFAULT_OCTOXBPS="${DEFAULT_OCTOXBPS:-false}"
 DEFAULT_FLATPAK="${DEFAULT_FLATPAK:-true}"
-DEFAULT_COSMIC_STORE="${DEFAULT_COSMIC_STORE:-false}"
-DEFAULT_GNOME_SOFTWARE="${DEFAULT_GNOME_SOFTWARE:-false}"
-DEFAULT_DISCOVER="${DEFAULT_DISCOVER:-false}"
 DEFAULT_BREW="${DEFAULT_BREW:-false}"
 DEFAULT_FIREFOX="${DEFAULT_FIREFOX:-true}"
 DEFAULT_CHROMIUM="${DEFAULT_CHROMIUM:-true}"
@@ -35,7 +31,6 @@ DEFAULT_THUNDERBIRD="${DEFAULT_THUNDERBIRD:-false}"
 DEFAULT_STEAM="${DEFAULT_STEAM:-false}"
 DEFAULT_LUTRIS="${DEFAULT_LUTRIS:-false}"
 DEFAULT_HEROIC="${DEFAULT_HEROIC:-false}"
-DEFAULT_BOTTLES="${DEFAULT_BOTTLES:-false}"
 DEFAULT_WINE="${DEFAULT_WINE:-false}"
 DEFAULT_GAMEMODE="${DEFAULT_GAMEMODE:-false}"
 DEFAULT_VIRTUALBOX="${DEFAULT_VIRTUALBOX:-false}"
@@ -1911,40 +1906,6 @@ else
     _INSTALL_STORE_OFFERED="false"
 fi
 
-if [ "$_INSTALL_STORE_OFFERED" = "true" ]; then
-    ask "Install OctoXBPS (graphical package manager + update notifier)? [y/N]: "
-    read -r INSTALL_OCTOXBPS_INPUT
-    case "$INSTALL_OCTOXBPS_INPUT" in
-        "") INSTALL_OCTOXBPS="$DEFAULT_OCTOXBPS" ;;
-        [nN]*) INSTALL_OCTOXBPS="false" ;;
-        *) INSTALL_OCTOXBPS="true" ;;
-    esac
-    export INSTALL_OCTOXBPS
-
-    ask "Install GNOME Software (xbps-backed app store)? [y/N]: "
-    read -r INSTALL_GNOME_SOFTWARE_INPUT
-    case "$INSTALL_GNOME_SOFTWARE_INPUT" in
-        "") INSTALL_GNOME_SOFTWARE="$DEFAULT_GNOME_SOFTWARE" ;;
-        [nN]*) INSTALL_GNOME_SOFTWARE="false" ;;
-        *) INSTALL_GNOME_SOFTWARE="true" ;;
-    esac
-    export INSTALL_GNOME_SOFTWARE
-
-    ask "Install KDE Discover (xbps-backed app store)? [y/N]: "
-    read -r INSTALL_DISCOVER_INPUT
-    case "$INSTALL_DISCOVER_INPUT" in
-        "") INSTALL_DISCOVER="$DEFAULT_DISCOVER" ;;
-        [nN]*) INSTALL_DISCOVER="false" ;;
-        *) INSTALL_DISCOVER="true" ;;
-    esac
-    export INSTALL_DISCOVER
-else
-    INSTALL_OCTOXBPS="false"
-    INSTALL_GNOME_SOFTWARE="false"
-    INSTALL_DISCOVER="false"
-    export INSTALL_OCTOXBPS INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER
-fi
-
 ask "Install Flatpak (+ Flathub)? [Y/n]: "
 read -r INSTALL_FLATPAK_INPUT
 case "$INSTALL_FLATPAK_INPUT" in
@@ -1967,18 +1928,62 @@ case "$INSTALL_BREW_INPUT" in
 esac
 export INSTALL_BREW
 
-INSTALL_COSMIC_STORE="false"
-if [ "$INSTALL_FLATPAK" = "true" ] && [ "$_INSTALL_STORE_OFFERED" = "true" ]; then
-    ask "Install cosmic-store (COSMIC app store; Flatpak-only)? [y/N]: "
-    read -r INSTALL_COSMIC_STORE_INPUT
-    case "$INSTALL_COSMIC_STORE_INPUT" in
-        "") INSTALL_COSMIC_STORE="$DEFAULT_COSMIC_STORE" ;;
-        [yY]*) INSTALL_COSMIC_STORE="true" ;;
-        *) INSTALL_COSMIC_STORE="false" ;;
-    esac
+if [ "$_INSTALL_STORE_OFFERED" = "true" ]; then
+    echo ""
+    echo "${C_BOLD}${C_BLU}Choose an app store / package manager${C_RST}"
+    echo "  ${C_BOLD}1)${C_RST} ${C_GRN}None${C_RST} — no store/package-manager installed (default)"
+    echo "  ${C_BOLD}2)${C_RST} OctoXBPS — graphical xbps package manager + update notifier"
+    echo "  ${C_BOLD}3)${C_RST} GNOME Software — xbps-backed app store"
+    echo "  ${C_BOLD}4)${C_RST} KDE Discover — xbps-backed app store"
+    echo "  ${C_BOLD}5)${C_RST} cosmic-store — COSMIC app store (xbps-only; flatpak-enabled"
+    echo "                 build if Flatpak was selected above)"
+    while true; do
+        ask "Enter choice [1-5] (default 1: None): "
+        read -r INSTALL_STORE_CHOICE_INPUT
+        case "${INSTALL_STORE_CHOICE_INPUT:-1}" in
+            1|"")
+                INSTALL_OCTOXBPS="false"
+                INSTALL_GNOME_SOFTWARE="false"
+                INSTALL_DISCOVER="false"
+                INSTALL_COSMIC_STORE="false"
+                break ;;
+            2)
+                INSTALL_OCTOXBPS="true"
+                INSTALL_GNOME_SOFTWARE="false"
+                INSTALL_DISCOVER="false"
+                INSTALL_COSMIC_STORE="false"
+                break ;;
+            3)
+                INSTALL_OCTOXBPS="false"
+                INSTALL_GNOME_SOFTWARE="true"
+                INSTALL_DISCOVER="false"
+                INSTALL_COSMIC_STORE="false"
+                break ;;
+            4)
+                INSTALL_OCTOXBPS="false"
+                INSTALL_GNOME_SOFTWARE="false"
+                INSTALL_DISCOVER="true"
+                INSTALL_COSMIC_STORE="false"
+                break ;;
+            5)
+                INSTALL_OCTOXBPS="false"
+                INSTALL_GNOME_SOFTWARE="false"
+                INSTALL_DISCOVER="false"
+                INSTALL_COSMIC_STORE="true"
+                break ;;
+            *)
+                echo "Please enter 1, 2, 3, 4, or 5." >&2 ;;
+        esac
+    done
+    export INSTALL_OCTOXBPS INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER INSTALL_COSMIC_STORE
+else
+    INSTALL_OCTOXBPS="false"
+    INSTALL_GNOME_SOFTWARE="false"
+    INSTALL_DISCOVER="false"
+    INSTALL_COSMIC_STORE="false"
+    export INSTALL_OCTOXBPS INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER INSTALL_COSMIC_STORE
 fi
-export INSTALL_COSMIC_STORE
-unset _INSTALL_STORE_OFFERED
+unset _INSTALL_STORE_OFFERED INSTALL_STORE_CHOICE_INPUT
 
 ask "Install Thunderbird (email client)? [y/N]: "
 read -r INSTALL_THUNDERBIRD_INPUT
@@ -2009,7 +2014,7 @@ esac
 export INSTALL_LUTRIS
 
 if [ "$INSTALL_FLATPAK" = "true" ]; then
-    ask "Install Heroic (Epic/GOG launcher; Flatpak)? [y/N]: "
+    ask "Install Heroic & Bottles (Epic/GOG + Wine prefix launchers; Flatpak)? [y/N]: "
     read -r INSTALL_HEROIC_INPUT
     case "$INSTALL_HEROIC_INPUT" in
         "") INSTALL_HEROIC="$DEFAULT_HEROIC" ;;
@@ -2017,13 +2022,7 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
         *) INSTALL_HEROIC="false" ;;
     esac
     export INSTALL_HEROIC
-    ask "Install Bottles (per-game Wine prefix manager; Flatpak)? [y/N]: "
-    read -r INSTALL_BOTTLES_INPUT
-    case "$INSTALL_BOTTLES_INPUT" in
-        "") INSTALL_BOTTLES="$DEFAULT_BOTTLES" ;;
-        [yY]*) INSTALL_BOTTLES="true" ;;
-        *) INSTALL_BOTTLES="false" ;;
-    esac
+    INSTALL_BOTTLES="$INSTALL_HEROIC"
     export INSTALL_BOTTLES
 else
     INSTALL_HEROIC="false"
@@ -5072,7 +5071,11 @@ elif [ "$DESKTOP_ENV" = "lxqt" ]; then
     install_pkgs lxqt gvfs FeatherPad
 elif [ "$DESKTOP_ENV" = "cosmic" ]; then
     install_cosmic cosmic-desktop-full
-    install_cosmic cosmic-store
+    if [ "$INSTALL_FLATPAK" = "true" ]; then
+        install_cosmic cosmic-store-flatpak
+    else
+        install_cosmic cosmic-store
+    fi
     _xkb_layout="$(sed -n 's/^[[:space:]]*KEYMAP=["]*\([^"[:space:]]*\)["]*[[:space:]]*\(#.*\)\{0,1\}$/\1/p' /etc/rc.conf 2>/dev/null | tail -1)"
     case "${_xkb_layout:-}" in
         ''|*[!a-zA-Z0-9_-]*) _xkb_layout="us" ;;
@@ -5334,10 +5337,11 @@ fi
 
 if [ "$INSTALL_COSMIC_STORE" = "true" ]; then
     if [ "$INSTALL_FLATPAK" = "true" ]; then
-        echo "==> cosmic-store has no official Void package — installed from the bluesloth COSMIC repo (Flatpak is already on per the channel choice)."
-        install_cosmic cosmic-store
+        echo "==> cosmic-store has no official Void package — installed from the bluesloth COSMIC repo (flatpak-enabled build, Flatpak is on per the channel choice)."
+        install_cosmic cosmic-store-flatpak
     else
-        echo "WARNING: cosmic-store was selected but Flatpak was not — the store hard run-depends on flatpak, so it will NOT be installed." >&2
+        echo "==> cosmic-store has no official Void package — installed from the bluesloth COSMIC repo (xbps-only build)."
+        install_cosmic cosmic-store
     fi
 fi
 
