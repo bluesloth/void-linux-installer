@@ -255,8 +255,7 @@
 - **Game launchers & runtimes** — each independent, all default OFF; a launcher never
   auto-pulls Wine (each launcher self-manages its own Wine):
   - **Install Lutris (game library/installer for Wine + native games)? [y/N]** — xbps
-  - **Install Heroic (Epic/GOG launcher; Flatpak)? [y/N]** — only offered when Flatpak is on
-  - **Install Bottles (per-game Wine prefix manager; Flatpak)? [y/N]** — only offered when Flatpak is on
+  - **Install Heroic & Bottles (Epic/GOG + Wine prefix launchers; Flatpak)? [y/N]** — only offered when Flatpak is on; both are installed together or skipped together
   - **Install Wine (system, multilib)? [y/N]** — runtime toggle, independent of launchers
   - **Install gamemode (+ libgamemode-32bit)? [y/N]**
 - **Install Steam (gaming client)? [y/N]** → if `y`: package installed (multilib), `@steam` per-user subvol provisioned

@@ -1810,7 +1810,6 @@ DEFAULT_STEAM="${DEFAULT_STEAM:-false}"               # Steam gaming client? [y/
 # runtime toggles that a launcher NEVER auto-pulls.
 DEFAULT_LUTRIS="${DEFAULT_LUTRIS:-false}"             # Lutris game library/installer? [y/N]
 DEFAULT_HEROIC="${DEFAULT_HEROIC:-false}"             # Heroic Epic/GOG launcher (Flatpak-only)? [y/N]
-DEFAULT_BOTTLES="${DEFAULT_BOTTLES:-false}"           # Bottles per-game Wine prefixes (Flatpak-only)? [y/N]
 DEFAULT_WINE="${DEFAULT_WINE:-false}"       # system Wine (multilib)? [y/N]
 DEFAULT_GAMEMODE="${DEFAULT_GAMEMODE:-false}"         # gamemode + libgamemode-32bit? [y/N]
 DEFAULT_VIRTUALBOX="${DEFAULT_VIRTUALBOX:-false}"     # VirtualBox full virtualizer? [y/N]
@@ -4833,7 +4832,7 @@ esac
 export INSTALL_LUTRIS
 
 if [ "$INSTALL_FLATPAK" = "true" ]; then
-    ask "Install Heroic (Epic/GOG launcher; Flatpak)? [y/N]: "
+    ask "Install Heroic & Bottles (Epic/GOG + Wine prefix launchers; Flatpak)? [y/N]: "
     read -r INSTALL_HEROIC_INPUT
     case "$INSTALL_HEROIC_INPUT" in
         "") INSTALL_HEROIC="$DEFAULT_HEROIC" ;;
@@ -4841,13 +4840,7 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
         *) INSTALL_HEROIC="false" ;;
     esac
     export INSTALL_HEROIC
-    ask "Install Bottles (per-game Wine prefix manager; Flatpak)? [y/N]: "
-    read -r INSTALL_BOTTLES_INPUT
-    case "$INSTALL_BOTTLES_INPUT" in
-        "") INSTALL_BOTTLES="$DEFAULT_BOTTLES" ;;
-        [yY]*) INSTALL_BOTTLES="true" ;;
-        *) INSTALL_BOTTLES="false" ;;
-    esac
+    INSTALL_BOTTLES="$INSTALL_HEROIC"
     export INSTALL_BOTTLES
 else
     # [GAME-FLATPAK-GATE] Beta-v2.9.40: no official Void package for Heroic or
