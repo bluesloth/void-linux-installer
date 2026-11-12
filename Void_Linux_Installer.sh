@@ -585,7 +585,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Version-3.2.14"
+SCRIPT_VERSION="Version-3.2.15"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -5901,9 +5901,19 @@ _subvol_master() { # $1 = prompt text, $2 = boolean default ("true"/"false")
 }
 SUBVOL_ISOLATE_INSTALLED="$(_subvol_master "For software you ARE installing, give each its own isolated subvolume? [Y/n/i]: " "$DEFAULT_SUBVOL_ISOLATE")"
 export SUBVOL_ISOLATE_INSTALLED
+if [ "$SUBVOL_ISOLATE_INSTALLED" = "individual" ]; then
+    echo "  -> per-app isolation prompts will follow for installed software"
+else
+    echo "  -> all installed software: $([ "$SUBVOL_ISOLATE_INSTALLED" = yes ] && echo "isolated subvol each" || echo "no isolated subvol") (per-app walk skipped)"
+fi
 
 SUBVOL_PRECREATE="$(_subvol_master "For software you did NOT install, pre-create an empty isolated subvolume for later manual use? [y/N/i]: " "$DEFAULT_SUBVOL_PRECREATE")"
 export SUBVOL_PRECREATE
+if [ "$SUBVOL_PRECREATE" = "individual" ]; then
+    echo "  -> per-app pre-create prompts will follow for not-installed software"
+else
+    echo "  -> all not-installed software: $([ "$SUBVOL_PRECREATE" = yes ] && echo "pre-create subvol each" || echo "no pre-created subvol") (per-app walk skipped)"
+fi
 
 # --- Resolve each app's final "isolate?" decision into PROVISION_*_SUBVOL ---
 # Every app follows the same 3x3 rule from the two gates:
