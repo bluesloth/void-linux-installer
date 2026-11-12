@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Version-3.1.00**). It exists
+> `Void_Linux_Installer.sh` (current version: **Version-3.2.07**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -12,20 +12,28 @@
 > A `[*]` marks a required choice with no default (the script reprompts
 > until a valid value is entered). Otherwise, pressing **Enter** accepts
 > the default where shown.
+>
+> Every `DEFAULT_*` variable is declared in the `[PROMPT-DEFAULTS]` block
+> of the script and can be overridden at runtime by exporting the same
+> name before running (e.g. `DEFAULT_DESKTOP=7 ./Void_Linux_Installer.sh`).
+> `Debug/check-defaults.sh` verifies every declared default is wired to
+> a prompt (ALL CONSISTENT).
 
 ---
 
 ## 1. Startup
 
-- **Firmware/boot mode — not a prompt (Version-3.1.00).** Before anything else
-  the script reads `/sys/firmware/efi` and sets `BOOT_MODE=uefi|bios`
-  (re-derived from the environment on a resumed run), then prints one line:
-  `==> Boot mode: UEFI` or `==> Boot mode: legacy BIOS — bootloader steps use
-  the BIOS paths (GRUB i386-pc / limine bios-install) and no NVRAM entry is
-  offered.` Nothing is asked, and `BIOSBOOT_PART_SIZE` is fixed at `1M`.
+- **Firmware/boot mode — not a prompt.** Before anything else the script
+  reads `/sys/firmware/efi` and sets `BOOT_MODE=uefi|bios` (re-derived
+  from the environment on a resumed run), then prints one line:
+  `==> Boot mode: UEFI` or `==> Boot mode: legacy BIOS — bootloader steps
+  use the BIOS paths (GRUB i386-pc / limine bios-install) and no NVRAM
+  entry is offered.` Nothing is asked, and `BIOSBOOT_PART_SIZE` is fixed
+  at `1M`.
 - **Resume the interrupted install using saved answers? [y/N]**
-  Only shown if a saved state file exists. `y` skips the entire interactive
-  configuration and resumes the interrupted run using saved answers.
+  Only shown if a saved state file exists. `y` skips the entire
+  interactive configuration and resumes the interrupted run using saved
+  answers.
 
 ---
 
@@ -159,20 +167,6 @@
   - Only when Automatic is chosen: **Keep this profile? [Y/n] or pick 2-5 to override**
     — prints the detected profile + description, then accepts `y`/Enter, `n` (forces an
     explicit pick), or a direct 2-5 override.
-- Only if `BOOTLOADER=limine`:
-  - *(the **Register Limine NVRAM entry?** and **UEFI boot entry label** prompts
-    moved up into the Bootloader section above — Version-3.0.01
-    `[LIMINE-NVRAM-PROMPT-MOVE]`.)*
-  - **Enable Limine wallpaper? [y/N]** — in the same Limine block, but after the
-    kernel / device-profile / hardware / network prompts (not adjacent to the
-    bootloader menu any more).
-  - If `y`:
-    - **Wallpaper browser** (copied onto the ESP) — a numbered `ls` menu of
-      directories and BMP/PNG/JPEG/QOI images starting at `/run/media`
-      (USB stick) if present, else `/root`. Enter `..` to go up, a number
-      to pick an image, or type an absolute/relative path as an escape
-      hatch.
-    - **Wallpaper style [1=stretched/2=tiled/3=centered] [1]**
 
 ---
 
@@ -240,15 +234,54 @@
 
 ---
 
-## 7. Apps & packages
+## 7. Third-party app channels & stores
 
-- **Install Flatpak (+ Flathub)? [Y/n]**
-- **Choose an app store / package manager** (non-store graphical desktops only: cinnamon/xfce/mate/lxqt; headless and store-desktops get none):
-  - 1) None (default) — no store/package-manager installed
-  - 2) OctoXBPS — graphical xbps package manager + update notifier
-  - 3) GNOME Software — xbps-backed app store
-  - 4) KDE Discover — xbps-backed app store
-  - 5) cosmic-store — COSMIC app store (xbps-only; flatpak-enabled build if Flatpak is selected)
+This section is shown once, after the desktop choice. It groups **Flatpak**,
+**Homebrew**, and the **store/package-manager** choice.
+
+- **Install Flatpak (+ Flathub)? [Y/n]** — sandboxed GUI apps via Flathub. Default yes.
+  This gates the flatpak-enabled build of cosmic-store on Cosmic builds and the
+  Heroic + Bottles game-launcher offer below.
+- **Install Homebrew (Linuxbrew CLI/dev channel, opt-in; ~/.linuxbrew)? [y/N]** —
+  independent of Flatpak; either, both, or neither. Installs only the xbps
+  runtime deps (git curl file procps-ng); the operator creates the prefix on
+  first login.
+
+### Store / package-manager choice — gated by Desktop Environment:
+
+| DE | Store behavior | Prompt shown? |
+|----|---------------|---------------|
+| **GNOME** | `gnome-software` installed automatically from this project's GNOME Software store (no prompt) | No |
+| **Cosmic** | `cosmic-store` installed automatically from this project's COSMIC store (no prompt). If Flatpak is also selected, the flatpak-enabled build `cosmic-store-flatpak` is installed instead so the store can manage flatpak apps. | No |
+| **KDE** | `discover` installed automatically from this project's KDE Discover store (no prompt) | No |
+| **cinnamon / xfce / mate / lxqt** | Offered a single consolidated choice of one store/package-manager (see options below) | Yes |
+| **none** (headless) | No store/package-manager installed | No |
+
+**Consolidated store choice** (shown only for cinnamon/xfce/mate/lxqt):
+
+```
+Choose an app store / package manager
+  1) None — no store/package-manager installed (default)
+  2) OctoXBPS — graphical xbps package manager + update notifier
+  3) GNOME Software — xbps-backed app store
+  4) KDE Discover — xbps-backed app store
+  5) cosmic-store — COSMIC app store (xbps-only; flatpak-enabled build if Flatpak was selected above)
+```
+
+Enter choice [1-5] (default 1: None). Picking any option sets exactly one of
+`INSTALL_OCTOXBPS`, `INSTALL_GNOME_SOFTWARE`, `INSTALL_DISCOVER`,
+`INSTALL_COSMIC_STORE` to `true` and the rest to `false`.
+
+The chosen store is installed in Stage-2 from this project's own repository
+(bluesloth.github.io), with its signing key imported and fingerprint-verified
+against the installer's pin before any package is fetched. If a store repo is
+unreachable the helper warns and falls back to the stock upstream build
+rather than aborting the install.
+
+---
+
+## 8. Apps & packages
+
 - **Install Homebrew (Linuxbrew CLI/dev channel, opt-in; ~/.linuxbrew)? [y/N]** —
   independent of Flatpak; either, both, or neither.
 - **Install Thunderbird (email client)? [y/N]** → if `y`: package installed, `@thunderbird` per-user subvol provisioned
@@ -349,7 +382,7 @@
 
 ---
 
-## 8. Data regions (filesystem layout)
+## 9. Data regions (filesystem layout)
 
 Only reached after the encryption/YubiKey pass. The root filesystem is ALWAYS
 Btrfs; these choices only slice DATA regions. Each `[b/e]` prompt accepts
@@ -374,7 +407,7 @@ Btrfs; these choices only slice DATA regions. Each `[b/e]` prompt accepts
 
 ---
 
-## 9. Destructive confirmation
+## 10. Destructive confirmation
 
 - **`[*]` Select disk to partition and install to [1-N]**
 - Existing Void on target: **`[*]` Type 'ERASE <device>' (with the exact device path) to confirm, or anything else to abort**
@@ -382,7 +415,7 @@ Btrfs; these choices only slice DATA regions. Each `[b/e]` prompt accepts
 
 ---
 
-## 10. Final review
+## 11. Final review
 
 - **Proceed with these settings? [Enter=continue, R=restart config]**
   A full summary of every choice is printed above — since Version-3.1.00 it
@@ -393,7 +426,7 @@ Btrfs; these choices only slice DATA regions. Each `[b/e]` prompt accepts
 
 ---
 
-## 11. YubiKey enrollment (later, only if `YK_MODE=hmac-sha1`)
+## 12. YubiKey enrollment (later, only if `YK_MODE=hmac-sha1`)
 
 - **Program slot <N> now — confirm the key is plugged in? [y/N]**
   Happens after the live-CD sync, once `ykpers` is available.
