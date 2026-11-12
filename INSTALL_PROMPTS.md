@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Version-3.2.08**). It exists
+> `Void_Linux_Installer.sh` (current version: **Version-3.2.09**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -231,6 +231,30 @@
 - **Session/seat [1/2] (default 1: elogind)**
   - `1` elogind
   - `2` turnstile
+
+---
+
+## 6a. Fast path — accept all defaults (Version-3.2.09)
+
+After choosing the desktop environment, the installer offers:
+
+```
+Apply all defaults for this desktop?
+  Y) Yes — use all remaining defaults and skip to disk selection
+  n) No — walk through each prompt individually
+```
+
+- **`Y`** (default): Every remaining prompt is skipped. All variables take their
+  `DEFAULT_*` values. The store is auto-installed for GNOME/Cosmic/KDE and
+  omitted for cinnamon/xfce/mate/lxqt/none. The installer jumps straight to
+  the disk picker. Ideal for re-installs and experienced operators.
+- **`n`**: Walk through every prompt individually (locale, timezone, mirror,
+  swap, bootloader, encryption, desktop apps, stores, containers, SSH, …).
+
+The desktop environment is always prompted first — it is the highest-impact
+branch point (drives the display manager, default store, and metapackage).
+Picking it before the fast-path gate means the defaults know which DE they
+apply to.
 
 ---
 
