@@ -19,7 +19,7 @@
 > Every `DEFAULT_*` variable is declared in the `[PROMPT-DEFAULTS]` block
 > of the script and can be overridden at runtime by exporting the same
 > name before running (e.g. `DEFAULT_DESKTOP=7 ./Void_Linux_Installer.sh`).
-> `checks/check-defaults.sh` verifies every declared default is wired to
+> `Debug/check-defaults.sh` verifies every declared default is wired to
 > a prompt (ALL CONSISTENT).
 
 ---
@@ -321,7 +321,6 @@ rather than aborting the install.
 
 - **Install Homebrew (Linuxbrew CLI/dev channel, opt-in; ~/.linuxbrew)? [y/N]** —
   independent of Flatpak; either, both, or neither.
-- **Install Thunderbird (email client)? [y/N]** → if `y`: package installed, `@thunderbird` per-user subvol provisioned
 - **Game launchers & runtimes** — each independent, all default OFF; a launcher never
   auto-pulls Wine (each launcher self-manages its own Wine):
   - **Install Lutris (game library/installer for Wine + native games)? [y/N]** — xbps
@@ -329,18 +328,56 @@ rather than aborting the install.
   - **Install Wine (system, multilib)? [y/N]** — runtime toggle, independent of launchers
   - **Install gamemode (+ libgamemode-32bit)? [y/N]**
 - **Install Steam (gaming client)? [y/N]** → if `y`: package installed (multilib), `@steam` per-user subvol provisioned
-- **Install VirtualBox (full virtualizer, QEMU/KVM alternative)? [y/N]** → if `y`:
-  `@virtualbox` per-user subvol provisioned (a virtualization/libvirt alternative, not a replacement)
-- **Set up web browsers now? (choose each one next) [y/N]** → gate; if `no`, all
-  browser install prompts are skipped (toggles forced off). If `yes`, the
-  individual browser prompts run:
+
+---
+
+## 9. Data regions (filesystem layout)
+
+Reached after the Desktop & Apps section (store, Thunderbird, game launchers),
+before Web Browsers & Email Clients. The root filesystem is ALWAYS Btrfs;
+these choices only slice DATA regions. Each `[b/e]` prompt accepts `b`/`btrfs`
+or `e`/`ext4`; **bare Enter on every line = all-Btrfs default** (no extra
+partitions, no size prompts).
+
+- **`/home` region — btrfs (subvol) or ext4 (own partition)? [b/e]** — default `btrfs`
+- **`/var` region — btrfs (subvols) or ext4 (own partition)? [b/e]**
+- **`/var/cache` region — btrfs (subvol @cache) or ext4 (own partition)? [b/e]**
+- **`/srv` region — btrfs (subvol @srv) or ext4 (own partition)? [b/e]**
+- **`/opt` region — btrfs (subvol @opt) or ext4 (own partition)? [b/e]**
+- **`~/<user>/Games` — none, ext4 partition, or btrfs partition? [n/e/b]** — default `none`
+- For each region chosen `ext4`, a size prompt follows (in the fixed carve order),
+  defaulting to the region's `DEFAULT_REGION_*_SIZE`:
+  - **`/home` partition size [`<default>`]**
+  - **`/var` partition size [`<default>`]**
+  - **`/var/cache` partition size [`<default>`]**
+  - **`/srv` partition size [`<default>`]**
+  - **`/opt` partition size [`<default>`]**
+  - **Games partition size [`<default>`]**
+  The Btrfs root always gets the remainder, so it never asks for a size.
+
+---
+
+## 10. Web Browsers & Email Clients
+
+- **Set up web browsers & email clients now? (choose each one next) [y/N]** → gate;
+  if `no`, all browser and email client install prompts are skipped (toggles
+  forced off). If `yes`, the individual prompts run:
+  - **Install Thunderbird (email client)? [y/N]** → if `y`: package installed,
+    `@thunderbird` per-user subvol provisioned
   - **Install Firefox? [Y/n]**
   - **Install Chromium? [Y/n]**
   - **Install Vivaldi (proprietary, nonfree repo)? [y/N]**
   - **Install Falkon (KDE's browser, works fine standalone too)? [y/N]**
   - **Install Brave? [y/N]**
-- `@network` (`/var/lib/NetworkManager`) is always created — no prompt — and
-  rolls back independently of `@`.
+    Brave has no official Void package. If selected, it will only be installed
+    via Flatpak — and only if Flatpak was selected above. If Flatpak was not
+    selected, Brave is skipped rather than reaching for an unofficial third-party
+    package repository.
+
+---
+
+## 11. Containers & Virtualization
+
 - **Set up containers (Podman / Docker) now? (choose each backend next) [y/N]** →
   gate; defaults off. If `no`, the whole container section (all three backends,
   docker group-add, distrobox + track, container-manager) is skipped with all
@@ -358,7 +395,15 @@ rather than aborting the install.
   - Only if both a Podman backend and Docker are installed: **Distrobox default engine [1/2, default 1]**
     - `1` Podman (default)
     - `2` Docker
+- **Install VirtualBox (full virtualizer, QEMU/KVM alternative)? [y/N]** → if `y`:
+  `@virtualbox` per-user subvol provisioned (a virtualization/libvirt alternative,
+  not a replacement)
 - **Install virtualization (qemu/libvirt/virt-manager + br0 bridge)? [y/N]**
+
+---
+
+## 12. SSH (& keys)
+
 - **Install and enable the OpenSSH server (sshd)? [y/N]** (`[SSH-SERVER]`,
   Beta-v2.9.23) — default OFF (no network-facing daemons by default). If `y`,
   the following are asked:
@@ -390,69 +435,45 @@ rather than aborting the install.
     directory and writes `id_ed25519-backup{, .pub}` (0600). Declining
     import+generate means there is no key to export.
   - No key material is ever persisted to install-config / limine-env / resume
-    state / chroot_env — only public facts (flattening `Beta-v2.9.54
-    [SSH-KEYGEN-STALE]`: keygen always clears any stale stage key first so the
+    state / chroot_env — only public facts (flattening `Beta-v2.9.54`
+    `[SSH-KEYGEN-STALE]`: keygen always clears any stale stage key first so the
     prompt stream stays aligned).
-- **Master subvolume gates (`[SUBVOL-GATES]`, Beta-v2.9.0)** — asked once, after
-  every install choice above is finalized:
-  - **For software you ARE installing, give each its own isolated subvolume? [Y/n/i]**
-    (`SUBVOL_ISOLATE_INSTALLED`; default `Y`). `i` → walks each installed app
-    individually (each defaults to isolate `Y/n`). Answers are validated
-    (`[SUBVOL-GATE-VALIDATE]` Beta-v2.9.88): anything other than Enter / `y` /
-    `n` / `i` is re-prompted — never silently bulk-defaulted.
-  - **For software you did NOT install, pre-create an empty isolated subvolume for
-    later manual use? [y/N/i]** (`SUBVOL_PRECREATE`; default `N`). `i` → walks
-    each not-installed app individually (each defaults to pre-create `y/N`).
-  - A table-driven resolver folds each app's install choice + the two gates into a
-    single `PROVISION_*_SUBVOL` ("isolate?") flag that drives all subvolume
-    create/mount/fstab/per-user-provision/teardown sites. Affected apps: browsers
-    (Firefox/Chromium/Vivaldi/Falkon/Brave), Thunderbird, Steam, VirtualBox,
-    Flatpak, Docker, Podman-rootful (`@containers`), Podman-rootless
-    (`@containers-user`, `[PODMAN-ROOTLESS-SUBVOL]` Beta-v2.9.2),
-    Virtualization (`@libvirt`). OctoXBPS is excluded — it has no data subvolume.
-  - **NOTE (Beta-v2.9.2):** Podman rootless's per-user `~/.local/share/containers`
-    is now a gate participant (default isolate for an install). Declining it
-    leaves a plain, correctly-owned datadir in `@home`; the mandatory
-    subuid/subgid + containers.conf setup still always runs so rootless podman
-    keeps working either way.
+
+---
+
+## 13. Subvolume master gates
+
+- **For software you ARE installing, give each its own isolated subvolume? [Y/n/i]**
+  (`SUBVOL_ISOLATE_INSTALLED`; default `Y`). `i` → walks each installed app
+  individually (each defaults to isolate `Y/n`). Answers are validated
+  (`[SUBVOL-GATE-VALIDATE]` Beta-v2.9.88): anything other than Enter / `y` /
+  `n` / `i` is re-prompted — never silently bulk-defaulted.
+- **For software you did NOT install, pre-create an empty isolated subvolume for
+  later manual use? [y/N/i]** (`SUBVOL_PRECREATE`; default `N`). `i` → walks
+  each not-installed app individually (each defaults to pre-create `y/N`).
+- A table-driven resolver folds each app's install choice + the two gates into a
+  single `PROVISION_*_SUBVOL` ("isolate?") flag that drives all subvolume
+  create/mount/fstab/per-user-provision/teardown sites. Affected apps: browsers
+  (Firefox/Chromium/Vivaldi/Falkon/Brave), Thunderbird, Steam, VirtualBox,
+  Flatpak, Docker, Podman-rootful (`@containers`), Podman-rootless
+  (`@containers-user`, `[PODMAN-ROOTLESS-SUBVOL]` Beta-v2.9.2),
+  Virtualization (`@libvirt`). OctoXBPS is excluded — it has no data subvolume.
+- **NOTE (Beta-v2.9.2):** Podman rootless's per-user `~/.local/share/containers`
+  is now a gate participant (default isolate for an install). Declining it
+  leaves a plain, correctly-owned datadir in `@home`; the mandatory
+  subuid/subgid + containers.conf setup still always runs so rootless podman
+  keeps working either way.
 - **`[*]` Press Enter once ready to continue** — br0 USB-Ethernet-port warning
-
 ---
 
-## 9. Data regions (filesystem layout)
-
-Reached after the Desktop & Apps section (store, Thunderbird, game launchers),
-before Web Browsers & Email Clients. The root filesystem is ALWAYS
-Btrfs; these choices only slice DATA regions. Each `[b/e]` prompt accepts
-`b`/`btrfs` or `e`/`ext4`; **bare Enter on every line = all-Btrfs default**
-(no extra partitions, no size prompts).
-
-- **`/home` region — btrfs (subvol) or ext4 (own partition)? [b/e]** — default `btrfs`
-- **`/var` region — btrfs (subvols) or ext4 (own partition)? [b/e]**
-- **`/var/cache` region — btrfs (subvol @cache) or ext4 (own partition)? [b/e]**
-- **`/srv` region — btrfs (subvol @srv) or ext4 (own partition)? [b/e]**
-- **`/opt` region — btrfs (subvol @opt) or ext4 (own partition)? [b/e]**
-- **`~/<user>/Games` — none, ext4 partition, or btrfs partition? [n/e/b]** — default `none`
-- For each region chosen `ext4`, a size prompt follows (in the fixed carve order),
-  defaulting to the region's `DEFAULT_REGION_*_SIZE`:
-  - **`/home` partition size [`<default>`]**
-  - **`/var` partition size [`<default>`]**
-  - **`/var/cache` partition size [`<default>`]**
-  - **`/srv` partition size [`<default>`]**
-  - **`/opt` partition size [`<default>`]**
-  - **Games partition size [`<default>`]**
-  The Btrfs root always gets the remainder, so it never asks for a size.
-
----
-
-## 10. Destructive confirmation
+## 14. Destructive confirmation
 
 - **`[*]` Select disk to partition and install to [1-N]**
 - **`[*]` Type 'ERASE <device>' (with the exact device path) to confirm wiping the disk, or anything else to abort**
 
 ---
 
-## 11. Final review
+## 15. Final review
 
 - **Proceed with these settings? [Enter=continue, R=restart config]**
   A full summary of every choice is printed above — since Version-3.1.00 it
@@ -463,7 +484,8 @@ Btrfs; these choices only slice DATA regions. Each `[b/e]` prompt accepts
 
 ---
 
-## 12. YubiKey enrollment (later, only if `YK_MODE=hmac-sha1`)
+
+## 16. YubiKey enrollment (later, only if `YK_MODE=hmac-sha1`)
 
 - **Program slot <N> now — confirm the key is plugged in? [y/N]**
   Happens after the live-CD sync, once `ykpers` is available.
