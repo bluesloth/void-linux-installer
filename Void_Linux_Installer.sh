@@ -585,7 +585,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Version-3.2.13"
+SCRIPT_VERSION="Version-3.2.14"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -4479,133 +4479,6 @@ case "$ENABLE_SNAPSHOT_AUDIO_INPUT" in
 esac
 export ENABLE_SNAPSHOT_AUDIO
 
-# =============================================================================
-# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: DATA REGION FILESYSTEMS.
-# The root filesystem (/, /.snapshots, /boot, @swap) is ALWAYS Btrfs — this
-# grouped screen (right after the encryption section, before the Desktop/DM
-# menu) lets each DATA region either stay a root-Btrfs subvolume (default) or
-# be carved onto its own dedicated partition. Pressing Enter on EVERY line
-# yields the all-Btrfs layout: no extra partitions, no size prompts — exactly
-# the pre-2.9.38 behavior. Partition order is fixed: home, var, cache, srv,
-# opt, games, then the Btrfs root LAST (sized to the remainder). With
-# encryption the carved regions become an inner GPT inside the single LUKS2
-# container. Region partitions are rollback-exempt (a root-@ snapshot
-# rollback leaves them alone) but are NOT Snapper-snapshotted, matching their
-# non-rollback-exempt-but-unsnapshotted subvol counterparts.
-# =============================================================================
-if [ "$RESUME" != "1" ]; then
-    echo ""
-    sec_banner "Data Regions"
-echo "${C_BOLD}${C_BLU}Data region filesystems${C_RST}"
-    echo "  ${C_GRN}btrfs${C_RST}=stays a root-Btrfs subvolume   ${C_GRN}ext4${C_RST}=own dedicated partition"
-    echo "  The root filesystem is ALWAYS Btrfs; these choices only slice DATA regions."
-    echo "  (Enter on every line = all-Btrfs default: no extra partitions, no size prompts.)"
-    ask "/home region — btrfs (subvol) or ext4 (own partition)? [b/e]: "
-    read -r _rh
-    if [ -z "$_rh" ]; then REGION_HOME_FS="$DEFAULT_REGION_HOME_FS"
-    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_HOME_FS="ext4"
-    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_HOME_FS="btrfs"
-    else echo "  (default) btrfs"; REGION_HOME_FS="$DEFAULT_REGION_HOME_FS"; fi
-    ask "/var region — btrfs (subvols) or ext4 (own partition)? [b/e]: "
-    read -r _rh
-    if [ -z "$_rh" ]; then REGION_VAR_FS="$DEFAULT_REGION_VAR_FS"
-    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_VAR_FS="ext4"
-    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_VAR_FS="btrfs"
-    else echo "  (default) btrfs"; REGION_VAR_FS="$DEFAULT_REGION_VAR_FS"; fi
-    ask "/var/cache region — btrfs (subvol @cache) or ext4 (own partition)? [b/e]: "
-    read -r _rh
-    if [ -z "$_rh" ]; then REGION_CACHE_FS="$DEFAULT_REGION_CACHE_FS"
-    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_CACHE_FS="ext4"
-    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_CACHE_FS="btrfs"
-    else echo "  (default) btrfs"; REGION_CACHE_FS="$DEFAULT_REGION_CACHE_FS"; fi
-    ask "/srv region — btrfs (subvol @srv) or ext4 (own partition)? [b/e]: "
-    read -r _rh
-    if [ -z "$_rh" ]; then REGION_SRV_FS="$DEFAULT_REGION_SRV_FS"
-    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_SRV_FS="ext4"
-    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_SRV_FS="btrfs"
-    else echo "  (default) btrfs"; REGION_SRV_FS="$DEFAULT_REGION_SRV_FS"; fi
-    ask "/opt region — btrfs (subvol @opt) or ext4 (own partition)? [b/e]: "
-    read -r _rh
-    if [ -z "$_rh" ]; then REGION_OPT_FS="$DEFAULT_REGION_OPT_FS"
-    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_OPT_FS="ext4"
-    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_OPT_FS="btrfs"
-    else echo "  (default) btrfs"; REGION_OPT_FS="$DEFAULT_REGION_OPT_FS"; fi
-    ask "~/<user>/Games — none, ext4 partition, or btrfs partition? [n/e/b]: "
-    read -r _rh
-    if [ -z "$_rh" ]; then REGION_GAMES="$DEFAULT_REGION_GAMES"
-    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_GAMES="ext4"
-    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_GAMES="btrfs"
-    else echo "  (default) none"; REGION_GAMES="$DEFAULT_REGION_GAMES"; fi
-    unset _rh
-    # Carved regions ask a size prompt (in the fixed carve order); the Btrfs
-    # root always gets the remainder, so it never asks.
-    echo "  Carved region size prompts:"
-    if [ "$REGION_HOME_FS" = "ext4" ]; then
-        ask "  /home partition size [$DEFAULT_REGION_HOME_SIZE]: "
-        read -r _rs
-        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_HOME_SIZE"
-        REGION_HOME_SIZE="$_rs"
-    fi
-    if [ "$REGION_VAR_FS" = "ext4" ]; then
-        ask "  /var partition size [$DEFAULT_REGION_VAR_SIZE]: "
-        read -r _rs
-        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_VAR_SIZE"
-        REGION_VAR_SIZE="$_rs"
-    fi
-    if [ "$REGION_CACHE_FS" = "ext4" ]; then
-        ask "  /var/cache partition size [$DEFAULT_REGION_CACHE_SIZE]: "
-        read -r _rs
-        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_CACHE_SIZE"
-        REGION_CACHE_SIZE="$_rs"
-    fi
-    if [ "$REGION_SRV_FS" = "ext4" ]; then
-        ask "  /srv partition size [$DEFAULT_REGION_SRV_SIZE]: "
-        read -r _rs
-        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_SRV_SIZE"
-        REGION_SRV_SIZE="$_rs"
-    fi
-    if [ "$REGION_OPT_FS" = "ext4" ]; then
-        ask "  /opt partition size [$DEFAULT_REGION_OPT_SIZE]: "
-        read -r _rs
-        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_OPT_SIZE"
-        REGION_OPT_SIZE="$_rs"
-    fi
-    if [ "$REGION_GAMES" != "none" ]; then
-        ask "  Games partition size [$DEFAULT_REGION_GAMES_SIZE]: "
-        read -r _rs
-        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_GAMES_SIZE"
-        REGION_GAMES_SIZE="$_rs"
-    fi
-    unset _rs
-    # Derive the carves in the FIXED partition order (home, var, cache, srv,
-    # opt, games). The leading space is deliberate — every carved region
-    # appends "<space>name" so the value is a plain word list on which a
-    # `for r in $REGION_PARTITIONED` loop iterates; empty = no carve.
-    REGION_PARTITIONED=""
-    [ "$REGION_HOME_FS"  = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED home"
-    [ "$REGION_VAR_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED var"
-    [ "$REGION_CACHE_FS" = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED cache"
-    [ "$REGION_SRV_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED srv"
-    [ "$REGION_OPT_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED opt"
-    [ "$REGION_GAMES"    != "none" ] && REGION_PARTITIONED="$REGION_PARTITIONED games"
-    # Unset the size vars of regions that are NOT carved so downstream logic
-    # (install-config, DBG plan) only sees meaningful values.
-    [ "$REGION_HOME_FS"  != "ext4" ]  && unset REGION_HOME_SIZE
-    [ "$REGION_VAR_FS"   != "ext4" ]  && unset REGION_VAR_SIZE
-    [ "$REGION_CACHE_FS" != "ext4" ]  && unset REGION_CACHE_SIZE
-    [ "$REGION_SRV_FS"   != "ext4" ]  && unset REGION_SRV_SIZE
-    [ "$REGION_OPT_FS"   != "ext4" ]  && unset REGION_OPT_SIZE
-    [ "$REGION_GAMES"    = "none" ]  && unset REGION_GAMES_SIZE
-    [ -n "$REGION_PARTITIONED" ] && echo "  → Carved partitions:${REGION_PARTITIONED}"
-    jl "MULTI-FS: carved=${REGION_PARTITIONED:-<none>} home=${REGION_HOME_FS} var=${REGION_VAR_FS} cache=${REGION_CACHE_FS} srv=${REGION_SRV_FS} opt=${REGION_OPT_FS} games=${REGION_GAMES}"
-else
-    # Resume: REGION_* are restored from the state file (persisted below), so
-    # the carve geometry is identical — nothing to re-ask.
-    :
-fi
-export REGION_HOME_FS REGION_VAR_FS REGION_CACHE_FS REGION_SRV_FS REGION_OPT_FS REGION_GAMES
-export REGION_HOME_SIZE REGION_VAR_SIZE REGION_CACHE_SIZE REGION_SRV_SIZE REGION_OPT_SIZE REGION_GAMES_SIZE
-export REGION_PARTITIONED
 
 # AI (Claude, Sonnet 5, Medium) ADDITION — Beta-v2.3.0 [KERNEL-MODE]: Where Limine reads the
 # kernel/initramfs from is a real install-time choice, asked only when
@@ -5177,6 +5050,134 @@ else
     INSTALL_ANY_GAME="false"
 fi
 export INSTALL_ANY_GAME
+
+# =============================================================================
+# AI (Big Pickle) ADDITION — Beta-v2.9.38 [MULTI-FS]: DATA REGION FILESYSTEMS.
+# The root filesystem (/, /.snapshots, /boot, @swap) is ALWAYS Btrfs — this
+# grouped screen (after the Desktop & Apps section, before Web Browsers)
+# lets each DATA region either stay a root-Btrfs subvolume (default) or
+# be carved onto its own dedicated partition. Pressing Enter on EVERY line
+# yields the all-Btrfs layout: no extra partitions, no size prompts — exactly
+# the pre-2.9.38 behavior. Partition order is fixed: home, var, cache, srv,
+# opt, games, then the Btrfs root LAST (sized to the remainder). With
+# encryption the carved regions become an inner GPT inside the single LUKS2
+# container. Region partitions are rollback-exempt (a root-@ snapshot
+# rollback leaves them alone) but are NOT Snapper-snapshotted, matching their
+# non-rollback-exempt-but-unsnapshotted subvol counterparts.
+# =============================================================================
+if [ "$RESUME" != "1" ]; then
+    echo ""
+    sec_banner "Data Regions"
+echo "${C_BOLD}${C_BLU}Data region filesystems${C_RST}"
+    echo "  ${C_GRN}btrfs${C_RST}=stays a root-Btrfs subvolume   ${C_GRN}ext4${C_RST}=own dedicated partition"
+    echo "  The root filesystem is ALWAYS Btrfs; these choices only slice DATA regions."
+    echo "  (Enter on every line = all-Btrfs default: no extra partitions, no size prompts.)"
+    ask "/home region — btrfs (subvol) or ext4 (own partition)? [b/e]: "
+    read -r _rh
+    if [ -z "$_rh" ]; then REGION_HOME_FS="$DEFAULT_REGION_HOME_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_HOME_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_HOME_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_HOME_FS="$DEFAULT_REGION_HOME_FS"; fi
+    ask "/var region — btrfs (subvols) or ext4 (own partition)? [b/e]: "
+    read -r _rh
+    if [ -z "$_rh" ]; then REGION_VAR_FS="$DEFAULT_REGION_VAR_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_VAR_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_VAR_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_VAR_FS="$DEFAULT_REGION_VAR_FS"; fi
+    ask "/var/cache region — btrfs (subvol @cache) or ext4 (own partition)? [b/e]: "
+    read -r _rh
+    if [ -z "$_rh" ]; then REGION_CACHE_FS="$DEFAULT_REGION_CACHE_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_CACHE_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_CACHE_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_CACHE_FS="$DEFAULT_REGION_CACHE_FS"; fi
+    ask "/srv region — btrfs (subvol @srv) or ext4 (own partition)? [b/e]: "
+    read -r _rh
+    if [ -z "$_rh" ]; then REGION_SRV_FS="$DEFAULT_REGION_SRV_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_SRV_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_SRV_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_SRV_FS="$DEFAULT_REGION_SRV_FS"; fi
+    ask "/opt region — btrfs (subvol @opt) or ext4 (own partition)? [b/e]: "
+    read -r _rh
+    if [ -z "$_rh" ]; then REGION_OPT_FS="$DEFAULT_REGION_OPT_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_OPT_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_OPT_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_OPT_FS="$DEFAULT_REGION_OPT_FS"; fi
+    ask "~/<user>/Games — none, ext4 partition, or btrfs partition? [n/e/b]: "
+    read -r _rh
+    if [ -z "$_rh" ]; then REGION_GAMES="$DEFAULT_REGION_GAMES"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_GAMES="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_GAMES="btrfs"
+    else echo "  (default) none"; REGION_GAMES="$DEFAULT_REGION_GAMES"; fi
+    unset _rh
+    # Carved regions ask a size prompt (in the fixed carve order); the Btrfs
+    # root always gets the remainder, so it never asks.
+    echo "  Carved region size prompts:"
+    if [ "$REGION_HOME_FS" = "ext4" ]; then
+        ask "  /home partition size [$DEFAULT_REGION_HOME_SIZE]: "
+        read -r _rs
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_HOME_SIZE"
+        REGION_HOME_SIZE="$_rs"
+    fi
+    if [ "$REGION_VAR_FS" = "ext4" ]; then
+        ask "  /var partition size [$DEFAULT_REGION_VAR_SIZE]: "
+        read -r _rs
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_VAR_SIZE"
+        REGION_VAR_SIZE="$_rs"
+    fi
+    if [ "$REGION_CACHE_FS" = "ext4" ]; then
+        ask "  /var/cache partition size [$DEFAULT_REGION_CACHE_SIZE]: "
+        read -r _rs
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_CACHE_SIZE"
+        REGION_CACHE_SIZE="$_rs"
+    fi
+    if [ "$REGION_SRV_FS" = "ext4" ]; then
+        ask "  /srv partition size [$DEFAULT_REGION_SRV_SIZE]: "
+        read -r _rs
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_SRV_SIZE"
+        REGION_SRV_SIZE="$_rs"
+    fi
+    if [ "$REGION_OPT_FS" = "ext4" ]; then
+        ask "  /opt partition size [$DEFAULT_REGION_OPT_SIZE]: "
+        read -r _rs
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_OPT_SIZE"
+        REGION_OPT_SIZE="$_rs"
+    fi
+    if [ "$REGION_GAMES" != "none" ]; then
+        ask "  Games partition size [$DEFAULT_REGION_GAMES_SIZE]: "
+        read -r _rs
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_GAMES_SIZE"
+        REGION_GAMES_SIZE="$_rs"
+    fi
+    unset _rs
+    # Derive the carves in the FIXED partition order (home, var, cache, srv,
+    # opt, games). The leading space is deliberate — every carved region
+    # appends "<space>name" so the value is a plain word list on which a
+    # `for r in $REGION_PARTITIONED` loop iterates; empty = no carve.
+    REGION_PARTITIONED=""
+    [ "$REGION_HOME_FS"  = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED home"
+    [ "$REGION_VAR_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED var"
+    [ "$REGION_CACHE_FS" = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED cache"
+    [ "$REGION_SRV_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED srv"
+    [ "$REGION_OPT_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED opt"
+    [ "$REGION_GAMES"    != "none" ] && REGION_PARTITIONED="$REGION_PARTITIONED games"
+    # Unset the size vars of regions that are NOT carved so downstream logic
+    # (install-config, DBG plan) only sees meaningful values.
+    [ "$REGION_HOME_FS"  != "ext4" ]  && unset REGION_HOME_SIZE
+    [ "$REGION_VAR_FS"   != "ext4" ]  && unset REGION_VAR_SIZE
+    [ "$REGION_CACHE_FS" != "ext4" ]  && unset REGION_CACHE_SIZE
+    [ "$REGION_SRV_FS"   != "ext4" ]  && unset REGION_SRV_SIZE
+    [ "$REGION_OPT_FS"   != "ext4" ]  && unset REGION_OPT_SIZE
+    [ "$REGION_GAMES"    = "none" ]  && unset REGION_GAMES_SIZE
+    [ -n "$REGION_PARTITIONED" ] && echo "  → Carved partitions:${REGION_PARTITIONED}"
+    jl "MULTI-FS: carved=${REGION_PARTITIONED:-<none>} home=${REGION_HOME_FS} var=${REGION_VAR_FS} cache=${REGION_CACHE_FS} srv=${REGION_SRV_FS} opt=${REGION_OPT_FS} games=${REGION_GAMES}"
+else
+    # Resume: REGION_* are restored from the state file (persisted below), so
+    # the carve geometry is identical — nothing to re-ask.
+    :
+fi
+export REGION_HOME_FS REGION_VAR_FS REGION_CACHE_FS REGION_SRV_FS REGION_OPT_FS REGION_GAMES
+export REGION_HOME_SIZE REGION_VAR_SIZE REGION_CACHE_SIZE REGION_SRV_SIZE REGION_OPT_SIZE REGION_GAMES_SIZE
+export REGION_PARTITIONED
 
 
 # =============================================================================

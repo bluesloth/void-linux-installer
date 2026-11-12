@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Version-3.2.10**). It exists
+> `Void_Linux_Installer.sh` (current version: **Version-3.2.14**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -421,7 +421,8 @@ rather than aborting the install.
 
 ## 9. Data regions (filesystem layout)
 
-Only reached after the encryption/YubiKey pass. The root filesystem is ALWAYS
+Reached after the Desktop & Apps section (store, Thunderbird, game launchers),
+before Web Browsers & Email Clients. The root filesystem is ALWAYS
 Btrfs; these choices only slice DATA regions. Each `[b/e]` prompt accepts
 `b`/`btrfs` or `e`/`ext4`; **bare Enter on every line = all-Btrfs default**
 (no extra partitions, no size prompts).
