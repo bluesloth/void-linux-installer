@@ -295,10 +295,10 @@ This section is shown once, after the desktop choice. It groups **Flatpak**,
 ```
 Choose an app store / package manager
   1) None — no store/package-manager installed (default)
-  2) OctoXBPS — graphical xbps package manager + update notifier
-  3) GNOME Software — xbps-backed app store
-  4) KDE Discover — xbps-backed app store
-  5) cosmic-store — COSMIC app store (xbps-only; flatpak-enabled build if Flatpak was selected above)
+  2) OctoXBPS — graphical xbps package manager + update notifier (xbps packages only)
+  3) GNOME Software — xbps-backed app store (flatpak-capable)
+  4) KDE Discover — xbps-backed app store (flatpak-capable)
+  5) cosmic-store — COSMIC app store (xbps-only; flatpak-enabled build if Flatpak selected above)
 ```
 
 Enter choice [1-5] (default 1: None). Picking any option sets exactly one of

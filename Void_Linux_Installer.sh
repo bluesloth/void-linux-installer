@@ -2801,7 +2801,7 @@ fi
 
 if [ "$RESUME" != "1" ]; then
 echo ""
-echo "${C_BOLD}${C_BLU}Account privilege model${C_RST}"
+sec_banner "Account & Hostname"
 echo "  ${C_BOLD}1)${C_RST} Hybrid — root has a password AND your user gets full sudo access"
 echo "  ${C_BOLD}2)${C_RST} Debian-style — root has a password; your user is NOT in sudo (su - only)"
 echo "  ${C_BOLD}3)${C_RST} Ubuntu-style — root is locked; your user gets full sudo access (your own password)"
@@ -2916,6 +2916,7 @@ export TARGET_DOMAIN
 export TARGET_FQDN
 echo ""
 if [ "$RESUME" != "1" ]; then
+sec_banner "Desktop & Display Manager"
 echo "${C_BOLD}${C_BLU}Choose desktop environment${C_RST}"
 echo "  ${C_BOLD}1)${C_RST} ${C_GRN}KDE Plasma (default)${C_RST} — Wayland session, this script's"
 echo "     primary tested path."
@@ -3195,7 +3196,8 @@ _disk_count=$((_i - 1))
 
 echo ""
 while true; do
-    ask "Select disk to partition and install to [1-${_disk_count}]: "
+    sec_banner "Disk Selection"
+ask "Select disk to partition and install to [1-${_disk_count}]: "
     read -r DISK_CHOICE
     if [[ "$DISK_CHOICE" =~ ^[0-9]+$ ]] && [ "$DISK_CHOICE" -ge 1 ] && [ "$DISK_CHOICE" -le "$_disk_count" ]; then
         break
@@ -3224,6 +3226,7 @@ if [ "$ACCEPT_DEFAULTS" != "true" ]; then
 # custom entry for anything else.
 # =============================================================================
 echo ""
+sec_banner "Locale & Timezone"
 echo "${C_BOLD}${C_BLU}Language / locale${C_RST} (system language; default en_US.UTF-8)"
 echo "  ${C_BOLD}1)${C_RST} ${C_GRN}en_US.UTF-8 (English / US) — default${C_RST}"
 echo "  ${C_BOLD}2)${C_RST} en_GB.UTF-8 (English / UK)"
@@ -4492,7 +4495,8 @@ export ENABLE_SNAPSHOT_AUDIO
 # =============================================================================
 if [ "$RESUME" != "1" ]; then
     echo ""
-    echo "${C_BOLD}${C_BLU}Data region filesystems${C_RST}"
+    sec_banner "Data Regions"
+echo "${C_BOLD}${C_BLU}Data region filesystems${C_RST}"
     echo "  ${C_GRN}btrfs${C_RST}=stays a root-Btrfs subvolume   ${C_GRN}ext4${C_RST}=own dedicated partition"
     echo "  The root filesystem is ALWAYS Btrfs; these choices only slice DATA regions."
     echo "  (Enter on every line = all-Btrfs default: no extra partitions, no size prompts.)"
@@ -4981,6 +4985,7 @@ export INSTALL_FLATPAK
 # = sandboxed GUI apps; Homebrew = unsandboxed CLI/dev tools. Complement, not
 # replacement.
 echo ""
+sec_banner "App Channels & Stores"
 echo "${C_BOLD}${C_BLU}THIRD-PARTY APP CHANNELS${C_RST} — Flatpak (sandboxed GUI apps) and"
 echo "  Homebrew / Linuxbrew (unsandboxed CLI & dev tools) are independent"
 echo "  choices — enable either, both, or neither."
@@ -5000,8 +5005,8 @@ if [ "$_INSTALL_STORE_OFFERED" = "true" ]; then
     echo "${C_BOLD}${C_BLU}Choose an app store / package manager${C_RST}"
     echo "  ${C_BOLD}1)${C_RST} ${C_GRN}None${C_RST} — no store/package-manager installed (default)"
     echo "  ${C_BOLD}2)${C_RST} OctoXBPS — graphical xbps package manager + update notifier"
-    echo "  ${C_BOLD}3)${C_RST} GNOME Software — xbps-backed app store"
-    echo "  ${C_BOLD}4)${C_RST} KDE Discover — xbps-backed app store"
+    echo "  ${C_BOLD}3)${C_RST} GNOME Software — xbps-backed app store (flatpak-capable)"
+    echo "  ${C_BOLD}4)${C_RST} KDE Discover — xbps-backed app store (flatpak-capable)"
     echo "  ${C_BOLD}5)${C_RST} cosmic-store — COSMIC app store (xbps-only; flatpak-enabled"
     echo "                 build if Flatpak was selected above)"
     while true; do
@@ -5058,14 +5063,6 @@ unset _INSTALL_STORE_OFFERED INSTALL_STORE_CHOICE_INPUT
 # are GUI clients with no daemon and follow the browser-install model (package
 # + isolated subvol). Both default OFF (lean posture — must be opted into,
 # matching containers/virt).
-ask "Install Thunderbird (email client)? [y/N]: "
-read -r INSTALL_THUNDERBIRD_INPUT
-case "$INSTALL_THUNDERBIRD_INPUT" in
-    "") INSTALL_THUNDERBIRD="$DEFAULT_THUNDERBIRD" ;;
-    [yY]*) INSTALL_THUNDERBIRD="true" ;;
-    *) INSTALL_THUNDERBIRD="false" ;;
-esac
-export INSTALL_THUNDERBIRD
 
 # AI (Big Pickle) ADDITION — Beta-v2.9.37 [GAME-LAUNCHERS]: a gaming umbrella
 # right after the app channels / Thunderbird, before Steam. Each item is an
@@ -5162,14 +5159,6 @@ else
 fi
 export INSTALL_ANY_GAME
 
-ask "Install VirtualBox (full virtualizer, QEMU/KVM alternative)? [y/N]: "
-read -r INSTALL_VIRTUALBOX_INPUT
-case "$INSTALL_VIRTUALBOX_INPUT" in
-    "") INSTALL_VIRTUALBOX="$DEFAULT_VIRTUALBOX" ;;
-    [yY]*) INSTALL_VIRTUALBOX="true" ;;
-    *) INSTALL_VIRTUALBOX="false" ;;
-esac
-export INSTALL_VIRTUALBOX
 
 # =============================================================================
 # WEB BROWSER SELECTION
@@ -5205,7 +5194,8 @@ export INSTALL_VIRTUALBOX
 # Beta-v2.9.7 [BROWSER-GATE-NO], so an uninterested/default run skips the
 # whole browser section).
 echo ""
-ask "Set up web browsers now? (choose each one next) [y/N]: "
+sec_banner "Web Browsers & Email Clients"
+ask "Set up web browsers & email clients now? (choose each one next) [y/N]: "
 read -r _setup_web_input
 case "$_setup_web_input" in
     "")    SETUP_WEB_BROWSERS="$DEFAULT_WEB_BROWSERS" ;;
@@ -5309,6 +5299,14 @@ else
     INSTALL_FALKON="false"
     INSTALL_BRAVE="false"
     export INSTALL_FIREFOX INSTALL_CHROMIUM INSTALL_VIVALDI INSTALL_FALKON INSTALL_BRAVE
+ask "Install Thunderbird (email client)? [y/N]: "
+read -r INSTALL_THUNDERBIRD_INPUT
+case "$INSTALL_THUNDERBIRD_INPUT" in
+    "") INSTALL_THUNDERBIRD="$DEFAULT_THUNDERBIRD" ;;
+    [yY]*) INSTALL_THUNDERBIRD="true" ;;
+    *) INSTALL_THUNDERBIRD="false" ;;
+esac
+export INSTALL_THUNDERBIRD
 fi
 
 # (Browser pre-create of isolated profile subvolumes is now handled
@@ -5340,6 +5338,7 @@ fi
 # independent choice (rootless vs rootful vs docker have genuinely different
 # security/trust/architecture profiles).
 echo ""
+sec_banner "Containers & Virtualization"
 ask "Set up containers (Podman / Docker) now? (choose each backend next) [y/N]: "
 read -r _setup_containers_input
 case "$_setup_containers_input" in
@@ -5552,6 +5551,14 @@ case "$INSTALL_VIRT_INPUT" in
     *) INSTALL_VIRT="false" ;;
 esac
 export INSTALL_VIRT
+ask "Install VirtualBox (full virtualizer, QEMU/KVM alternative)? [y/N]: "
+read -r INSTALL_VIRTUALBOX_INPUT
+case "$INSTALL_VIRTUALBOX_INPUT" in
+    "") INSTALL_VIRTUALBOX="$DEFAULT_VIRTUALBOX" ;;
+    [yY]*) INSTALL_VIRTUALBOX="true" ;;
+    *) INSTALL_VIRTUALBOX="false" ;;
+esac
+export INSTALL_VIRTUALBOX
 
 # =============================================================================
 # AI (Big Pickle) ADDITION — Beta-v2.9.23 [SSH-SERVER]: optional OpenSSH server.
@@ -6308,6 +6315,7 @@ echo "${C_CYN}==================================================================
 echo ""
 echo "  ${C_GRN}Press Enter${C_RST} to proceed with the install, or ${C_YLW}type R${C_RST} to re-run the entire"
 echo "  configuration from the top and revise your choices (no disk has been touched yet)."
+sec_banner "Final Review"
 ask "Proceed with these settings? [Enter=continue, R=restart config]: "
 read -r _rev_ans
 case "$_rev_ans" in
