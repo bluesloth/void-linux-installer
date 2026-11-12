@@ -4969,91 +4969,110 @@ else
     _INSTALL_STORE_OFFERED="false"
 fi
 
-ask "Install Flatpak (+ Flathub)? [Y/n]: "
-read -r INSTALL_FLATPAK_INPUT
-case "$INSTALL_FLATPAK_INPUT" in
-    "") INSTALL_FLATPAK="$DEFAULT_FLATPAK" ;;
-    [nN]*) INSTALL_FLATPAK="false" ;;
-    *) INSTALL_FLATPAK="true" ;;
-esac
-export INSTALL_FLATPAK
-
-# AI (Big Pickle) ADDITION — Beta-v2.9.36 [CHANNEL-GROUP]: Flatpak and Homebrew
-# are shown as one third-party-app-channels umbrella, but each is an INDEPENDENT
-# yes/no toggle (both default NO) — brew must not read as a sub-choice of
-# Flatpak's sandbox; brew-only and flatpak-only are both expressible. Flatpak
-# = sandboxed GUI apps; Homebrew = unsandboxed CLI/dev tools. Complement, not
-# replacement.
-echo ""
-sec_banner "App Channels & Stores"
-echo "${C_BOLD}${C_BLU}THIRD-PARTY APP CHANNELS${C_RST} — Flatpak (sandboxed GUI apps) and"
-echo "  Homebrew / Linuxbrew (unsandboxed CLI & dev tools) are independent"
-echo "  choices — enable either, both, or neither."
-ask "Install Homebrew (Linuxbrew CLI/dev channel, opt-in; ~/.linuxbrew)? [y/N]: "
-read -r INSTALL_BREW_INPUT
-case "$INSTALL_BREW_INPUT" in
-    "") INSTALL_BREW="$DEFAULT_BREW" ;;
-    [yY]*) INSTALL_BREW="true" ;;
-    *) INSTALL_BREW="false" ;;
-esac
-export INSTALL_BREW
-
-# Consolidated store choice: pick at most one store/package-manager.
+# Consolidated app channels & store choice.
 # Offered only on non-store graphical desktops (cinnamon/xfce/mate/lxqt).
+# GNOME/Cosmic/KDE get their store automatically; this choice is for other desktops.
 if [ "$_INSTALL_STORE_OFFERED" = "true" ]; then
     echo ""
-    echo "${C_BOLD}${C_BLU}Choose an app store / package manager${C_RST}"
+    echo "${C_BOLD}${C_BLU}App channels & store${C_RST}"
     echo "  ${C_BOLD}1)${C_RST} ${C_GRN}None${C_RST} — no store/package-manager installed (default)"
-    echo "  ${C_BOLD}2)${C_RST} OctoXBPS — graphical xbps package manager + update notifier"
-    echo "  ${C_BOLD}3)${C_RST} GNOME Software — xbps-backed app store (flatpak-capable)"
-    echo "  ${C_BOLD}4)${C_RST} KDE Discover — xbps-backed app store (flatpak-capable)"
-    echo "  ${C_BOLD}5)${C_RST} cosmic-store — COSMIC app store (xbps-only; flatpak-enabled"
-    echo "                 build if Flatpak was selected above)"
+    echo "  ${C_BOLD}2)${C_RST} Flatpak only — Flatpak + Flathub sandboxed GUI apps"
+    echo "  ${C_BOLD}3)${C_RST} Flatpak + OctoXBPS — Flatpak + graphical xbps package manager"
+    echo "  ${C_BOLD}4)${C_RST} Flatpak + GNOME Software — Flatpak + xbps-backed app store (flatpak-capable)"
+    echo "  ${C_BOLD}5)${C_RST} Flatpak + KDE Discover — Flatpak + xbps-backed app store (flatpak-capable)"
+    echo "  ${C_BOLD}6)${C_RST} Flatpak + cosmic-store — Flatpak + COSMIC app store (flatpak-enabled build)"
+    echo "  ${C_BOLD}7)${C_RST} OctoXBPS only — graphical xbps package manager (xbps packages only)"
+    echo "  ${C_BOLD}8)${C_RST} Homebrew only — Linuxbrew CLI/dev channel (~/.linuxbrew)"
+    echo "  ${C_BOLD}9)${C_RST} Flatpak + Homebrew — Flatpak + Linuxbrew CLI/dev channel"
     while true; do
-        ask "Enter choice [1-5] (default 1: None): "
-        read -r INSTALL_STORE_CHOICE_INPUT
-        case "${INSTALL_STORE_CHOICE_INPUT:-1}" in
-            1|"")
+        ask "Enter choice [1-9] (default 2: Flatpak only): "
+        read -r INSTALL_CHANNEL_CHOICE_INPUT
+        case "${INSTALL_CHANNEL_CHOICE_INPUT:-2}" in
+            1)
+                INSTALL_FLATPAK="false"
+                INSTALL_BREW="false"
                 INSTALL_OCTOXBPS="false"
                 INSTALL_GNOME_SOFTWARE="false"
                 INSTALL_DISCOVER="false"
                 INSTALL_COSMIC_STORE="false"
                 break ;;
             2)
-                INSTALL_OCTOXBPS="true"
+                INSTALL_FLATPAK="true"
+                INSTALL_BREW="false"
+                INSTALL_OCTOXBPS="false"
                 INSTALL_GNOME_SOFTWARE="false"
                 INSTALL_DISCOVER="false"
                 INSTALL_COSMIC_STORE="false"
                 break ;;
             3)
+                INSTALL_FLATPAK="true"
+                INSTALL_BREW="false"
+                INSTALL_OCTOXBPS="true"
+                INSTALL_GNOME_SOFTWARE="false"
+                INSTALL_DISCOVER="false"
+                INSTALL_COSMIC_STORE="false"
+                break ;;
+            4)
+                INSTALL_FLATPAK="true"
+                INSTALL_BREW="false"
                 INSTALL_OCTOXBPS="false"
                 INSTALL_GNOME_SOFTWARE="true"
                 INSTALL_DISCOVER="false"
                 INSTALL_COSMIC_STORE="false"
                 break ;;
-            4)
+            5)
+                INSTALL_FLATPAK="true"
+                INSTALL_BREW="false"
                 INSTALL_OCTOXBPS="false"
                 INSTALL_GNOME_SOFTWARE="false"
                 INSTALL_DISCOVER="true"
                 INSTALL_COSMIC_STORE="false"
                 break ;;
-            5)
+            6)
+                INSTALL_FLATPAK="true"
+                INSTALL_BREW="false"
                 INSTALL_OCTOXBPS="false"
                 INSTALL_GNOME_SOFTWARE="false"
                 INSTALL_DISCOVER="false"
                 INSTALL_COSMIC_STORE="true"
                 break ;;
+            7)
+                INSTALL_FLATPAK="false"
+                INSTALL_BREW="false"
+                INSTALL_OCTOXBPS="true"
+                INSTALL_GNOME_SOFTWARE="false"
+                INSTALL_DISCOVER="false"
+                INSTALL_COSMIC_STORE="false"
+                break ;;
+            8)
+                INSTALL_FLATPAK="false"
+                INSTALL_BREW="true"
+                INSTALL_OCTOXBPS="false"
+                INSTALL_GNOME_SOFTWARE="false"
+                INSTALL_DISCOVER="false"
+                INSTALL_COSMIC_STORE="false"
+                break ;;
+            9)
+                INSTALL_FLATPAK="true"
+                INSTALL_BREW="true"
+                INSTALL_OCTOXBPS="false"
+                INSTALL_GNOME_SOFTWARE="false"
+                INSTALL_DISCOVER="false"
+                INSTALL_COSMIC_STORE="false"
+                break ;;
             *)
-                echo "Please enter 1, 2, 3, 4, or 5." >&2 ;;
+                echo "Please enter 1-9." >&2 ;;
         esac
     done
-    export INSTALL_OCTOXBPS INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER INSTALL_COSMIC_STORE
+    export INSTALL_FLATPAK INSTALL_BREW INSTALL_OCTOXBPS INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER INSTALL_COSMIC_STORE
 else
+    INSTALL_FLATPAK="false"
+    INSTALL_BREW="false"
     INSTALL_OCTOXBPS="false"
     INSTALL_GNOME_SOFTWARE="false"
     INSTALL_DISCOVER="false"
     INSTALL_COSMIC_STORE="false"
-    export INSTALL_OCTOXBPS INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER INSTALL_COSMIC_STORE
+    export INSTALL_FLATPAK INSTALL_BREW INSTALL_OCTOXBPS INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER INSTALL_COSMIC_STORE
 fi
 unset _INSTALL_STORE_OFFERED INSTALL_STORE_CHOICE_INPUT
 

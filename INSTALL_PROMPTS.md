@@ -272,38 +272,42 @@ apply to.
 This section is shown once, after the desktop choice. It groups **Flatpak**,
 **Homebrew**, and the **store/package-manager** choice.
 
-- **Install Flatpak (+ Flathub)? [Y/n]** — sandboxed GUI apps via Flathub. Default yes.
-  This gates the flatpak-enabled build of cosmic-store on Cosmic builds and the
-  Heroic + Bottles game-launcher offer below.
-- **Install Homebrew (Linuxbrew CLI/dev channel, opt-in; ~/.linuxbrew)? [y/N]** —
-  independent of Flatpak; either, both, or neither. Installs only the xbps
-  runtime deps (git curl file procps-ng); the operator creates the prefix on
-  first login.
-
-### Store / package-manager choice — gated by Desktop Environment:
-
-| DE | Store behavior | Prompt shown? |
-|----|---------------|---------------|
-| **GNOME** | `gnome-software` installed automatically from this project's GNOME Software store (no prompt) | No |
-| **Cosmic** | `cosmic-store` installed automatically from this project's COSMIC store (no prompt). If Flatpak is also selected, the flatpak-enabled build `cosmic-store-flatpak` is installed instead so the store can manage flatpak apps. | No |
-| **KDE** | `discover` installed automatically from this project's KDE Discover store (no prompt) | No |
-| **cinnamon / xfce / mate / lxqt** | Offered a single consolidated choice of one store/package-manager (see options below) | Yes |
-| **none** (headless) | No store/package-manager installed | No |
-
-**Consolidated store choice** (shown only for cinnamon/xfce/mate/lxqt):
+- **App channels & store** — consolidated choice of Flatpak, Homebrew, and
+  store/package-manager in a single prompt:
 
 ```
-Choose an app store / package manager
+App channels & store:
   1) None — no store/package-manager installed (default)
-  2) OctoXBPS — graphical xbps package manager + update notifier (xbps packages only)
-  3) GNOME Software — xbps-backed app store (flatpak-capable)
-  4) KDE Discover — xbps-backed app store (flatpak-capable)
-  5) cosmic-store — COSMIC app store (xbps-only; flatpak-enabled build if Flatpak selected above)
+  2) Flatpak only — Flatpak + Flathub sandboxed GUI apps
+  3) Flatpak + OctoXBPS — Flatpak + graphical xbps package manager
+  4) Flatpak + GNOME Software — Flatpak + xbps-backed app store (flatpak-capable)
+  5) Flatpak + KDE Discover — Flatpak + xbps-backed app store (flatpak-capable)
+  6) Flatpak + cosmic-store — Flatpak + COSMIC app store (flatpak-enabled build)
+  7) OctoXBPS only — graphical xbps package manager (xbps packages only)
+  8) Homebrew only — Linuxbrew CLI/dev channel (~/.linuxbrew)
+  9) Flatpak + Homebrew — Flatpak + Linuxbrew CLI/dev channel
 ```
 
-Enter choice [1-5] (default 1: None). Picking any option sets exactly one of
-`INSTALL_OCTOXBPS`, `INSTALL_GNOME_SOFTWARE`, `INSTALL_DISCOVER`,
-`INSTALL_COSMIC_STORE` to `true` and the rest to `false`.
+Showing this choice depends on desktop environment:
+
+| DE | Choice offered? |
+|----|-----------------|
+| **GNOME** | Yes — store is auto-installed (gnome-software); Flatpak/Homebrew choices apply |
+| **Cosmic** | Yes — store is auto-installed (cosmic-store); Flatpak/Homebrew choices apply |
+| **KDE** | Yes — store is auto-installed (discover); Flatpak/Homebrew choices apply |
+| **cinnamon / xfce / mate / lxqt** | Yes — full choice including store selection |
+| **none** (headless) | No — nothing installed |
+
+Enter choice [1-9] (default 2: Flatpak only). Picking any option sets exactly
+one of `INSTALL_FLATPAK`, `INSTALL_BREW`, `INSTALL_OCTOXBPS`,
+`INSTALL_GNOME_SOFTWARE`, `INSTALL_DISCOVER`, `INSTALL_COSMIC_STORE` to `true`
+and the rest to `false`.
+
+The chosen store/package-manager is installed in Stage-2 from this project's
+own repository (bluesloth.github.io), with its signing key imported and
+fingerprint-verified against the installer's pin before any package is
+fetched. If a store repo is unreachable the helper warns and falls back to
+the stock upstream build rather than aborting the install.
 
 The chosen store is installed in Stage-2 from this project's own repository
 (bluesloth.github.io), with its signing key imported and fingerprint-verified
