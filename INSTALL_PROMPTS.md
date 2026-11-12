@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Version-3.2.09**). It exists
+> `Void_Linux_Installer.sh` (current version: **Version-3.2.10**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -12,6 +12,9 @@
 > A `[*]` marks a required choice with no default (the script reprompts
 > until a valid value is entered). Otherwise, pressing **Enter** accepts
 > the default where shown.
+>
+> Every prompt shows a `[step/total]` progress counter (e.g. `[12/98]`) so
+> the operator knows how far along they are.
 >
 > Every `DEFAULT_*` variable is declared in the `[PROMPT-DEFAULTS]` block
 > of the script and can be overridden at runtime by exporting the same
@@ -232,6 +235,12 @@
   - `1` elogind
   - `2` turnstile
 
+> **[DISK-PICKER-EARLY] (Version-3.2.10):** disk selection is now prompted
+> immediately after the desktop environment + accept-defaults gate, before
+> encryption/passphrase and other sensitive prompts. On the fast path
+> (accept all defaults), the installer goes from DE choice straight to disk
+> selection.
+
 ---
 
 ## 6a. Fast path — accept all defaults (Version-3.2.09)
@@ -434,8 +443,7 @@ Btrfs; these choices only slice DATA regions. Each `[b/e]` prompt accepts
 ## 10. Destructive confirmation
 
 - **`[*]` Select disk to partition and install to [1-N]**
-- Existing Void on target: **`[*]` Type 'ERASE <device>' (with the exact device path) to confirm, or anything else to abort**
-- Fresh/normal disk: **`[*]` Confirm wiping <disk>: type 'ERASE!' (or anything else to abort)**
+- **`[*]` Type 'ERASE <device>' (with the exact device path) to confirm wiping the disk, or anything else to abort**
 
 ---
 
