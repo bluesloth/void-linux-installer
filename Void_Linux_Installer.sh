@@ -585,7 +585,7 @@ set -o pipefail
 # AI (Claude, Sonnet 5, Medium) ADDITION: Bump SCRIPT_VERSION on every revision so the running
 # terminal always shows which file/revision is actually executing — matches
 # the filename this script is currently distributed under.
-SCRIPT_VERSION="Version-3.2.15"
+SCRIPT_VERSION="Version-3.2.16"
 
 # [VERSION-CARRY] (Beta-v2.8.2): versions self-normalize under the carry rule —
 # the patch field holds 0-9 and carries into the (multi-digit) minor on
@@ -1865,6 +1865,7 @@ DEFAULT_IMPORT_SSH_KEY="${DEFAULT_IMPORT_SSH_KEY:-false}"         # import exist
 DEFAULT_GENERATE_SSH_KEY="${DEFAULT_GENERATE_SSH_KEY:-false}"     # generate fresh key? [y/N]
 DEFAULT_SSH_KEY_PROTECTED="${DEFAULT_SSH_KEY_PROTECTED:-yes}"     # passphrase-protect key? [Y/n]
 DEFAULT_EXPORT_SSH_KEY="${DEFAULT_EXPORT_SSH_KEY:-false}"         # export/backup key? [y/N]
+DEFAULT_SSH_SERVER="${DEFAULT_SSH_SERVER:-false}"                 # install+enable sshd? [y/N]
 # AI (Big Pickle) ADDITION — Beta-v2.9.25 [NVIDIA-GATE]: the ONE probe-gated
 # driver. "auto" follows the live-box probe: [Y/n] when an NVIDIA GPU was
 # detected (proprietary driver recommended), [y/N] otherwise (nouveau covers
@@ -1915,6 +1916,7 @@ DEFAULT_REGION_GAMES_SIZE="${DEFAULT_REGION_GAMES_SIZE:-60G}"  # Games partition
 # into GRUB_CMDLINE_LINUX_DEFAULT at install time for the GRUB branch.
 DEFAULT_QUIET_BOOT="${DEFAULT_QUIET_BOOT:-no}"          # append "quiet"? (boot-cmdline knob)
 DEFAULT_TEE_BLACKLIST="${DEFAULT_TEE_BLACKLIST:-no}"    # append "modprobe.blacklist=tee"? (boot-cmdline knob)
+DEFAULT_SWAPFILE_SIZE="${DEFAULT_SWAPFILE_SIZE:-1}"     # swapfile size menu index [1-2]
 
 
 # =============================================================================
