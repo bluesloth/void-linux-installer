@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.18"
+SCRIPT_VERSION="Version-3.2.19"
 
 
 
@@ -46,7 +46,6 @@ DEFAULT_PODMAN_ROOTFUL="${DEFAULT_PODMAN_ROOTFUL:-false}"
 DEFAULT_DOCKER="${DEFAULT_DOCKER:-false}"
 DEFAULT_DOCKER_GROUP_ADD="${DEFAULT_DOCKER_GROUP_ADD:-false}"
 DEFAULT_CONTAINERS="${DEFAULT_CONTAINERS:-false}"
-DEFAULT_VIRT="${DEFAULT_VIRT:-false}"
 DEFAULT_DISTROBOX="${DEFAULT_DISTROBOX:-false}"
 DEFAULT_DISTROBOX_TRACK="${DEFAULT_DISTROBOX_TRACK:-1}"
 DEFAULT_DISTROBOX_ENGINE="${DEFAULT_DISTROBOX_ENGINE:-1}"
@@ -569,33 +568,6 @@ _region_fs_of() {
     printf '%s' "${!_rfv:-btrfs}"
 }
 
-detect_wired_nic() {
-    local _dn_if _dn_name
-    for _dn_if in /sys/class/net/*; do
-        [ -e "$_dn_if/device" ] || continue
-        [ -d "$_dn_if/wireless" ] && continue
-        _dn_name="${_dn_if##*/}"
-        case "$_dn_name" in
-            lo|ww*|wl*|bn*|bt*|dm-*) continue ;;
-        esac
-        if [ "$(cat "$_dn_if/carrier" 2>/dev/null || echo 0)" = "1" ]; then
-            printf '%s\n' "$_dn_name"
-            return 0
-        fi
-    done
-    for _dn_if in /sys/class/net/*; do
-        [ -e "$_dn_if/device" ] || continue
-        [ -d "$_dn_if/wireless" ] && continue
-        _dn_name="${_dn_if##*/}"
-        case "$_dn_name" in
-            lo|ww*|wl*|bn*|bt*|dm-*) continue ;;
-        esac
-        case "$(readlink -f "$_dn_if/device" 2>/dev/null || :)" in
-            *usb*) printf '%s\n' "$_dn_name"; return 0 ;;
-        esac
-    done
-    return 1
-}
 
 has_wired_nic_hw() {
     local _hw_if _hw_name
@@ -945,7 +917,6 @@ if [ "$ACCEPT_DEFAULTS" = "true" ]; then
     DEFAULT_DOCKER="${DEFAULT_DOCKER:-false}"
     DEFAULT_DOCKER_GROUP_ADD="${DEFAULT_DOCKER_GROUP_ADD:-false}"
     DEFAULT_DISTROBOX="${DEFAULT_DISTROBOX:-false}"
-    DEFAULT_VIRT="${DEFAULT_VIRT:-false}"
     DEFAULT_SSH_SERVER="${DEFAULT_SSH_SERVER:-false}"
     DEFAULT_SSH_PASSWORD_AUTH="${DEFAULT_SSH_PASSWORD_AUTH:-no}"
     DEFAULT_SSH_ROOT_LOGIN="${DEFAULT_SSH_ROOT_LOGIN:-no}"
@@ -953,7 +924,7 @@ if [ "$ACCEPT_DEFAULTS" = "true" ]; then
     DEFAULT_GENERATE_SSH_KEY="${DEFAULT_GENERATE_SSH_KEY:-false}"
     DEFAULT_EXPORT_SSH_KEY="${DEFAULT_EXPORT_SSH_KEY:-false}"
     export DEFAULT_PODMAN_ROOTLESS DEFAULT_PODMAN_ROOTFUL DEFAULT_DOCKER DEFAULT_DOCKER_GROUP_ADD
-    export DEFAULT_DISTROBOX DEFAULT_VIRT DEFAULT_SSH_SERVER DEFAULT_SSH_PASSWORD_AUTH
+    export DEFAULT_DISTROBOX DEFAULT_SSH_SERVER DEFAULT_SSH_PASSWORD_AUTH
     export DEFAULT_SSH_ROOT_LOGIN DEFAULT_IMPORT_SSH_KEY DEFAULT_GENERATE_SSH_KEY DEFAULT_EXPORT_SSH_KEY
     DEFAULT_SUBVOL_ISOLATE="${DEFAULT_SUBVOL_ISOLATE:-true}"
     DEFAULT_SUBVOL_PRECREATE="${DEFAULT_SUBVOL_PRECREATE:-false}"
@@ -1696,10 +1667,7 @@ if [ -n "$_NIC_NAME" ]; then
 else
     echo "  Detected wired NIC : (none detected — late re-probe will decide if you choose virtualization)"
 fi
-BR0_NIC="$_NIC_NAME"
 unset _NIC_NAME
-echo "  Bridged-VM NIC : ${BR0_NIC:-<not set>}"
-export BR0_NIC
 
 WIFI_IDS=""
 WIFI_CHIPS=""
@@ -2552,14 +2520,6 @@ else
            DISTROBOX_DEFAULT_ENGINE
 fi
 
-ask_read "Install virtualization (qemu/libvirt/virt-manager + br0 bridge)? [y/N]: "
-INSTALL_VIRT_INPUT="$REPLY"
-case "$INSTALL_VIRT_INPUT" in
-    "") INSTALL_VIRT="$DEFAULT_VIRT" ;;
-    [yY]*) INSTALL_VIRT="true" ;;
-    *) INSTALL_VIRT="false" ;;
-esac
-export INSTALL_VIRT
 ask_read "Install VirtualBox (full virtualizer, QEMU/KVM alternative)? [y/N]: "
 INSTALL_VIRTUALBOX_INPUT="$REPLY"
 case "$INSTALL_VIRTUALBOX_INPUT" in
@@ -2829,7 +2789,6 @@ INSTALL_BREW|PROVISION_LINUXBREW_SUBVOL|Homebrew (Linuxbrew)
 INSTALL_DOCKER|PROVISION_DOCKER_SUBVOL|Docker
 INSTALL_PODMAN_ROOTFUL|PROVISION_PODMAN_SUBVOL|Podman (rootful)
 INSTALL_PODMAN_ROOTLESS|PROVISION_PODMAN_ROOTLESS_SUBVOL|Podman (rootless)
-INSTALL_VIRT|PROVISION_VIRT_SUBVOL|Virtualization
 "
 
 echo ""
@@ -2876,7 +2835,6 @@ if [ -n "${REGION_PARTITIONED:-}" ]; then
                 jl "MULTI-FS-FOLD: home region carved — home-owned subvol flags forced off (browsers/thunderbird/game/containers-user/linuxbrew/virtualbox)"
                 ;;
             var )
-                PROVISION_VIRT_SUBVOL=false;          PROVISION_FLATPAK_SUBVOL=false
                 PROVISION_DOCKER_SUBVOL=false;        PROVISION_PODMAN_SUBVOL=false
                 jl "MULTI-FS-FOLD: var region carved — var-owned subvol flags forced off (libvirt/flatpak/docker/containers)"
                 ;;
@@ -2888,54 +2846,6 @@ if [ -n "${REGION_PARTITIONED:-}" ]; then
         esac
     done
     unset _rg
-fi
-
-if [ "$INSTALL_VIRT" = "true" ]; then
-
-echo ""
-echo "NOTICE: br0 bridge networking needs a real, dedicated network"
-echo "interface. This installer looks for one automatically:"
-echo "  1) A wired Ethernet port with an active cable connected — used"
-echo "     if found."
-echo "  2) If no wired port has an active link, a USB Ethernet adapter or"
-echo "     USB-tethered phone that's physically present (cable optional)."
-echo ""
-echo "If this machine has no built-in wired Ethernet port, make sure a USB"
-echo "Ethernet adapter is plugged in now before continuing."
-echo ""
-echo "IMPORTANT: whichever USB Ethernet device gets detected needs to stay"
-echo "in the SAME USB port going forward. Many USB Ethernet adapters are"
-echo "named based on which physical USB port they're plugged into (not"
-echo "just the device itself) — moving it to a different port later can"
-echo "change its detected name, and the bridge configuration written by"
-echo "this installer won't automatically follow that change."
-echo ""
-echo "If NO wired interface is found at all, the br0 bridge will be"
-echo "skipped entirely and libvirt's default NAT network (virbr0) left"
-echo "enabled instead — so your VMs still get working networking."
-echo ""
-echo "${C_YLW}${C_BOLD}  When ready, press Enter to continue.${C_RST}"
-read -r -p "Press Enter once ready to continue: " _
-fi
-
-if [ "$RESUME" != "1" ]; then
-DETECTED_NIC="$(detect_wired_nic || true)"
-
-if [ -n "$DETECTED_NIC" ]; then
-    export NET_INTERFACE_MATCH="$DETECTED_NIC"
-elif has_wired_nic_hw; then
-    echo "WARNING: a wired ethernet port is present but has no active link — falling back to role-matched 'enp*' so plugging a cable in later still binds the br0 slave." >&2
-    export NET_INTERFACE_MATCH="enp*"
-else
-    export NET_INTERFACE_MATCH=""
-    if [ "$INSTALL_VIRT" = "true" ]; then
-        echo "NOTICE: no wired network interface found on this machine."
-        echo "        The br0 bridge will be SKIPPED; libvirt's default NAT"
-        echo "        network (virbr0) stays enabled so your VMs still get"
-        echo "        working networking out of the box."
-    fi
-fi
-
 fi
 
 
@@ -3369,7 +3279,6 @@ fi
 {
     printf 'export RESUME_TYPE="coarse"\n'
     for _sv in ACCOUNT_MODEL ROOT_PASS_HASH TARGET_PASS_HASH TARGET_USER TARGET_HOSTNAME \
-               TARGET_DOMAIN TARGET_FQDN NET_INTERFACE_MATCH BOOTLOADER BOOT_MODE \
                EFI_PART_SIZE KERNEL_MODE DESKTOP_ENV DISPLAY_MANAGER \
                HAS_GRAPHICAL INSTALL_XORG INSTALL_AUDIO \
                USER_SHELL USER_SHELL_PKG \
@@ -3409,7 +3318,6 @@ INSTALL_FLATPAK INSTALL_COSMIC_STORE INSTALL_BREW INSTALL_FIREFOX INSTALL_CHROMI
                 PROVISION_VIRTUALBOX_SUBVOL PROVISION_LINUXBREW_SUBVOL \
                  PROVISION_FLATPAK_SUBVOL PROVISION_DOCKER_SUBVOL \
                  PROVISION_PODMAN_SUBVOL PROVISION_PODMAN_ROOTLESS_SUBVOL \
-                 PROVISION_VIRT_SUBVOL \
                 DISK PART_EFI PART_SYS DISK_BYTES; do
         printf 'export %s=%q\n' "$_sv" "${!_sv}"
     done
@@ -3941,7 +3849,6 @@ SUBVOL_LIST="$BASE_LAYOUT"
 if ! _region_carved var; then
     SUBVOL_LIST="$SUBVOL_LIST @network"
 fi
-[ "$PROVISION_VIRT_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @libvirt"
 [ "$PROVISION_FLATPAK_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @flatpak"
 [ "$PROVISION_DOCKER_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @docker"
 [ "$PROVISION_PODMAN_SUBVOL" = "true" ] && SUBVOL_LIST="$SUBVOL_LIST @containers"
@@ -4017,7 +3924,6 @@ mkdir -vp /mnt/var/cache /mnt/var/log /mnt/var/spool /mnt/var/tmp
 [ "$DISPLAY_MANAGER" = "sddm" ] && mkdir -vp /mnt/var/lib/sddm
 [ "$DISPLAY_MANAGER" = "lightdm" ] && mkdir -vp /mnt/var/lib/lightdm
 mkdir -vp /mnt/root
-[ "$PROVISION_VIRT_SUBVOL" = "true" ] && mkdir -vp /mnt/var/lib/libvirt
 [ "$PROVISION_FLATPAK_SUBVOL" = "true" ] && mkdir -vp /mnt/var/lib/flatpak
 [ "$PROVISION_DOCKER_SUBVOL" = "true" ] && mkdir -vp /mnt/var/lib/docker
 [ "$PROVISION_PODMAN_SUBVOL" = "true" ] && mkdir -vp /mnt/var/lib/containers
@@ -4042,9 +3948,6 @@ if [ "$DISPLAY_MANAGER" = "sddm" ] && ! _region_carved var; then
     mount -vo $BTRFS_OPTS,subvol=@sddm "$BTRFS_DEV" /mnt/var/lib/sddm
 elif [ "$DISPLAY_MANAGER" = "lightdm" ] && ! _region_carved var; then
     mount -vo $BTRFS_OPTS,subvol=@lightdm "$BTRFS_DEV" /mnt/var/lib/lightdm
-fi
-if [ "$PROVISION_VIRT_SUBVOL" = "true" ]; then
-    mount -vo noatime,nodatacow,compress=none,subvol=@libvirt "$BTRFS_DEV" /mnt/var/lib/libvirt
 fi
 if ! _region_carved var; then
     mount -vo noatime,nodatacow,compress=none,subvol=@log "$BTRFS_DEV" /mnt/var/log
@@ -4218,9 +4121,6 @@ if [ "$SWAPFILE_MODE" = "true" ]; then
     echo "/var/swap/swapfile               none  swap  defaults                  0 0" >> /mnt/etc/fstab
 fi
 
-if [ "$PROVISION_VIRT_SUBVOL" = "true" ]; then
-    echo "UUID=$BTRFS_UUID /var/lib/libvirt btrfs noatime,nodatacow,subvol=@libvirt 0 0" >> /mnt/etc/fstab
-fi
 if [ "$PROVISION_FLATPAK_SUBVOL" = "true" ]; then
     echo "UUID=$BTRFS_UUID /var/lib/flatpak    btrfs noatime,compress=zstd:1,subvol=@flatpak 0 0" >> /mnt/etc/fstab
 fi
@@ -4267,7 +4167,6 @@ echo "export TARGET_FULL_NAME=\"$TARGET_FULL_NAME\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_HOSTNAME=\"$TARGET_HOSTNAME\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_DOMAIN=\"$TARGET_DOMAIN\"" >> /mnt/tmp/chroot_env.sh
 echo "export TARGET_FQDN=\"$TARGET_FQDN\"" >> /mnt/tmp/chroot_env.sh
-echo "export NET_INTERFACE_MATCH=\"$NET_INTERFACE_MATCH\"" >> /mnt/tmp/chroot_env.sh
 echo "export REPO_PRIMARY=\"$REPO_PRIMARY\"" >> /mnt/tmp/chroot_env.sh
 echo "export KEYMAP_LIVE=\"$KEYMAP_LIVE\"" >> /mnt/tmp/chroot_env.sh
 echo "export REPO_BACKUP1=\"$REPO_BACKUP1\"" >> /mnt/tmp/chroot_env.sh
@@ -4349,7 +4248,6 @@ echo "export WIFI_CHIPS=\"$WIFI_CHIPS\"" >> /mnt/tmp/chroot_env.sh
 echo "export WIFI_FW_PKG=\"$WIFI_FW_PKG\"" >> /mnt/tmp/chroot_env.sh
 echo "export MICROCODE_PKG=\"$MICROCODE_PKG\"" >> /mnt/tmp/chroot_env.sh
 echo "export MICROCODE_DECIDED=\"$MICROCODE_DECIDED\"" >> /mnt/tmp/chroot_env.sh
-echo "export BR0_NIC=\"$BR0_NIC\"" >> /mnt/tmp/chroot_env.sh
 echo "export LOCALE=\"$LOCALE\"" >> /mnt/tmp/chroot_env.sh
 echo "export LOCALE_CODESET=\"$LOCALE_CODESET\"" >> /mnt/tmp/chroot_env.sh
 echo "export TIMEZONE=\"$TIMEZONE\"" >> /mnt/tmp/chroot_env.sh
@@ -4733,15 +4631,6 @@ install_pkgs
 install_pkgs nftables runit-nftables iptables polkit
 
 NFT_FWD_RULES=""
-if [ "$INSTALL_VIRT" = "true" ]; then
-    NFT_FWD_RULES=$(cat << 'NFT_FWD_EOF'
-        iifname "br0" accept
-        oifname "br0" accept
-        iifname "virbr*" accept
-        oifname "virbr*" accept
-NFT_FWD_EOF
-    )
-fi
 SSH_PORT_RULE=""
 if [ "$INSTALL_SSH_SERVER" = "true" ]; then
     SSH_PORT_RULE=$(cat << SSH_PORT_EOF
@@ -4775,12 +4664,6 @@ ${NFT_FWD_RULES}
 }
 INNER_EOF
 
-if [ "$INSTALL_VIRT" = "true" ]; then
-    echo ""
-    echo "--- /etc/nftables.conf (virtualization build: br0/virbr* forwards present) ---"
-    cat /etc/nftables.conf
-    echo "--- end nftables.conf ---"
-fi
 
 if [ -n "${REPO_PRIMARY:-}" ]; then
     mkdir -p /etc/xbps.d
@@ -4889,13 +4772,11 @@ if ! grep -q '^KEYMAP=' /etc/rc.conf 2>/dev/null; then
     printf 'KEYMAP="%s"\n' "${KEYMAP_LIVE}" >> /etc/rc.conf
 fi
 
-[ "$INSTALL_VIRT" = "true" ] && install_pkgs qemu libvirt virt-manager
 
 [ -n "$USER_SHELL_PKG" ] && install_pkgs "$USER_SHELL_PKG"
 
 USER_GROUPS="adm,video,audio"
 [ "$ACCOUNT_MODEL" != "debian" ] && USER_GROUPS="wheel,${USER_GROUPS}"
-[ "$INSTALL_VIRT" = "true" ] && USER_GROUPS="${USER_GROUPS},kvm,libvirt"
 useradd -m -G "$USER_GROUPS" -s "$USER_SHELL" -c "${TARGET_FULL_NAME:-$TARGET_USER}" "$TARGET_USER"
 
 chown "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}"
@@ -4960,17 +4841,14 @@ if [ "$ACCOUNT_MODEL" != "debian" ]; then
     chmod 440 /etc/sudoers.d/wheel
 fi
 
-if [ "$INSTALL_VIRT" = "true" ] && [ -n "${NET_INTERFACE_MATCH:-}" ]; then
 mkdir -p /etc/qemu
 cat > /etc/qemu/bridge.conf << 'INNER_EOF'
 allow br0
 INNER_EOF
 chmod 0640 /etc/qemu/bridge.conf
 [ -f /usr/libexec/qemu-bridge-helper ] && chmod 4755 /usr/libexec/qemu-bridge-helper
-fi
 
 
-if [ "$INSTALL_VIRT" = "true" ]; then
 mkdir -p /etc/polkit-1/rules.d
 cat > /etc/polkit-1/rules.d/50-libvirt.rules << 'INNER_EOF'
 polkit.addRule(function(action, subject) {
@@ -4981,7 +4859,6 @@ polkit.addRule(function(action, subject) {
 });
 INNER_EOF
 chmod 644 /etc/polkit-1/rules.d/50-libvirt.rules
-fi
 
 if [ -z "${MICROCODE_DECIDED:-}" ]; then
     CPU_VENDOR=$(grep -m1 vendor_id /proc/cpuinfo | awk '{print $3}')
@@ -5759,7 +5636,6 @@ ipv4.dhcp-iaid=mac
 ipv6.dhcp-duid=ll
 INNER_EOF
 
-if [ "$INSTALL_VIRT" = "true" ] && [ -n "${NET_INTERFACE_MATCH:-}" ]; then
 mkdir -p /etc/NetworkManager/system-connections
 
 cat > /etc/NetworkManager/system-connections/br0.nmconnection << 'INNER_EOF'
@@ -5780,11 +5656,6 @@ method=auto
 INNER_EOF
 chmod 600 /etc/NetworkManager/system-connections/br0.nmconnection
 
-if case "$NET_INTERFACE_MATCH" in *"*"*) true ;; *) false ;; esac; then
-    _SLV_IFACE_LINE=""
-else
-    _SLV_IFACE_LINE="interface-name=${NET_INTERFACE_MATCH}"
-fi
 cat > /etc/NetworkManager/system-connections/br0-slave.nmconnection << INNER_EOF
 [connection]
 id=br0-slave
@@ -5796,9 +5667,6 @@ slave-type=bridge
 INNER_EOF
 unset _SLV_IFACE_LINE
 chmod 600 /etc/NetworkManager/system-connections/br0-slave.nmconnection
-elif [ "$INSTALL_VIRT" = "true" ]; then
-    echo "NOTICE: [BR0-SKIP] no wired NIC — br0/br0-slave profiles skipped; virbr0 stays enabled as the VM-networking fallback."
-fi
 
 mkdir -p /etc/sysctl.d
 cat > /etc/sysctl.d/99-kvm-routing.conf << 'INNER_EOF'
@@ -6420,13 +6288,6 @@ if [ "$INSTALL_FLATPAK" != "true" ] && xbps-query -p pkgver flatpak >/dev/null 2
 fi
 
 VIRT_BR0="n/a"
-if [ "$INSTALL_VIRT" = "true" ]; then
-    if [ -n "${NET_INTERFACE_MATCH:-}" ]; then
-        VIRT_BR0="created"
-    else
-        VIRT_BR0="skipped (no wired NIC; virbr0 kept)"
-    fi
-fi
 
 cat > /etc/void-installer/install-config << INNER_EOF
 SCRIPT_VERSION="${SCRIPT_VERSION:-<unknown>}"
@@ -6474,7 +6335,6 @@ HAS_NVIDIA_GPU="${HAS_NVIDIA_GPU:-<unset>}"
 HAS_AMD_GPU="${HAS_AMD_GPU:-<unset>}"
 HAS_INTEL_GPU="${HAS_INTEL_GPU:-<unset>}"
 INSTALL_NVIDIA="${INSTALL_NVIDIA:-<unset>}"
-BR0_NIC="${BR0_NIC:-<unset>}"
 VIRT_BR0="${VIRT_BR0:-n/a}"
 MICROCODE_PKG="${MICROCODE_PKG:-<unset>}"
 MICROCODE_DECIDED="${MICROCODE_DECIDED:-<unset>}"
@@ -6501,7 +6361,6 @@ INSTALL_PODMAN_ROOTFUL="${INSTALL_PODMAN_ROOTFUL:-false}"
 PROVISION_DOCKER_SUBVOL="${PROVISION_DOCKER_SUBVOL:-false}"
 PROVISION_PODMAN_SUBVOL="${PROVISION_PODMAN_SUBVOL:-false}"
 PROVISION_PODMAN_ROOTLESS_SUBVOL="${PROVISION_PODMAN_ROOTLESS_SUBVOL:-false}"
-INSTALL_VIRT="${INSTALL_VIRT:-false}"
 INSTALL_VIRTUALBOX="${INSTALL_VIRTUALBOX:-false}"
 PROVISION_VIRTUALBOX_SUBVOL="${PROVISION_VIRTUALBOX_SUBVOL:-false}"
 REGION_HOME_FS="${REGION_HOME_FS:-btrfs}"
@@ -8242,7 +8101,6 @@ if [ ! -f /var/log/firstboot.log ]; then
     ln -sfn /etc/sv/snapperd /etc/runit/runsvdir/default/snapperd
     [ "__BOOTLOADER__" = "grub" ] && ln -sfn /etc/sv/grub-btrfs /etc/runit/runsvdir/default/grub-btrfs
     if [ "__INSTALL_VIRT__" = "true" ]; then
-        ln -sfn /etc/sv/libvirtd /etc/runit/runsvdir/default/libvirtd
         ln -sfn /etc/sv/virtlogd /etc/runit/runsvdir/default/virtlogd
     fi
     [ "__INSTALL_DOCKER__" = "true" ] && ln -sfn /etc/sv/docker /etc/runit/runsvdir/default/docker
@@ -8294,90 +8152,10 @@ if [ ! -f /var/log/firstboot.log ]; then
     touch /var/log/firstboot.log
 fi
 
-_vt_stamp=/var/lib/void-installer/br0-nat-torn-down.done
-_vt_autostart=/etc/libvirt/qemu/networks/autostart/default.xml
-if [ "__INSTALL_VIRT__" = "true" ] \
-   && [ -f /etc/NetworkManager/system-connections/br0.nmconnection ] \
-   && { [ ! -f "$_vt_stamp" ] || [ -e "$_vt_autostart" ]; }; then
-    {
-    if [ -f "$_vt_stamp" ]; then
-        _vt_reason="re-teardown (autostart symlink restored by a libvirt update)"
-    else
-        _vt_reason="initial migration"
-    fi
-    _vt_wired=no
-    for _vt_n in /sys/class/net/*; do
-        [ -e "$_vt_n/device" ] || continue
-        [ -d "$_vt_n/wireless" ] && continue
-        case "${_vt_n##*/}" in
-            lo|ww*|wl*|bn*|bt*|dm-*) continue ;;
-        esac
-        _vt_wired=yes
-        break
-    done
-    _vt_log=/var/log/void-br0-nat-teardown.log
-    if [ "$_vt_wired" != "yes" ]; then
-        { printf '[BR0-NAT] %s skip (%s): no physical wired NIC present; libvirt default NAT kept (fallback)\n' \
-              "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_reason"; } >> "$_vt_log" 2>&1 || :
-    elif ! command -v virsh >/dev/null 2>&1; then
-        { printf '[BR0-NAT] %s skip (%s): virsh not installed\n' \
-              "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_reason"; } >> "$_vt_log" 2>&1 || :
-    else
-        _vt_ready=no
-        _vt_i=0
-        while [ "$_vt_i" -lt 30 ]; do
-            if virsh --connect qemu:///system net-info default >/dev/null 2>&1; then
-                _vt_ready=yes
-                break
-            fi
-            _vt_i=$((_vt_i + 1))
-            sleep 1
-        done
-        _vt_done=no
-        _vt_act=unknown
-        _vt_auto=unknown
-        if [ "$_vt_ready" = "yes" ]; then
-            _vt_j=0
-            while [ "$_vt_j" -lt 10 ]; do
-                virsh --connect qemu:///system net-autostart default --disable >/dev/null 2>&1 || true
-                virsh --connect qemu:///system net-destroy default >/dev/null 2>&1 || true
-                if virsh --connect qemu:///system net-list --name 2>/dev/null | grep -qx default; then
-                    _vt_act=yes
-                else
-                    _vt_act=no
-                fi
-                if virsh --connect qemu:///system net-list --all --autostart --name 2>/dev/null | grep -qx default; then
-                    _vt_auto=yes
-                else
-                    _vt_auto=no
-                fi
-                if [ "$_vt_act" = "no" ] && [ "$_vt_auto" = "no" ]; then
-                    _vt_done=yes
-                    break
-                fi
-                _vt_j=$((_vt_j + 1))
-                sleep 1
-            done
-            if [ "$_vt_done" = "yes" ]; then
-                ip link del virbr0 >/dev/null 2>&1 || true
-                mkdir -p /var/lib/void-installer && \
-                    touch /var/lib/void-installer/br0-nat-torn-down.done || :
-            fi
-        fi
-        {
-            printf '[BR0-NAT] %s reason=%s ready=%s torn_down=%s active=%s autostart=%s\n' \
-                "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_vt_reason" "$_vt_ready" "$_vt_done" "$_vt_act" "$_vt_auto"
-            virsh --connect qemu:///system net-list --all 2>&1 || true
-        } >> "$_vt_log" 2>&1 || :
-    fi
-    } &
-fi
-INNER_EOF
 
 sed -i \
     -e "s/__TARGET_USER__/${TARGET_USER}/g" \
     -e "s/__BOOTLOADER__/${BOOTLOADER}/g" \
-    -e "s/__INSTALL_VIRT__/${INSTALL_VIRT}/g" \
     -e "s/__INSTALL_DOCKER__/${INSTALL_DOCKER}/g" \
     -e "s/__INSTALL_VIRTUALBOX__/${INSTALL_VIRTUALBOX}/g" \
     -e "s/__INSTALL_SSH_SERVER__/${INSTALL_SSH_SERVER}/g" \
@@ -8515,7 +8293,7 @@ fi
 if xbps-query -l 2>/dev/null | grep -q '^intel-ucode-'; then
     fw_audit_line "  intel-ucode             : present — the one genuinely pruned package (Intel microcode, installed per live CPU-detect)."
 elif xbps-query -l 2>/dev/null | grep -q '^linux-firmware-amd-'; then
-    :
+    : # linux-firmware-amd line already covers the AMD case above; microcode
 else
     fw_audit_line "  intel-ucode             : absent (microcode: ${MICROCODE_PKG:-<none>} per live CPU-detect / opt-out)."
 fi
