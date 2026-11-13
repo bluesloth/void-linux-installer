@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Version-3.2.16**). It exists
+> `Void_Linux_Installer.sh` (current version: **Version-3.2.26**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -398,7 +398,6 @@ partitions, no size prompts).
 - **Install VirtualBox (full virtualizer, QEMU/KVM alternative)? [y/N]** → if `y`:
   `@virtualbox` per-user subvol provisioned (a virtualization/libvirt alternative,
   not a replacement)
-- **Install virtualization (qemu/libvirt/virt-manager + br0 bridge)? [y/N]**
 
 ---
 
@@ -457,13 +456,13 @@ partitions, no size prompts).
   (Firefox/Chromium/Vivaldi/Falkon/Brave), Thunderbird, Steam, VirtualBox,
   Flatpak, Docker, Podman-rootful (`@containers`), Podman-rootless
   (`@containers-user`, `[PODMAN-ROOTLESS-SUBVOL]` Beta-v2.9.2),
-  Virtualization (`@libvirt`). OctoXBPS is excluded — it has no data subvolume.
+  OctoXBPS is excluded — it has no data subvolume.
 - **NOTE (Beta-v2.9.2):** Podman rootless's per-user `~/.local/share/containers`
   is now a gate participant (default isolate for an install). Declining it
   leaves a plain, correctly-owned datadir in `@home`; the mandatory
   subuid/subgid + containers.conf setup still always runs so rootless podman
   keeps working either way.
-- **`[*]` Press Enter once ready to continue** — br0 USB-Ethernet-port warning
+- **`[*]` Press Enter once ready to continue**
 ---
 
 ## 14. Destructive confirmation

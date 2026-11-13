@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.25"
+SCRIPT_VERSION="Version-3.2.26"
 
 
 
@@ -3278,7 +3278,7 @@ INSTALL_FLATPAK INSTALL_COSMIC_STORE INSTALL_BREW INSTALL_FIREFOX INSTALL_CHROMI
                  SUBVOL_ISOLATE_INSTALLED SUBVOL_PRECREATE \
                 INSTALL_PODMAN INSTALL_PODMAN_ROOTLESS INSTALL_PODMAN_ROOTFUL \
                INSTALL_PODMAN INSTALL_PODMAN_ROOTLESS INSTALL_PODMAN_ROOTFUL \
-               INSTALL_DOCKER DOCKER_GROUP_ADD INSTALL_DISTROBOX INSTALL_VIRT \
+               INSTALL_DOCKER DOCKER_GROUP_ADD INSTALL_DISTROBOX \
                PROVISION_FIREFOX_SUBVOL PROVISION_CHROMIUM_SUBVOL \
                PROVISION_VIVALDI_SUBVOL PROVISION_FALKON_SUBVOL \
                PROVISION_BRAVE_SUBVOL \
@@ -4191,7 +4191,6 @@ echo "export INSTALL_PODMAN_ROOTFUL=\"$INSTALL_PODMAN_ROOTFUL\"" >> /mnt/tmp/chr
 echo "export INSTALL_PODMAN=\"$INSTALL_PODMAN\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_DOCKER=\"$INSTALL_DOCKER\"" >> /mnt/tmp/chroot_env.sh
 echo "export DOCKER_GROUP_ADD=\"$DOCKER_GROUP_ADD\"" >> /mnt/tmp/chroot_env.sh
-echo "export INSTALL_VIRT=\"$INSTALL_VIRT\"" >> /mnt/tmp/chroot_env.sh
 echo "export DESKTOP_ENV=\"$DESKTOP_ENV\"" >> /mnt/tmp/chroot_env.sh
 echo "export DISPLAY_MANAGER=\"$DISPLAY_MANAGER\"" >> /mnt/tmp/chroot_env.sh
 echo "export HAS_GRAPHICAL=\"$HAS_GRAPHICAL\"" >> /mnt/tmp/chroot_env.sh
