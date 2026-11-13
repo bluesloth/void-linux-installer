@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.24"
+SCRIPT_VERSION="Version-3.2.25"
 
 
 
