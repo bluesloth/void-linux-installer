@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.20"
+SCRIPT_VERSION="Version-3.2.21"
 
 
 
@@ -213,6 +213,9 @@ SECTION_STEP=0
 SECTION_TOTAL=8
 
 source ./nic-detect.sh
+stage1_nic_prompt
+late_reprobe
+
 
 note() { echo "${C_GRN}==>${C_RST} $*"; }
 warn() { echo "${C_YLW}!! ${C_RST}$*" >&2; }
@@ -570,20 +573,6 @@ _region_fs_of() {
     printf '%s' "${!_rfv:-btrfs}"
 }
 
-
-has_wired_nic_hw() {
-    local _hw_if _hw_name
-    for _hw_if in /sys/class/net/*; do
-        [ -e "$_hw_if/device" ] || continue
-        [ -d "$_hw_if/wireless" ] && continue
-        _hw_name="${_hw_if##*/}"
-        case "$_hw_name" in
-            lo|ww*|wl*|bn*|bt*|dm-*) continue ;;
-        esac
-        return 0
-    done
-    return 1
-}
 
 
 if [ -d /sys/firmware/efi ]; then
@@ -1650,8 +1639,6 @@ fi
 echo "  Detected CPU : ${_cpu_line}"
 unset _cpu_line
 
-stage1_nic_prompt
-late_reprobe
 
 WIFI_IDS=""
 WIFI_CHIPS=""
@@ -4826,25 +4813,6 @@ if [ "$ACCOUNT_MODEL" != "debian" ]; then
     chmod 440 /etc/sudoers.d/wheel
 fi
 
-mkdir -p /etc/qemu
-cat > /etc/qemu/bridge.conf << 'INNER_EOF'
-allow br0
-INNER_EOF
-chmod 0640 /etc/qemu/bridge.conf
-[ -f /usr/libexec/qemu-bridge-helper ] && chmod 4755 /usr/libexec/qemu-bridge-helper
-
-
-mkdir -p /etc/polkit-1/rules.d
-cat > /etc/polkit-1/rules.d/50-libvirt.rules << 'INNER_EOF'
-polkit.addRule(function(action, subject) {
-    if (action.id.indexOf("org.libvirt.unix.manage") === 0 &&
-        subject.isInGroup("libvirt")) {
-        return polkit.Result.YES;
-    }
-});
-INNER_EOF
-chmod 644 /etc/polkit-1/rules.d/50-libvirt.rules
-
 if [ -z "${MICROCODE_DECIDED:-}" ]; then
     CPU_VENDOR=$(grep -m1 vendor_id /proc/cpuinfo | awk '{print $3}')
     case "$CPU_VENDOR" in
@@ -5621,41 +5589,6 @@ ipv4.dhcp-iaid=mac
 ipv6.dhcp-duid=ll
 INNER_EOF
 
-mkdir -p /etc/NetworkManager/system-connections
-
-cat > /etc/NetworkManager/system-connections/br0.nmconnection << 'INNER_EOF'
-[connection]
-id=br0
-uuid=a6b8c9d0-1234-4567-abcd-ef0123456789
-type=bridge
-interface-name=br0
-
-[bridge]
-stp=false
-
-[ipv4]
-method=auto
-
-[ipv6]
-method=auto
-INNER_EOF
-chmod 600 /etc/NetworkManager/system-connections/br0.nmconnection
-
-cat > /etc/NetworkManager/system-connections/br0-slave.nmconnection << INNER_EOF
-[connection]
-id=br0-slave
-uuid=b7c9d0e1-5678-9012-bcde-f0123456789a
-type=ethernet
-${_SLV_IFACE_LINE}
-master=br0
-slave-type=bridge
-INNER_EOF
-unset _SLV_IFACE_LINE
-chmod 600 /etc/NetworkManager/system-connections/br0-slave.nmconnection
-
-mkdir -p /etc/sysctl.d
-cat > /etc/sysctl.d/99-kvm-routing.conf << 'INNER_EOF'
-net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
 INNER_EOF
 
@@ -6926,13 +6859,11 @@ declare -A SYS_MOUNT=(
     [@containers]="/var/lib/containers"
     [@postgresql]="/var/lib/postgresql"
     [@mariadb]="/var/lib/mysql"
-    [@libvirt]="/var/lib/libvirt"
     [@flatpak]="/var/lib/flatpak"
 )
 declare -A SYS_NODATACOW=(
     [@postgresql]=1
     [@mariadb]=1
-    [@libvirt]=1
 )
 declare -A CLASS_SUBVOLS=(
     [containers]="@docker @containers @containers-user"
@@ -8085,9 +8016,6 @@ if [ ! -f /var/log/firstboot.log ]; then
     ln -sfn /etc/sv/cronie /etc/runit/runsvdir/default/cronie
     ln -sfn /etc/sv/snapperd /etc/runit/runsvdir/default/snapperd
     [ "__BOOTLOADER__" = "grub" ] && ln -sfn /etc/sv/grub-btrfs /etc/runit/runsvdir/default/grub-btrfs
-    if [ "__INSTALL_VIRT__" = "true" ]; then
-        ln -sfn /etc/sv/virtlogd /etc/runit/runsvdir/default/virtlogd
-    fi
     [ "__INSTALL_DOCKER__" = "true" ] && ln -sfn /etc/sv/docker /etc/runit/runsvdir/default/docker
     [ "__INSTALL_VIRTUALBOX__" = "true" ] && [ -d /etc/sv/vboxdrv ] && \
         ln -sfn /etc/sv/vboxdrv /etc/runit/runsvdir/default/vboxdrv
@@ -8331,7 +8259,6 @@ umount -fl /mnt/run || true
 umount -v /mnt/var/swap || true
 umount -v /mnt/var/spool || true
 umount -v /mnt/var/log || true
-umount -v /mnt/var/lib/libvirt || true
 umount -v /mnt/var/lib/NetworkManager || true
 umount -v /mnt/var/lib/flatpak || true
 umount -v /mnt/var/lib/docker || true
@@ -8503,3 +8430,4 @@ fi
 
 
 setup_rc_local_teardown
+
