@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.16"
+SCRIPT_VERSION="Version-3.2.17"
 
 
 
@@ -615,6 +615,17 @@ if [ "$BOOT_MODE" = "bios" ]; then
 else
     echo "==> Boot mode: UEFI"
 fi
+while true; do
+    sec_banner "Disk Selection"
+ask_read "Select disk to partition and install to [1-${_disk_count}]: "
+    if [[ "$REPLY" =~ ^[0-9]+$ ]] && [ "$REPLY" -ge 1 ] && [ "$REPLY" -le "$_disk_count" ]; then
+        break
+    fi
+    echo "Please enter a number between 1 and ${_disk_count}." >&2
+done
+export DISK="${DISK_BY_INDEX[$DISK_CHOICE]}"
+
+DISK_BYTES="$(lsblk -bdn -o SIZE "$DISK" 2>/dev/null | tr -d '[:space:]' || true)"
 
 if [ "$RESUME" != "1" ]; then
 echo ""
@@ -958,21 +969,111 @@ done
 _disk_count=$((_i - 1))
 
 echo ""
-while true; do
-    sec_banner "Disk Selection"
-ask_read "Select disk to partition and install to [1-${_disk_count}]: "
-    if [[ "$REPLY" =~ ^[0-9]+$ ]] && [ "$REPLY" -ge 1 ] && [ "$REPLY" -le "$_disk_count" ]; then
-        break
-    fi
-    echo "Please enter a number between 1 and ${_disk_count}." >&2
-done
-export DISK="${DISK_BY_INDEX[$DISK_CHOICE]}"
-
-DISK_BYTES="$(lsblk -bdn -o SIZE "$DISK" 2>/dev/null | tr -d '[:space:]' || true)"
 
 if [ "$ACCEPT_DEFAULTS" != "true" ]; then
 
 echo ""
+    sec_banner "Data Regions"
+echo "${C_BOLD}${C_BLU}Data region filesystems${C_RST}"
+    echo "  ${C_GRN}btrfs${C_RST}=stays a root-Btrfs subvolume   ${C_GRN}ext4${C_RST}=own dedicated partition"
+    echo "  The root filesystem is ALWAYS Btrfs; these choices only slice DATA regions."
+    echo "  (Enter on every line = all-Btrfs default: no extra partitions, no size prompts.)"
+    ask_read "/home region — btrfs (subvol) or ext4 (own partition)? [b/e]: "
+    _rh="$REPLY"
+    if [ -z "$_rh" ]; then REGION_HOME_FS="$DEFAULT_REGION_HOME_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_HOME_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_HOME_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_HOME_FS="$DEFAULT_REGION_HOME_FS"; fi
+    ask_read "/var region — btrfs (subvols) or ext4 (own partition)? [b/e]: "
+    _rh="$REPLY"
+    if [ -z "$_rh" ]; then REGION_VAR_FS="$DEFAULT_REGION_VAR_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_VAR_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_VAR_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_VAR_FS="$DEFAULT_REGION_VAR_FS"; fi
+    ask_read "/var/cache region — btrfs (subvol @cache) or ext4 (own partition)? [b/e]: "
+    _rh="$REPLY"
+    if [ -z "$_rh" ]; then REGION_CACHE_FS="$DEFAULT_REGION_CACHE_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_CACHE_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_CACHE_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_CACHE_FS="$DEFAULT_REGION_CACHE_FS"; fi
+    ask_read "/srv region — btrfs (subvol @srv) or ext4 (own partition)? [b/e]: "
+    _rh="$REPLY"
+    if [ -z "$_rh" ]; then REGION_SRV_FS="$DEFAULT_REGION_SRV_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_SRV_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_SRV_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_SRV_FS="$DEFAULT_REGION_SRV_FS"; fi
+    ask_read "/opt region — btrfs (subvol @opt) or ext4 (own partition)? [b/e]: "
+    _rh="$REPLY"
+    if [ -z "$_rh" ]; then REGION_OPT_FS="$DEFAULT_REGION_OPT_FS"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_OPT_FS="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_OPT_FS="btrfs"
+    else echo "  (default) btrfs"; REGION_OPT_FS="$DEFAULT_REGION_OPT_FS"; fi
+    ask_read "~/<user>/Games — none, ext4 partition, or btrfs partition? [n/e/b]: "
+    _rh="$REPLY"
+    if [ -z "$_rh" ]; then REGION_GAMES="$DEFAULT_REGION_GAMES"
+    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_GAMES="ext4"
+    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_GAMES="btrfs"
+    else echo "  (default) none"; REGION_GAMES="$DEFAULT_REGION_GAMES"; fi
+    unset _rh
+    echo "  Carved region size prompts:"
+    if [ "$REGION_HOME_FS" = "ext4" ]; then
+        ask_read "  /home partition size [$DEFAULT_REGION_HOME_SIZE]: "
+    _rs="$REPLY"
+    [ -z "$_rs" ] && _rs="$DEFAULT_REGION_HOME_SIZE"
+    REGION_HOME_SIZE="$_rs"
+    fi
+    if [ "$REGION_VAR_FS" = "ext4" ]; then
+        ask_read "  /var partition size [$DEFAULT_REGION_VAR_SIZE]: "
+        _rs="$REPLY"
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_VAR_SIZE"
+        REGION_VAR_SIZE="$_rs"
+    fi
+    if [ "$REGION_CACHE_FS" = "ext4" ]; then
+        ask_read "  /var/cache partition size [$DEFAULT_REGION_CACHE_SIZE]: "
+        _rs="$REPLY"
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_CACHE_SIZE"
+        REGION_CACHE_SIZE="$_rs"
+    fi
+    if [ "$REGION_SRV_FS" = "ext4" ]; then
+        ask_read "  /srv partition size [$DEFAULT_REGION_SRV_SIZE]: "
+        _rs="$REPLY"
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_SRV_SIZE"
+        REGION_SRV_SIZE="$_rs"
+    fi
+    if [ "$REGION_OPT_FS" = "ext4" ]; then
+        ask_read "  /opt partition size [$DEFAULT_REGION_OPT_SIZE]: "
+        _rs="$REPLY"
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_OPT_SIZE"
+        REGION_OPT_SIZE="$_rs"
+    fi
+    if [ "$REGION_GAMES" != "none" ]; then
+        ask_read "  Games partition size [$DEFAULT_REGION_GAMES_SIZE]: "
+        _rs="$REPLY"
+        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_GAMES_SIZE"
+        REGION_GAMES_SIZE="$_rs"
+    fi
+    unset _rs
+    REGION_PARTITIONED=""
+    [ "$REGION_HOME_FS"  = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED home"
+    [ "$REGION_VAR_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED var"
+    [ "$REGION_CACHE_FS" = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED cache"
+    [ "$REGION_SRV_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED srv"
+    [ "$REGION_OPT_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED opt"
+    [ "$REGION_GAMES"    != "none" ] && REGION_PARTITIONED="$REGION_PARTITIONED games"
+    [ "$REGION_HOME_FS"  != "ext4" ]  && unset REGION_HOME_SIZE
+    [ "$REGION_VAR_FS"   != "ext4" ]  && unset REGION_VAR_SIZE
+    [ "$REGION_CACHE_FS" != "ext4" ]  && unset REGION_CACHE_SIZE
+    [ "$REGION_SRV_FS"   != "ext4" ]  && unset REGION_SRV_SIZE
+    [ "$REGION_OPT_FS"   != "ext4" ]  && unset REGION_OPT_SIZE
+    [ "$REGION_GAMES"    = "none" ]  && unset REGION_GAMES_SIZE
+    [ -n "$REGION_PARTITIONED" ] && echo "  → Carved partitions:${REGION_PARTITIONED}"
+    jl "MULTI-FS: carved=${REGION_PARTITIONED:-<none>} home=${REGION_HOME_FS} var=${REGION_VAR_FS} cache=${REGION_CACHE_FS} srv=${REGION_SRV_FS} opt=${REGION_OPT_FS} games=${REGION_GAMES}"
+else
+    :
+fi
+export REGION_HOME_FS REGION_VAR_FS REGION_CACHE_FS REGION_SRV_FS REGION_OPT_FS REGION_GAMES
+export REGION_HOME_SIZE REGION_VAR_SIZE REGION_CACHE_SIZE REGION_SRV_SIZE REGION_OPT_SIZE REGION_GAMES_SIZE
+export REGION_PARTITIONED
 sec_banner "Locale & Timezone"
 echo "${C_BOLD}${C_BLU}Language / locale${C_RST} (system language; default en_US.UTF-8)"
 echo "  ${C_BOLD}1)${C_RST} ${C_GRN}en_US.UTF-8 (English / US) — default${C_RST}"
@@ -2186,107 +2287,6 @@ export INSTALL_ANY_GAME
 
 if [ "$RESUME" != "1" ]; then
     echo ""
-    sec_banner "Data Regions"
-echo "${C_BOLD}${C_BLU}Data region filesystems${C_RST}"
-    echo "  ${C_GRN}btrfs${C_RST}=stays a root-Btrfs subvolume   ${C_GRN}ext4${C_RST}=own dedicated partition"
-    echo "  The root filesystem is ALWAYS Btrfs; these choices only slice DATA regions."
-    echo "  (Enter on every line = all-Btrfs default: no extra partitions, no size prompts.)"
-    ask_read "/home region — btrfs (subvol) or ext4 (own partition)? [b/e]: "
-    _rh="$REPLY"
-    if [ -z "$_rh" ]; then REGION_HOME_FS="$DEFAULT_REGION_HOME_FS"
-    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_HOME_FS="ext4"
-    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_HOME_FS="btrfs"
-    else echo "  (default) btrfs"; REGION_HOME_FS="$DEFAULT_REGION_HOME_FS"; fi
-    ask_read "/var region — btrfs (subvols) or ext4 (own partition)? [b/e]: "
-    _rh="$REPLY"
-    if [ -z "$_rh" ]; then REGION_VAR_FS="$DEFAULT_REGION_VAR_FS"
-    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_VAR_FS="ext4"
-    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_VAR_FS="btrfs"
-    else echo "  (default) btrfs"; REGION_VAR_FS="$DEFAULT_REGION_VAR_FS"; fi
-    ask_read "/var/cache region — btrfs (subvol @cache) or ext4 (own partition)? [b/e]: "
-    _rh="$REPLY"
-    if [ -z "$_rh" ]; then REGION_CACHE_FS="$DEFAULT_REGION_CACHE_FS"
-    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_CACHE_FS="ext4"
-    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_CACHE_FS="btrfs"
-    else echo "  (default) btrfs"; REGION_CACHE_FS="$DEFAULT_REGION_CACHE_FS"; fi
-    ask_read "/srv region — btrfs (subvol @srv) or ext4 (own partition)? [b/e]: "
-    _rh="$REPLY"
-    if [ -z "$_rh" ]; then REGION_SRV_FS="$DEFAULT_REGION_SRV_FS"
-    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_SRV_FS="ext4"
-    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_SRV_FS="btrfs"
-    else echo "  (default) btrfs"; REGION_SRV_FS="$DEFAULT_REGION_SRV_FS"; fi
-    ask_read "/opt region — btrfs (subvol @opt) or ext4 (own partition)? [b/e]: "
-    _rh="$REPLY"
-    if [ -z "$_rh" ]; then REGION_OPT_FS="$DEFAULT_REGION_OPT_FS"
-    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_OPT_FS="ext4"
-    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_OPT_FS="btrfs"
-    else echo "  (default) btrfs"; REGION_OPT_FS="$DEFAULT_REGION_OPT_FS"; fi
-    ask_read "~/<user>/Games — none, ext4 partition, or btrfs partition? [n/e/b]: "
-    _rh="$REPLY"
-    if [ -z "$_rh" ]; then REGION_GAMES="$DEFAULT_REGION_GAMES"
-    elif [[ "$_rh" =~ ^[eE](xt4)?$ ]]; then REGION_GAMES="ext4"
-    elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_GAMES="btrfs"
-    else echo "  (default) none"; REGION_GAMES="$DEFAULT_REGION_GAMES"; fi
-    unset _rh
-    echo "  Carved region size prompts:"
-    if [ "$REGION_HOME_FS" = "ext4" ]; then
-        ask_read "  /home partition size [$DEFAULT_REGION_HOME_SIZE]: "
-    _rs="$REPLY"
-    [ -z "$_rs" ] && _rs="$DEFAULT_REGION_HOME_SIZE"
-    REGION_HOME_SIZE="$_rs"
-    fi
-    if [ "$REGION_VAR_FS" = "ext4" ]; then
-        ask_read "  /var partition size [$DEFAULT_REGION_VAR_SIZE]: "
-        _rs="$REPLY"
-        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_VAR_SIZE"
-        REGION_VAR_SIZE="$_rs"
-    fi
-    if [ "$REGION_CACHE_FS" = "ext4" ]; then
-        ask_read "  /var/cache partition size [$DEFAULT_REGION_CACHE_SIZE]: "
-        _rs="$REPLY"
-        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_CACHE_SIZE"
-        REGION_CACHE_SIZE="$_rs"
-    fi
-    if [ "$REGION_SRV_FS" = "ext4" ]; then
-        ask_read "  /srv partition size [$DEFAULT_REGION_SRV_SIZE]: "
-        _rs="$REPLY"
-        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_SRV_SIZE"
-        REGION_SRV_SIZE="$_rs"
-    fi
-    if [ "$REGION_OPT_FS" = "ext4" ]; then
-        ask_read "  /opt partition size [$DEFAULT_REGION_OPT_SIZE]: "
-        _rs="$REPLY"
-        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_OPT_SIZE"
-        REGION_OPT_SIZE="$_rs"
-    fi
-    if [ "$REGION_GAMES" != "none" ]; then
-        ask_read "  Games partition size [$DEFAULT_REGION_GAMES_SIZE]: "
-        _rs="$REPLY"
-        [ -z "$_rs" ] && _rs="$DEFAULT_REGION_GAMES_SIZE"
-        REGION_GAMES_SIZE="$_rs"
-    fi
-    unset _rs
-    REGION_PARTITIONED=""
-    [ "$REGION_HOME_FS"  = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED home"
-    [ "$REGION_VAR_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED var"
-    [ "$REGION_CACHE_FS" = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED cache"
-    [ "$REGION_SRV_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED srv"
-    [ "$REGION_OPT_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED opt"
-    [ "$REGION_GAMES"    != "none" ] && REGION_PARTITIONED="$REGION_PARTITIONED games"
-    [ "$REGION_HOME_FS"  != "ext4" ]  && unset REGION_HOME_SIZE
-    [ "$REGION_VAR_FS"   != "ext4" ]  && unset REGION_VAR_SIZE
-    [ "$REGION_CACHE_FS" != "ext4" ]  && unset REGION_CACHE_SIZE
-    [ "$REGION_SRV_FS"   != "ext4" ]  && unset REGION_SRV_SIZE
-    [ "$REGION_OPT_FS"   != "ext4" ]  && unset REGION_OPT_SIZE
-    [ "$REGION_GAMES"    = "none" ]  && unset REGION_GAMES_SIZE
-    [ -n "$REGION_PARTITIONED" ] && echo "  → Carved partitions:${REGION_PARTITIONED}"
-    jl "MULTI-FS: carved=${REGION_PARTITIONED:-<none>} home=${REGION_HOME_FS} var=${REGION_VAR_FS} cache=${REGION_CACHE_FS} srv=${REGION_SRV_FS} opt=${REGION_OPT_FS} games=${REGION_GAMES}"
-else
-    :
-fi
-export REGION_HOME_FS REGION_VAR_FS REGION_CACHE_FS REGION_SRV_FS REGION_OPT_FS REGION_GAMES
-export REGION_HOME_SIZE REGION_VAR_SIZE REGION_CACHE_SIZE REGION_SRV_SIZE REGION_OPT_SIZE REGION_GAMES_SIZE
-export REGION_PARTITIONED
 
 
 echo ""

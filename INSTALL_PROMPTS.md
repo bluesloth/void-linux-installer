@@ -19,7 +19,7 @@
 > Every `DEFAULT_*` variable is declared in the `[PROMPT-DEFAULTS]` block
 > of the script and can be overridden at runtime by exporting the same
 > name before running (e.g. `DEFAULT_DESKTOP=7 ./Void_Linux_Installer.sh`).
-> `Debug/check-defaults.sh` verifies every declared default is wired to
+> `checks/check-defaults.sh` verifies every declared default is wired to
 > a prompt (ALL CONSISTENT).
 
 ---
