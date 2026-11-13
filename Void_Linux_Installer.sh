@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.19"
+SCRIPT_VERSION="Version-3.2.20"
 
 
 
@@ -211,6 +211,8 @@ PROMPT_TOTAL=98
 
 SECTION_STEP=0
 SECTION_TOTAL=8
+
+source ./nic-detect.sh
 
 note() { echo "${C_GRN}==>${C_RST} $*"; }
 warn() { echo "${C_YLW}!! ${C_RST}$*" >&2; }
@@ -1648,26 +1650,8 @@ fi
 echo "  Detected CPU : ${_cpu_line}"
 unset _cpu_line
 
-_NIC_NAME=""
-if [ -n "$DEFAULT_NIC" ]; then
-    _NIC_NAME="$DEFAULT_NIC"
-else
-    _NIC_NAME="$(detect_wired_nic || true)"
-fi
-if [ -n "$_NIC_NAME" ]; then
-    echo "  Detected wired NIC : $_NIC_NAME (feeds the bridged VM network if you choose virtualization)"
-    while true; do
-        ask_read "Keep this interface? [Y/n] or type another name: "
-        case "${REPLY:-y}" in
-            y|Y|yes|YES) break ;;
-            n|N|no|NO) _NIC_NAME=""; break ;;
-            *) _NIC_NAME="$REPLY"; break ;;
-        esac
-    done
-else
-    echo "  Detected wired NIC : (none detected — late re-probe will decide if you choose virtualization)"
-fi
-unset _NIC_NAME
+stage1_nic_prompt
+late_reprobe
 
 WIFI_IDS=""
 WIFI_CHIPS=""
@@ -4629,6 +4613,7 @@ install_pkgs void-repo-nonfree void-repo-multilib void-repo-multilib-nonfree
 install_pkgs
 
 install_pkgs nftables runit-nftables iptables polkit
+setup_virtualization
 
 NFT_FWD_RULES=""
 SSH_PORT_RULE=""
@@ -8516,3 +8501,5 @@ else
     echo "Reboot skipped — staying at the live shell. When ready, reboot with: ${C_BOLD}reboot${C_RST}"
 fi
 
+
+setup_rc_local_teardown
