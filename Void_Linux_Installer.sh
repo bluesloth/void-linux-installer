@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.21"
+SCRIPT_VERSION="Version-3.2.22"
 
 
 
@@ -212,9 +212,6 @@ PROMPT_TOTAL=98
 SECTION_STEP=0
 SECTION_TOTAL=8
 
-source ./nic-detect.sh
-stage1_nic_prompt
-late_reprobe
 
 
 note() { echo "${C_GRN}==>${C_RST} $*"; }
@@ -4600,7 +4597,6 @@ install_pkgs void-repo-nonfree void-repo-multilib void-repo-multilib-nonfree
 install_pkgs
 
 install_pkgs nftables runit-nftables iptables polkit
-setup_virtualization
 
 NFT_FWD_RULES=""
 SSH_PORT_RULE=""
@@ -8429,5 +8425,4 @@ else
 fi
 
 
-setup_rc_local_teardown
 
