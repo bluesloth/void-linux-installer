@@ -2,11 +2,12 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.17"
+SCRIPT_VERSION="Version-3.2.18"
 
 
 
 DEFAULT_LOGIN_SHELL="${DEFAULT_LOGIN_SHELL:-1}"
+DEFAULT_ACCOUNT_MODEL="${DEFAULT_ACCOUNT_MODEL:-1}"
 DEFAULT_DESKTOP="${DEFAULT_DESKTOP:-1}"
 DEFAULT_XORG="${DEFAULT_XORG:-false}"
 DEFAULT_AUDIO="${DEFAULT_AUDIO:-false}"
@@ -175,32 +176,42 @@ else
 fi
 
 sec_banner() {
+    if [ "$1" != "STAGE 1" ]; then
+        SECTION_STEP=$((SECTION_STEP + 1))
+    fi
     echo ""
     echo "${C_CYN}==============================================================================${C_RST}"
-    echo "${C_CYN}# ${C_BOLD}$1${C_RST}${C_CYN}${2:+: $2}${C_RST}"
+    if [ "$1" != "STAGE 1" ]; then
+        echo "${C_CYN}# [SEC ${SECTION_STEP}/${SECTION_TOTAL}] ${C_BOLD}$1${C_RST}${C_CYN}${2:+: $2}${C_RST}"
+    else
+        echo "${C_CYN}# ${C_BOLD}$1${C_RST}${C_CYN}${2:+: $2}${C_RST}"
+    fi
     echo "${C_CYN}==============================================================================${C_RST}"
 }
 
 ask() {
     PROMPT_STEP=$((PROMPT_STEP + 1))
-    printf '%s' "${C_BOLD}${C_YLW}[${PROMPT_STEP}/${PROMPT_TOTAL}] -- ${1}${C_RST}"
+    printf '%s' "${C_BOLD}${C_YLW}[SEC ${SECTION_STEP}/${SECTION_TOTAL}] [${PROMPT_STEP}/${PROMPT_TOTAL}] -- ${1}${C_RST}"
 }
 
 ask_read() {
     PROMPT_STEP=$((PROMPT_STEP + 1))
-    printf '%s' "${C_BOLD}${C_YLW}[${PROMPT_STEP}/${PROMPT_TOTAL}] -- ${1}${C_RST}"
+    printf '%s' "${C_BOLD}${C_YLW}[SEC ${SECTION_STEP}/${SECTION_TOTAL}] [${PROMPT_STEP}/${PROMPT_TOTAL}] -- ${1}${C_RST}"
     read -r REPLY
 }
 
 ask_secret() {
     PROMPT_STEP=$((PROMPT_STEP + 1))
-    printf '%s' "${C_BOLD}${C_YLW}[${PROMPT_STEP}/${PROMPT_TOTAL}] -- ${1}${C_RST}" >&2
+    printf '%s' "${C_BOLD}${C_YLW}[SEC ${SECTION_STEP}/${SECTION_TOTAL}] [${PROMPT_STEP}/${PROMPT_TOTAL}] -- ${1}${C_RST}" >&2
     read -r -s REPLY
     echo >&2
 }
 
 PROMPT_STEP=0
 PROMPT_TOTAL=98
+
+SECTION_STEP=0
+SECTION_TOTAL=8
 
 note() { echo "${C_GRN}==>${C_RST} $*"; }
 warn() { echo "${C_YLW}!! ${C_RST}$*" >&2; }
@@ -626,8 +637,22 @@ done
 export DISK="${DISK_BY_INDEX[$DISK_CHOICE]}"
 
 DISK_BYTES="$(lsblk -bdn -o SIZE "$DISK" 2>/dev/null | tr -d '[:space:]' || true)"
-
+echo ""
+echo "${C_BOLD}${C_BLU}Apply all defaults for this desktop?${C_RST}"
+echo "  ${C_BOLD}Y)${C_RST} Yes — use all remaining defaults and skip to disk selection"
 if [ "$RESUME" != "1" ]; then
+echo "  ${C_BOLD}n)${C_RST} No — walk through each prompt individually"
+while true; do
+    ask_read "Apply all defaults? [Y/n]: "
+    case "${REPLY:-Y}" in
+        [Yy]*) ACCEPT_DEFAULTS="true"; break ;;
+        [Nn]*) ACCEPT_DEFAULTS="false"; break ;;
+        *) echo "Please answer Y or n." >&2 ;;
+    esac
+done
+export ACCEPT_DEFAULTS
+
+if [ "$RESUME" != "1" ] && [ "$ACCEPT_DEFAULTS" != "true" ]; then
 echo ""
 sec_banner "Account & Hostname"
 echo "  ${C_BOLD}1)${C_RST} Hybrid — root has a password AND your user gets full sudo access"
@@ -766,24 +791,30 @@ while true; do
 
 done
 
-echo ""
-echo "${C_BOLD}${C_BLU}Apply all defaults for this desktop?${C_RST}"
-echo "  ${C_BOLD}Y)${C_RST} Yes — use all remaining defaults and skip to disk selection"
-if [ "$RESUME" != "1" ]; then
-echo "  ${C_BOLD}n)${C_RST} No — walk through each prompt individually"
-while true; do
-    ask_read "Apply all defaults? [Y/n]: "
-    case "${REPLY:-Y}" in
-        [Yy]*) ACCEPT_DEFAULTS="true"; break ;;
-        [Nn]*) ACCEPT_DEFAULTS="false"; break ;;
-        *) echo "Please answer Y or n." >&2 ;;
-    esac
-done
-export ACCEPT_DEFAULTS
 
 fi
 
 if [ "$ACCEPT_DEFAULTS" = "true" ]; then
+    case "${DEFAULT_ACCOUNT_MODEL:-1}" in
+        1) ACCOUNT_MODEL="hybrid" ;;
+        2) ACCOUNT_MODEL="debian" ;;
+        3) ACCOUNT_MODEL="ubuntu" ;;
+        *) ACCOUNT_MODEL="hybrid" ;;
+    esac
+    export ACCOUNT_MODEL
+    case "${DEFAULT_DESKTOP:-1}" in
+        1) DESKTOP_ENV="kde" ;;
+        2) DESKTOP_ENV="gnome" ;;
+        3) DESKTOP_ENV="cinnamon" ;;
+        4) DESKTOP_ENV="xfce" ;;
+        5) DESKTOP_ENV="mate" ;;
+        6) DESKTOP_ENV="lxqt" ;;
+        7) DESKTOP_ENV="cosmic" ;;
+        8) DESKTOP_ENV="none" ;;
+        *) DESKTOP_ENV="kde" ;;
+    esac
+    export DESKTOP_ENV
+
     case "$DESKTOP_ENV" in
         kde|lxqt) DISPLAY_MANAGER="sddm" ;;
         gnome)    DISPLAY_MANAGER="gdm" ;;
