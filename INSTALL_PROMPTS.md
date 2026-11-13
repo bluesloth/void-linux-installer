@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Version-3.2.26**). It exists
+> `Void_Linux_Installer.sh` (current version: **Version-3.2.27**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -76,7 +76,13 @@
   - `10` ja_JP.UTF-8 (Japanese)
   - `11` zh_CN.UTF-8 (Chinese / Simplified)
   - `12` Custom — type a POSIX locale, e.g. `pl_PL.UTF-8`
-- **Timezone [1-15, default 1]**
+- **Timezone** (fast path)
+  - On accepting all defaults, the live system timezone is detected (from `/etc/timezone` or `timedatectl`) and shown as:
+    `Detected system timezone: America/New_York`
+    `Accept detected timezone? [Y/n]:`
+  - `Y`/`Enter` → accepts detected timezone, skips to mirror
+  - `n` → shows the timezone selection menu below
+- **Timezone selection menu** (only if fast-path rejected or not accepting all defaults)
   - `1` America/New_York — default
   - `2` America/Chicago
   - `3` America/Denver

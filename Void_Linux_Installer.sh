@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.26"
+SCRIPT_VERSION="Version-3.2.27"
 
 
 
@@ -800,24 +800,25 @@ if [ "$ACCEPT_DEFAULTS" = "true" ]; then
         *)  LOCALE="en_US.UTF-8"; LOCALE_CODESET="UTF-8" ;;
     esac
     export LOCALE LOCALE_CODESET
-    case "${DEFAULT_TIMEZONE:-1}" in
-        1)  TIMEZONE="America/New_York" ;;
-        2)  TIMEZONE="America/Chicago" ;;
-        3)  TIMEZONE="America/Denver" ;;
-        4)  TIMEZONE="America/Los_Angeles" ;;
-        5)  TIMEZONE="America/Sao_Paulo" ;;
-        6)  TIMEZONE="Europe/London" ;;
-        7)  TIMEZONE="Europe/Paris" ;;
-        8)  TIMEZONE="Europe/Berlin" ;;
-        9)  TIMEZONE="Europe/Madrid" ;;
-        10) TIMEZONE="Europe/Rome" ;;
-        11) TIMEZONE="Europe/Moscow" ;;
-        12) TIMEZONE="Asia/Tokyo" ;;
-        13) TIMEZONE="Asia/Shanghai" ;;
-        14) TIMEZONE="Asia/Kolkata" ;;
-        *)  TIMEZONE="America/New_York" ;;
-    esac
+    _detected_tz=""
+    if [ -f /etc/timezone ]; then
+        _detected_tz="$(cat /etc/timezone 2>/dev/null || true)"
+    elif command -v timedatectl >/dev/null 2>&1; then
+        _detected_tz="$(timedatectl show -p Timezone --value 2>/dev/null || true)"
+    fi
+    if [ -n "$_detected_tz" ]; then
+        echo ""
+        echo "${C_BOLD}${C_BLU}Detected system timezone:${C_RST} $_detected_tz"
+        ask_read "Accept detected timezone? [Y/n]: "
+        case "${REPLY:-y}" in
+            [Nn]*) ACCEPT_DEFAULTS="false" ;;
+            *)     TIMEZONE="$_detected_tz" ;;
+        esac
+    else
+        TIMEZONE="America/New_York"
+    fi
     export TIMEZONE
+    if [ "$ACCEPT_DEFAULTS" = "true" ]; then
     case "$TIMEZONE" in
         America/Sao_Paulo|America/Argentina/*|America/La_Paz|America/Bogota|America/Lima|America/Caracas|America/Santiago|America/Buenos_Aires|America/Mexico_City)
             MIRROR="https://void.voidbr.org/voidlinux/current" ;;
@@ -833,6 +834,7 @@ if [ "$ACCEPT_DEFAULTS" = "true" ]; then
             MIRROR="https://repo-default.voidlinux.org/current" ;;
     esac
     export MIRROR
+    fi
     case "${DEFAULT_SWAP_BACKEND:-1}" in
         1) SWAP_BACKEND="swapfile" ;;
         2) SWAP_BACKEND="zram" ;;
