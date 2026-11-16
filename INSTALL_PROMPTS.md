@@ -2,431 +2,336 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Version-3.2.07**). It exists
+> `Void_Linux_Installer.sh` (current version: **Version-3.2.16**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
 > **Keep it in sync with every prompt change, or delete this file before
-> final.** A reviewer should not treat it as a spec.
+> final.**
 >
-> A `[*]` marks a required choice with no default (the script reprompts
-> until a valid value is entered). Otherwise, pressing **Enter** accepts
-> the default where shown.
->
-> Every `DEFAULT_*` variable is declared in the `[PROMPT-DEFAULTS]` block
-> of the script and can be overridden at runtime by exporting the same
-> name before running (e.g. `DEFAULT_DESKTOP=7 ./Void_Linux_Installer.sh`).
-> `Debug/check-defaults.sh` verifies every declared default is wired to
-> a prompt (ALL CONSISTENT).
+> `[*]` marks a choice with no safe default (the script reprompts until a
+> valid value is entered). Otherwise, pressing **Enter** accepts the shown
+> default. `--yes` accepts every default and requires profile values for
+> prompts that have no default. `--dry-run` walks the questionnaire and prints
+> the plan without touching disks.
 
 ---
 
-## 1. Startup
+## 0. Boot mode detection (automatic, no prompt)
 
-- **Firmware/boot mode — not a prompt.** Before anything else the script
-  reads `/sys/firmware/efi` and sets `BOOT_MODE=uefi|bios` (re-derived
-  from the environment on a resumed run), then prints one line:
-  `==> Boot mode: UEFI` or `==> Boot mode: legacy BIOS — bootloader steps
-  use the BIOS paths (GRUB i386-pc / limine bios-install) and no NVRAM
-  entry is offered.` Nothing is asked, and `BIOSBOOT_PART_SIZE` is fixed
-  at `1M`.
-- **Resume the interrupted install using saved answers? [y/N]**
-  Only shown if a saved state file exists. `y` skips the entire
-  interactive configuration and resumes the interrupted run using saved
-  answers.
+Before any question the installer detects firmware and sets `BOOT_MODE`:
+- `/sys/firmware/efi` present → **UEFI**
+- otherwise → **legacy BIOS**
+
+BIOS mode uses the BIOS bootloader paths (GRUB i386-pc / Limine bios-install),
+omits NVRAM registration prompts, and carves the required BIOS boot partition.
+The detected mode is recorded in state, `install-config`, the dry-run plan,
+and the final summary/review.
 
 ---
 
-## 2. Account & hostname
+## 1. Install mode (pre-questionnaire)
 
-- **Account privilege model `[*] [1/2/3]`**
-  - `1` Hybrid — root has a password AND your user gets full sudo access
-  - `2` Debian-style — root has a password; your user is NOT in sudo (su - only)
-  - `3` Ubuntu-style — root is locked; your user gets full sudo access (your own password)
-- **Login shell [1-4, default 1]**
-  - `1` bash (default; included in base-system)
-  - `2` zsh
-  - `3` fish
-  - `4` mksh
-- **`[*]` Enter the username to create on the target system**
-- **Enter the full name of `<user>` (e.g., 'John Doe')** — optional, used for the account's display/GECOS name
-- **`[*]` Enter target system hostname (e.g., myhostname)**
-- **Enter network domain name (e.g., example.com) to form a FQDN (optional, press Enter to skip)**
-- **This system's FQDN will be: `<hostname>.<domain>` — is this correct? [Y/n]**
-- **Root password** — hidden input, min 8 chars, must match confirmation
-- **`<user>` password** — hidden input, min 8 chars, must match confirmation
+- **Installation mode [1/2] (default 1: Express)** — (skipped if pre-set with
+  `--express`, `--custom`, or `INSTALL_MODE=`)
+  - `1` **Express (default)** — hardware-detected defaults; you answer accounts,
+    disk encryption, desktop & session, target disk, and the final review.
+    Optional software stays at its `DEFAULT_*` values.
+  - `2` **Custom** — full questionnaire (locale/time/repos/storage, hardware &
+    drivers, and optional software by depth).
 
----
-
-## 3. Locale, timezone & mirror
-
-- **Locale [1-12, default 1]**
-  - `1` en_US.UTF-8 (English / US) — default
-  - `2` en_GB.UTF-8 (English / UK)
-  - `3` de_DE.UTF-8 (German / Germany)
-  - `4` es_ES.UTF-8 (Spanish / Spain)
-  - `5` fr_FR.UTF-8 (French / France)
-  - `6` it_IT.UTF-8 (Italian / Italy)
-  - `7` pt_PT.UTF-8 (Portuguese / Portugal)
-  - `8` nl_NL.UTF-8 (Dutch / Netherlands)
-  - `9` ru_RU.UTF-8 (Russian)
-  - `10` ja_JP.UTF-8 (Japanese)
-  - `11` zh_CN.UTF-8 (Chinese / Simplified)
-  - `12` Custom — type a POSIX locale, e.g. `pl_PL.UTF-8`
-- **Timezone [1-15, default 1]**
-  - `1` America/New_York — default
-  - `2` America/Chicago
-  - `3` America/Denver
-  - `4` America/Los_Angeles
-  - `5` America/Sao_Paulo
-  - `6` Europe/London
-  - `7` Europe/Paris
-  - `8` Europe/Berlin
-  - `9` Europe/Madrid
-  - `10` Europe/Rome
-  - `11` Europe/Moscow
-  - `12` Asia/Tokyo
-  - `13` Asia/Shanghai
-  - `14` Asia/Kolkata
-  - `15` Custom — type an IANA zone, e.g. `Australia/Sydney`
-- **Mirror [1-8, default 1]**
-  - `1` Auto (region-based)
-  - `2` Global Fastly CDN — `https://repo-fastly.voidlinux.org/current`
-  - `3` Global default (tier-1) — `https://repo-default.voidlinux.org/current`
-  - `4` North America — `https://mirrors.summithq.com/voidlinux/current`
-  - `5` Europe — `https://repo-de.voidlinux.org/current`
-  - `6` Asia (China) — `https://mirrors.tuna.tsinghua.edu.cn/voidlinux/current`
-  - `7` Oceania (Australia) — `https://mirror.aarnet.edu.au/pub/voidlinux/current`
-  - `8` South/Central America (Brazil) — `https://void.voidbr.org/voidlinux/current`
-- **Use a local package cache? `[y/N or absolute path]`** — reuse already-downloaded XBPS
-  packages instead of re-fetching from the mirror (Beta-v2.9.59 `[LOCAL-CACHE]`).
-  - `y`/`yes` → use the auto-detected cache at
-    `<mount>/xbps-cachedir-<arch>` under `/run/media` (newest-touched writable dir with real
-    `.xbps` files wins).
-  - A typed absolute path → same, for a cache that auto-detect misses.
-  - `n`/Enter (default) → network-only baseline.
-  - The cache dir must be writable (`-Sy` repodata writes into it). A read-only/unusable dir
-    **degrades to network-only** — never aborts the install. Mirrors stay the per-package
-    fallback. Also honored on `-r` resume (path re-validated/re-detected).
+**Step counts:** Express = 5 steps; Custom = 8 steps.
+1. Accounts & identity
+2. *(Custom)* Locale, time, repositories & storage
+3. *(Custom)* Hardware & drivers
+4. Encryption & disk layout
+5. Desktop & session
+6. *(Custom)* Optional software
+7. Target disk
+8. Review & confirm
 
 ---
 
-## 4. Swap, bootloader, kernel & device profile
+## 2. Accounts & identity
 
-- **Swap backend [1-4, default 1]**
-  - `1` swapfile (default) — Btrfs swapfile at /var/swap, supports hibernation
-  - `2` zram — compressed in-RAM swap, cannot hibernate
-  - `3` swapfile + zram — both, for extra headroom
-  - `4` none — no swap at all
-- **Enable hibernation (suspend-to-disk)? [y/N]** — only if a disk swapfile is provisioned
-- **Swapfile size [1-2, default 1]** — only if no hibernation
-  - `1` 4G (default)
-  - `2` 2G
-- **Bootloader [1/2] (default 1: Limine)**
-  - `1` Limine — newer, simpler, no efibootmgr/NVRAM dependency by default
-    (optional registration now available, off by default: the removable/fallback
-    boot path is always used) (4GiB EFI). **Default.**
-  - `2` GRUB — mature, battle-tested snapshot boot via grub-btrfs. ESP size: 1GiB
-    plain, **4GiB when full-disk encryption is then enabled** (next sections) — in that
-    combo the ESP is mounted at `/boot`, so grub.cfg + kernels live unencrypted on the
-    ESP and GRUB never has to unlock LUKS (one dracut passphrase prompt after handoff).
-  - Only after `1` Limine is picked — in the same step, right after the ESP-size
-    menu below:
-    - **Register Limine NVRAM entry? [y/N]** — optional `efibootmgr`
-      registration; default `N` keeps only the removable/fallback boot path.
-      **UEFI only:** a `BOOT_MODE=bios` run skips both prompts entirely
-      (legacy BIOS has no NVRAM) and prints one line saying so.
-    - **UEFI boot entry label [default `Void Linux (Limine)`]** — asked only when
-      the toggle above was `y`; what `efibootmgr -v` and the firmware boot menu
-      show for the entry. Spaces and parentheses are kept; quotes, backticks,
-      `$`, backslashes and control characters are rejected with an explanation;
-      ≤ 80 characters; **Enter** = the default (the exact label earlier
-      releases always wrote).
-- **EFI/ESP partition size [1-4/Custom, default 4 GiB]** — called once the bootloader
-  path needs a real ESP: right after the bootloader choice for Limine (with the
-  Limine NVRAM prompts immediately after it), and right after
-  the full-disk-encryption choice for GRUB+ENCRYPT (plain GRUB keeps its fixed 1G).
-  - `1` 4 GiB (default) — ArchWiki's recommendation for bootable snapshots
-  - `2` 6 GiB — headroom for many kernel flavors + snapshots
-  - `3` 8 GiB — generous; large initramfses + many snapshots
-  - `4` Custom — **Custom ESP size (e.g. 512M, 3G, 10GiB)**; uppercased, validated with a
-    1 GiB floor, normalized to gdisk K/M/G (malformed entries are rejected and the
-    menu loops).
-- **Kernel packages** — the base rolling `linux` is always installed (base-system
-  depends on it); these are the two extra flavors:
-  - **Also install linux-mainline? [y/N]** — newest features, shortest support window
-  - **Also install linux-lts? [Y/n]** — Long Term Support, most conservative; default yes
-- **Device profile [1/2/3/4/5, default 1: Automatic]** — what kind of machine this is;
-  gates tlp (battery power management), the Bluetooth stack, and preload (adaptive
-  readahead). Options `2`-`5` are chosen directly:
-  - `1` Automatic (default) — probe chassis + Bluetooth hardware, then confirm/override
-  - `2` Laptop with Bluetooth
-  - `3` Laptop, no Bluetooth
-  - `4` Desktop/server with Bluetooth
-  - `5` Desktop/server, no Bluetooth
-  - Only when Automatic is chosen: **Keep this profile? [Y/n] or pick 2-5 to override**
-    — prints the detected profile + description, then accepts `y`/Enter, `n` (forces an
-    explicit pick), or a direct 2-5 override.
+### Express
+- Account model and login shell use defaults (`DEFAULT_ACCOUNT_MODEL`, default
+  Ubuntu-style; `DEFAULT_LOGIN_SHELL`, default bash) without prompting.
+
+### Custom
+- **User account model [1/2/3] (default `DEFAULT_ACCOUNT_MODEL`: 3 Ubuntu-style)** `[*]`
+  - `1` Hybrid — root has a password AND the user gets full sudo access
+  - `2` Debian-style — root has a password; user is NOT in sudo (`su -` only)
+  - `3` Ubuntu-style — root is locked; user gets full sudo access (own password)
+- **Login shell [1-4] (default `DEFAULT_LOGIN_SHELL`: 1 bash)** `[*]`
+  - `1` bash, `2` zsh, `3` fish, `4` mksh
+
+### Both modes (required identity)
+- **Root password** — prompted/confirmed when the account model requires it
+  (hybrid/debian); Ubuntu-style locks root.
+- **`[*]` Username to create on the target system** — validated (POSIX login
+  name). No default.
+- **`[*]` Full name of user** (e.g. `John Doe`).
+- **`[*]` Target system hostname** (e.g. `myhostname`).
+- **Network domain name (optional)** — forms an FQDN (e.g. `example.com`);
+  Enter to skip.
+- **FQDN confirmation [Y/n]** — confirms `<hostname>` or `<hostname>.<domain>`.
+- **User password** — prompted/confirmed for the created user as required by
+  the chosen model.
 
 ---
 
-## 5. Encryption, YubiKey & audio
+## 3. Locale, time, repositories & storage (Custom only)
 
-- **Enable full-disk encryption (LUKS2)? [y/N]** — asked after the bootloader
-  (and Limine wallpaper) choice, so the GRUB/limine + encryption sizing is final.
-- Only if `ENCRYPT=yes` (in this order):
-  - **Set up YubiKey hmac-sha1 unlock? [y/N]**
-  - If `y`:
-    - **Which OTP slot to program (1 or 2)? [1]**
-    - **Require a physical touch on the YubiKey to unlock at boot? [Y/n]**
-    - **Keep the typed-passphrase fallback (YubiKey OR passphrase)? [Y/n]**
-  - The key must be plugged in; slot programming happens later.
-  - **Passphrase + confirm** (hidden, in-memory only) is asked after the YubiKey
-    menu and the bootloader/YK clamp, once the fallback is final — labeled
-    accordingly: provisioning-only if possession-only (throwaway), boot fallback
-    if kept, or plain every-boot passphrase with no YubiKey.
-  - **LUKS mapper name [void-root]** (last encryption prompt)
-- **Allow audio (PipeWire) to autostart during read-only snapshot boots? [y/N]**
-- **Hardware probes (advisory; only when the hardware is detected):**
-  - **Install the NVIDIA proprietary driver? [`y`/`n`, default from config]** — only
-    when an NVIDIA GPU is present; the prompt suffix shows the effective default.
-  - **Keep this interface? [Y/n] or type another name** — only when a wired NIC was
-    detected; `n` clears it, typing replaces it (feeds the bridged-VM NIC).
-  - **Install linux-firmware-broadcom (firmware for the detected Broadcom radio)?**
-    — only when a Broadcom (ID `0x14e4`) device is present; prompt suffix shows the
-    effective default.
+### Advanced storage & boot options (gate)
+- **Enable advanced storage/boot options? [y/N by default, or current/default]**
+  (honours `DEFAULT_ADVANCED_STORAGE`, default `no`; Express always leaves it
+  off)
+  - When **on**: enables later data-region carving (encryption/disk layout
+    section) and the YubiKey hmac-sha1 unlock prompt. Expert options.
+  - When **off** (or turned off in a review edit): advanced answers are reset
+    to defaults so no carved partitions/YubiKey config remain.
 
----
+### Locale
+- **Locale choice [1-12] (default `DEFAULT_LOCALE`)** — presets for common
+  UTF-8 locales plus `12` Custom (type a POSIX locale, e.g. `pl_PL.UTF-8`).
 
-## 6. Desktop & display manager
+### Timezone
+- **Timezone choice [1-15] (default `DEFAULT_TIMEZONE`)** — common zones
+  (incl. auto-derived suggestion) plus `15` Custom (type an IANA zone, e.g.
+  `Australia/Sydney`, or `UTC`).
 
-- **Desktop [1-8, default 1]** — bare Enter selects option 1.
-  - `1` KDE Plasma (default) — Wayland session, primary tested path
-  - `2` Cinnamon (X11)
-  - `3` GNOME — Wayland session, confirmed on Void
-  - `4` Xfce (X11)
-  - `5` MATE (X11)
-  - `6` LXQt (X11)
-  - `7` COSMIC (third-party repo)
-  - `8` none — console login only; headless/server base. Pairs with the DM `none`
-    option below; the Xorg/Wayland base and the audio stack become explicit opt-ins.
-- **Display manager (default per DE)** — options depend on the chosen desktop.
-  - `1` SDDM — Qt-based (KDE/LXQt default)
-  - `2` LightDM — GTK-family (Cinnamon/Xfce/MATE default)
-  - `3` GDM — GNOME
-  - `4` cosmic-greeter — COSMIC only (COSMIC default since Beta-v2.9.91)
-  - `5` none — no display manager; boot straight to a console login. **Only on the
-    COSMIC branch does the menu run 1-5; every other DE runs 1-4** (`none` is index 5
-    there, giving `4` its own slot — see Beta-v2.9.48 `[NO-DM]`).
-- Only if `DISPLAY_MANAGER=lightdm`:
-  - **Greeter [1/2] (default 1: GTK)**
-    - `1` GTK
-    - `2` Slick
-    (WebKit2 greeter removed in Beta-v2.9.1 — abandoned upstream, black-
-    screens against current webkit2gtk.)
-- Only if `DESKTOP_ENV=none` and `DISPLAY_MANAGER=none` (headless server):
-  - **Keep the Xorg/Wayland base for a later startx / remote-X? [y/N]**
-  - **Install the audio stack (PipeWire + ALSA) on this server? [y/N]**
-  (Graphical installs get these unconditionally and never see the prompts.)
-- **Session/seat [1/2] (default 1: elogind)**
-  - `1` elogind
-  - `2` turnstile
+### Repository mirror
+- **Mirror choice [1-8] (default 1: Auto)** — auto-derived from timezone with
+  backup mirrors/failover options and region extras as applicable.
 
----
+### Local package cache
+- **Use a local package cache?** (`DEFAULT_LOCAL_CACHE`, default `auto`) or
+  type an absolute path. Auto-detects a suitable local cache when available.
 
-## 7. Third-party app channels & stores
+### Swap & hibernation
+- **Swap choice [1-4] (default `DEFAULT_SWAP_BACKEND`: 3 swapfile + zram)**
+  - `1` Swapfile only, `2` zram only, `3` Swapfile + zram (default), `4` None
+- **Enable hibernation (suspend-to-disk)?** (default `DEFAULT_HIBERNATION`: on)
+  - If hibernation with a swapfile is enabled: **Swapfile size [1/2] (default
+    1: 4G)** (or sized for RAM + margin as offered by the script).
 
-This section is shown once, after the desktop choice. It groups **Flatpak**,
-**Homebrew**, and the **store/package-manager** choice.
+### Bootloader & kernels
+- **Bootloader [1/2] (default `DEFAULT_BOOTLOADER`: 1 Limine)** — `1` Limine,
+  `2` GRUB.
+  - **Limine (UEFI only): Register Limine NVRAM entry?** (default
+    `DEFAULT_LIMINE_NVRAM`, off). If yes: **UEFI boot entry label** (default
+    `DEFAULT_LIMINE_NVRAM_LABEL`, `Void Linux (Limine)`).
+  - **GRUB + encryption:** ESP sizing is finalized accordingly (larger ESP used
+    when needed).
+- **Also install linux-mainline?** (default `DEFAULT_KERNEL_MAINLINE`: on)
+- **Also install linux-lts?** (default `DEFAULT_KERNEL_LTS`: on)
+  - `linux` (stable) is installed; Limine defaults to the stable branch.
 
-- **Install Flatpak (+ Flathub)? [Y/n]** — sandboxed GUI apps via Flathub. Default yes.
-  This gates the flatpak-enabled build of cosmic-store on Cosmic builds and the
-  Heroic + Bottles game-launcher offer below.
-- **Install Homebrew (Linuxbrew CLI/dev channel, opt-in; ~/.linuxbrew)? [y/N]** —
-  independent of Flatpak; either, both, or neither. Installs only the xbps
-  runtime deps (git curl file procps-ng); the operator creates the prefix on
-  first login.
-
-### Store / package-manager choice — gated by Desktop Environment:
-
-| DE | Store behavior | Prompt shown? |
-|----|---------------|---------------|
-| **GNOME** | `gnome-software` installed automatically from this project's GNOME Software store (no prompt) | No |
-| **Cosmic** | `cosmic-store` installed automatically from this project's COSMIC store (no prompt). If Flatpak is also selected, the flatpak-enabled build `cosmic-store-flatpak` is installed instead so the store can manage flatpak apps. | No |
-| **KDE** | `discover` installed automatically from this project's KDE Discover store (no prompt) | No |
-| **cinnamon / xfce / mate / lxqt** | Offered a single consolidated choice of one store/package-manager (see options below) | Yes |
-| **none** (headless) | No store/package-manager installed | No |
-
-**Consolidated store choice** (shown only for cinnamon/xfce/mate/lxqt):
-
-```
-Choose an app store / package manager
-  1) None — no store/package-manager installed (default)
-  2) OctoXBPS — graphical xbps package manager + update notifier
-  3) GNOME Software — xbps-backed app store
-  4) KDE Discover — xbps-backed app store
-  5) cosmic-store — COSMIC app store (xbps-only; flatpak-enabled build if Flatpak was selected above)
-```
-
-Enter choice [1-5] (default 1: None). Picking any option sets exactly one of
-`INSTALL_OCTOXBPS`, `INSTALL_GNOME_SOFTWARE`, `INSTALL_DISCOVER`,
-`INSTALL_COSMIC_STORE` to `true` and the rest to `false`.
-
-The chosen store is installed in Stage-2 from this project's own repository
-(bluesloth.github.io), with its signing key imported and fingerprint-verified
-against the installer's pin before any package is fetched. If a store repo is
-unreachable the helper warns and falls back to the stock upstream build
-rather than aborting the install.
+### Limine wallpaper (Limine only)
+- **Express / `--yes` / profiles:** driven by defaults — wallpaper **enabled by
+  default** (`DEFAULT_LIMINE_WALLPAPER=true`), style `centered`
+  (`DEFAULT_LIMINE_WALLPAPER_STYLE`), bundled Void splash unless
+  `DEFAULT_LIMINE_WALLPAPER_SRC` names a usable BMP/PNG/JPEG/QOI image.
+- **Custom (interactive):**
+  - **Add a wallpaper to the Limine boot menu?** (default from
+    `DEFAULT_LIMINE_WALLPAPER`)
+  - If yes and no valid profile source: **Use a different image than the
+    bundled Void splash? [y/N]** — if yes, browse/pick an image (must be a
+    usable BMP/PNG/JPEG/QOI); invalid/missing falls back to the bundled splash.
+  - If a custom image is selected: **Wallpaper style [1=stretched/2=tiled/3=centered]**
+    (default follows configured style).
 
 ---
 
-## 8. Apps & packages
+## 4. Hardware & drivers (Custom only)
 
-- **Install Homebrew (Linuxbrew CLI/dev channel, opt-in; ~/.linuxbrew)? [y/N]** —
-  independent of Flatpak; either, both, or neither.
-- **Install Thunderbird (email client)? [y/N]** → if `y`: package installed, `@thunderbird` per-user subvol provisioned
-- **Game launchers & runtimes** — each independent, all default OFF; a launcher never
-  auto-pulls Wine (each launcher self-manages its own Wine):
-  - **Install Lutris (game library/installer for Wine + native games)? [y/N]** — xbps
-  - **Install Heroic & Bottles (Epic/GOG + Wine prefix launchers; Flatpak)? [y/N]** — only offered when Flatpak is on; both are installed together or skipped together
-  - **Install Wine (system, multilib)? [y/N]** — runtime toggle, independent of launchers
-  - **Install gamemode (+ libgamemode-32bit)? [y/N]**
-- **Install Steam (gaming client)? [y/N]** → if `y`: package installed (multilib), `@steam` per-user subvol provisioned
-- **Install VirtualBox (full virtualizer, QEMU/KVM alternative)? [y/N]** → if `y`:
-  `@virtualbox` per-user subvol provisioned (a virtualization/libvirt alternative, not a replacement)
-- **Set up web browsers now? (choose each one next) [y/N]** → gate; if `no`, all
-  browser install prompts are skipped (toggles forced off). If `yes`, the
-  individual browser prompts run:
-  - **Install Firefox? [Y/n]**
-  - **Install Chromium? [Y/n]**
-  - **Install Vivaldi (proprietary, nonfree repo)? [y/N]**
-  - **Install Falkon (KDE's browser, works fine standalone too)? [y/N]**
-  - **Install Brave? [y/N]**
-- `@network` (`/var/lib/NetworkManager`) is always created — no prompt — and
-  rolls back independently of `@`.
-- **Set up containers (Podman / Docker) now? (choose each backend next) [y/N]** →
-  gate; defaults off. If `no`, the whole container section (all three backends,
-  docker group-add, distrobox + track, container-manager) is skipped with all
-  toggles forced off. If `yes`, the individual backends run:
-  - **Install Podman rootless? [y/N]** → if `y`: per-user `@containers-user`
-    subvol offered via the master gates (`[PODMAN-ROOTLESS-SUBVOL]` Beta-v2.9.2)
-  - **Install Podman rootful capability? [y/N]**
-  - **Install Docker? [y/N]** → if `y`: **Add your user to the docker group (root-equivalent
-    access, run docker without sudo)? [y/N]**
-- **Also install distrobox? [y/N]** → if `y`:
-  - **Distrobox release track [1/2/3, default 1]**
-    - `1` Stable — pinned 1.8.2.5 (legacy/bash)
-    - `2` Current — always latest legacy-branch release
-    - `3` Next — upstream v2 Go rewrite (built from source)
-  - Only if both a Podman backend and Docker are installed: **Distrobox default engine [1/2, default 1]**
-    - `1` Podman (default)
-    - `2` Docker
-- **Install virtualization (qemu/libvirt/virt-manager + br0 bridge)? [y/N]**
-- **Install and enable the OpenSSH server (sshd)? [y/N]** (`[SSH-SERVER]`,
-  Beta-v2.9.23) — default OFF (no network-facing daemons by default). If `y`,
-  the following are asked:
-  - **OpenSSH server port (default 22)** — must be an integer 1-65535, reprompts
-    until valid
-  - **Allow password authentication over SSH? [y/N]** — default `n`
-  - **Allow root to log in over SSH (public-key only)? [y/N]** — default `n`
-    (a `y` answer sets `PermitRootLogin prohibit-password`, i.e. public-key-only
-    root login); `n` → `no`
-- **SSH keys** (`[SSH-KEYS]`, Beta-v2.9.23) — three independently-toggleable
-  steps, each default `n`:
-  - **Import an existing SSH private key from removable media? [y/N]** → if `y`,
-    browse for the PRIVATE key file (a `.pub` file is rejected with a notice).
-    The import is verified with `ssh-keygen -y` before it is trusted
-    (`[SSH-IMPORT-VALIDATE]` Beta-v2.9.88): an unencrypted key has its `.pub`
-    derived from the private key itself; a passphrase-protected key is unlocked
-    with a one-shot hidden passphrase (in-memory only, never stored) and
-    verified with it; anything `ssh-keygen` cannot read is rejected, and the
-    fingerprint is printed for comparison. On the target, the deposited key is
-    wired to be usable (`[SSH-USABLE]` Beta-v2.9.88): `~/.ssh/config` gains the
-    `IdentityFile` (append-only) and the imported public key is added to
-    `~/.ssh/authorized_keys`.
-  - **Generate a fresh ed25519 SSH keypair? [y/N]** → if `y`:
-    - **SSH key comment** (default `<user>@<hostname>`) — Enter to keep
-    - **Protect the key with a passphrase? [Y/n]** — if `y`, passphrase entered
-      twice hidden, must be non-empty and match
-  - **Export a backup copy of the SSH keypair to removable media? [y/N]** → if
-    `y` and a key exists (imported or generated), browse for a destination
-    directory and writes `id_ed25519-backup{, .pub}` (0600). Declining
-    import+generate means there is no key to export.
-  - No key material is ever persisted to install-config / limine-env / resume
-    state / chroot_env — only public facts (flattening `Beta-v2.9.54
-    [SSH-KEYGEN-STALE]`: keygen always clears any stale stage key first so the
-    prompt stream stays aligned).
-- **Master subvolume gates (`[SUBVOL-GATES]`, Beta-v2.9.0)** — asked once, after
-  every install choice above is finalized:
-  - **For software you ARE installing, give each its own isolated subvolume? [Y/n/i]**
-    (`SUBVOL_ISOLATE_INSTALLED`; default `Y`). `i` → walks each installed app
-    individually (each defaults to isolate `Y/n`). Answers are validated
-    (`[SUBVOL-GATE-VALIDATE]` Beta-v2.9.88): anything other than Enter / `y` /
-    `n` / `i` is re-prompted — never silently bulk-defaulted.
-  - **For software you did NOT install, pre-create an empty isolated subvolume for
-    later manual use? [y/N/i]** (`SUBVOL_PRECREATE`; default `N`). `i` → walks
-    each not-installed app individually (each defaults to pre-create `y/N`).
-  - A table-driven resolver folds each app's install choice + the two gates into a
-    single `PROVISION_*_SUBVOL` ("isolate?") flag that drives all subvolume
-    create/mount/fstab/per-user-provision/teardown sites. Affected apps: browsers
-    (Firefox/Chromium/Vivaldi/Falkon/Brave), Thunderbird, Steam, VirtualBox,
-    Flatpak, Docker, Podman-rootful (`@containers`), Podman-rootless
-    (`@containers-user`, `[PODMAN-ROOTLESS-SUBVOL]` Beta-v2.9.2),
-    Virtualization (`@libvirt`). OctoXBPS is excluded — it has no data subvolume.
-  - **NOTE (Beta-v2.9.2):** Podman rootless's per-user `~/.local/share/containers`
-    is now a gate participant (default isolate for an install). Declining it
-    leaves a plain, correctly-owned datadir in `@home`; the mandatory
-    subuid/subgid + containers.conf setup still always runs so rootless podman
-    keeps working either way.
-- **`[*]` Press Enter once ready to continue** — br0 USB-Ethernet-port warning
+- **Device profile [1-5] (default `DEFAULT_DEVICE_PROFILE`: 1 Automatic)** —
+  automatic detection or explicit profile (e.g. desktop/server with/without
+  Bluetooth); detected profile can be kept or overridden.
+- Hardware probe summary shown (GPU families, wireless presence).
+- **NVIDIA:** if an NVIDIA GPU is detected, prompt to install the proprietary
+  driver (default follows detection/policy).
+- **Wi-Fi firmware:** for detected hardware requiring it (e.g. Broadcom),
+  prompt to install appropriate firmware (e.g. `linux-firmware-broadcom`);
+  declining warns the radio may not work.
+
+(Express uses hardware-derived defaults without these prompts.)
 
 ---
 
-## 9. Data regions (filesystem layout)
+## 5. Encryption & disk layout
 
-Only reached after the encryption/YubiKey pass. The root filesystem is ALWAYS
-Btrfs; these choices only slice DATA regions. Each `[b/e]` prompt accepts
-`b`/`btrfs` or `e`/`ext4`; **bare Enter on every line = all-Btrfs default**
-(no extra partitions, no size prompts).
+### Full-disk encryption
+- **Enable full-disk encryption (LUKS2)? [y/N]** — encrypts the root
+  partition/container; ESP/bootloader remain unencrypted.
+  - If enabled: **LUKS passphrase** (entered/confirmed as required by the
+    script/profile flow).
+  - **Mapper name [void-root]** (default `void-root`) when applicable.
+- **Snapshot-boot audio:** **Allow audio (PipeWire) to autostart during
+  read-only snapshot boots?** (default `DEFAULT_SNAPSHOT_AUDIO`: on).
 
-- **`/home` region — btrfs (subvol) or ext4 (own partition)? [b/e]** — default `btrfs`
-- **`/var` region — btrfs (subvols) or ext4 (own partition)? [b/e]**
-- **`/var/cache` region — btrfs (subvol @cache) or ext4 (own partition)? [b/e]**
-- **`/srv` region — btrfs (subvol @srv) or ext4 (own partition)? [b/e]**
-- **`/opt` region — btrfs (subvol @opt) or ext4 (own partition)? [b/e]**
-- **`~/<user>/Games` — none, ext4 partition, or btrfs partition? [n/e/b]** — default `none`
-- For each region chosen `ext4`, a size prompt follows (in the fixed carve order),
-  defaulting to the region's `DEFAULT_REGION_*_SIZE`:
-  - **`/home` partition size [`<default>`]**
-  - **`/var` partition size [`<default>`]**
-  - **`/var/cache` partition size [`<default>`]**
-  - **`/srv` partition size [`<default>`]**
-  - **`/opt` partition size [`<default>`]**
-  - **Games partition size [`<default>`]**
-  The Btrfs root always gets the remainder, so it never asks for a size.
+### YubiKey hmac-sha1 unlock (only if encryption **and** Advanced storage are on)
+- Note shown that it is offered because Advanced storage is on.
+- **Set up YubiKey hmac-sha1 unlock? [y/N]**
+  - **Which OTP slot to program [1/2] (default 1)**
+  - **Require a physical touch on the YubiKey to unlock at boot? [Y/n]**
+  - **Keep the typed-passphrase fallback (YubiKey OR passphrase)? [Y/n]**
+- Programming is performed later (see §11). Boot-unlock path should be
+  validated on target hardware before relying on possession-only unlock.
+
+### Data regions / partitioning layout
+- **Advanced storage off (default, and always in Express):** all-Btrfs layout
+  derived automatically (`home/var/cache/srv/opt` as Btrfs subvolumes, games
+  none).
+- **Advanced storage on (Custom):** prompts to carve regions as btrfs subvol or
+  separate partitions as offered:
+  - **/home** — btrfs (subvol) or ext4 (own partition)? `[b/e]` (default b)
+  - **/var** — btrfs (subvols) or ext4 (own partition)? `[b/e]` (default b)
+  - **/var/cache** — btrfs (`@cache`) or ext4 (own partition)? `[b/e]` (default b)
+  - **/srv** — btrfs (`@srv`) or ext4 (own partition)? `[b/e]` (default b)
+  - **/opt** — btrfs (`@opt`) or ext4 (own partition)? `[b/e]` (default b)
+  - **~/<user>/Games** — none, ext4 partition, or btrfs partition? `[n/e/b]`
+    (default n)
+  - Sizes requested for carved partitions as applicable.
+
+### ESP size (when choosing/confirming layout context)
+- **EFI/ESP partition size [1-4/Custom] (default `DEFAULT_EFI_ESP_SIZE`: 4 GiB)**
+  - `1` 4 GiB, `2` 6 GiB, `3` 8 GiB, `4` Custom (e.g. `512M`, `3G`, `10GiB`;
+    validated, 1 GiB floor). (GRUB+encryption may require a larger ESP; the
+    installer adjusts as needed.)
 
 ---
 
-## 10. Destructive confirmation
+## 6. Desktop & session
 
-- **`[*]` Select disk to partition and install to [1-N]**
-- Existing Void on target: **`[*]` Type 'ERASE <device>' (with the exact device path) to confirm, or anything else to abort**
-- Fresh/normal disk: **`[*]` Confirm wiping <disk>: type 'ERASE!' (or anything else to abort)**
-
----
-
-## 11. Final review
-
-- **Proceed with these settings? [Enter=continue, R=restart config]**
-  A full summary of every choice is printed above — since Version-3.1.00 it
-  starts with **`Boot mode: uefi|bios`**, the firmware detected before the
-  first prompt. **Enter** proceeds to the
-  destructive partitioning; **R** re-runs the entire configuration
-  from the top (no disk has been touched yet).
+- **Desktop environment [1-8] (default `DEFAULT_DESKTOP`: 1 KDE Plasma)** —
+  KDE Plasma, Cinnamon, GNOME, Xfce, MATE, LXQt, COSMIC, or headless/none (as
+  listed by the script). Store auto-selection depends on DE (GNOME→GNOME
+  Software, KDE→KDE Discover, COSMIC→Cosmic Store).
+- **Display manager** — chosen/recommended per desktop (e.g. SDDM, LightDM,
+  GDM, or cosmic-greeter for COSMIC) with the script’s presented options;
+  Express uses the recommended DM.
+- **Headless/server options (as applicable):** keep Xorg/Wayland base for later
+  `startx`/remote-X? `[y/N]`; install audio stack (PipeWire + ALSA)? `[y/N]`.
+- **LightDM greeter** (when relevant): choice as offered (e.g. GTK).
+- **Session/seat stack [1/2] (default `DEFAULT_SESSION_STACK`: elogind)** —
+  elogind (default) or turnstile+seatd+acpid (as offered).
 
 ---
 
-## 12. YubiKey enrollment (later, only if `YK_MODE=hmac-sha1`)
+## 7. Optional software (Custom only)
 
-- **Program slot <N> now — confirm the key is plugged in? [y/N]**
-  Happens after the live-CD sync, once `ykpers` is available.
+Selections are seeded from `DEFAULT_*`. Groups **above** the chosen depth keep
+defaults; Express, `--yes`, and depth **None** share the same default path.
+Dependent answers are re-derived (e.g. Flatpak-only apps dropped if Flatpak is
+off).
+
+### Depth menu
+- **Optional software depth [1-4] (default `DEFAULT_OPTIONAL_TIER`: 2 Common)**
+  - `1` **Essentials** — Flatpak, app store, browsers, Thunderbird
+  - `2` **Common (default)** — Essentials + Homebrew, games, VirtualBox,
+    containers, SSH
+  - `3` **Advanced** — Common + per-app Btrfs subvolume isolation
+  - `4` **None** — skip these questions and keep `DEFAULT_*` values
+
+### Essentials (tiers 1–3)
+- **Install Flatpak (+ Flathub)? [Y/n]** (`DEFAULT_FLATPAK`, on). Flatpak is
+  optional and independent of xbps stores.
+- **App store / package manager** (non-store DEs: Cinnamon/Xfce/MATE/LXQt):
+  **choice [1-5] (default 1: None)** — None, OctoXBPS, GNOME Software, KDE
+  Discover, Cosmic Store. Stores manage native xbps packages; Flatpak apps
+  appear once Flatpak is installed (GNOME Software/KDE Discover are the
+  installer-pinned xbps-capable builds). GNOME/KDE/COSMIC desktops get their
+  native store automatically.
+- **Set up web browsers now?** (`DEFAULT_WEB_BROWSERS`, on). If yes, choose
+  each independently:
+  - Firefox `[Y/n]` (`DEFAULT_FIREFOX`)
+  - Chromium `[Y/n]` (`DEFAULT_CHROMIUM`)
+  - Vivaldi (proprietary, nonfree repo) `[y/N]` (`DEFAULT_VIVALDI`)
+  - Falkon `[y/N]` (`DEFAULT_FALKON`)
+  - Brave `[y/N]` (`DEFAULT_BRAVE`) — **Flatpak-only** delivery; skipped if
+    Flatpak not selected
+- **Install Thunderbird (email client)?** (`DEFAULT_THUNDERBIRD`, on)
+
+### Common (tiers 2–3) — THIRD-PARTY APP CHANNELS / apps / services
+Header notes Flatpak was answered under Essentials (independent channel).
+- **Install Homebrew (Linuxbrew, ~/.linuxbrew)? [y/N]** (`DEFAULT_BREW`)
+- **Games/runtimes:** Lutris `[y/N]`, Heroic & Bottles (Epic/GOG + Wine
+  prefix launchers, **Flatpak**) `[y/N]` (offered/skipped based on Flatpak),
+  Wine (system, multilib) `[y/N]`, gamemode `[y/N]`, Steam `[y/N]`
+- **Install VirtualBox? [y/N]** (`DEFAULT_VIRTUALBOX`)
+- **Containers:** set up containers now? `[y/N]`; if yes: Podman rootless
+  `[y/N]`, Podman rootful `[y/N]`, Docker `[y/N]` (and if Docker, add user to
+  docker group `[y/N]`), distrobox `[y/N]` with track/engine choices as offered
+- **Install and enable OpenSSH server (sshd)? [y/N]**; if yes: port (default
+  `DEFAULT_SSH_PORT`), allow password auth `[y/N]`, allow root login
+  (public-key only) `[y/N]`, import existing key from removable media `[y/N]`,
+  generate ed25519 keypair `[y/N]` (passphrase `[Y/n]`), export backup to
+  removable media `[y/N]`
+
+### Advanced (tier 3) — per-app Btrfs subvolume isolation
+- Master choices: **isolate data for software you ARE installing? [Y/n/i]** and
+  **pre-create empty isolated subvolumes for software NOT installed? [y/N/i]**
+  (`i` = decide per app). Applies to eligible selected apps (browsers, mail,
+  game/VM/container/brew data as applicable); OctoXBPS and Flatpak
+  system-wide store are excluded per script notes. Tiers 1/2/4 and Express use
+  `DEFAULT_SUBVOL_*` without prompting.
+
+---
+
+## 8. Target disk
+
+- **`[*]` Select disk to partition and install to [1-N] (no default)** — lists
+  available disks; the chosen disk will be erased (after confirmation).
+
+---
+
+## 9. Review & confirm
+
+- Full summary printed (install mode/optional depth/advanced storage, target
+  disk, boot mode/bootloader/wallpaper/NVRAM as applicable, desktop/DM/session,
+  accounts, locale/time/repo, encryption, data regions, swap/hibernation,
+  kernels, hardware, app channels/store/browsers/mail/games/virtualization/
+  containers/SSH, subvolume isolation flags, etc.).
+- **Proceed [Enter], edit [1-M], or restart [R]**
+  - **Enter:** continue to destructive confirmation.
+  - **Section number:** re-run that section (Express: 1 Accounts, 2 Encryption &
+    disk layout, 3 Desktop & session, 4 Target disk; Custom: 1–7 as listed),
+    then redraw summary.
+  - **R:** restart configuration from the top (nothing written to disk yet).
+
+---
+
+## 10. Destructive confirmation (ERASE)
+
+- **If target already contains a Void install:** `[*]` **Type `ERASE <device>`**
+  (exact device path) to confirm, or anything else to abort.
+- **Otherwise:** `[*]` **Confirm wiping <disk>: type `ERASE!`** (or anything
+  else to abort).
+
+No disk changes occur before this confirmation (and `--dry-run` never writes).
+
+---
+
+## 11. YubiKey programming (post-wipe, conditional)
+
+Only when `YK_MODE=hmac-sha1` (encryption + Advanced storage + YubiKey
+selected):
+- **Program slot <N> now — confirm the key is plugged in? [y/N]** (after
+  required tools are available). Follow on-screen instructions; the installer
+  binds the challenge-response key slot as configured (with or without
+  passphrase fallback).
+
+---
+
+## Notes
+
+- `--resume` / `-r` reloads saved answers from `/tmp/void-installer-state.sh`
+  and continues (skipping re-asked config as applicable).
+- `--save-log` copies the crash journal to a mounted USB stick.
+- Profiles (`--profile FILE`) are sourced as root before defaults resolve and
+  may pre-answer prompts; `--yes` takes defaults and requires profile values
+  for prompts without defaults.
+- Exact wording, ordering, and conditional branches are defined by
+  `Void_Linux_Installer.sh` and may differ in edge cases; defer to the script.
