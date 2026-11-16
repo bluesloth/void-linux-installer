@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Version-3.2.27**). It exists
+> `Void_Linux_Installer.sh` (current version: **Version-3.2.07**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -13,13 +13,10 @@
 > until a valid value is entered). Otherwise, pressing **Enter** accepts
 > the default where shown.
 >
-> Every prompt shows a `[step/total]` progress counter (e.g. `[12/98]`) so
-> the operator knows how far along they are.
->
 > Every `DEFAULT_*` variable is declared in the `[PROMPT-DEFAULTS]` block
 > of the script and can be overridden at runtime by exporting the same
 > name before running (e.g. `DEFAULT_DESKTOP=7 ./Void_Linux_Installer.sh`).
-> `checks/check-defaults.sh` verifies every declared default is wired to
+> `Debug/check-defaults.sh` verifies every declared default is wired to
 > a prompt (ALL CONSISTENT).
 
 ---
@@ -76,13 +73,7 @@
   - `10` ja_JP.UTF-8 (Japanese)
   - `11` zh_CN.UTF-8 (Chinese / Simplified)
   - `12` Custom — type a POSIX locale, e.g. `pl_PL.UTF-8`
-- **Timezone** (fast path)
-  - On accepting all defaults, the live system timezone is detected (from `/etc/timezone` or `timedatectl`) and shown as:
-    `Detected system timezone: America/New_York`
-    `Accept detected timezone? [Y/n]:`
-  - `Y`/`Enter` → accepts detected timezone, skips to mirror
-  - `n` → shows the timezone selection menu below
-- **Timezone selection menu** (only if fast-path rejected or not accepting all defaults)
+- **Timezone [1-15, default 1]**
   - `1` America/New_York — default
   - `2` America/Chicago
   - `3` America/Denver
@@ -241,36 +232,6 @@
   - `1` elogind
   - `2` turnstile
 
-> **[DISK-PICKER-EARLY] (Version-3.2.10):** disk selection is now prompted
-> immediately after the desktop environment + accept-defaults gate, before
-> encryption/passphrase and other sensitive prompts. On the fast path
-> (accept all defaults), the installer goes from DE choice straight to disk
-> selection.
-
----
-
-## 6a. Fast path — accept all defaults (Version-3.2.09)
-
-After choosing the desktop environment, the installer offers:
-
-```
-Apply all defaults for this desktop?
-  Y) Yes — use all remaining defaults and skip to disk selection
-  n) No — walk through each prompt individually
-```
-
-- **`Y`** (default): Every remaining prompt is skipped. All variables take their
-  `DEFAULT_*` values. The store is auto-installed for GNOME/Cosmic/KDE and
-  omitted for cinnamon/xfce/mate/lxqt/none. The installer jumps straight to
-  the disk picker. Ideal for re-installs and experienced operators.
-- **`n`**: Walk through every prompt individually (locale, timezone, mirror,
-  swap, bootloader, encryption, desktop apps, stores, containers, SSH, …).
-
-The desktop environment is always prompted first — it is the highest-impact
-branch point (drives the display manager, default store, and metapackage).
-Picking it before the fast-path gate means the defaults know which DE they
-apply to.
-
 ---
 
 ## 7. Third-party app channels & stores
@@ -278,42 +239,38 @@ apply to.
 This section is shown once, after the desktop choice. It groups **Flatpak**,
 **Homebrew**, and the **store/package-manager** choice.
 
-- **App channels & store** — consolidated choice of Flatpak, Homebrew, and
-  store/package-manager in a single prompt:
+- **Install Flatpak (+ Flathub)? [Y/n]** — sandboxed GUI apps via Flathub. Default yes.
+  This gates the flatpak-enabled build of cosmic-store on Cosmic builds and the
+  Heroic + Bottles game-launcher offer below.
+- **Install Homebrew (Linuxbrew CLI/dev channel, opt-in; ~/.linuxbrew)? [y/N]** —
+  independent of Flatpak; either, both, or neither. Installs only the xbps
+  runtime deps (git curl file procps-ng); the operator creates the prefix on
+  first login.
+
+### Store / package-manager choice — gated by Desktop Environment:
+
+| DE | Store behavior | Prompt shown? |
+|----|---------------|---------------|
+| **GNOME** | `gnome-software` installed automatically from this project's GNOME Software store (no prompt) | No |
+| **Cosmic** | `cosmic-store` installed automatically from this project's COSMIC store (no prompt). If Flatpak is also selected, the flatpak-enabled build `cosmic-store-flatpak` is installed instead so the store can manage flatpak apps. | No |
+| **KDE** | `discover` installed automatically from this project's KDE Discover store (no prompt) | No |
+| **cinnamon / xfce / mate / lxqt** | Offered a single consolidated choice of one store/package-manager (see options below) | Yes |
+| **none** (headless) | No store/package-manager installed | No |
+
+**Consolidated store choice** (shown only for cinnamon/xfce/mate/lxqt):
 
 ```
-App channels & store:
+Choose an app store / package manager
   1) None — no store/package-manager installed (default)
-  2) Flatpak only — Flatpak + Flathub sandboxed GUI apps
-  3) Flatpak + OctoXBPS — Flatpak + graphical xbps package manager
-  4) Flatpak + GNOME Software — Flatpak + xbps-backed app store (flatpak-capable)
-  5) Flatpak + KDE Discover — Flatpak + xbps-backed app store (flatpak-capable)
-  6) Flatpak + cosmic-store — Flatpak + COSMIC app store (flatpak-enabled build)
-  7) OctoXBPS only — graphical xbps package manager (xbps packages only)
-  8) Homebrew only — Linuxbrew CLI/dev channel (~/.linuxbrew)
-  9) Flatpak + Homebrew — Flatpak + Linuxbrew CLI/dev channel
+  2) OctoXBPS — graphical xbps package manager + update notifier
+  3) GNOME Software — xbps-backed app store
+  4) KDE Discover — xbps-backed app store
+  5) cosmic-store — COSMIC app store (xbps-only; flatpak-enabled build if Flatpak was selected above)
 ```
 
-Showing this choice depends on desktop environment:
-
-| DE | Choice offered? |
-|----|-----------------|
-| **GNOME** | Yes — store is auto-installed (gnome-software); Flatpak/Homebrew choices apply |
-| **Cosmic** | Yes — store is auto-installed (cosmic-store); Flatpak/Homebrew choices apply |
-| **KDE** | Yes — store is auto-installed (discover); Flatpak/Homebrew choices apply |
-| **cinnamon / xfce / mate / lxqt** | Yes — full choice including store selection |
-| **none** (headless) | No — nothing installed |
-
-Enter choice [1-9] (default 2: Flatpak only). Picking any option sets exactly
-one of `INSTALL_FLATPAK`, `INSTALL_BREW`, `INSTALL_OCTOXBPS`,
-`INSTALL_GNOME_SOFTWARE`, `INSTALL_DISCOVER`, `INSTALL_COSMIC_STORE` to `true`
-and the rest to `false`.
-
-The chosen store/package-manager is installed in Stage-2 from this project's
-own repository (bluesloth.github.io), with its signing key imported and
-fingerprint-verified against the installer's pin before any package is
-fetched. If a store repo is unreachable the helper warns and falls back to
-the stock upstream build rather than aborting the install.
+Enter choice [1-5] (default 1: None). Picking any option sets exactly one of
+`INSTALL_OCTOXBPS`, `INSTALL_GNOME_SOFTWARE`, `INSTALL_DISCOVER`,
+`INSTALL_COSMIC_STORE` to `true` and the rest to `false`.
 
 The chosen store is installed in Stage-2 from this project's own repository
 (bluesloth.github.io), with its signing key imported and fingerprint-verified
@@ -327,6 +284,7 @@ rather than aborting the install.
 
 - **Install Homebrew (Linuxbrew CLI/dev channel, opt-in; ~/.linuxbrew)? [y/N]** —
   independent of Flatpak; either, both, or neither.
+- **Install Thunderbird (email client)? [y/N]** → if `y`: package installed, `@thunderbird` per-user subvol provisioned
 - **Game launchers & runtimes** — each independent, all default OFF; a launcher never
   auto-pulls Wine (each launcher self-manages its own Wine):
   - **Install Lutris (game library/installer for Wine + native games)? [y/N]** — xbps
@@ -334,56 +292,18 @@ rather than aborting the install.
   - **Install Wine (system, multilib)? [y/N]** — runtime toggle, independent of launchers
   - **Install gamemode (+ libgamemode-32bit)? [y/N]**
 - **Install Steam (gaming client)? [y/N]** → if `y`: package installed (multilib), `@steam` per-user subvol provisioned
-
----
-
-## 9. Data regions (filesystem layout)
-
-Reached after the Desktop & Apps section (store, Thunderbird, game launchers),
-before Web Browsers & Email Clients. The root filesystem is ALWAYS Btrfs;
-these choices only slice DATA regions. Each `[b/e]` prompt accepts `b`/`btrfs`
-or `e`/`ext4`; **bare Enter on every line = all-Btrfs default** (no extra
-partitions, no size prompts).
-
-- **`/home` region — btrfs (subvol) or ext4 (own partition)? [b/e]** — default `btrfs`
-- **`/var` region — btrfs (subvols) or ext4 (own partition)? [b/e]**
-- **`/var/cache` region — btrfs (subvol @cache) or ext4 (own partition)? [b/e]**
-- **`/srv` region — btrfs (subvol @srv) or ext4 (own partition)? [b/e]**
-- **`/opt` region — btrfs (subvol @opt) or ext4 (own partition)? [b/e]**
-- **`~/<user>/Games` — none, ext4 partition, or btrfs partition? [n/e/b]** — default `none`
-- For each region chosen `ext4`, a size prompt follows (in the fixed carve order),
-  defaulting to the region's `DEFAULT_REGION_*_SIZE`:
-  - **`/home` partition size [`<default>`]**
-  - **`/var` partition size [`<default>`]**
-  - **`/var/cache` partition size [`<default>`]**
-  - **`/srv` partition size [`<default>`]**
-  - **`/opt` partition size [`<default>`]**
-  - **Games partition size [`<default>`]**
-  The Btrfs root always gets the remainder, so it never asks for a size.
-
----
-
-## 10. Web Browsers & Email Clients
-
-- **Set up web browsers & email clients now? (choose each one next) [y/N]** → gate;
-  if `no`, all browser and email client install prompts are skipped (toggles
-  forced off). If `yes`, the individual prompts run:
-  - **Install Thunderbird (email client)? [y/N]** → if `y`: package installed,
-    `@thunderbird` per-user subvol provisioned
+- **Install VirtualBox (full virtualizer, QEMU/KVM alternative)? [y/N]** → if `y`:
+  `@virtualbox` per-user subvol provisioned (a virtualization/libvirt alternative, not a replacement)
+- **Set up web browsers now? (choose each one next) [y/N]** → gate; if `no`, all
+  browser install prompts are skipped (toggles forced off). If `yes`, the
+  individual browser prompts run:
   - **Install Firefox? [Y/n]**
   - **Install Chromium? [Y/n]**
   - **Install Vivaldi (proprietary, nonfree repo)? [y/N]**
   - **Install Falkon (KDE's browser, works fine standalone too)? [y/N]**
   - **Install Brave? [y/N]**
-    Brave has no official Void package. If selected, it will only be installed
-    via Flatpak — and only if Flatpak was selected above. If Flatpak was not
-    selected, Brave is skipped rather than reaching for an unofficial third-party
-    package repository.
-
----
-
-## 11. Containers & Virtualization
-
+- `@network` (`/var/lib/NetworkManager`) is always created — no prompt — and
+  rolls back independently of `@`.
 - **Set up containers (Podman / Docker) now? (choose each backend next) [y/N]** →
   gate; defaults off. If `no`, the whole container section (all three backends,
   docker group-add, distrobox + track, container-manager) is skipped with all
@@ -401,14 +321,7 @@ partitions, no size prompts).
   - Only if both a Podman backend and Docker are installed: **Distrobox default engine [1/2, default 1]**
     - `1` Podman (default)
     - `2` Docker
-- **Install VirtualBox (full virtualizer, QEMU/KVM alternative)? [y/N]** → if `y`:
-  `@virtualbox` per-user subvol provisioned (a virtualization/libvirt alternative,
-  not a replacement)
-
----
-
-## 12. SSH (& keys)
-
+- **Install virtualization (qemu/libvirt/virt-manager + br0 bridge)? [y/N]**
 - **Install and enable the OpenSSH server (sshd)? [y/N]** (`[SSH-SERVER]`,
   Beta-v2.9.23) — default OFF (no network-facing daemons by default). If `y`,
   the following are asked:
@@ -440,45 +353,69 @@ partitions, no size prompts).
     directory and writes `id_ed25519-backup{, .pub}` (0600). Declining
     import+generate means there is no key to export.
   - No key material is ever persisted to install-config / limine-env / resume
-    state / chroot_env — only public facts (flattening `Beta-v2.9.54`
-    `[SSH-KEYGEN-STALE]`: keygen always clears any stale stage key first so the
+    state / chroot_env — only public facts (flattening `Beta-v2.9.54
+    [SSH-KEYGEN-STALE]`: keygen always clears any stale stage key first so the
     prompt stream stays aligned).
+- **Master subvolume gates (`[SUBVOL-GATES]`, Beta-v2.9.0)** — asked once, after
+  every install choice above is finalized:
+  - **For software you ARE installing, give each its own isolated subvolume? [Y/n/i]**
+    (`SUBVOL_ISOLATE_INSTALLED`; default `Y`). `i` → walks each installed app
+    individually (each defaults to isolate `Y/n`). Answers are validated
+    (`[SUBVOL-GATE-VALIDATE]` Beta-v2.9.88): anything other than Enter / `y` /
+    `n` / `i` is re-prompted — never silently bulk-defaulted.
+  - **For software you did NOT install, pre-create an empty isolated subvolume for
+    later manual use? [y/N/i]** (`SUBVOL_PRECREATE`; default `N`). `i` → walks
+    each not-installed app individually (each defaults to pre-create `y/N`).
+  - A table-driven resolver folds each app's install choice + the two gates into a
+    single `PROVISION_*_SUBVOL` ("isolate?") flag that drives all subvolume
+    create/mount/fstab/per-user-provision/teardown sites. Affected apps: browsers
+    (Firefox/Chromium/Vivaldi/Falkon/Brave), Thunderbird, Steam, VirtualBox,
+    Flatpak, Docker, Podman-rootful (`@containers`), Podman-rootless
+    (`@containers-user`, `[PODMAN-ROOTLESS-SUBVOL]` Beta-v2.9.2),
+    Virtualization (`@libvirt`). OctoXBPS is excluded — it has no data subvolume.
+  - **NOTE (Beta-v2.9.2):** Podman rootless's per-user `~/.local/share/containers`
+    is now a gate participant (default isolate for an install). Declining it
+    leaves a plain, correctly-owned datadir in `@home`; the mandatory
+    subuid/subgid + containers.conf setup still always runs so rootless podman
+    keeps working either way.
+- **`[*]` Press Enter once ready to continue** — br0 USB-Ethernet-port warning
 
 ---
 
-## 13. Subvolume master gates
+## 9. Data regions (filesystem layout)
 
-- **For software you ARE installing, give each its own isolated subvolume? [Y/n/i]**
-  (`SUBVOL_ISOLATE_INSTALLED`; default `Y`). `i` → walks each installed app
-  individually (each defaults to isolate `Y/n`). Answers are validated
-  (`[SUBVOL-GATE-VALIDATE]` Beta-v2.9.88): anything other than Enter / `y` /
-  `n` / `i` is re-prompted — never silently bulk-defaulted.
-- **For software you did NOT install, pre-create an empty isolated subvolume for
-  later manual use? [y/N/i]** (`SUBVOL_PRECREATE`; default `N`). `i` → walks
-  each not-installed app individually (each defaults to pre-create `y/N`).
-- A table-driven resolver folds each app's install choice + the two gates into a
-  single `PROVISION_*_SUBVOL` ("isolate?") flag that drives all subvolume
-  create/mount/fstab/per-user-provision/teardown sites. Affected apps: browsers
-  (Firefox/Chromium/Vivaldi/Falkon/Brave), Thunderbird, Steam, VirtualBox,
-  Flatpak, Docker, Podman-rootful (`@containers`), Podman-rootless
-  (`@containers-user`, `[PODMAN-ROOTLESS-SUBVOL]` Beta-v2.9.2),
-  OctoXBPS is excluded — it has no data subvolume.
-- **NOTE (Beta-v2.9.2):** Podman rootless's per-user `~/.local/share/containers`
-  is now a gate participant (default isolate for an install). Declining it
-  leaves a plain, correctly-owned datadir in `@home`; the mandatory
-  subuid/subgid + containers.conf setup still always runs so rootless podman
-  keeps working either way.
-- **`[*]` Press Enter once ready to continue**
+Only reached after the encryption/YubiKey pass. The root filesystem is ALWAYS
+Btrfs; these choices only slice DATA regions. Each `[b/e]` prompt accepts
+`b`/`btrfs` or `e`/`ext4`; **bare Enter on every line = all-Btrfs default**
+(no extra partitions, no size prompts).
+
+- **`/home` region — btrfs (subvol) or ext4 (own partition)? [b/e]** — default `btrfs`
+- **`/var` region — btrfs (subvols) or ext4 (own partition)? [b/e]**
+- **`/var/cache` region — btrfs (subvol @cache) or ext4 (own partition)? [b/e]**
+- **`/srv` region — btrfs (subvol @srv) or ext4 (own partition)? [b/e]**
+- **`/opt` region — btrfs (subvol @opt) or ext4 (own partition)? [b/e]**
+- **`~/<user>/Games` — none, ext4 partition, or btrfs partition? [n/e/b]** — default `none`
+- For each region chosen `ext4`, a size prompt follows (in the fixed carve order),
+  defaulting to the region's `DEFAULT_REGION_*_SIZE`:
+  - **`/home` partition size [`<default>`]**
+  - **`/var` partition size [`<default>`]**
+  - **`/var/cache` partition size [`<default>`]**
+  - **`/srv` partition size [`<default>`]**
+  - **`/opt` partition size [`<default>`]**
+  - **Games partition size [`<default>`]**
+  The Btrfs root always gets the remainder, so it never asks for a size.
+
 ---
 
-## 14. Destructive confirmation
+## 10. Destructive confirmation
 
 - **`[*]` Select disk to partition and install to [1-N]**
-- **`[*]` Type 'ERASE <device>' (with the exact device path) to confirm wiping the disk, or anything else to abort**
+- Existing Void on target: **`[*]` Type 'ERASE <device>' (with the exact device path) to confirm, or anything else to abort**
+- Fresh/normal disk: **`[*]` Confirm wiping <disk>: type 'ERASE!' (or anything else to abort)**
 
 ---
 
-## 15. Final review
+## 11. Final review
 
 - **Proceed with these settings? [Enter=continue, R=restart config]**
   A full summary of every choice is printed above — since Version-3.1.00 it
@@ -489,8 +426,7 @@ partitions, no size prompts).
 
 ---
 
-
-## 16. YubiKey enrollment (later, only if `YK_MODE=hmac-sha1`)
+## 12. YubiKey enrollment (later, only if `YK_MODE=hmac-sha1`)
 
 - **Program slot <N> now — confirm the key is plugged in? [y/N]**
   Happens after the live-CD sync, once `ykpers` is available.

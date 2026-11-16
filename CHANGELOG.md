@@ -1,5 +1,560 @@
 # Changelog — Void Linux Unified Installer
 
+> **Merged (2026-11-16):** 3.2.08–3.2.16 updates imported from `CHANGELOG-void-installer.md` (Void_Linux_Installer 3.2.16 integration).
+
+## [Version-3.2.16] — 2026-11-16 (Third-party app channels wording, store labels)
+
+### Fixed
+
+- The `THIRD-PARTY APP CHANNELS` header in Custom (tiers 2 and 3) listed
+  Flatpak and Homebrew as if both were about to be asked there, but the
+  Flatpak question runs earlier under `Essentials`. The header now says
+  Flatpak was answered above and prints the recorded answer
+  (`Flatpak: enabled/disabled`) before the Homebrew prompt, so the sequence is
+  unambiguous. The dry-run plan's `App channels` line no longer repeats
+  `cosmic-store`, which is a store and is already listed under
+  `Store choices` with OctoXBPS, GNOME Software and Discover. The plan's
+  `Game launchers` line is now `Game/runtimes`, since it also reports
+  `gamemode`; the review summary's `Optional apps` line is now
+  `Apps & channels`, matching the plan's `App channels` taxonomy; the plan
+  also gained `Web browsers / mail` and `Virtualization/remote` lines so the
+  browsers, Thunderbird, VirtualBox, containers and sshd it previews are no
+  longer invisible; and
+  `INSTALL_COSMIC_STORE` is exported with the other three store flags in
+  `chroot_env.sh` instead of among the app flags. `~/Documents/Void_Install.txt`
+  now records `STORE=` and `FLATPAK=` too. No install behaviour changes.
+
+### Changed
+
+- The app-store menu now marks GNOME Software and KDE Discover as
+  `(pinned xbps build)` and adds a note that these are the installer-pinned
+  builds with xbps support compiled in, not the upstream Flatpak-only
+  packages. This matches reality: both are installed from the pinned
+  third-party repositories with the xbps and Flatpak backends built in.
+- Thunderbird now defaults to install: `DEFAULT_THUNDERBIRD=true` (it was
+  `false`), so Express, `--yes` and the Custom prompt's ENTER answer all
+  include it. The prompt follows the house `[Y/n]` convention via `yn_suffix`,
+  and the optional-depth blurb lists it among the shipped-on defaults.
+  Profiles that want the old behaviour set `DEFAULT_THUNDERBIRD=false`.
+- The profile example now mirrors the shipped defaults for that group:
+  `DEFAULT_WEB_BROWSERS=true` (it was `false`, contradicting the script's
+  `true` and the `DEFAULT_FIREFOX`/`DEFAULT_CHROMIUM` lines beneath it).
+- User-facing `cosmic-store` labels are now **Cosmic Store** (store menu,
+  `Essentials` intro, Express summary, review summary, and the
+  installed/skipped store messages). The package name `cosmic-store`, the
+  `INSTALL_COSMIC_STORE` variable, and the plan/config `key=value`
+  diagnostics are unchanged, so automation and profiles are unaffected.
+
+---
+
+## [Version-3.2.15] — 2026-11-16 (bundled Limine wallpaper)
+
+### Added
+
+- **Bundled Limine boot splash.** The Void logo (640×480 PNG, black background,
+  11,858 bytes) is embedded in `void-installer` as base64 and decoded into the
+  target's `/tmp` during stage 1. The blob decodes to the original `splash.png`
+  (`sha256 64bca768d3979512692a34dc9d64084e204f57e5b925799f9ee3e6fe371bdc5c`).
+- **`DEFAULT_LIMINE_WALLPAPER`** (`true` by default), **`_STYLE`** (`centered`),
+  and **`_SRC`** (empty = bundled splash). Express and `--yes` resolve these
+  silently; a profile can point `_SRC` at its own BMP/PNG/JPEG/QOI image.
+- Custom (Limine only) now asks `Add a wallpaper to the Limine boot menu?`
+  with the usual `[Y/n]` / `[y/N]` form, then offers
+  `Use a different image than the bundled Void splash? [y/N]`. Declining the
+  picker or an unusable file falls back to the bundled splash instead of
+  silently dropping the wallpaper.
+
+### Changed
+
+- **The Limine wallpaper is no longer part of the `Advanced storage` gate.** It
+  is offered on every Custom + Limine install (and installed by default on
+  Express/`--yes`), so a plain Custom install can still opt out. The gate now
+  covers only data-region carving and YubiKey unlock, and its review-edit reset
+  no longer clears the wallpaper choice.
+- Wallpaper style is asked only when a custom image was chosen (the bundled
+  splash uses `DEFAULT_LIMINE_WALLPAPER_STYLE`, i.e. `centered`). The review
+  summary and dry-run plan now name the source (`bundled Void splash` or the
+  custom file's name).
+- Images larger than 8 MiB print a note before staging; the file is still
+  copied (the ESP is 4–8 GiB), but the warning flags space that kernel copies
+  need. Unsupported extensions are rejected with the bundled splash as the
+  fallback.
+
+### Verified
+
+- The embedded blob decodes to the original `splash.png`
+  (`sha256 64bca768d3979512692a34dc9d64084e204f57e5b925799f9ee3e6fe371bdc5c`).
+- The stage-1 restage branch was exercised for both sources: bundled (decodes
+  to `/mnt/tmp/limine-splash.png`) and a custom file (copied as
+  `limine-splash.<ext>`). The chroot ESP-copy and `void-limine-write-conf`
+  wallpaper branch are unchanged and still key off `/boot/efi/limine-splash.*`.
+- `--dry-run` Express, Custom, `--yes` defaults, `--yes` with a custom `_SRC`,
+  `--yes` with `DEFAULT_LIMINE_WALLPAPER=false`, and a bogus `_SRC` all report
+  the expected wallpaper source/style; the bogus path warns and falls back to
+  the bundled splash instead of dropping the wallpaper.
+
+---
+
+## [Version-3.2.14] — 2026-11-16 (prompt defaults aligned with the DEFAULT_* knobs)
+
+### Changed
+
+- **Custom prompt defaults now match what Express and `--yes` already used.**
+  Every prompt below shows its default in the same `[Y/n]` / `[y/N]` form
+  (capital letter = the ENTER answer) and accepts ENTER for that value:
+  - **Account privilege model** — Ubuntu-style (option 3) is now the default;
+    ENTER no longer re-prompts, and the option is marked `(default)`.
+  - **Local package cache** — the prompt reads `[Y/n]` when a cache was
+    auto-detected and `[y/N]` when none was found (the value still follows
+    `DEFAULT_LOCAL_CACHE`).
+  - **Swap configuration** — `swapfile + zram` (option 3) is marked and taken
+    on ENTER; the header names the default instead of hard-coded "swapfile".
+  - **Hibernation** — default Yes (`DEFAULT_HIBERNATION=true`), previously
+    advertised as "default No" while ENTER already enabled it.
+  - **linux-mainline** — default Yes; ENTER used to mean "no" even though
+    `DEFAULT_KERNEL_MAINLINE=true`, so `--yes`/profile runs now install the
+    same kernel set as Express.
+  - **PipeWire autostart on snapshot boots** — default Yes.
+  - **Web browsers now** — default Yes.
+- **`yn_suffix`, `is_true`, `_def_mark` helpers** render the prompt suffix and
+  the `(default)` markers from the `DEFAULT_*` knobs, so a profile that
+  overrides a default also changes what the prompt advertises. `true|yes|y|1`
+  are all accepted, so profiles may use either spelling.
+- Express, `--yes`, and profile overrides were re-tested with `--dry-run`:
+  defaults give `ubuntu` / `both + hibernation` / `linux linux-mainline
+  linux-lts` / browsers on, while a profile that sets `DEFAULT_ACCOUNT_MODEL=1`,
+  `DEFAULT_SWAP_BACKEND=2`, `DEFAULT_HIBERNATION=no`,
+  `DEFAULT_KERNEL_MAINLINE=false`, and `DEFAULT_WEB_BROWSERS=false` still gets
+  `hybrid` / `zram` / no hibernation / `linux linux-lts` / no browsers.
+
+---
+
+## [Version-3.2.13] — 2026-11-16 (post-install repair coverage; reinstall candidate)
+
+### Changed
+
+- **`fix-post-install.sh` repairs the `@usercache` mount order too.** The
+  maintenance script now drops `noauto` from the `@usercache` fstab row, moves
+  that row ahead of the per-user subvolumes, deletes the `~/.cache` mount block
+  from `/etc/rc.local`, and remounts `~/.cache/mozilla` on the running system
+  when it can (otherwise the next boot applies it). Idempotent: an already-fixed
+  layout is reported and left untouched, and a carved-home install without an
+  `@usercache` row is skipped. Its verification section now also checks that
+  `~/.cache/mozilla` is a subvolume root (inode 256).
+- **`HANDOFF-post-install-checks.md`** documents the wider repair scope and the
+  leftover pre-fix cache that stays hidden inside `@usercache`.
+
+### Notes
+
+- The installer payload is unchanged from `Version-3.2.12` (which carries the
+  parent-then-child `@usercache` fstab order and the `rc.local` cleanup). This
+  bump marks the first build whose `fix-post-install.sh` can repair an existing
+  `3.2.09`–`3.2.11` machine in place, so a fresh `3.2.13` install and a repaired
+  older install end up with the same layout.
+
+---
+
+## [Version-3.2.12] — 2026-11-16 (fix @usercache shadowing the browser cache subvolume)
+
+### Fixed
+
+- **`~/.cache/mozilla` no-COW subvolume was shadowed by `@usercache`.** The
+  installer mounted `@usercache` at `~/.cache` *after* mounting
+  `@mozilla-cache` at `~/.cache/mozilla` (and `/etc/rc.local` did the same
+  again at every boot), so the parent mount covered the child. Firefox then
+  wrote its cache into `@usercache` (CoW/compressed) and the `+C` subvolume was
+  never used, which made the post-install `lsattr`/`filefrag` check fail.
+  `@usercache` is now mounted (and its fstab row written) before any per-user
+  subvolume beneath it, `noauto` is gone from that row, and `rc.local` no
+  longer mounts `~/.cache`. A plain `mount -a` now recreates the
+  `~/.cache` → `~/.cache/mozilla` nesting in the right order on every boot.
+
+### Changed
+
+- **`fix-post-install.sh` now repairs the same shadowing on existing
+  installs.** It drops `noauto` from the `@usercache` row, moves that row ahead
+  of the per-user subvolumes, removes the `~/.cache` mount from
+  `/etc/rc.local`, and remounts `~/.cache/mozilla` immediately when the running
+  system allows it (otherwise a reboot applies it).
+
+---
+
+## [Version-3.2.11] — 2026-11-15 (no-CoW provisioning fix & default settings sync)
+
+### Fixed
+
+- **Browser/profile no-CoW provisioning hardened.** Stage-2 subvolume provisioning now checks mount success before applying `+C`, and the `set_nocow` helper validates the target, verifies the `C` flag after `chattr +C`, and logs/warns on failure. This prevents cases like `@mozilla-cache` (`~/.cache/mozilla`) being mounted correctly but missing the no-CoW attribute.
+
+### Changed
+
+- **Default settings synced** with the external source script (`an external source script (Void_Linux_Installer.sh)`, defaults block): updated `DEFAULT_*` values and local-cache auto-detection/export behavior, while retaining this installer’s script-specific defaults (`DEFAULT_ENCRYPT`, `DEFAULT_DISK`, `DEFAULT_OPTIONAL_TIER`, `DEFAULT_ADVANCED_STORAGE`).
+
+---
+
+## [Version-3.2.10] — 2026-11-15 (post-install fixes from the first real install)
+
+### Fixed
+
+- **No-COW is now actually applied.** Btrfs mount options are
+  filesystem-wide, so the per-subvolume `nodatacow,compress=none` rows written
+  for `@srv`, `@cache`, `@log`, `@spool`, `@swap`, and the browser/game/
+  VirtualBox profile subvolumes were silently ignored once `/` was mounted
+  with `compress=zstd:1`. The installer now sets the `+C` inode flag
+  (`chattr +C`) on each fresh subvolume root before data lands, and writes
+  `noatime` (not the ineffective options) to fstab. Carved region partitions
+  keep `nodatacow`, since they are separate filesystems.
+- **`void-subvol-tool.sh`** uses the same rule: `--nodatacow` sets `+C` on the
+  new sibling (before migration) and writes `noatime` to fstab. While
+  validating it, two latent bugs surfaced and are fixed: `check`/`detach`/
+  `destroy` never found real fstab rows (the `subvol=` regex required
+  whitespace before it, but options are comma-separated), and `destroy`
+  detached the subvolume *before* asking for confirmation, so aborting still
+  left it unmounted. `--class web/mail/game/dev` now also sets `+C` on their
+  per-user siblings, matching the installer.
+- **`void-install-virtualization.sh`** sets `+C` on `@libvirt` before mounting
+  it instead of relying on the ignored fstab option.
+- **Browser/mail answers are recorded.** `install-config` now includes
+  `SETUP_WEB_BROWSERS`, `INSTALL_FIREFOX`, `INSTALL_CHROMIUM`,
+  `INSTALL_VIVALDI`, `INSTALL_FALKON`, and `INSTALL_THUNDERBIRD`, and
+  `Void_Install.txt` records `BROWSERS=` and `MAIL=` lines.
+- **Honest as-built record when unencrypted.** `Void_Install.txt` now writes
+  `LUKS_MAPPER=none (ENCRYPT=no)` instead of a mapper name that does not exist.
+
+### Changed
+
+- **Limine default entry prefers the stable `linux` branch** (e.g. 6.18.x)
+  over `linux-mainline`, falling back to the newest installed kernel. Snapshot
+  entries boot the same kernel. The snapshot submenu is now ordered
+  numerically (`#2` before `#10`), not lexicographically.
+
+### Documentation
+
+- Corrected the post-install handoff: VirtualBox has no `vboxdrv` service on
+  Void (modules load via `/usr/lib/modules-load.d/virtualbox.conf`), the
+  isolation grep now looks for `@mozilla` rather than `firefox`, and there is
+  an explicit `lsattr -d`/`filefrag` no-COW check. Added a pre-reinstall
+  backup/record checklist, a snapshot-time check that the installed Limine
+  helper keeps the stable default and numeric ordering, and a check that the
+  installed helper scripts carry the new behaviour.
+
+---
+
+## [Version-3.2.09] — 2026-11-14 (optional tiers & advanced storage)
+
+This entry and the two following `Version-3.2.09` entries ship together; each
+keeps its own verification list.
+
+### Added
+
+- **Tiered optional-software questionnaire.** Custom installs now pick a depth
+  before any optional prompt is shown:
+  - **1) Essentials** — Flatpak, the app store, browsers, Thunderbird.
+  - **2) Common (default)** — Essentials plus Homebrew, game launchers,
+    VirtualBox, containers, and SSH.
+  - **3) Advanced** — Common plus the per-app Btrfs subvolume questions.
+  - **4) None** — skip the optional questions entirely and keep every
+    `DEFAULT_*` value.
+  Groups above the selected depth are not asked and keep their `DEFAULT_*`
+  values, so the answer set is identical between Express, `--yes`, and the
+  None tier. New knob: `DEFAULT_OPTIONAL_TIER` (default `2`).
+- **Advanced storage gate.** A new question at the top of the Custom storage
+  section controls three expert features that used to be asked
+  unconditionally: data-region carving (`/home`, `/var`, `/var/cache`, `/srv`,
+  `/opt`, `~/Games`), YubiKey hmac-sha1 disk unlock, and the Limine boot
+  wallpaper. Off keeps the all-btrfs layout and asks nothing; Express always
+  leaves it off; Custom and `--yes` honour `DEFAULT_ADVANCED_STORAGE`. Turning
+  it off in a review edit now resets those answers to their defaults instead of
+  leaving a carved partition or a staged wallpaper behind.
+- Review summary rows `Optional depth` and `Advanced storage`; both settings
+  are written to the resume state, `/etc/void-installer/install-config`, and
+  the dry-run plan.
+- **Documentation.** New `README-void-installer.md` covering modes, optional
+  depths, advanced storage, profiles, resume, the CLI, and the files written
+  to the target. `README-void-install-virtualization.md` now cross-references
+  it and says where VirtualBox sits in the tier flow.
+- **Regression harness and snapshots.** `tests/` keeps the PTY drivers and the
+  dry-run shims (`ping`, and an `lsblk` that adds a fake `fake0` disk) with
+  their own README; `backups/` keeps the pre-strip and pre-tier installer
+  snapshots plus the strip diff, since the project has no VCS history.
+- **Handoff checklist.** `HANDOFF-post-install-checks.md` lists what to verify
+  after the first real install (boot, encryption/YubiKey, carved regions, tier
+  contents, stores, snapshots) and how to verify the project after moving it
+  to USB; `MANIFEST.sha256` supports that integrity check.
+
+### Changed
+
+- The optional-software section now seeds every variable from `DEFAULT_*`
+  first (`_apply_optional_defaults`), prompts only the selected groups, and
+  then re-derives dependent flags (`_finalize_optional_state`) so a declined
+  Flatpak or containers answer cannot leave a Flatpak-only app or an orphaned
+  container backend selected.
+- When the advanced-storage gate is off, the region block applies
+  `DEFAULT_REGION_*` for Express, `--yes`, and Custom alike, and the echo is
+  the neutral `Data regions: …`.
+- The subvolume summary now explains *why* it was not asked (Express has no
+  menu, `None` skipped the cycle, Essentials/Common stopped short of it), and
+  the informational per-app `PROVISION_*` table is suppressed on the `None`
+  tier so "questions skipped" reads cleanly.
+- The three gated blocks now say why they appear: data-region carving, YubiKey
+  unlock, and the Limine wallpaper print "offered because Advanced storage is
+  on for this install", so the late expert prompts are traceable to the gate
+  answered in step 2.
+- `SCRIPT_VERSION` is now `Version-3.2.09`. This entry and the two following
+  `Version-3.2.09` entries (install flow, app stores) ship together.
+
+### Verification
+
+- `bash -n void-installer` — clean; ShellCheck — 9 findings, unchanged.
+- `--yes` dry-runs: Express (5 steps) and Custom (8 steps, `common`, advanced
+  storage off) — exit 0. Custom with `DEFAULT_ADVANCED_STORAGE=yes` and LUKS —
+  exit 0, `Advanced storage : yes`, YubiKey prompt reached, regions on their
+  btrfs defaults.
+- PTY dry-runs of tiers 1/2/3/4 — Essentials-only prompts, Common prompts,
+  Advanced master questions, and the skipped-question notice respectively;
+  each exits 0.
+- PTY `--yes`-equivalent edits: optional section 2→3 re-asks and switches the
+  depth; advanced gate on shows region/YubiKey/wallpaper prompts, and turning
+  it off in a second pass resets to `no`.
+- PTY tier 1 with Flatpak declined drops the Flatpak-only Heroic/Bottles entry
+  from the summary.
+- `--yes` tier 3 (Advanced) answers both master subvolume questions with their
+  defaults and exits 0; tier 4 suppresses the per-app table and exits 0.
+- `--yes` with advanced storage on prints the three "offered because …"
+  reminders (regions, YubiKey, wallpaper); the same Custom run with the gate
+  off prints none.
+
+---
+
+## [Version-3.2.09] — 2026-11-14 (install flow)
+
+### Added
+
+- **Express vs Custom install mode.** The first question now asks how much of
+  the questionnaire to run:
+  - **Express** (default) keeps every hardware-derived default and asks only
+    for accounts, disk encryption, desktop, the target disk, and the final
+    review (5 steps).
+  - **Custom** runs the full questionnaire: locale/timezone, repositories,
+    swap/boot/kernel tuning, every driver choice, and every optional software
+    package (8 steps).
+  Pre-select the mode with `--express`, `--custom`, or `INSTALL_MODE=` in the
+  environment; the choice is saved in the resume state and recorded in
+  `/etc/void-installer/install-config` and the dry-run plan.
+- **Step counter / breadcrumb.** Every questionnaire section starts with
+  `Step N/Total — Name`. The counter only increments when a section is
+  actually entered, so Express shows a contiguous `1/5 … 5/5` and Custom
+  `1/8 … 8/8`.
+- **Editable review screen.** The final review no longer only offers a full
+  restart: pick a section number to re-run just that part (Accounts,
+  Encryption & disk layout, Desktop, Target disk in Express; plus
+  Locale/time/repositories/storage, Hardware & drivers, and Optional software
+  in Custom), the summary is redrawn, and `Enter` then proceeds. The summary
+  now also prints the selected store and the optional software list, so edits
+  are visible. `R` still restarts the whole configuration. The destructive
+  ERASE confirmation is asked **after** the review, so it always names the disk
+  that is current when the review is confirmed.
+- **Unattended installs (`--profile FILE`, `--yes`).** `--profile` sources a
+  shell fragment before the defaults are resolved, so it can set
+  `INSTALL_MODE`, any `DEFAULT_*` knob, and the required answers
+  (`TARGET_USER`, `TARGET_HOSTNAME`, `ROOT_PASSWORD`,
+  `TARGET_USER_PASSWORD`, `ENCRYPT_PASSPHRASE`, `DEFAULT_DISK`, …). `--yes`
+  accepts every prompt's default; a prompt with no default takes the profile
+  value or aborts with a FATAL naming the variable to set. New knobs:
+  `DEFAULT_ACCOUNT_MODEL`, `DEFAULT_ENCRYPT`, `DEFAULT_DISK`. See
+  `void-installer.profile.example`.
+
+### Changed
+
+- Prompt formatting is consistent: numbered menus use
+  `Enter choice [1/2/…] (default N: label)`; free-text and letter prompts state
+  their default (`(default b)`, `(default 1: stretched)`, …); menus with no
+  default say `(required — no default)`.
+
+### Verification
+
+- `bash -n void-installer` — clean.
+- ShellCheck — 9 findings, unchanged.
+- Express dry-runs: KDE, GNOME, COSMIC, headless, and encrypted (passphrase
+  entered through the real hidden-input path) — all exit 0 with 5 steps and
+  the expected store/desktop/encryption rows.
+- Custom dry-run — exit 0 with 8 steps and the full plan.
+- XFCE custom dry-runs for all five store choices — exit 0, the store flags
+  match the menu selection each time.
+- Mode prompt answered with Enter → Express; `--express`, `--custom`, and
+  `INSTALL_MODE=custom` all honoured.
+- Resume dry-run from an Express state file — mode preserved, no re-prompts.
+- Review-time section edits exercised in a PTY for every section type:
+  Accounts, Encryption (on→off, including the hidden LUKS passphrase), Desktop
+  (KDE→GNOME, auto-store follows), Target disk (re-run, ERASE still correct),
+  Hardware & drivers, and Optional software — each redraws the summary and the
+  run exits 0.
+- `--yes` dry-runs with a profile: Express (KDE/Limine) and Custom
+  (GNOME/GRUB/zram/LUKS) — exit 0, 5/8 steps, correct summary and plan.
+- `--yes` without `TARGET_USER`, or without `DEFAULT_DISK`, aborts with a FATAL
+  naming the missing variable (and lists the available disks for the latter).
+- `void-installer.profile.example` run with `--yes --dry-run` — exit 0.
+
+---
+
+## [Version-3.2.09] — 2026-11-14 (app stores)
+
+### Added
+
+- GNOME, KDE, and COSMIC now select their native store automatically:
+  GNOME Software for GNOME, KDE Discover for KDE, and cosmic-store for COSMIC.
+  No prompt and no opt-out, per the chosen design.
+- The store menu for cinnamon/xfce/mate/lxqt offers: None (default), OctoXBPS,
+  GNOME Software, KDE Discover, cosmic-store.
+- `STORE_INSTALLED` and `STORE_SKIPPED` rows in
+  `/etc/void-installer/install-config`, recording what was actually installed
+  and what was skipped because its repository was unreachable.
+
+### Changed
+
+- All three stores are installed as Flatpak-capable builds, but Flatpak is
+  never a dependency: the store packages list no `flatpak` runtime dependency,
+  and the stores manage xbps without it. Flatpak app support activates if
+  Flatpak is installed now or later.
+- Store installation is now one unified block for every desktop; store installs
+  were removed from the individual DE branches.
+- `cosmic-store` is always the single current package
+  (`configure_args="--features xbps,flatpak"`). The stale
+  `cosmic-store-flatpak` variant is no longer referenced.
+- An unreachable third-party store repository now **skips that store with a
+  warning** instead of:
+  - GNOME Software: installing the stock flatpak-only build, or
+  - Discover: installing the stock package with no xbps backend, or
+  - cosmic-store: aborting the whole install.
+- The Flatpak prompt now explains that the stores work without Flatpak and add
+  Flatpak support automatically if it is installed later.
+- The dry-run plan and store menu wording reflect that each store manages both
+  xbps and (when present) Flatpak.
+
+### Fixed
+
+- `install_gnome_software_store()` was defined inside the GNOME desktop branch
+  but called for non-GNOME desktops, which would have aborted the install with
+  `command not found`. The function is now defined at top level.
+- cosmic-store was installed twice for non-COSMIC desktops: once by the store
+  menu block and again by a later unconditional block. The duplicate block was
+  removed.
+
+### Verification
+
+- `bash -n void-installer` — clean.
+- ShellCheck — 9 findings, unchanged from the previous entry (only line
+  numbers moved).
+- Dry-run matrix: GNOME, KDE, COSMIC (automatic stores), and XFCE with store
+  choices None / OctoXBPS / GNOME Software / Discover / cosmic-store.
+  All exit 0 with the expected `Store choices` plan row.
+- Resume dry-run with GNOME: exit 0, store flags preserved, `TARGET_FULL_NAME`
+  intact.
+- Store-skip harness with `curl` forced to fail: GNOME Software, Discover, and
+  cosmic-store all return 1, print a skip warning, and install nothing.
+
+---
+
+## [Version-3.2.08] — 2026-11-14
+
+### Added
+
+- `void-install-virtualization.sh` — a standalone, idempotent post-install
+  script that reproduces the removed virtualization feature.
+- `README-void-install-virtualization.md` — usage, options, files touched,
+  networking modes, and troubleshooting for the standalone script.
+- The standalone script supports `--dry-run`, `--user`, `--bridge-if`,
+  `--bridge`, `--no-bridge`, `--no-packages`, and `--no-subvol`.
+
+### Removed
+
+- **Virtualization prompt** — "Install virtualization (qemu/libvirt/
+  virt-manager + br0 bridge)? [y/N]" and the `INSTALL_VIRT` /
+  `DEFAULT_VIRT` / `DEFAULT_NIC` variables.
+- **Wired-NIC detection** — `detect_wired_nic` and `has_wired_nic_hw`, the
+  early "detected wired NIC" prompt, and the late re-probe before disk
+  selection.
+- **`@libvirt` provisioning** — subvolume creation, mount at
+  `/var/lib/libvirt`, `/etc/fstab` entry, and the `PROVISION_VIRT_SUBVOL`
+  flag.
+- **Packages** — `qemu`, `libvirt`, `virt-manager` from `PKG_PREFLIGHT`;
+  `bridge-utils` from both `PKG_PREFLIGHT` and the base package install line.
+- **Group membership** — automatic `kvm,libvirt` addition to `USER_GROUPS`.
+- **nftables** — `br0` and `virbr*` forward accepts (`NFT_FWD_RULES`) and the
+  post-install dump of `/etc/nftables.conf`.
+- **QEMU bridge helper** — `/etc/qemu/bridge.conf` with `allow br0` and the
+  setuid bit on `qemu-bridge-helper`.
+- **libvirt polkit rule** — `/etc/polkit-1/rules.d/50-libvirt.rules`.
+- **NetworkManager bridge** — `br0.nmconnection` and `br0-slave.nmconnection`
+  profiles, `nmcli connection reload`, and bridge activation.
+- **KVM routing sysctl** — IPv4/IPv6 forwarding settings.
+- **runit services** — `libvirtd` and `virtlogd` links from `/etc/rc.local`.
+- **br0 NAT teardown** — the `/var/lib/void-installer/br0-nat-torn-down.done`
+  guarded rc.local block that retired libvirt's `default` network, and its
+  `__INSTALL_VIRT__` placeholder substitution.
+- **Bookkeeping** — `VIRT_BR0`, `BR0_NIC`, `NET_INTERFACE_MATCH`,
+  `INSTALL_VIRT`, and `PROVISION_VIRT_SUBVOL` from the resume state,
+  dry-run plan, `/etc/void-installer/install-config`, and the chroot
+  environment export list.
+- **Teardown** — the `/mnt/var/lib/libvirt` unmount from both the ERR-path
+  unwind and the Stage 3 teardown.
+- **Subvolume tool** — the `virtualization` class, its `CLASS_LIST` entry,
+  the `PKG_MAP[@libvirt]` package mapping, and the related examples and class
+  table row.
+
+### Changed
+
+- The subvolume-intro text no longer lists "virtualization" among isolatable
+  software.
+- The `var` region MULTI-FS-FOLD message and flag reset no longer mention
+  libvirt; only flatpak/docker/containers remain.
+- `@libvirt` remains a valid **generic** subvolume path in the subvolume tool's
+  `SYS_MOUNT`, `SYS_NODATACOW`, region mapping, and documentation. It no
+  longer implies installing qemu/libvirt/virt-manager.
+- **VirtualBox is unchanged** (`INSTALL_VIRTUALBOX`, the `@virtualbox`
+  subvolume, its packages, and the "QEMU/KVM alternative" prompt text all
+  remain).
+
+### Fixed
+
+- Restored newlines in `PKG_PREFLIGHT` that were lost while deleting the
+  virtualization entries. Four adjacent names had been concatenated into
+  invalid package names:
+  - `bluez` / `btrfs-progs` (was `bluezbtrfs-progs`)
+  - `libstdc++-32bit` / `libX11-32bit` (was `libstdc++-32bitlibX11-32bit`)
+  - `procps-ng` / `rsync` (was `procps-ngrsync`)
+  - `vim` / `virtualbox-ose` (was `vimvirtualbox-ose`)
+
+### Verification
+
+- `bash -n void-installer` — clean.
+- ShellCheck (`v0.10.0`, `-f gcc`) — 9 findings, unchanged from the previous
+  release; all are pre-existing notes tied to unrelated code.
+- Installer dry-run (`--dry-run`) — exit 0, no `FAILURE TRACE`, zero
+  virtualization/br0/libvirt mentions in the plan.
+- Resume dry-run (`--resume --dry-run`) — exit 0, no `FAILURE TRACE`, and the
+  resumed plan preserves `TARGET_FULL_NAME`.
+- Package-list diff against the pre-change backup shows only the four
+  virtualization packages removed, with no duplicates and no malformed lines.
+
+### Size
+
+- `void-installer`: 8,799 → 8,459 lines (−340).
+- `void-install-virtualization.sh`: 538 lines (new).
+
+### Migration
+
+The removed capability is available after installation:
+
+```sh
+sudo ./void-install-virtualization.sh
+```
+
+Users who do not need VMs lose nothing; users who do can enable KVM/QEMU/
+libvirt/virt-manager explicitly and later.
+
+---
+
+
 > **Reconstruction note:** The original companion CHANGELOG for this
 > project was lost. This file is a reconstruction, generated directly from
 > the inline `AI (...)` feature markers embedded in `Void_Linux_Installer.sh`
@@ -17,7 +572,7 @@
 > the script's comments point at the original (now-lost) CHANGELOG and are
 > preserved verbatim as historical cross-references.
 
-Current version: **Version-3.2.20** (`SCRIPT_VERSION` in the script).
+Current version: **Version-3.2.08** (`SCRIPT_VERSION` in the script).
 
 > **Numbering scheme (`[VERSION-CARRY]`).** The lineage is split into named
 > eras, each carrying its own prefix:
@@ -143,8 +698,8 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Beta-v2.9.75** | `[XKB-CONFIG-QUOTING]` — the `cosmic-desktop-full` xbps post-install hook corrupts `/usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config` to `layout: ""us"",` because it derives the layout with `layout=$(grep 'KEYMAP=' /etc/rc.conf \| cut -d= -f2)` — which KEEPS the quotes from `KEYMAP="us"` — and then `sed -i "s/us/$layout/"` interpolates them back in. That is invalid RON, so cosmic-comp fails to load its config (`errors loading cosmic-comp config: [RonSpanned(... ExpectedComma ... line 4, col 11)]`) and `cosmic-greeter-daemon` crash-loops (`check_children: greeter exited without creating a session`, `Error trying to flush the wayland display: Broken pipe`) into a grey, blinking login screen with no working VT switch. Found on <host> 2026-10-05 (twice — the first diagnosis blamed `/var/lib/cosmic-greeter/.local/state/cosmic-comp/outputs.ron`, which was a byte-identical, VALID copy). The COSMIC DE branch now rewrites the file to the canonical cosmic-config form with the layout taken UNQUOTED from the chroot's `/etc/rc.conf` `KEYMAP`, and only when the existing file does not already carry that exact `layout:` line (no-op when the hook happened to be correct). The upstream hook itself is also fixed at the source (`void-packages*/srcpkgs/cosmic-desktop-full/INSTALL`, revision bumped to `_3`) so a fresh install never writes the broken form. `bash -n` clean | Beta-v2.9.74 below |
 | **Beta-v2.9.76** | `[COSMIC-TRUST-ANCHOR]` — the COSMIC repo sync passed `-y`, which xbps documents as "assume yes to ALL questions", including the repository signing-key import. The third-party repo's trust anchor was therefore auto-accepted and no operator ever saw a fingerprint, so a substituted key would be trusted silently. `-y` is now absent from that sync (the `-y` on the later package install is unrelated and intentionally stays), the expected fingerprint is printed, and an unattended run refuses up front with an actionable message instead of hanging or auto-accepting. Prompting alone is not enforcement — an operator who types `Y` at a prompt showing a substituted key still trusts it — so the fingerprint is now **pinned in the installer** and verified machine-readably after the sync: the pinned key must be present in `/var/db/xbps/keys`, and no key outside `{pinned, two stock Void keys}` may be. That second rule is an allowlist rather than "nothing else allowed", because a provisioned Void system already trusts both stock keys and rejecting them would abort every legitimate install. The pin is deliberately **not** read from the repo being verified: a fingerprint taken from the served index only proves the index is self-consistent, and an attacker controlling the repo would serve their own key alongside it. Unreadable keyring entries now fail closed instead of being silently skipped, and the keyring *filename* is not trusted either — key content is what gets compared. Three fingerprint-computation traps are handled explicitly, each of which otherwise yields a wrong-but-plausible hash rather than an error: the keyring blob decodes to PEM text and must be re-encoded to DER; `openssl dgst` on an empty stream returns the SHA-256 of the empty string, so the key is parsed with `openssl rsa -pubin -noout` before hashing; and DER must be streamed into `dgst` rather than captured in a shell variable, which strips NUL bytes. **Known consequence:** until the repo is republished under the new key this check ABORTS, because the live index still serves the old one — fail-closed by design, and it resolves on upload. `bash -n` clean; 13-case accept/abort matrix in `xkb_config-fix-20261005/test-trust-anchor-cases.sh`, which re-extracts this check from the installer on every run so the suite cannot drift | Beta-v2.9.75 below |
 | **Version-3.0.00** | `[DKMS-HEADERS]`/`[DKMS-ZSTD]`/`[DKMS-AUTOINSTALL]`/`[FLATPAK-FIRSTBOOT-LOG]`/`[FLATPAK-FIRSTBOOT-ADVANCE]`/`[FLATPAK-FIRSTBOOT-SVC]`/`[INSTALL-CONFIG-VIRT]`/`[SSH-NOKEY-WARNING]` — four fixes from auditing the fresh Beta-v2.9.99 hardware install against this script. **(1)** The kernel-header mapping lived INSIDE the `[NVIDIA-GATE]` branch as a first-match `case`, so a VirtualBox-only install got NO headers and a multi-kernel build got exactly one flavor (`KERNEL_PKGS="linux linux-mainline linux-lts"` matches `*linux-mainline*` first); live proof: the only headers present were `linux-headers-6.18_1`, arriving solely as `dkms`'s own `run_depends`, so `dkms autoinstall` built `virtualbox-ose` for 6.18.57_1 only while the default boot entry was mainline 7.2.11_1 — no `vboxdrv` at boot and a failing `VBoxManage` until the header packages were installed by hand. Now: one `<flavor>-headers` loop over `$KERNEL_PKGS` gated on ANY dkms consumer (nvidia OR virtualbox) and placed BEFORE it; `zstd` installed alongside (`/usr/sbin/dkms` compresses every module with the `zstd` binary nothing else ships — observed `zstd: command not found`, all three kernels' `vbox.ko` left raw); and an explicit best-effort `dkms autoinstall` after both consumers (transcript `/var/log/dkms-autoinstall.log`, never fatal — xbps has already committed the packages). **(2)** The first-boot Flatpak queue drain TRUNCATED its transcript on every firing (`: > /var/log/flatpak-firstboot.log`), so the next event destroyed the evidence of WHY the previous run had died; it never advanced the queue, so an interrupted run redid every already-installed app; and NM events were its ONLY trigger while a flock LOSER exited without re-arming — observed live: the 09:05 run stopped after Brave, unstamped, and the queue sat 75 minutes until a `connectivity-change` happened to fire. Now: append-only transcript under a timestamped header with a 256 KiB tail rotation; a `flatpak info` pre-check per ID plus a queue rewrite to the remaining failures (in place, so owner/mode survive), so a killed drain resumes where it stopped; and a supervised `/etc/sv/flatpak-firstboot` service retries the SAME drain through the dispatcher's new `boot-drain` action once a minute until the `.done` stamp exists, then parks on `pause` — one drain implementation, two triggers, one lock — linked on first boot behind a `[ -d /etc/sv/flatpak-firstboot ]` guard so a flatpak-less install gets no dangling link. **(3)** `INSTALL_VIRT`/`INSTALL_VIRTUALBOX`/`PROVISION_VIRTUALBOX_SUBVOL` were prompted, exported to the chroot and consumed by the rc.local first-boot links but never written to `install-config`, so the as-built record could not explain why `virtualbox-ose` was installed (same class as `[INSTALL-CONFIG-BACKENDS]` Beta-v2.9.68, which added steam/docker/podman). **(4)** `[SSH-DEFAULT-HARDEN]` (Beta-v2.9.95) defaults password auth and root login to NO while both key prompts default OFF and the NEXT STEPS list never said so — a default install ships a listening sshd nothing can authenticate to (the Beta-v2.9.99 box: port 2323, `PasswordAuthentication no`, `PermitRootLogin no`, no `~/.ssh`); the summary now warns, testing the REAL target `/mnt/home/<user>/.ssh/authorized_keys` so a staged `[SSH-DEPOSIT-LOG]`/`[SSH-USABLE]` key raises no false alarm. `zstd` added to `PKG_PREFLIGHT`. Sandbox-verified with a stub `flatpak`: queue advance, failure retention, stamp-on-drain, append (two headers), rotation, all three early exits, the flock loser, and the boot service drain → `pause`. `bash -n` clean, `check-heredocs.sh` ALL CLEAN (77), `check-defaults.sh` ALL CONSISTENT, `check-pkg-preflight.sh` ALL COVERED (167) | Beta-v2.9.99 below |
-| **Version-3.0.01** | `[LIMINE-NVRAM-LABEL]`/`[LIMINE-NVRAM-PROMPT-MOVE]`/`[LIMINE-NVRAM-RESUME]` — the optional Limine UEFI NVRAM entry (Beta-v2.9.97) can now be **named**: a text prompt, asked only after the toggle is answered `y`, sets `LIMINE_NVRAM_LABEL` from `DEFAULT_LIMINE_NVRAM_LABEL` = the exact old literal `Void Linux (Limine)`, so a bare Enter reproduces the previous deploy byte-for-byte; Stage 2 now passes `${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}` to `efibootmgr --label` (the fallback covers a resumed state file predating this row). Input is trimmed in pure bash and must be non-empty, ≤80 characters (firmware menus truncate long descriptions) and free of quotes, backticks, `$`, backslashes and control characters, because the value is interpolated into double-quoted shell config at every consumer (chroot_env, install-config, DRY-RUN plan, NEXT-STEPS summary) — refusing up front beats escaping four writers; spaces and parentheses are accepted verbatim. Both prompts now run directly under `1) BOOTLOADER="limine"` (right after `esp_size_choose`), ~450 lines earlier than the old position after the kernel/device/hardware/network prompts. **Resume bug found while wiring the label:** `LIMINE_NVRAM` was never in the `[RESUME]` state-save list while the entire config block is skipped when `RESUME=1`, so a `-r` resumed run left it unset and `${LIMINE_NVRAM:-no}` silently skipped the entry the operator had already accepted; both names are now persisted (`printf %q`). `checks/check-nvram-prompt.sh` — 23 cases over the verbatim-extracted prompt block; `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Version-3.0.00 below |
-| **Version-3.1.00** | `[BIOS-BOOT]` — the installer installs a **bootable system on legacy-BIOS (non-UEFI) machines**; until now it was UEFI-only and produced a disk with no BIOS boot path at all. `BOOT_MODE=uefi\|bios` is **derived** from `/sys/firmware/efi` before the RESUME prompt (re-derived on resume, never a question), exported through `chroot_env` and recorded in the resume state, `install-config` (`BOOT_MODE=` row, `<unset>` fallback for older records; the record file is written on the Limine branch only — pre-existing, see TODO `[INSTALL-CONFIG-GRUB]`), the DRY-RUN plan and the final summary — every firmware-dependent construct reads it with the **UEFI branch as the default**, so a UEFI run is byte-for-byte the 3.0.01 path. **BIOS keeps GPT** and appends a fixed 1 MiB `ef02` partition (`BIOSBOOT_PART_SIZE=1M`, deliberately not a prompt) immediately before the system partition: the ESP stays p1, carved regions keep `2..1+NREG`, and only the remainder row and any LUKS container shift by `BIOSBOOT_OFFSET` (`BIOSBOOT_PN = NREG+2` with outer regions and no ENCRYPT, else `2`), so `PART_SYS=$((2 + BIOSBOOT_OFFSET))` stays true for every combination; the `[DISK-BUDGET]` pre-write gate now sums that 1 MiB (UEFI adds 0) and its message names the extra row. **GRUB** runs `grub-install --target=i386-pc --recheck "$DISK"` behind the same BIOSBOOT_PN sanity check, with `--target=x86_64-efi` untouched in the UEFI branch. **Limine** runs `limine bios-install "$DISK" "$BIOSBOOT_PN"` (refusing loudly if the ef02 partition is missing or not the expected number) plus `limine-bios.sys` on the ESP, and the single config generator now re-emits its already-written `limine.conf` to `/boot/efi/limine.conf` right after the atomic `mv` — a Limine BIOS stage 2 searches only root/`/boot`/`/limine`, while `EFI/BOOT` is a UEFI-only location, so one generator keeps both copies in step for every trigger (install, kernel hooks, snapper). **UEFI-only by explicit gate:** the NVRAM registration prompts, the Stage-2 `efibootmgr --create` and the `/Reboot Into Firmware` menu entry (legacy BIOS has no NVRAM/runtime services), while the removable-path `BOOTX64.EFI` copy stays unconditional so a BIOS-installed disk still boots if the firmware is switched to UEFI; `efivarfs` mounting is gated too (an unguarded mount under `set -eE` would abort a BIOS run). `limine-env`/`install-config` carry the mode so hooks regenerate the right layout later. Gates: `bash -n`, `check-heredocs.sh` (77), `check-defaults.sh`, `check-pkg-preflight.sh` (168), `check-nvram-prompt.sh` (23/23) ALL CLEAN, plus the new **`checks/check-bios-boot.sh` — 36 static checks** that every firmware-dependent construct sits behind `$BOOT_MODE` and the BIOS wiring is complete end to end | Version-3.0.01 below |
+| **Version-3.0.01** | `[LIMINE-NVRAM-LABEL]`/`[LIMINE-NVRAM-PROMPT-MOVE]`/`[LIMINE-NVRAM-RESUME]` — the optional Limine UEFI NVRAM entry (Beta-v2.9.97) can now be **named**: a text prompt, asked only after the toggle is answered `y`, sets `LIMINE_NVRAM_LABEL` from `DEFAULT_LIMINE_NVRAM_LABEL` = the exact old literal `Void Linux (Limine)`, so a bare Enter reproduces the previous deploy byte-for-byte; Stage 2 now passes `${LIMINE_NVRAM_LABEL:-Void Linux (Limine)}` to `efibootmgr --label` (the fallback covers a resumed state file predating this row). Input is trimmed in pure bash and must be non-empty, ≤80 characters (firmware menus truncate long descriptions) and free of quotes, backticks, `$`, backslashes and control characters, because the value is interpolated into double-quoted shell config at every consumer (chroot_env, install-config, DRY-RUN plan, NEXT-STEPS summary) — refusing up front beats escaping four writers; spaces and parentheses are accepted verbatim. Both prompts now run directly under `1) BOOTLOADER="limine"` (right after `esp_size_choose`), ~450 lines earlier than the old position after the kernel/device/hardware/network prompts. **Resume bug found while wiring the label:** `LIMINE_NVRAM` was never in the `[RESUME]` state-save list while the entire config block is skipped when `RESUME=1`, so a `-r` resumed run left it unset and `${LIMINE_NVRAM:-no}` silently skipped the entry the operator had already accepted; both names are now persisted (`printf %q`). `Debug/check-nvram-prompt.sh` — 23 cases over the verbatim-extracted prompt block; `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Version-3.0.00 below |
+| **Version-3.1.00** | `[BIOS-BOOT]` — the installer installs a **bootable system on legacy-BIOS (non-UEFI) machines**; until now it was UEFI-only and produced a disk with no BIOS boot path at all. `BOOT_MODE=uefi\|bios` is **derived** from `/sys/firmware/efi` before the RESUME prompt (re-derived on resume, never a question), exported through `chroot_env` and recorded in the resume state, `install-config` (`BOOT_MODE=` row, `<unset>` fallback for older records; the record file is written on the Limine branch only — pre-existing, see TODO `[INSTALL-CONFIG-GRUB]`), the DRY-RUN plan and the final summary — every firmware-dependent construct reads it with the **UEFI branch as the default**, so a UEFI run is byte-for-byte the 3.0.01 path. **BIOS keeps GPT** and appends a fixed 1 MiB `ef02` partition (`BIOSBOOT_PART_SIZE=1M`, deliberately not a prompt) immediately before the system partition: the ESP stays p1, carved regions keep `2..1+NREG`, and only the remainder row and any LUKS container shift by `BIOSBOOT_OFFSET` (`BIOSBOOT_PN = NREG+2` with outer regions and no ENCRYPT, else `2`), so `PART_SYS=$((2 + BIOSBOOT_OFFSET))` stays true for every combination; the `[DISK-BUDGET]` pre-write gate now sums that 1 MiB (UEFI adds 0) and its message names the extra row. **GRUB** runs `grub-install --target=i386-pc --recheck "$DISK"` behind the same BIOSBOOT_PN sanity check, with `--target=x86_64-efi` untouched in the UEFI branch. **Limine** runs `limine bios-install "$DISK" "$BIOSBOOT_PN"` (refusing loudly if the ef02 partition is missing or not the expected number) plus `limine-bios.sys` on the ESP, and the single config generator now re-emits its already-written `limine.conf` to `/boot/efi/limine.conf` right after the atomic `mv` — a Limine BIOS stage 2 searches only root/`/boot`/`/limine`, while `EFI/BOOT` is a UEFI-only location, so one generator keeps both copies in step for every trigger (install, kernel hooks, snapper). **UEFI-only by explicit gate:** the NVRAM registration prompts, the Stage-2 `efibootmgr --create` and the `/Reboot Into Firmware` menu entry (legacy BIOS has no NVRAM/runtime services), while the removable-path `BOOTX64.EFI` copy stays unconditional so a BIOS-installed disk still boots if the firmware is switched to UEFI; `efivarfs` mounting is gated too (an unguarded mount under `set -eE` would abort a BIOS run). `limine-env`/`install-config` carry the mode so hooks regenerate the right layout later. Gates: `bash -n`, `check-heredocs.sh` (77), `check-defaults.sh`, `check-pkg-preflight.sh` (168), `check-nvram-prompt.sh` (23/23) ALL CLEAN, plus the new **`Debug/check-bios-boot.sh` — 36 static checks** that every firmware-dependent construct sits behind `$BOOT_MODE` and the BIOS wiring is complete end to end | Version-3.0.01 below |
 | **Version-3.1.01** | `[REPO-PRIMARY-PERSIST]`/`[PKG-SNAP-NODRY]`/`[PKG-SNAP-ROOTGATE]`/`[PKG-SNAP-ERRSURFACE]` — four fixes from auditing the first Version-3.1.00 hardware install (a fresh KDE laptop, `<host>`) against this script. **(1)** The operator-chosen primary mirror (`REPO_PRIMARY`, e.g. `mirrors.summithq.com`) was recorded in `install-config` and drove the install-time chroot syncs, but was **never written to the target's `/etc/xbps.d`** — the only `/etc/xbps.d` write in the script is the COSMIC repo — so the booted system silently fell back to the vendor defaults in `/usr/share/xbps.d` (`repo-default.voidlinux.org`) and the recorded choice had no effect on the running box. Stage 2 now writes `/etc/xbps.d/00-repository-main.conf` with `repository=${REPO_PRIMARY}` whenever the variable is non-empty (idempotent rewrite of its own file), with a comment noting the xbps precedence subtlety: `/usr/share/xbps.d` is read **before** `/etc/xbps.d` and repositories accumulate, so the chosen mirror becomes a working additional source (syncs, version checks, installs) while the vendor entry stays primary for virtual-package resolution — honest and update-safe, rather than editing a vendor-owned file a `base-files` update would revert. **(2)** `void-xbps-snap`'s `_should_snap` matched any `-S*` short-flag cluster, so a **dry run** — `xbps-install -Sn`, exactly the command used to verify the install — attempted a snapshot and, non-root, printed a spurious `WARNING: could not take pre snapshot`; the wrapper's own doc comment already promised dry-runs were skipped. `_should_snap` now rejects `-n`/`--dry-run` alone or clustered (`-Sn`, `-nSu`, …) before the install/update matcher. **(3)** The wrapper never checked its own EUID: snapper can only create snapshots as root, so any non-root invocation that *did* match (a user running `xbps-install -S …` through the shadowed `/usr/bin/xbps-install`) failed and warned like a system fault — proven benign on the audited box (the pkexec root path created and removed a test pre-snapshot cleanly). `_main` now passes non-root invocations straight through to the real binary with a one-line note (`not root: skipping snapshots (run via sudo for the pre/post pair)`). **(4)** The pre-snapshot snapper call discarded stderr (`2>/dev/null`), which is precisely why the non-root failure above was undiagnosable; stderr is now captured to a `mktemp` file (keeping `--print-number` clean on stdout) and printed under the WARNING, prefixed `snapper: `, when the pre snapshot fails. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh` ALL CLEAN | Version-3.1.00 below |
 | **Version-3.1.02** | `[INSTALL-CONFIG-GRUB]`/`[DISK-PICK-FLOOR]` — two fixes for two long-standing TODO.md items found during the Version-3.1.00 era. **(1)** The `/etc/void-installer/install-config` write (and the `[DOCS-LOG]` `~/Documents/Void_Install.txt` record immediately after it) sat INSIDE the Limine `else` branch of `if [ "$BOOTLOADER" = "grub" ]` — that branch does not close until the `fi` marked `# End of GRUB/Limine branch`, so a GRUB install wrote NEITHER record file while the final summary advertised both as archived on the machine; every GRUB matrix case passed with the verify probe's `---CFG---` section **empty**, which is how it stayed hidden. Both blocks — **together with the `mkdir -p /etc/void-installer` that creates their directory (both mkdirs in the script were Limine-branch-local; the first matrix run against the hoist drove `grub-install` + `grub-mkconfig` to success and then died at the write with `No such file or directory`, driver rc=5) and the three branch-local row derivations the body bakes (`_ssh_key_present`/`_ssh_key_rows`, `FLATPAK_PULLED_BY`, `VIRT_BR0` — each consumed only by this heredoc, so GRUB gets correct rows instead of `SSH_KEY_PRESENT=""`, missing flatpak-pull detection and `VIRT_BR0=n/a`)** — are hoisted into the shared region right after that `fi`, so both bootloaders write the records. Limine output stays byte-identical: every input the derivations read is a pre-branch `chroot_env` export, nothing in the branch tail between the old and new positions reassigns any input or output, and no packages install there (so the `xbps-query -l` inventory is over an identical package set). **(2)** The disk picker's candidate list offered `/dev/fd0` — `type=disk`, never mounted, so it passed both filters and listed FIRST (4096 B) ahead of the real disk on any machine with a floppy controller, which is exactly the legacy-BIOS class v3.1.00 targets (and QEMU's PC machine always has one). It was never dangerous — the destructive banner, the typed `ERASE!` confirmation and the `[DISK-BUDGET]` 4096-byte refusal all held, nothing was written — but an entry that can only fail is noise. The candidate loop now skips `fd*` names outright and anything below a 1 GiB byte floor (deliberately far below any real Void target, so removable USB media — which MUST stay selectable — is unaffected), fails OPEN on an unreadable size (skip only on positive evidence, mirroring `[DISK-BUDGET]`), and prints every skip so a vanished entry is always explained. No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.1.01 below |
 | **Version-3.2.00** | `[DISCOVER-STORE]`/`[DISCOVER-STORE-TRUST]` — the second project store joins the first: the installer now installs **KDE Discover from this project's own signed repository** instead of from the official Void mirrors, and the store's build of the SAME upstream package carries the **native xbps backend plugin** (`xbps-backend.so`, loaded through PackageKit), so Discover can see and install the system's own packages instead of showing an empty Sources list. The store is served from its own Pages root (`https://bluesloth.github.io/void-linux-discover/`, audit: `https://github.com/bluesloth/void-linux-discover`) and carries `discover-6.7.5_7` against the official `discover-6.7.5_1` — the higher revision is what makes xbps take the store's build and upgrade over the official one. A new `install_discover()` helper mirrors `install_cosmic()`: the index is probed for reachability FIRST, `/etc/xbps.d/60-discover.conf` is written in the same one-line `repository=` form as `59-cosmic.conf`, the index is synced with the key-import question answered by the installer on a pipe of its own (never on the chroot's stdin — Stage 2 feeds the script through `chroot /mnt /bin/bash << 'CHROOT_EOF'`, so stdin IS the heredoc — and never on `/dev/tty`), and the package goes in through a dedicated `xbps-install -y`. It does **not** go through `install_pkgs()`, which pushes the chosen official mirror to the top of the repository list and so cannot carry the trust-anchor verification around the sync. **ONE KEY PER SERVED REPO**: the store has its own signing key, PINNED in the installer as DER SHA-256 `4e40218a79784f0e4cc559b835c8e9f7585000d5b678177827a853a0937f17cf` and deliberately NOT read from the served index (a fingerprint fetched from the index only proves the index is self-consistent); after the sync the keyring is machine-checked — the pinned key must be present and no key outside the allowlist may be. **The keyring allowlist had to grow, and that is a COSMIC-path bug fix, not a relaxation**: `cosmic_key_fingerprint()` became `xbps_key_fingerprint()` (it reads ANY xbps key plist — the name was a lie the moment a second store needed the same anchor) and the scan moved into a shared `xbps_keyring_scan()` helper whose allowlist is *{the two stock Void keys, our own store keys}*. `cosmic-store` is DE-independent, so a KDE box that took the Discover store and then opted into cosmic-store legitimately holds BOTH store keys — the old COSMIC-only allowlist would have aborted that install with "UNEXPECTED key". The allowlist still refuses every key that is not ours; the relaxation is "ours", never "anything". The COSMIC path's wording, fail-closed behaviour and FATAL are unchanged. **A `set -e` trap in the scan, found by a synthetic-keyring harness and fixed**: the "fail CLOSED on an unparseable keyring entry" branch was UNREACHABLE — `xbps_key_fingerprint()` returns 1 for a key it cannot parse and a plain assignment takes the exit status of its command substitution, so under the chroot block's `set -eEo pipefail` the first malformed entry ABORTED the whole install before the branch that was supposed to report it (the same latent bug sat in the COSMIC path, whose comment claimed the scan continues past an unparseable key); the call is now `_fp="$(xbps_key_fingerprint "$_k" || true)"`. **Failure semantics differ from `install_cosmic()` on purpose**: an AVAILABILITY failure (the store unreachable) warns and falls back to the stock upstream build instead of aborting — at that point nothing has been written to `/etc/xbps.d` and no key has been imported, so the fallback is clean — while an INTEGRITY failure (the sync refused the key, or the pinned fingerprint is not the one in the keyring) still aborts, because that is a disagreement between this installer and the store it is about to trust and must not be papered over with a stock package. `discover` was added to `PKG_PREFLIGHT` (the fallback installs it through `install_pkgs()`, so the drift guard requires the name to be covered). Gates: `bash -n` clean; `check-heredocs.sh` ALL CLEAN (77); `check-defaults.sh` ALL CONSISTENT; `check-pkg-preflight.sh` ALL COVERED (169 preflight packages / 173 literals); `check-bios-boot.sh` 42/42. Plus a synthetic-keyring harness over the REAL extracted code: the served index's public key rebuilt into a keyring plist reproduces the pinned fingerprint exactly, and nine classification cases (pinned / stock-void / our-store / UNEXPECTED, both stores present at once, pinned absent, foreign key present) plus the unreadable-entry case all pass | Version-3.1.02 below |
@@ -153,15 +708,6 @@ Marked **`[reconstructed]`** where no surviving artifact anchors the release
 | **Version-3.2.03** | `[ELOGIND-NO-DBUS-ACTIVATION]` + `[GDM-WAIT-LOGIND]` — two boot-race fixes found on the first fresh **GNOME** install made by Version-3.2.02, which booted to a **black screen with no login prompt on two of three boots**. **(1) The root cause, and it is not GNOME-specific.** elogind ships a D-Bus activation file, `/usr/share/dbus-1/system-services/org.freedesktop.login1.service`, whose `Exec` starts the daemon **directly** — bypassing `/usr/libexec/elogind/elogind.wrapper`, which is what mounts `/sys/fs/cgroup/elogind`, `/run/systemd` and `/run/user` — while runsv supervises a **second** instance. Two starters therefore race, and whichever wins the loser is wrong: an activated win leaves the daemon reparented to PID 1 (unsupervised) with runsv reporting `elogind is already running as PID <n>`, and the wrapper mounts belong to whichever instance got there first. The fix renames the activation file to `.service.disabled` so **runsv is the only starter**, applied at install time *and* re-applied from `/etc/rc.local` every boot (`/root/tools/re-disable-elogind-dbus-activation.sh`, since an elogind upgrade restores the file). Gated on `SESSION_STACK=elogind`, **never on a desktop**: the same double-start had already been seen on a COSMIC install as a single `already running as PID 1873` line at boot+37 s and dismissed as benign, because that greeter recovers. GDM is simply the only display manager here that **cannot retry**, which is why the defect only became visible on a GNOME box — so KDE, COSMIC and every other desktop get the fix too, and it removes the `already running` kernel-log noise there as a side effect. **(2) The defence-in-depth half, GDM-only by design.** gdm links libelogind and needs a **registered seat**: the greeter session *is* a logind session, and gdm (not in the `video`/`render` groups) reaches `/dev/dri/card0` only through the logind ACL. Started before elogind registers seat0 its first attempt fails and gdm does not retry. `/etc/sv/gdm/run` now waits (bounded, 30 s) for `/run/systemd/seats/seat0` and then starts gdm **anyway** rather than leaving no display manager at all. Scoped out deliberately: SDDM does its own seat/DRM handling, and the cosmic-greeter run script gates on `sv check elogind` (service state) and is re-run by runsv. Both halves follow the `[ELOGIND-RUN-SELFHEAL]` pattern (`/root/tools/<name>.fixed` + an rc.local re-apply) **because both edit package-owned files** — so `gdm` now adds a second by-design `xbps-pkgdb -a` `files check FAILED` row, alongside elogind's; the stock run script is kept at `/etc/sv/gdm/run.orig`. Verified live on the box: elogind's PPID is `runsv elogind`, `/run/systemd/seats/seat0` exists, the wrapper mounts are present, and the session registers as `gdm-password; type wayland; Seat: seat0`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.02 below |
 | **Version-3.2.04** | `[PKG-SNAP-LONGOPT]` — the update-snapshot wrapper only understood **short** xbps flags, so a system update started from a **GUI** could run with no rollback pair. Found on the fresh Version-3.2.03 GNOME install: snapper held five `xbps system update` pre/post pairs, every one from a CLI run, and **none** for the GNOME Software "Update" that had just been exercised in the GUI — the operation had plainly happened (and the box was up to date afterwards), yet nothing was rollback-able. Cause: `/usr/local/sbin/void-xbps-snap`'s `_should_snap` matched only `-S` / `-Su*` / `-u` / `-U`, while the GNOME Software xbps backend spawns `xbps-install --sync --update --yes` — long options, so each argument hit the `--*) continue` branch and the matcher answered "do not snapshot"; the wrapper then took its `exec "$REAL_XBPS" "$@"` fast path. KDE Discover (`xbps-install -Syu`) and cosmic-store (`xbps-install -Syu -y`) escaped only because they spell the operation with short flags, so this was a **spelling** bug in the wrapper, not a defect in any one store. `_should_snap` now also accepts `--sync`, `--update` and `--upgrade`. Deliberately **not** a policy change: a plain package install (`--yes -- pkg`, no `-S`) still takes no snapshot, exactly like `xbps-install -y pkg` on the CLI (whether installs *should* be snapshotted remains an open question, separate from this fix), and the `-n`/`--dry-run` gate is still evaluated **first**, so a long-option dry run cannot snapshot. Verified by running the shipped matcher over the three GUI argv vectors plus the CLI equivalents, then driving the real wrapper as root with the store's exact update argv — pre-fix: no pair; post-fix: a normal pre/post pair. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.03 below |
 | **Version-3.2.05** | `[COSMIC-STORE-REPO-ORDER]` + `[COSMIC-CONF-STALE-URL]` — Version-3.2.01's lesson applied to the COSMIC path, plus a stale-config-file fix found while auditing it. Both are **latent** rather than live on today's repositories, which is why neither has shown up in a real install. **(1)** `install_cosmic()` ran a plain `xbps-install -y "$@"`, leaving name resolution to config order — `xbps-install <name>` resolves against the **first repository in the pool that carries it**, not the highest version across the pool, and it records that repo as the package's origin, which `xbps-install -u` then refuses to cross. No official Void template ships a `cosmic-*` package, so nothing shadows the store today; the day one exists (or a stale origin is recorded), the store build silently loses and the box stops receiving store updates — exactly what happened to Discover in Version-3.2.00. The final transaction now prepends the store (`-y -R "$_cosmic_repo"`; xbps appends `-R` to the **top** of the pool, so official repos still satisfy ordinary dependencies such as `polkit` and `flatpak`) and then asserts the recorded origin of every package it installed, FATALing on a non-store one. **(2)** The "is our repo already configured?" guard matched the bare host `bluesloth.github.io`, but this project's repo was served from `bluesloth.github.io/void-cosmic-repo/` until 2026-10-11 before moving to `bluesloth.github.io/void-linux-cosmic/`. A box carrying a stale `59-cosmic.conf` from that era matched the loose pattern, so the file was never rewritten and the sync then talked to a repository that no longer exists. The guard now matches the full current path. The store's own `cosmic-store` polkit fix (`cosmic-store-1.11.0_10`, published as `epoch-1.11.0-r6`) is independent of this release and rides the store, not the installer. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.04 below |
-| **Version-3.2.18** | `[SECTION-PROGRESS]` + `[EARLY-FAST-DEFAULTS]` (items 2+3): every prompt now shows `[SEC x/y]` section progress alongside `[step/total]` global progress; the "Apply all defaults?" gate moved from after Desktop & DM to immediately after Disk Selection, so Account & Hostname and Desktop & DM are skipped when accepting defaults. `DEFAULT_ACCOUNT_MODEL` added to `[PROMPT-DEFAULTS]`. `bash -n`, `check-heredocs.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN (`check-defaults.sh`'s 5 UNWIRED notes — 4 pre-existing + DEFAULT_ACCOUNT_MODEL which follows the same `${VAR:-default}` pattern as the others — are unrelated to this change) | Version-3.2.17 below |
-| **Version-3.2.17** | `[SECTION-REORDER]` — section reorder (item 3.5): Disk Selection moved to immediately after boot mode detection; Data Regions moved to immediately after Desktop & Apps (before Web Browsers), completing item 2.3's Data-Regions-after-Desktop goal. No prompt/default/package surface changed. `bash -n`, `check-heredocs.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN (`check-defaults.sh`'s 4 pre-existing UNWIRED notes are unrelated to this change) | Version-3.2.16 below |
-| **Version-3.2.16** | `[PROMPT-POLARITY]` — installer prompt polarity audit (item 3.1): every `[y/N]` vs `[Y/n]` prompt checked against its `DEFAULT_*` value; all consistent — no mismatches found. Added missing `DEFAULT_SWAPFILE_SIZE` declaration to the `[PROMPT-DEFAULTS]` block (was used at line 3066 but never declared, flagged by `check-defaults.sh` as UNDECLARED-REF). No prompt/default/package surface changed otherwise. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.15 below |
-| **Version-3.2.15** | `[SUBVOL-FAST-PATH-MSG]` — the two `_subvol_master()` gates (isolate-installed / precreate-not-installed) now echo whether the fast path was taken (all yes/all no) or per-app prompts will follow, so a bare Enter or y/n answer visibly states the per-app walk is skipped. No prompt/default/package surface changed; the subvolume resolution loop and REGION_* handling are untouched. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN (check-defaults.sh's pre-existing UNDECLARED-REF note is unrelated) | Version-3.2.14 below |
-| **Version-3.2.14** | `[MULTI-FS-MOVE]` — the Data Regions filesystem-carving block (`[MULTI-FS]`, Beta-v2.9.38) relocated from right after the encryption section (before Desktop/DM) to after the Desktop & Apps section (before Web Browsers & Email Clients), so data-region carving is chosen after the desktop/store/app decisions rather than before them. The block keeps its `if [ "$RESUME" != "1" ]` gate; all REGION_* prompts, derivation, and exports unchanged. No prompt/default/package surface changed; REGION_* variables have no earlier-evaluation dependency (verified: nothing between the old and new positions reads them). `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN (check-defaults.sh's two pre-existing UNDECLARED-REF notes are unrelated) | Version-3.2.13 below |
-| **Version-3.2.13** | `[STORE-FLATTEN]` — installer UX improvement: Flatpak, Homebrew, and store/package-manager prompts consolidated into a single combined choice (1-9 menu). Flatpak defaults to Yes (bare Enter = Flatpak only). Non-store desktops (cinnamon/xfce/mate/lxqt) see the full 9-option menu including store choice; GNOME/Cosmic/KDE see Flatpak/Homebrew choices only (store auto-installed). All six `INSTALL_*` variables mapped from the single selection. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.12 below |
-| **Version-3.2.12** | `[STORE-FLATPAK-CAP]` — store selection menu annotations updated: GNOME Software and KDE Discover now show "(flatpak-capable)" matching cosmic-store's existing annotation. All three xbps-backed stores can manage flatpaks when flatpak is installed. `INSTALL_PROMPTS.md` updated to match. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.11 below |
-| **Version-3.2.11** | `[PROMPT-BANNERS]`, `[STORE-REORG]` — installer UX and flow improvements: (1) section banners added via `sec_banner()` at major prompt groups (Account, Locale, Storage, Encryption, Desktop, Stores, Apps, Web Browsers, Containers, SSH, Subvolumes, Data Regions, Disk Selection, Final Review); (2) store choice reordered: desktop environment chosen first, then store selection, with `cosmic-store` moved after Web Browsers and `virtualbox` moved after Virtualization; (3) `INSTALL_PROMPTS.md` updated with new §6a fast-path doc and §10 ERASE consolidation note. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.10 below |
-| **Version-3.2.09** | `[FAST-DEFAULTS]` — desktop environment is now prompted before all other install-time choices (right after account/hostname), followed by an "apply all defaults?" gate. Answering `Y` skips every remaining prompt and jumps straight to disk selection; all variables take their `DEFAULT_*` values and the store is auto-installed for GNOME/Cosmic/KDE (none for other desktops). Answering `n` walks every prompt individually as before. `INSTALL_PROMPTS.md` gained a new §6a documenting the fast path. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.08 below |
 | **Version-3.2.08** | `[PROMPT-DOCS]` — `INSTALL_PROMPTS.md` synchronized to Version-3.2.07/3.2.08 after drifting at Version-3.1.00. Reworked §7 store/package-manager choice: gated by Desktop Environment (GNOME→gnome-software, Cosmic→cosmic-store, KDE→discover installed automatically with no prompt; cinnamon/xfce/mate/lxqt offered a consolidated 1–5 choice with 1=None as the default; headless gets none). Added prompts introduced since 3.1.00 that were missing from the guide: Limine NVRAM registration + UEFI boot entry label (Beta-v2.9.97 / 3.0.01), ESP size custom (Beta-v2.9.35), kernel mainline/LTS toggles (Beta-v2.9.16), local package cache (Beta-v2.9.59), Homebrew (Beta-v2.9.36), game launchers umbrella (Beta-v2.9.37), SSH server + keys (Beta-v2.9.23 / 88), snapshot audio toggle, subvolume precreate gate. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.07 below |
 | **Version-3.2.07** | `[STORE-DE-MAP]` — store mapping by desktop: GNOME, Cosmic and KDE now get their related store automatically with no prompt; every other graphical desktop (cinnamon/xfce/mate/lxqt) is offered a consolidated store choice; headless gets none. Merged Heroic+Bottles into a single Flatpak launcher prompt. Store keys pinned per-repo (DER SHA-256) and verified at install time. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.06 below |
 | **Version-3.2.06** | `[SDDM-WAIT-LOGIND]` — the first fresh **KDE** install made by Version-3.2.05 never reached a graphical desktop, and the cause was this project's own Version-3.2.03 fix. `[ELOGIND-NO-DBUS-ACTIVATION]` renames `/usr/share/dbus-1/system-services/org.freedesktop.login1.service` to `.service.disabled` so runsv is the only elogind starter — correct, and it stays. But `sddm-0.21.0_2`'s **package-owned** `/etc/sv/sddm/run` runs `dbus-send … StartServiceByName string:org.freedesktop.login1` under `set -e`, and D-Bus needs the **activation entry** for that call even when the name is already owned (`GetNameOwner`/`NameHasOwner` both succeed while `StartServiceByName` fails with `ServiceUnknown`; do not gate on ownership alone). The call returned rc=1, `set -e` killed the script before `exec sddm`, and runsv cycled the service forever: text login worked, no greeter, no Xorg, `/tmp/.X11-unix` empty. The seat/DRM reasoning that scoped Version-3.2.03's `[GDM-WAIT-LOGIND]` away from SDDM was right about the requirement and wrong about the conclusion — sddm *does* need a registered seat for the logind ACL — so the fix is the same shape: `/root/tools/sddm.run.fixed` waits (bounded, 30 s) for `/run/systemd/seats/seat0`, then `exec sddm` anyway with a warning rather than leaving no display manager. Applied at install time (stock kept at `/etc/sv/sddm/run.orig`) and re-applied every boot by `/root/tools/re-fix-sddm-run.sh` from `/etc/rc.local`, because the package owns the file. Adds one by-design `sddm: files check FAILED` row to `xbps-pkgdb -a`. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.05 below |
@@ -211,7 +757,7 @@ resolve `eval` (a comment row previously hit bad-substitution and crashed under
 the ERR trap). A spurious duplicate `INSTALL_BREW` SUBVOL_ROWS row was also
 removed.
 
-**Validation:** `bash -n` and `checks/check-heredocs.sh` ALL CLEAN.
+**Validation:** `bash -n` and `Debug/check-heredocs.sh` ALL CLEAN.
 
 ---
 
@@ -229,7 +775,7 @@ literal plus the base-bootstrap literals; the `void-repo-*` package
 install + `xbps-install -Sy` repos refresh + `base-system` sanity probe are
 best-effort and **degrade to WARN+skip (never a false FATAL)** so a repo or
 network hiccup can't kill a good install. The COSMIC third-party repo is
-excluded from the probe. The drift-guard `checks/check-pkg-preflight.sh` is
+excluded from the probe. The drift-guard `Debug/check-pkg-preflight.sh` is
 committed so future package additions can't silently outgrow the probe list.
 
 **2. `[GAME-FLATPAK-GATE]` — Heroic/Bottles ship only via the Flatpak queue.**
@@ -240,8 +786,8 @@ first-boot Flatpak queue (`com.heroicgameslauncher.hgl` /
 when Flatpak was declined. The `@game` subvolume mounts ONLY
 `.local/share/Steam` + `.local/share/lutris`.
 
-**Validation:** `bash -n`, `checks/check-pkg-preflight.sh` (134-pkg collection,
-ALL COVERED), `checks/check-defaults.sh`, and `checks/check-heredocs.sh` all
+**Validation:** `bash -n`, `Debug/check-pkg-preflight.sh` (134-pkg collection,
+ALL COVERED), `Debug/check-defaults.sh`, and `Debug/check-heredocs.sh` all
 green on the committed tree.
 
 ---
@@ -421,9 +967,9 @@ the carve agree; without it any carved region FATALed ("size is unset") on a
 real install.
 
 **Validation:** gates on the committed tree `6e3e0c4` — `bash -n` OK;
-`checks/check-defaults.sh` 71 ALL CONSISTENT (DEFAULT_XORG + DEFAULT_AUDIO
-added); `checks/check-pkg-preflight.sh` 135 ALL COVERED (143 install_pkgs +
-bootstrap literals); `checks/check-heredocs.sh` 65 ALL CLEAN.
+`Debug/check-defaults.sh` 71 ALL CONSISTENT (DEFAULT_XORG + DEFAULT_AUDIO
+added); `Debug/check-pkg-preflight.sh` 135 ALL COVERED (143 install_pkgs +
+bootstrap literals); `Debug/check-heredocs.sh` 65 ALL CLEAN.
 `_size_to_bytes`/`_disk_budget_check` unit-tested standalone (fits / over /
 ESP-only-1G / exactly-fit / unreadable).
 
@@ -491,9 +1037,9 @@ legacy variable header it never populates on the 2.9.48-era path
 (`SYSPREFIX_BTRFS` dead-data equivalent) — harmless, no behavior change.
 
 **Validation:** gates on the fixed tree — `bash -n` OK;
-`checks/check-defaults.sh` ALL CONSISTENT (DEFAULT_WINE rename ok);
-`checks/check-pkg-preflight.sh` 135 ALL COVERED;
-`checks/check-heredocs.sh` 65 ALL CLEAN. The flathub `.flatpakrepo` fix is
+`Debug/check-defaults.sh` ALL CONSISTENT (DEFAULT_WINE rename ok);
+`Debug/check-pkg-preflight.sh` 135 ALL COVERED;
+`Debug/check-heredocs.sh` 65 ALL CLEAN. The flathub `.flatpakrepo` fix is
 real-hardware proven (all three queued apps installed, stamp-on-success).
 
 ---
@@ -521,8 +1067,8 @@ directory and returns it (the help text advertises it). Bare Enter still
 declines; number/path navigation is unchanged. The wallpaper (`img`) and
 SSH-import (`file`) modes return a FILE and were never affected.
 
-**Validation:** `bash -n` OK; `checks/check-defaults.sh` ALL CONSISTENT;
-`checks/check-pkg-preflight.sh` ALL COVERED; `checks/check-heredocs.sh` ALL
+**Validation:** `bash -n` OK; `Debug/check-defaults.sh` ALL CONSISTENT;
+`Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
 CLEAN (no heredoc changed).
 
 ---
@@ -571,8 +1117,8 @@ sees exactly the picked value: the wallpaper `cp` gets a real path, and the SSH
 export `[ -d ]` check sees a real directory. The already-`>&2` error lines
 ("Declined.", "File not found", etc.) are unchanged.
 
-**Validation:** `bash -n` OK; `checks/check-defaults.sh` ALL CONSISTENT;
-`checks/check-pkg-preflight.sh` ALL COVERED; `checks/check-heredocs.sh` ALL
+**Validation:** `bash -n` OK; `Debug/check-defaults.sh` ALL CONSISTENT;
+`Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
 CLEAN (no heredoc changed). Unit repro of the capture before/after:
 `WP_SRC="$(browse_pick img …)"` returned the banner before the fix and the bare
 path after.
@@ -610,8 +1156,8 @@ run flows from the confirmation boundary straight into the DRY-RUN plan
 printout and exits without touching the disk. A real (non-dry) run still runs
 the sync AND the gate exactly as before.
 
-**Validation:** `bash -n` OK; `checks/check-defaults.sh` ALL CONSISTENT;
-`checks/check-pkg-preflight.sh` ALL COVERED; `checks/check-heredocs.sh` ALL
+**Validation:** `bash -n` OK; `Debug/check-defaults.sh` ALL CONSISTENT;
+`Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
 CLEAN (no heredoc changed). Full `--dry-run` re-run on the target medium now
 reaches the plan printout and exits 0.
 
@@ -633,8 +1179,8 @@ were always correct (the intro screen still showed `MATE / LightDM` and the
 xorg/session gating is driven by `$HAS_GRAPHICAL`, not this string); only the
 human-readable label in the dry-run printout was wrong.
 
-**Validation:** `bash -n` OK; `checks/check-defaults.sh` ALL CONSISTENT;
-`checks/check-pkg-preflight.sh` ALL COVERED; `checks/check-heredocs.sh` ALL
+**Validation:** `bash -n` OK; `Debug/check-defaults.sh` ALL CONSISTENT;
+`Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
 CLEAN (no heredoc changed). Dry-run plan on the target medium now reads
 `(graphical)` for the MATE/LightDM setup.
 
@@ -679,8 +1225,8 @@ stage exactly like the failure and post-chroot cleanups do, so a plan run
 never leaves key material behind either. The interactive-passphrase and
 export flows are unchanged.
 
-**Validation:** `bash -n` OK; `checks/check-defaults.sh` ALL CONSISTENT;
-`checks/check-pkg-preflight.sh` ALL COVERED; `checks/check-heredocs.sh` ALL
+**Validation:** `bash -n` OK; `Debug/check-defaults.sh` ALL CONSISTENT;
+`Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
 CLEAN (no heredoc changed). Re-run of the full `--dry-run` shows no
 "Overwrite (y/n)?" prompt, the export browse runs, and the live key stage is
 shredded at plan-run exit.
@@ -732,8 +1278,8 @@ before `sgdisk -Z`/partscan/format ever run, so the [PREREQ-DRY-RUN] and
 [BROWSE-CAP-FIX] gates can't protect the ENCRYPT+regions write path. Only the
 first REAL install exercises it — hence this session's ladder of 2.9.51→2.9.55.
 
-**Validation:** `bash -n` OK; `checks/check-defaults.sh` ALL CONSISTENT;
-`checks/check-pkg-preflight.sh` ALL COVERED; `checks/check-heredocs.sh` ALL
+**Validation:** `bash -n` OK; `Debug/check-defaults.sh` ALL CONSISTENT;
+`Debug/check-pkg-preflight.sh` ALL COVERED; `Debug/check-heredocs.sh` ALL
 CLEAN (no heredoc changed). `_region_inner_dev` unit-checked against
 `CRYPT_DEV=/dev/mapper/void-root` (→ `void-root1`/`void-root2`) and a
 hypothetical digit-suffixed mapper (→ `p1/p2`). A full re-run of the real
@@ -1078,7 +1624,7 @@ threading the label through that same list; both names are now on it
 
 ### Validation
 
-`checks/check-nvram-prompt.sh` — 23 cases that extract the prompt block
+`Debug/check-nvram-prompt.sh` — 23 cases that extract the prompt block
 **verbatim** from the installer (start/end resolved by marker grep, so the
 test cannot drift when line numbers move) and assert: every toggle token
 (`y`/`yes`/`true`/`n`/`no`/`false`/bare Enter/garbage-then-retry), the label
@@ -1647,7 +2193,7 @@ disagreement about trust rather than an outage.
 gets cosmic-store, and every other desktop is untouched. `gnome-software` was
 added to `PKG_PREFLIGHT` (169 → 170 package names) because the fallback path
 installs it through `install_pkgs()`, which the drift guard
-(`checks/check-pkg-preflight.sh`) checks.
+(`Debug/check-pkg-preflight.sh`) checks.
 
 ### 4 — Verification
 
@@ -1665,208 +2211,6 @@ installs it through `install_pkgs()`, which the drift guard
   origin assertion and the pin must all be present in the stripped bytes.
 * The end-to-end proof on a real GNOME install is the outstanding item:
   `docs/CHECKLIST-FRESH-INSTALL-GNOME-XBPS-BACKEND.md`.
-
-
-## Version-3.2.18 — `[SECTION-PROGRESS]` + `[EARLY-FAST-DEFAULTS]` (items 2+3)
-
-`SCRIPT_VERSION` bumped to Version-3.2.17 → Version-3.2.18.
-
-**Section progress indicator (item 2).** Every interactive prompt now shows
-both section-level and global progress: `[SEC 3/8] [12/98]`. Section banners
-display `[SEC x/y]` (excluding STAGE 1, which is not a config section), and
-`ask()`/`ask_read()`/`ask_secret()` prefix every prompt with the same
-`[SEC x/y]` tag. `SECTION_TOTAL=8` counts the eight config sections:
-Disk Selection, Account & Hostname, Desktop & DM, Data Regions, Locale &
-Timezone, Web Browsers & Email Clients, Containers & Virtualization,
-Final Review.
-
-**Early "apply all defaults" gate (item 3).** The "Apply all defaults?"
-prompt moved from after Desktop & DM to immediately after Disk Selection —
-before Account & Hostname and Desktop & DM are ever shown. When the operator
-answers Y, those two sections (plus Data Regions, Locale & Timezone, and
-every subsequent section gated on `ACCEPT_DEFAULTS`) are skipped entirely,
-and all variables take their `DEFAULT_*` values. `DEFAULT_ACCOUNT_MODEL`
-added to `[PROMPT-DEFAULTS]`. The accept block now sets `ACCOUNT_MODEL`
-and `DESKTOP_ENV` from their defaults so the fast path is complete.
-
-No package surface changed. `bash -n`, `check-heredocs.sh`,
-`check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN
-(`check-defaults.sh`'s 5 UNWIRED notes — 4 pre-existing +
-`DEFAULT_ACCOUNT_MODEL` which follows the same `${VAR:-default}` pattern
-as the others — are unrelated to this change) | Version-3.2.17 below |
-
-## Version-3.2.17 — `[SECTION-REORDER]` (section reorder: item 3.5)
-
-`SCRIPT_VERSION` bumped to Version-3.2.16 → Version-3.2.17.
-
-**Section reorder (item 3.5).** Two blocks relocated to improve prompt flow:
-
-- **Disk Selection** (`[DISK-PICK]`, Beta-v2.9.48) moved from between Desktop & DM
-  and Locale & Timezone to immediately after boot mode detection (after the
-  `if [ "$BOOT_MODE" = "bios" ]; then ... fi` block). The disk is now picked
-  before Account & Hostname and Desktop & DM, so the partition target is known
-  before any desktop- or region-dependent decisions.
-- **Data Regions** (`[MULTI-FS]`, Beta-v2.9.38) moved from after Locale &
-  Timezone to immediately after Desktop & Apps (before Web Browsers & Email
-  Clients), completing item 2.3's Data-Regions-after-Desktop goal. Data-region
-  carving is now chosen after the desktop/store/app decisions rather than
-  before them.
-
-No prompt/default/package surface changed. All REGION_* and DISK_* variables
-have no earlier-evaluation dependency (verified: nothing between the old and new
-positions reads them before they're set). The `if [ "$RESUME" != "1" ]` gates
-and all exports are unchanged.
-
-`bash -n`, `check-heredocs.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh`
-ALL CLEAN. `check-defaults.sh` has 4 pre-existing UNWIRED notes
-(DEFAULT_BREW, DEFAULT_FLATPAK, DEFAULT_SSH_SERVER, DEFAULT_SWAPFILE_SIZE) that
-are unrelated to this change — they exist in Version-3.2.16 as well | Version-3.2.16 below |
-
-## Version-3.2.16 — `[PROMPT-POLARITY]` (installer prompt polarity audit)
-
-`SCRIPT_VERSION` bumped to Version-3.2.15 → Version-3.2.16.
-
-**Prompt polarity audit (item 3.1).** Every `[y/N]` vs `[Y/n]` prompt in
-`Void_Linux_Installer.sh` was checked against its `DEFAULT_*` value to verify
-the label matches the actual default behavior:
-
-- `[y/N]` prompts (Enter = No): all default to `false`/`no` on bare Enter ✓
-- `[Y/n]` prompts (Enter = Yes): all default to `true`/`yes` on bare Enter ✓
-
-No mismatches were found — all 50+ y/n prompts have consistent polarity with
-their `DEFAULT_*` values. Context-dependent prompts (NVIDIA driver, WiFi
-firmware, resume, FQDN confirmation) use the correct polarity for each branch.
-
-One DEFAULT_* gap was closed: `DEFAULT_SWAPFILE_SIZE` was used at line 3066
-but never declared in the `[PROMPT-DEFAULTS]` block (flagged by
-`check-defaults.sh` as UNDECLARED-REF). Added the declaration with default `1`
-(4G swapfile).
-
-No prompt/default/package surface changed otherwise. `bash -n`,
-`check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`,
-`check-bios-boot.sh` ALL CLEAN | Version-3.2.15 below |
-
-## Version-3.2.15 — `[SUBVOL-FAST-PATH-MSG]` (subvolume fast-path message)
-
-`SCRIPT_VERSION` bumped to Version-3.2.14 → Version-3.2.15.
-
-**Subvolume fast-path gates now echo their decision.** The two
-`_subvol_master()` gates (isolate-installed / precreate-not-installed)
-now echo whether the fast path was taken (all yes / all no) or per-app
-prompts will follow, so a bare Enter or y/n answer visibly states the
-per-app walk is skipped.
-
-No prompt/default/package surface changed; the subvolume resolution loop
-and REGION_* handling are untouched. `bash -n`, `check-heredocs.sh`,
-`check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh`
-ALL CLEAN (check-defaults.sh's pre-existing UNDECLARED-REF note is
-unrelated) | Version-3.2.14 below |
-## Version-3.2.14 — `[MULTI-FS-MOVE]` (Data Regions block relocated)
-
-`SCRIPT_VERSION` bumped to Version-3.2.13 → Version-3.2.14.
-
-**Data Regions filesystem carving moved after Desktop & Apps.** The
-`[MULTI-FS]` block (Beta-v2.9.38) that asks each data region whether it
-stays a root-Btrfs subvolume or is carved to its own ext4 partition used to
-appear right after encryption, before the Desktop & DM menu. It now appears
-after the Desktop & Apps section, right before Web Browsers & Email Clients,
-so region carving is chosen after the desktop/store/app decisions rather than
-before them.
-
-The block keeps its `if [ "$RESUME" != "1" ]` gate; all REGION_* prompts,
-partition-size derivation, and exports are unchanged byte-for-byte. No prompt,
-default, or package surface changed. Verified that REGION_* variables have no
-earlier-evaluation dependency (nothing between the old and new positions reads
-them). `bash -n`, `check-heredocs.sh`, `check-defaults.sh`,
-`check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN (check-defaults.sh's
-two pre-existing UNDECLARED-REF notes are unrelated) | Version-3.2.13 below |
-## Version-3.2.13 — `[STORE-FLATTEN]`
-
-`SCRIPT_VERSION` bumped to Version-3.2.12 → Version-3.2.13.
-
-**Flatpak, Homebrew, and store/package-manager prompts consolidated into a single
-combined choice (1-9 menu).** Instead of three separate prompts (Flatpak yes/no,
-Homebrew yes/no, Store 1-5), the user now sees one menu:
-
-```
-App channels & store:
-  1) None — no store/package-manager installed (default)
-  2) Flatpak only — Flatpak + Flathub sandboxed GUI apps
-  3) Flatpak + OctoXBPS — Flatpak + graphical xbps package manager
-  4) Flatpak + GNOME Software — Flatpak + xbps-backed app store (flatpak-capable)
-  5) Flatpak + KDE Discover — Flatpak + xbps-backed app store (flatpak-capable)
-  6) Flatpak + cosmic-store — Flatpak + COSMIC app store (flatpak-enabled build)
-  7) OctoXBPS only — graphical xbps package manager (xbps packages only)
-  8) Homebrew only — Linuxbrew CLI/dev channel (~/.linuxbrew)
-  9) Flatpak + Homebrew — Flatpak + Linuxbrew CLI/dev channel
-```
-
-The selection maps to all six `INSTALL_*` variables:
-`INSTALL_FLATPAK`, `INSTALL_BREW`, `INSTALL_OCTOXBPS`,
-`INSTALL_GNOME_SOFTWARE`, `INSTALL_DISCOVER`, `INSTALL_COSMIC_STORE`.
-
-Flatpak defaults to Yes (bare Enter = Flatpak only), matching its previous
-default. GNOME/Cosmic/KDE desktops still get their store automatically
-regardless of this choice; only cinnamon/xfce/mate/lxqt desktops see the
-full 9-option menu including store selection.
-
-`INSTALL_PROMPTS.md` §7 updated with the new combined menu. `bash -n`,
-`check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`,
-`check-bios-boot.sh` ALL CLEAN | Version-3.2.12 below |
-
-
-## Version-3.2.12 — `[STORE-FLATPAK-CAP]`
-
-`SCRIPT_VERSION` bumped to Version-3.2.10 → Version-3.2.11.
-
-**1. Prompt progress banners** — major installer sections now use `sec_banner()` for consistent, visually distinct section headers (cyan boxed headers with title and optional subtitle). Sections with banners: Account & Hostname, Locale & Timezone, Storage & Bootloader, Desktop & Display Manager, App Channels & Stores, Web Browsers & Email Clients, Containers & Virtualization, Data Regions, Disk Selection, Final Review.
-
-**2. Store selection reordered** — desktop environment is now chosen before any store selection. Store choice options reordered: cosmic-store moved from between Web Browsers and Containers to after Web Browsers (right before Containers); virtualbox moved from between Web Browsers and Containers to after Virtualization. This groups related items together: game launchers together, web browsers + email clients together, containers + virtualization together.
-
-**3. `INSTALL_PROMPTS.md` updated** — §6a fast-path doc and §10 ERASE consolidation note added. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN | Version-3.2.10 below |
-
-`SCRIPT_VERSION` bumped to Version-3.2.09 → Version-3.2.10.
-
-Three installer UX improvements:
-
-**1. Prompt progress counter** — every interactive prompt now shows `[step/total]` (e.g. `[12/98]`) so the operator knows how far along they are. Implemented via `PROMPT_STEP`/`PROMPT_TOTAL` counters incremented in the shared `ask()` function.
-
-**2. Disk picker moved earlier** — disk selection now happens immediately after the desktop environment + accept-defaults gate, before encryption/passphrase and other sensitive prompts. This means the operator picks the target disk before investing time in detailed configuration, and the fast path ("accept all defaults") goes straight from DE choice to disk selection.
-
-**3. ERASE confirmation consolidated** — the two ERASE prompts (`ERASE <device>` for already-installed Void, `ERASE!` for fresh installs) are replaced with a single `ERASE <device>` confirmation for all paths. The exact-device round-trip is the stronger bar and covers both cases uniformly.
-
-`INSTALL_PROMPTS.md` updated. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`, `check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN.
-
-## Version-3.2.09 — `[FAST-DEFAULTS]` (desktop environment first + accept-all-defaults gate)
-
-`SCRIPT_VERSION` bumped to Version-3.2.08 → Version-3.2.09.
-
-The desktop environment prompt is now asked immediately after account/hostname,
-before all other install-time choices. It is the highest-impact branch point
-(drives the display manager, default store, and metapackage), so picking it
-first makes the fast path meaningful.
-
-Immediately after DE selection, a new gate asks:
-
-```
-Apply all defaults for this desktop?
-  Y) Yes — use all remaining defaults and skip to disk selection
-  n) No — walk through each prompt individually
-```
-
-- **`Y`** (default): every remaining prompt is skipped. All variables take
-  their `DEFAULT_*` values. The store is auto-installed for GNOME/Cosmic/KDE
-  and omitted for cinnamon/xfce/mate/lxqt/none. The installer jumps straight
-  to the disk picker.
-- **`n`**: every prompt is walked individually, exactly as before.
-
-On a resumed install (`-r`), all values come from the state file, so
-`ACCEPT_DEFAULTS` is forced to `true` and all prompts are skipped.
-
-`INSTALL_PROMPTS.md` gained a new §6a documenting the fast path. No script
-behavior changed for the non-fast path; all prompts and defaults are
-unchanged. `bash -n`, `check-heredocs.sh`, `check-defaults.sh`,
-`check-pkg-preflight.sh`, `check-bios-boot.sh` ALL CLEAN.
 
 ## Version-3.2.08 — `[PROMPT-DOCS]` (INSTALL_PROMPTS.md synchronized to current)
 
@@ -2078,7 +2422,7 @@ This is the one deliberate difference from `install_cosmic()`:
 
 `discover` was added to `PKG_PREFLIGHT` — the fallback path installs it
 through `install_pkgs()`, so the drift guard
-(`checks/check-pkg-preflight.sh`) requires the name to be covered there.
+(`Debug/check-pkg-preflight.sh`) requires the name to be covered there.
 
 ### 7 — verification
 
@@ -2183,7 +2527,7 @@ and the reason, so a vanished entry is always explained on screen.
 
 ### Validation
 
-`bash -n` clean; `checks/check-heredocs.sh` ALL CLEAN (the moved `INNER_EOF`
+`bash -n` clean; `Debug/check-heredocs.sh` ALL CLEAN (the moved `INNER_EOF`
 heredoc is still one well-formed block); `check-defaults.sh` ALL CONSISTENT
 (no new `DEFAULT_*` surface); `check-pkg-preflight.sh` ALL COVERED (no
 package surface changed); `check-bios-boot.sh` 42/42 (the BIOS-boot
@@ -2285,7 +2629,7 @@ WARNING prefixed `snapper: `; the temp file is removed on all paths. The
 
 ### Validation
 
-`bash -n` clean; `checks/check-heredocs.sh` ALL CLEAN (the wrapper heredoc is
+`bash -n` clean; `Debug/check-heredocs.sh` ALL CLEAN (the wrapper heredoc is
 still one well-formed quoted `INNER_EOF` block); `check-defaults.sh` clean (no
 new `DEFAULT_*` surface); `check-pkg-preflight.sh` ALL COVERED (no package
 surface changed). The fixed wrapper template was extracted byte-for-byte from
@@ -2426,7 +2770,7 @@ screen must change within 90 s *and keep changing* over the next 30 s (an
 unlocking boot floods the console; a re-prompt after a wrong passphrase, or
 the prompt's cursor cell alone, does not) — and a failed unlock **fails the
 case (rc=8)** instead of warning past a green summary. `.gitignore` gained
-an explicit `!Debug/qemu-matrix/` beside the existing `!checks/check-bios-boot.sh`
+an explicit `!Debug/qemu-matrix/` beside the existing `!Debug/check-bios-boot.sh`
 (`Debug/*` matches only direct children, so unignoring the directory is
 enough).
 
@@ -2438,7 +2782,7 @@ contains a backtick**: unquoted bodies are expanded when the installer writes
 them, so a prose backtick is a live command substitution at run time — the
 exact shape of catch (b) below); `check-defaults.sh` ALL CONSISTENT;
 `check-pkg-preflight.sh` ALL COVERED (168); `check-nvram-prompt.sh` 23/23; and
-the gate **`checks/check-bios-boot.sh` — 42/42**: it asserts detection happens
+the gate **`Debug/check-bios-boot.sh` — 42/42**: it asserts detection happens
 *before* the RESUME gate, that every UEFI-only construct carries a
 `$BOOT_MODE` guard within a fixed window above it, that the BIOS wiring
 (geometry → budget → `chroot_env` → carve → Stage 2 → config generator →
@@ -2762,9 +3106,9 @@ label promises. No prompt, `DEFAULT_*` or package surface changed
 
 ### Validation
 
-`bash -n`, `checks/check-heredocs.sh` (**ALL CLEAN** — the `/etc/rc.local` body
-is extracted and checked), `checks/check-defaults.sh` (**ALL CONSISTENT**) and
-`checks/check-pkg-preflight.sh` (**ALL COVERED**) all pass. Both fixes were
+`bash -n`, `Debug/check-heredocs.sh` (**ALL CLEAN** — the `/etc/rc.local` body
+is extracted and checked), `Debug/check-defaults.sh` (**ALL CONSISTENT**) and
+`Debug/check-pkg-preflight.sh` (**ALL COVERED**) all pass. Both fixes were
 exercised functionally: the prompt block was driven headlessly (bare Enter →
 `false`/`false`, `y`/`Y`/`yes`/`true` → `true`, `junk` re-prompts then accepts
 Enter, no loop), and the rc.local teardown was run in a sandbox with stubbed
@@ -2811,8 +3155,8 @@ clobbered there when the Release-v2.9.93 export sync rebuilt the script from the
 private tree, which still carried the old defaults. Carrying it in the private
 tree means no later export can revert it.
 
-Validation: `bash -n` clean; `checks/check-heredocs.sh` ALL CLEAN;
-`checks/check-defaults.sh` ALL CONSISTENT; `checks/check-pkg-preflight.sh` ALL
+Validation: `bash -n` clean; `Debug/check-heredocs.sh` ALL CLEAN;
+`Debug/check-defaults.sh` ALL CONSISTENT; `Debug/check-pkg-preflight.sh` ALL
 COVERED.
 
 ## Beta-v2.9.94 — `[BASELINE-SNAPSHOT-FIRSTBOOT]` (the baseline snapper snapshot is taken after first-boot provisioning, so it contains a working desktop instead of a bare console)
@@ -2891,9 +3235,9 @@ remote add, `update-desktop-database`) are deliberately ordered after service
 start-up, so a boot-time snapshot is both the minimal and the more faithful
 "fully provisioned clean system" boundary.
 
-Validation: `bash -n` clean; `checks/check-heredocs.sh` ALL CLEAN (the modified
-`/etc/rc.local` heredoc still `bash -n`-checks clean); `checks/check-defaults.sh` ALL
-CONSISTENT; `checks/check-pkg-preflight.sh` ALL COVERED.
+Validation: `bash -n` clean; `Debug/check-heredocs.sh` ALL CLEAN (the modified
+`/etc/rc.local` heredoc still `bash -n`-checks clean); `Debug/check-defaults.sh` ALL
+CONSISTENT; `Debug/check-pkg-preflight.sh` ALL COVERED.
 
 ## Beta-v2.9.93 — `[OCTOXBPS-NOPASS-POLKIT]` (OctoXBPS notifier startup/network-reconnect password prompt suppressed)
 
@@ -3575,8 +3919,8 @@ the target's `KEYMAP="us"`. Awaiting the boot that proves it.
 
 ### Gates
 
-`bash -n` clean; `checks/check-heredocs.sh` ALL CLEAN (72 heredocs); `checks/check-defaults.sh` ALL
-CONSISTENT; `checks/check-pkg-preflight.sh` ALL COVERED (164 preflight packages, 170 literals). The
+`bash -n` clean; `Debug/check-heredocs.sh` ALL CLEAN (72 heredocs); `Debug/check-defaults.sh` ALL
+CONSISTENT; `Debug/check-pkg-preflight.sh` ALL COVERED (164 preflight packages, 170 literals). The
 new ensure-logic was additionally exercised standalone over 8 cases — quoted/bare/commented-out/
 hostile `KEYMAP`, missing file, corrupt file, and already-correct file (the last correctly a no-op).
 
@@ -3613,7 +3957,7 @@ a fresh run is started.
 
 ### Gates
 
-`bash -n` clean; `checks/check-heredocs.sh` ALL CLEAN (72 heredocs); `checks/check-defaults.sh` ALL
+`bash -n` clean; `Debug/check-heredocs.sh` ALL CLEAN (72 heredocs); `Debug/check-defaults.sh` ALL
 CONSISTENT.
 
 ## Beta-v2.9.77 — `[COSMIC-TRUST-ANCHOR-TTY]` (the 2.9.76 trust-anchor gate aborted every COSMIC install: it probed stdin, which is the Stage-2 chroot heredoc)
@@ -3648,8 +3992,8 @@ fired, and every COSMIC install aborted at the key-confirmation step with
 
 ### Verification (2026-10-05, live)
 
-- `bash -n Void_Linux_Installer.sh` clean; `checks/check-heredocs.sh` ALL CLEAN;
-  `checks/check-defaults.sh` ALL CONSISTENT.
+- `bash -n Void_Linux_Installer.sh` clean; `Debug/check-heredocs.sh` ALL CLEAN;
+  `Debug/check-defaults.sh` ALL CONSISTENT.
 - Re-derived the served key's DER SHA-256 from the live index exactly as the anchor check does
   (base64 → `openssl rsa -pubin -outform DER` → `openssl dgst -sha256`): it now equals the pinned
   `_cosmic_key_expected` (`83ffd154...d2e7b`) — the repo has since been republished under the new
@@ -3859,7 +4203,7 @@ fi
 - **`mesa-dri-32bit` (the Steam GLX fix) stays Steam-gated** — it is the 32-bit *OpenGL* DRI the 32-bit Steam client UI needs via GLX; the game-install gate only adds the *Vulkan* ICDs. No new prompt, `INSTALL_ANY_GAME` users who picked a launcher get drivers; a no-game box gets nothing.
 - The six names (`mesa-vulkan-radeon`, `mesa-vulkan-radeon-32bit`, `mesa-vulkan-intel`, `mesa-vulkan-intel-32bit`, `mesa-vulkan-nouveau`, `mesa-vulkan-nouveau-32bit`) are added to `PKG_PREFLIGHT` — stage-1 **validation only**, they never install anything by themselves.
 
-`bash -n` clean; `checks/check-pkg-preflight.sh` clean.
+`bash -n` clean; `Debug/check-pkg-preflight.sh` clean.
 
 ## Beta-v2.9.71 — `[STEAM-32BIT]` (the Steam branch pulled the client bootstrap only; now it also installs the canonical 32-bit runtime set, gated strictly on the Steam choice)
 
@@ -3886,7 +4230,7 @@ The `[INSTALL-APPS]` Steam branch now installs the Steam multilib runtime set **
 - The set lives **only** inside the `[ "$INSTALL_STEAM" = "true" ]` branch. There is **no new prompt** and no unconditional install: `INSTALL_STEAM` stays lean-default OFF, so a box that never opts into Steam ships **zero** game 32-bit libraries.
 - The `PKG_PREFLIGHT` additions (`alsa-plugins-pulseaudio-32bit`, `fontconfig-32bit`, `freetype-32bit`, `libdrm-32bit`, `libgcc-32bit`, `libglvnd-32bit`, `libpulseaudio-32bit`, `libstdc++-32bit`, `libX11-32bit`, `libxcb-32bit`, `libXcursor-32bit`, `libXext-32bit`, `libXfixes-32bit`, `libXi-32bit`, `libXinerama-32bit`, `libXrandr-32bit`, `libXrender-32bit`, `libXss-32bit`, `libXxf86vm-32bit`, `mesa-dri-32bit`) are stage-1 **validation** names — the 2.9.40 pre-flight resolves them against the live union pool but installs nothing by itself, so they can never pull the 32-bit stack on their own.
 
-`bash -n` clean; `checks/check-pkg-preflight.sh` clean (every new `install_pkgs` literal now covered).
+`bash -n` clean; `Debug/check-pkg-preflight.sh` clean (every new `install_pkgs` literal now covered).
 
 ## Beta-v2.9.70 — `[ELOGIND-NO-STRAY-KILL]` (the cosmic-greeter "stray elogind PID sweep" killed the LIVE logind — removed, `sv check elogind` is the only gate)
 
@@ -3931,7 +4275,7 @@ sv check elogind >/dev/null || exit 1
 
 ### Validation
 
-`bash -n` clean; `checks/check-heredocs.sh` ALL CLEAN (the edited cosmic-greeter run-script heredoc included). Live re-proof on a real cosmic-greeter (COSMIC) install is pending — the current `<host>` box is KDE/SDDM and never exercised this heredoc; the change is deliberately conservative (removal of a kill, gate preserved). See the validation backlog.
+`bash -n` clean; `Debug/check-heredocs.sh` ALL CLEAN (the edited cosmic-greeter run-script heredoc included). Live re-proof on a real cosmic-greeter (COSMIC) install is pending — the current `<host>` box is KDE/SDDM and never exercised this heredoc; the change is deliberately conservative (removal of a kill, gate preserved). See the validation backlog.
 
 ## Beta-v2.9.69 — `[FLATPAK-NM-DISPATCH-LOCK]` (the 2.9.68 "up does not re-fire" premise was false — the dispatcher now serializes the drain with an exclusive flock)
 
@@ -3958,7 +4302,7 @@ The stranded queue on `<host>` was drained live: Brave `1.95.102`, Heroic `v2.22
 
 ### Validation
 
-`bash -n` clean; `checks/check-heredocs.sh` ALL CLEAN; `checks/check-defaults.sh` all consistent (no prompt surface touched).
+`bash -n` clean; `Debug/check-heredocs.sh` ALL CLEAN; `Debug/check-defaults.sh` all consistent (no prompt surface touched).
 
 ## Beta-v2.9.68 — `[PARTUUID-NODEPS]` + `[INSTALL-CONFIG-BACKENDS]` + `[INSTALL-CONFIG-SSHKEY]` + `[FLATPAK-DNS-LATE]` (four fixes from reviewing a fresh carved-ENCRYPT install against the script)
 
@@ -3996,7 +4340,7 @@ The `[FLATPAK-NM-DISPATCH]` script armed only on `up`/`vpn-up`. On the reviewed 
 
 ### Validation
 
-`bash -n` clean; `checks/check-heredocs.sh` 65 heredocs ALL CLEAN (the edited dispatcher heredoc included); `checks/check-defaults.sh` all consistent. The fixes are code/config-record changes with no new prompt surface, so they do not affect the `[PROMPT-DEFAULTS]` wiring. Runtime verification of (1)/(2)/(3) is pending the next real install (the running box was installed with Beta-v2.9.67 and is already correct for boot).
+`bash -n` clean; `Debug/check-heredocs.sh` 65 heredocs ALL CLEAN (the edited dispatcher heredoc included); `Debug/check-defaults.sh` all consistent. The fixes are code/config-record changes with no new prompt surface, so they do not affect the `[PROMPT-DEFAULTS]` wiring. Runtime verification of (1)/(2)/(3) is pending the next real install (the running box was installed with Beta-v2.9.67 and is already correct for boot).
 
 ## Beta-v2.9.67 — `[KEYMAP-CMDLINE]` (every dracut run logged `rd.vconsole.keymap=us: command not found` — and the keymap param was never actually baked into the initramfs)
 
@@ -4030,7 +4374,7 @@ echo "kernel_cmdline=\"rd.vconsole.keymap=${KEYMAP_LIVE:-us}\"" >> /etc/dracut.c
 
 ### Applied / validation
 
-- Repo: `Void_Linux_Installer.sh:11094` now emits the `kernel_cmdline=` form. `bash -n` + `checks/check-heredocs.sh` clean (this is an *append* against a live-generated file, not a quoted heredoc, so the heredoc gate is unaffected).
+- Repo: `Void_Linux_Installer.sh:11094` now emits the `kernel_cmdline=` form. `bash -n` + `Debug/check-heredocs.sh` clean (this is an *append* against a live-generated file, not a quoted heredoc, so the heredoc gate is unaffected).
 - Host <host> (optionally): `/etc/dracut.conf.d/90-system.conf` line 6 changed from the bare line to `kernel_cmdline="rd.vconsole.keymap=..."` using the keymap pinned in `/etc/rc.conf`; the three initramfs images regenerated with `dracut --force` so the parameter actually lands.
 - The `command not found` noise disappears from the next dracut run (dracut now parses a valid directive instead of sourcing garbage).
 
@@ -4069,7 +4413,7 @@ The shipped `void-subvol-tool.sh` (`/root/tools`) had the same bug class: its ru
 - The installed box was NOT corrected on disk — this era is a **script** fix for the next re-install (the installed layout is btrfs on btrfs: technically sane, just not what was chosen; a re-install with this fix yields the requested ext4 regions).
 - Reproduced the failure mode pre-fix with `set -x`: `eval '_rr_fs=${REGION_home_FS:-btrfs}'` evaluates to `btrfs` while `REGION_HOME_FS=ext4` — and `eval '_rr_fs=${REGION_games_FS:-btrfs}'` also yields `btrfs` even though `REGION_GAMES=ext4`.
 - Post-fix trace of the same lines resolves `ext4` for both `home` and `games`.
-- `bash -n` clean on the installer; the edited `void-subvol-tool.sh` body validated with `checks/check-heredocs.sh`.
+- `bash -n` clean on the installer; the edited `void-subvol-tool.sh` body validated with `Debug/check-heredocs.sh`.
 
 ## Beta-v2.9.65 — `[HOME-CACHE-CHOWN]` (a carved-`/home` `[MULTI-FS]` install left `~/.cache` root-owned → ksycoca/firefox "Permission denied" → empty KDE panel on first boot)
 
@@ -4272,7 +4616,7 @@ it is NOT implicated.
 
 **Validation:** `bash -n` OK; heredoc bodies unchanged apart from the rules
 file that was recheck-exercised by the live end-to-end proof above;
-`checks/check-heredocs.sh` re-run recommended before the next real install. A
+`Debug/check-heredocs.sh` re-run recommended before the next real install. A
 reboot of this (now fixed) system is the end-to-end confirmation.
 
 ---
@@ -4366,9 +4710,9 @@ unlock (90crypt) → DM_NAME=void-root udev RUN → kpartx builds
 void-root1/void-root2 → dracut settle resolves root=UUID=<inner btrfs> from
 the READY child devices → root mounts → init proceeds.
 
-**Validation:** `bash -n` OK. `checks/check-defaults.sh` ALL CONSISTENT (no
-prompt surface touched). `checks/check-pkg-preflight.sh` needs re-run after the
-`kpartx` PKG_PREFLIGHT addition. `checks/check-heredocs.sh` re-run (heredocs
+**Validation:** `bash -n` OK. `Debug/check-defaults.sh` ALL CONSISTENT (no
+prompt surface touched). `Debug/check-pkg-preflight.sh` needs re-run after the
+`kpartx` PKG_PREFLIGHT addition. `Debug/check-heredocs.sh` re-run (heredocs
 changed). `kpartx` proven live (the 254:1/254:2 maps above); `partprobe`
 fallback path unchanged from 2.9.45. A reboot of the fixed installed system
 (dracut --force rebuild + ESP re-sync, then KERNEL boot) is the end-to-end
@@ -4451,7 +4795,7 @@ recovery-first, lean motif of the rest of the installer's optional software.
 - Usage header + README updated with `--install` examples and the no-mapping
   subvol list.
 
-**Validation:** `bash -n` and `checks/check-heredocs.sh` both ALL CLEAN (one
+**Validation:** `bash -n` and `Debug/check-heredocs.sh` both ALL CLEAN (one
 SC2086 is the deliberate `$pkgs` word-split, disabled with a one-line
 rationale).
 
@@ -4494,8 +4838,8 @@ Recovery for an affected install: re-run the installer on a stable network
 connection (the failing run kept its resume record, so `-r` resumes the
 remaining steps).
 
-**Validation:** `bash -n`, `checks/check-heredocs.sh` (ALL CLEAN), and
-`checks/check-defaults.sh` (ALL CONSISTENT) all pass.
+**Validation:** `bash -n`, `Debug/check-heredocs.sh` (ALL CLEAN), and
+`Debug/check-defaults.sh` (ALL CONSISTENT) all pass.
 
 ---
 
@@ -4537,8 +4881,8 @@ hardware until the MATE+lightdm attempt.
    wallpaper unset (the correct lean pre-existing behavior) instead of
    aborting the install.
 
-**Validation:** `bash -n`, `checks/check-heredocs.sh`, and
-`checks/check-defaults.sh` all pass.
+**Validation:** `bash -n`, `Debug/check-heredocs.sh`, and
+`Debug/check-defaults.sh` all pass.
 
 ---
 
@@ -4587,8 +4931,8 @@ second run itself created and opened `/dev/mapper/void-root` (the Beta-v2.7.1
 prompt default). The earlier `void` (run 1) is a different run's choice. The
 resume failure was the open mapper, not the name.
 
-**Validation:** `bash -n` passes; `checks/check-heredocs.sh` and
-`checks/check-defaults.sh` re-run clean after the edits.
+**Validation:** `bash -n` passes; `Debug/check-heredocs.sh` and
+`Debug/check-defaults.sh` re-run clean after the edits.
 
 ---
 
@@ -4610,7 +4954,7 @@ same per-browser prompts, with Firefox/Chromium still individual-default ON.
 - Prompt text at the gate now reads `[y/N]` instead of `[Y/n]`; the inline
   comment reflecting the old OR-of-defaults rationale updated.
 
-**Validation:** `bash -n` passes, and `checks/check-defaults.sh` stays
+**Validation:** `bash -n` passes, and `Debug/check-defaults.sh` stays
 consistent (the flip only changed a value, not a wiring).
 
 ---
@@ -4647,9 +4991,9 @@ the MATE+lightdm run.
 3. The v2.9.5 `[GREETER-BG-PIPEFAIL]` `|| true` guards and their rationale
    moved with the block (and still protect the fallback search).
 
-**Validation:** `bash -n` passes; `checks/check-heredocs.sh` ALL CLEAN (the
+**Validation:** `bash -n` passes; `Debug/check-heredocs.sh` ALL CLEAN (the
 moved `INNER_EOF` greeter-config heredocs still extract and bash -n cleanly);
-`checks/check-defaults.sh` unchanged.
+`Debug/check-defaults.sh` unchanged.
 
 ---
 
@@ -4704,9 +5048,9 @@ fresh Beta-v2.9.9 COSMIC install (cosmic-greeter DM, /home/<user>,
    start it (cosmic-session honors XDG autostart — verified in the session
    binary: "looking for autostart folders" / Desktop Entry parsing).
 
-**Validation:** `bash -n` passes; `checks/check-heredocs.sh` extracts
+**Validation:** `bash -n` passes; `Debug/check-heredocs.sh` extracts
 `/etc/greetd/cosmic-greeter.toml` + both new service run scripts and
-`bash -n`s them clean; `checks/check-defaults.sh` still ALL CONSISTENT.
+`bash -n`s them clean; `Debug/check-defaults.sh` still ALL CONSISTENT.
 
 ---
 
@@ -4739,8 +5083,8 @@ linked) or the greeter theme/wallpaper only; confirm logins start a session and
 the `[COSMIC-POLKIT]` agent dialog appears. Only patch code if conf + image +
 service state are confirmed correct but the greeter still renders grey.
 
-**Validation:** `bash -n` passes; `checks/check-heredocs.sh` extracts the two new
-`log/run` bodies and `bash -n`s them clean; `checks/check-defaults.sh`
+**Validation:** `bash -n` passes; `Debug/check-heredocs.sh` extracts the two new
+`log/run` bodies and `bash -n`s them clean; `Debug/check-defaults.sh`
 unchanged.
 
 ---
@@ -4784,9 +5128,9 @@ exists anywhere under the greeter home, `/root`, or the user's config
 It repeats per start but is benign (this was already the recorded dead lead in
 TODO.md).
 
-**Validation:** `bash -n` passes; `checks/check-heredocs.sh` extracts the new
+**Validation:** `bash -n` passes; `Debug/check-heredocs.sh` extracts the new
 `/usr/local/sbin/cosmic-polkit-guard` body and `bash -n`s it clean;
-`checks/check-defaults.sh` unchanged (no prompt surface touched).
+`Debug/check-defaults.sh` unchanged (no prompt surface touched).
 
 ---
 
@@ -4832,9 +5176,9 @@ The account fix (Beta-v2.9.12) and this session-bus fix (Beta-v2.9.14) are
 the greeter-vs-locker dispatch, session D-Bus for the panel to map as a layer.
 The parent installer is now aligned with the proven-good machine.
 
-**Validation:** `bash -n` passes; `checks/check-heredocs.sh` extracts the new
+**Validation:** `bash -n` passes; `Debug/check-heredocs.sh` extracts the new
 `/etc/greetd/cosmic-greeter.start` body (bounded `INNER_EOF`) and `bash -n`s it
-clean; `checks/check-defaults.sh` unchanged (no prompt surface touched); a
+clean; `Debug/check-defaults.sh` unchanged (no prompt surface touched); a
 `grep -rn "Beta-v2.9.13"` walk confirmed the only surviving references are
 historical feature markers.
 
@@ -4894,8 +5238,8 @@ Written idempotently in the same Stage-2 chroot pass that provisions the account
 adjacent to the accounts-daemon block, chmod `0644`.
 
 **Validation:** `bash -n` passes; the new body is a bounded-quoted-heredoc
-(`PDBUS_EOF`) — `checks/check-heredocs.sh` extracts it into the chroot tree and
-classifies it correctly; `checks/check-defaults.sh` unchanged (no prompt surface
+(`PDBUS_EOF`) — `Debug/check-heredocs.sh` extracts it into the chroot tree and
+classifies it correctly; `Debug/check-defaults.sh` unchanged (no prompt surface
 touched). **Verified live on `<host>` post-reboot (2026-09-07):** the policy file
 written by hand before reboot, then after the 15:23-local boot the greeter's
 `GetUserData` AccessDenied and `Failed to apply user display config` lines both
@@ -4967,9 +5311,9 @@ the ESP (always `esp-copy`). The variable is:
 - recorded in `/etc/void-installer/install-config` as `KERNEL_PKGS`
   (secret-free, human-readable as-built summary, matching the file's purpose).
 
-**Validation:** `bash -n` passes; `checks/check-defaults.sh` reports all 35
+**Validation:** `bash -n` passes; `Debug/check-defaults.sh` reports all 35
 `DEFAULT_*` vars (including the two new `DEFAULT_KERNEL_MAINLINE` /
-`DEFAULT_KERNEL_LTS`) declared and wired; `checks/check-heredocs.sh` fully clean
+`DEFAULT_KERNEL_LTS`) declared and wired; `Debug/check-heredocs.sh` fully clean
 (the new in-chroot `KERNEL_PKGS` element validation lives inside the CHROOT
 heredoc and is bash-n'd by the extractor). **NOT yet verified on a real
 install** — a fresh install answering `y` to both toggles (or per-flavor) is
@@ -5047,9 +5391,9 @@ the full historical baseline. (The tlp-inertness question is resolved in the
 opposite direction: linking `/etc/sv/tlp` was an oversight, now fixed — laptop
 profiles get a *running* tlp.)
 
-**Validation:** `bash -n` passes; `checks/check-defaults.sh` all 36 `DEFAULT_*`
+**Validation:** `bash -n` passes; `Debug/check-defaults.sh` all 36 `DEFAULT_*`
 vars declared and wired (including `DEFAULT_DEVICE_PROFILE`);
-`checks/check-heredocs.sh` fully clean (the new gating lines + booleans live in
+`Debug/check-heredocs.sh` fully clean (the new gating lines + booleans live in
 the CHROOT heredoc and are bash-n'd by the extractor). `[DEVICE-PROFILE]` is
 **NOT yet verified on a real install** — and it stacks on the still-unverified
 `[KERNEL-SELECT]`, so the next fresh install must exercise BOTH (see TODO.md).
@@ -5110,8 +5454,8 @@ reachable on the live medium/USB) is a real file, copy it to
 ESP copy finds it. A missing/declined source leaves the guarded "no wallpaper"
 default.
 
-**Validation.** `bash -n` passes; `checks/check-defaults.sh` all consistent;
-`checks/check-heredocs.sh` shell bodies all `bash -n` clean (the pre-existing
+**Validation.** `bash -n` passes; `Debug/check-defaults.sh` all consistent;
+`Debug/check-heredocs.sh` shell bodies all `bash -n` clean (the pre-existing
 accounts-daemon `shellcheck` note is unchanged). `[MATE-METAPACKAGE-REGRESSION]`
 restores the historical (pre-Beta-v2.9.9) behavior and still needs one live
 fresh MATE install to confirm the greeter now reaches the desktop;
@@ -5154,7 +5498,7 @@ from a nested heredoc) emitted into the `forward` chain **only when
 live where the firewall is written. The nftables heredoc changed from quoted
 (`<< 'INNER_EOF'`) to unquoted (`<< INNER_EOF`) so `${NFT_FWD_RULES}` expands;
 the rest of the body is pure nft syntax with no `$`/backticks, so the
-interpolation is safe. `checks/check-heredocs.sh` still classifies it as a
+interpolation is safe. `Debug/check-heredocs.sh` still classifies it as a
 non-shell config (`#!/usr/sbin/nft` shebang), so it is skipped by its
 bash -n/shellcheck pass.
 
@@ -5164,9 +5508,9 @@ bash -n/shellcheck pass.
 - Rendered config for **both** `$INSTALL_VIRT=true` (four forward accepts
   present) and `false` (forward chain = policy drop, zero rules) passes
   `nft -c -f` as root.
-- `checks/check-heredocs.sh` — ALL CLEAN (60 heredocs: 30 shell-classified,
+- `Debug/check-heredocs.sh` — ALL CLEAN (60 heredocs: 30 shell-classified,
   30 non-shell config, `/etc/nftables.conf` skipped as non-shell).
-- `checks/check-defaults.sh` — ALL CONSISTENT (no `DEFAULT_*` surface touched).
+- `Debug/check-defaults.sh` — ALL CONSISTENT (no `DEFAULT_*` surface touched).
 
 No live-install confirmation required: this is a config-generation refinement,
 and both branches are syntactically validated with `nft -c`.
@@ -5209,8 +5553,8 @@ behavior changes.
 - On `<host>` the deepened generic fallback now resolves a depth-3 mate image
   (`/usr/share/backgrounds/mate/nature/*.jpg`), confirming the previously-missed
   path is found.
-- `checks/check-heredocs.sh` — ALL CLEAN.
-- `checks/check-defaults.sh` — ALL CONSISTENT (no `DEFAULT_*` surface touched).
+- `Debug/check-heredocs.sh` — ALL CLEAN.
+- `Debug/check-defaults.sh` — ALL CONSISTENT (no `DEFAULT_*` surface touched).
 
  **Live confirmation still required:** one fresh MATE + LightDM (Slick or GTK)
 install must reach a non-black desktop. This is scheduled as part of the next
@@ -5251,8 +5595,8 @@ profile + booleans" check on its own.
 ### Validation
 
 - `bash -n Void_Linux_Installer.sh` — clean.
-- `checks/check-defaults.sh` — ALL CONSISTENT (no `DEFAULT_*` surface touched).
-- `checks/check-heredocs.sh` — ALL CLEAN.
+- `Debug/check-defaults.sh` — ALL CONSISTENT (no `DEFAULT_*` surface touched).
+- `Debug/check-heredocs.sh` — ALL CLEAN.
 - Logic harness tested for chassis 31 (laptop: detects laptop-bt; override to
   5 → desktop-no-bt), chassis 3 (classic desktop: desktop-bt, tlp dropped;
   bare Enter confirms), and unresolvable chassis (falls back laptop-bt with an
@@ -5303,10 +5647,10 @@ the chosen profile's services actually link on first boot.
   render as `[ "true" = "true" ]` for bluetoothd + tlp (linked), and
   `[ "false" = "true" ]` for preload (not linked) — correct for a laptop.
   The substituted rc.local passes `bash -n`.
-- `checks/check-heredocs.sh` — rc.local is `bash -n clean` + shellcheck clean;
+- `Debug/check-heredocs.sh` — rc.local is `bash -n clean` + shellcheck clean;
   the only `FAILURES PRESENT` is the pre-existing accounts-daemon SC2093 note,
   present identically at HEAD before this change.
-- `checks/check-defaults.sh` — ALL CONSISTENT (no `DEFAULT_*` surface touched).
+- `Debug/check-defaults.sh` — ALL CONSISTENT (no `DEFAULT_*` surface touched).
 
 **Live confirmation (this install):** on the fresh MATE install, `/etc/sv/tlp`
 and `/etc/sv/bluetoothd` must now be linked into runsvdir/default and both
@@ -5360,8 +5704,8 @@ the target's `/tmp`, which the chroot ESP-copy loop then moves onto the ESP.
 - Guard logic simulated: with the covered `WP_STAGED` the old guard returns
   "skipped" (the bug); with a reachable `WP_SRC` the new guard fires and
   copies; with a missing source it is safely skipped.
-- `checks/check-defaults.sh` — ALL CONSISTENT.
-- `checks/check-heredocs.sh` — only the pre-existing accounts-daemon note.
+- `Debug/check-defaults.sh` — ALL CONSISTENT.
+- `Debug/check-heredocs.sh` — only the pre-existing accounts-daemon note.
 - `set -e` (not `set -u`) governs the re-stage block, so `${WP_SRC:-}` is
   belt-and-suspenders; the `LIMINE_WALLPAPER != yes` path short-circuits before
   touching `$WP_SRC` anyway.
@@ -5405,9 +5749,9 @@ drive. The user resorted to Ctrl-C + restart.
   branch inserted before the path-exists check, so it cannot collide with a
   file/dir named literally `m` or `drives` being *selected by number* (numbers
   are expanded to full paths earlier).
-- `checks/check-heredocs.sh` — this block is top-level script (not a heredoc
+- `Debug/check-heredocs.sh` — this block is top-level script (not a heredoc
   body), so it is covered by the script's own `bash -n`; no new heredoc added.
-- `checks/check-defaults.sh` — no new prompt/default added.
+- `Debug/check-defaults.sh` — no new prompt/default added.
 
 ---
 
@@ -5469,7 +5813,7 @@ resolve), but the export is what actually lets the `case` write the conf.
 - Simulated the in-chroot gate on `<host>`: with `LIGHTDM_GREETER` unset the
   `case` prints `[NONE!]` (nothing written); with `slick` it resolves the
   intended `/usr/share/backgrounds/mate/nature/YellowFlower.jpg`.
-- `checks/check-heredocs.sh` / `checks/check-defaults.sh` — clean.
+- `Debug/check-heredocs.sh` / `Debug/check-defaults.sh` — clean.
 
 **Pending:** one fresh MATE + LightDM install to confirm `slick-greeter.conf`
 now carries a real `background=` line and the greeter no longer boots black.
@@ -5531,7 +5875,7 @@ suppressed.
 - `bash -n Void_Linux_Installer.sh` — clean.
 - Branch exercised: shows the notice under `gnome`/`xfce`/`mate`/`cosmic`/etc.,
   suppressed under `kde`.
-- `checks/check-defaults.sh` / `checks/check-heredocs.sh` — unaffected (the
+- `Debug/check-defaults.sh` / `Debug/check-heredocs.sh` — unaffected (the
   notice is pure Stage-1 prompt text, no new heredoc or default).
 
 ---
@@ -5623,8 +5967,8 @@ generate + back up a keypair, all of which the script lacked.
 ### Validation
 
 - `bash -n Void_Linux_Installer.sh` — clean.
-- `checks/check-defaults.sh` — 44/44 defaults declared + wired, all consistent.
-- `checks/check-heredocs.sh` — 59 heredocs (30 shell, 29 non-shell), ALL CLEAN
+- `Debug/check-defaults.sh` — 44/44 defaults declared + wired, all consistent.
+- `Debug/check-heredocs.sh` — 59 heredocs (30 shell, 29 non-shell), ALL CLEAN
   (the rc.local SSH link is a baked `__INSTALL_SSH_SERVER__` placeholder under
   the existing SC2050 carve-out).
 
@@ -5694,8 +6038,8 @@ unchanged by this release — the bare-Enter = Automatic sign-off (maintainer,
 
 ### 3. Validation / gates
 
-- `bash -n` clean; `checks/check-defaults.sh` (44 vars) untouched — no new
-  prompts; `checks/check-heredocs.sh` untouched — no scheme/heredoc change;
+- `bash -n` clean; `Debug/check-defaults.sh` (44 vars) untouched — no new
+  prompts; `Debug/check-heredocs.sh` untouched — no scheme/heredoc change;
   shellcheck 0 findings.
 - Probe validated on the dev box (built-in MediaTek combo detected; PCI-check
   option deliberately not added — combo cards already show as USB, and a PCI
@@ -5762,8 +6106,8 @@ the probe results for future reuse (the Steam/gaming TODO can consume
 
 ### 4. Validation / gates
 
-- `bash -n` clean; `checks/check-defaults.sh` (45 vars) ALL CONSISTENT;
-  `checks/check-heredocs.sh` 60 bodies (the new `50-nvidia.conf` is one)
+- `bash -n` clean; `Debug/check-defaults.sh` (45 vars) ALL CONSISTENT;
+  `Debug/check-heredocs.sh` 60 bodies (the new `50-nvidia.conf` is one)
   ALL CLEAN; shellcheck 0 findings.
 - Probe validated on the dev box: AMD iGPU (`0x1002:0x1900`) detected as the
   single GPU family, `WIFI_HW=yes` (phy0 present) — and it correctly resolves
@@ -5846,8 +6190,8 @@ firmware can't fix it). Purely informational; nothing is gated on it.
 
 ### 3. Validation / gates
 
-- `bash -n`, `checks/check-defaults.sh` (now **46** vars) ALL CONSISTENT,
-  `checks/check-heredocs.sh` 60 bodies ALL CLEAN, shellcheck 0.
+- `bash -n`, `Debug/check-defaults.sh` (now **46** vars) ALL CONSISTENT,
+  `Debug/check-heredocs.sh` 60 bodies ALL CLEAN, shellcheck 0.
 - Probe exercised against the dev box's own hardware: the MediaTek combo is
   identified exactly — `WIFI_IDS=0x14c3:0x0616`, `WIFI_CHIPS=MediaTek (mt76)`,
   `WIFI_FW_PKG=<none>` (correctly *no* gap → no prompt, firmware is default).
@@ -6497,9 +6841,9 @@ daemon run script; comments updated to document the username dispatch and warn
 against reintroducing the underscore variant (the package's `_cosmicgreeter`
 system_accounts is the bug, not the answer).
 
-**Validation:** `bash -n` passes; `checks/check-heredocs.sh` — unchanged since
+**Validation:** `bash -n` passes; `Debug/check-heredocs.sh` — unchanged since
 this release touches no heredoc body, only the useradd/toml text outside the
-`INNER_EOF` blocks and comments, but rerun to be safe; `checks/check-defaults.sh`
+`INNER_EOF` blocks and comments, but rerun to be safe; `Debug/check-defaults.sh`
 unchanged.
 
 ---
@@ -6702,8 +7046,8 @@ single source of truth driving every stage.
 - **New defaults wired into `[PROMPT-DEFAULTS]`:** `DEFAULT_THUNDERBIRD`,
   `DEFAULT_STEAM` (both `false`); the obsolete `DEFAULT_PROVISION_DB_SUBVOLS`
   is removed.
-- **Validation:** `bash -n`, `checks/check-defaults.sh` (ALL CONSISTENT), and
-  `checks/check-heredocs.sh` (48 heredocs, ALL CLEAN) all pass.
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (ALL CONSISTENT), and
+  `Debug/check-heredocs.sh` (48 heredocs, ALL CLEAN) all pass.
 
 ---
 
@@ -6746,8 +7090,8 @@ the optional-software subvolume pre-provisioning:
   `DEFAULT_PROVISION_VIRT_SUBVOL`.
 - **ARCHITECTURE SUMMARY** header note updated; version-history table gains a
   `Beta-v2.8.2` row.
-- **Validation:** `bash -n`, `checks/check-defaults.sh` (ALL CONSISTENT — 42
-  `DEFAULT_*`), and `checks/check-heredocs.sh` (48 heredocs, ALL CLEAN) all pass.
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (ALL CONSISTENT — 42
+  `DEFAULT_*`), and `Debug/check-heredocs.sh` (48 heredocs, ALL CLEAN) all pass.
 
 ---
 
@@ -6779,8 +7123,8 @@ under the `[VERSION-CARRY]` scheme:
   `3.0.112→3.11.2`) are preserved in the pre-BP section notes for reference.
 - **Exclusions honored:** `OxAlpha` fork + failed `4.0.0-SUSE` nested build
   remain documented dead ends, not part of the installed lineage.
-- **Validation:** `bash -n`, `checks/check-defaults.sh` (ALL CONSISTENT),
-  and `checks/check-heredocs.sh` (ALL CLEAN) all pass.
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (ALL CONSISTENT),
+  and `Debug/check-heredocs.sh` (ALL CLEAN) all pass.
 
 ---
 
@@ -6843,8 +7187,8 @@ assigned version numbers for narrative continuity.
   reference) are used. The openSUSE-nested `4.0.0-SUSE` build (which Notes.txt
   records as "Failed to boot") is likewise documented as a dead end, not part
   of the current flat layout.
-- **Validation:** `bash -n`, `checks/check-defaults.sh` (37 defaults, ALL
-  CONSISTENT), and `checks/check-heredocs.sh` (48 heredocs, ALL CLEAN) all
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (37 defaults, ALL
+  CONSISTENT), and `Debug/check-heredocs.sh` (48 heredocs, ALL CLEAN) all
   pass; no runtime behavior changed.
 
 ---
@@ -6973,8 +7317,8 @@ box itself without booting rescue media.
   package list now documents what it actually installed). If `xbps-query` is
   unavailable in the chroot, the record notes the inventory was omitted rather
   than failing the install.
-- **Validation:** `bash -n`, `checks/check-defaults.sh` (ALL CONSISTENT), and
-  `checks/check-heredocs.sh` (46 heredocs, ALL CLEAN) all pass; the `sed`
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (ALL CONSISTENT), and
+  `Debug/check-heredocs.sh` (46 heredocs, ALL CLEAN) all pass; the `sed`
   normalization pipeline verified against a simulated `xbps-query -l` output.
 
 ---
@@ -7004,8 +7348,8 @@ decisions land in a more natural order without changing any semantic.
   captured only after the YubiKey menu AND the bootloader + `YK_FALLBACK` clamp
   are final, so its on-screen label (provisioning-only / boot fallback / plain
   every-boot) remains truthful.
-- **Validation:** `bash -n`, `checks/check-defaults.sh` (ALL CONSISTENT), and
-  `checks/check-heredocs.sh` (46 heredocs, ALL CLEAN) all pass after the reorder.
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (ALL CONSISTENT), and
+  `Debug/check-heredocs.sh` (46 heredocs, ALL CLEAN) all pass after the reorder.
 
 ---
 
@@ -7036,8 +7380,8 @@ Groups the install-time optional-software prompt flow the way the tool's
   `[PROMPT-DEFAULTS]` and validated by `check-defaults.sh`; all forced-off toggles
   are `export`ed so downstream `SUBVOL_LIST` / `provision_browser_subvol` /
   Stage-2 gating stays correct on a gated-off section.
-- **Validation:** `bash -n`, `checks/check-defaults.sh` (both new defaults declared +
-  referenced), and `checks/check-heredocs.sh` (46 heredocs) all pass.
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (both new defaults declared +
+  referenced), and `Debug/check-heredocs.sh` (46 heredocs) all pass.
 
 ---
 
@@ -7049,7 +7393,7 @@ runtime — the same topology the installer's stage-1 `SUBVOL_LIST`/mount/fstab
 lock-step produces, but reached for later on a running box.
 
 - **New tool:** `/root/tools/void-subvol-tool.sh`, rewritten as a quoted
-  heredoc (so `checks/check-heredocs.sh` extracts + `bash -n`/shellchecks it),
+  heredoc (so `Debug/check-heredocs.sh` extracts + `bash -n`/shellchecks it),
   chmod 0755, with a matching `README.md` section and the `/root/tools` summary
   echo updated.
 - **Verbs:** `list`, `check <subvol>`, `add <subvol> <mountpoint> [source-dir]
@@ -7123,8 +7467,8 @@ lock-step produces, but reached for later on a running box.
   `SUBVOL_LIST` gate. Keep the tool's `virtualization` `--class` entry and this
   install-time gate in agreement (as with every `SUBVOL_LIST` <-> 
   `provision_browser_subvol` pair).
-- **Validation:** `bash -n`, `checks/check-defaults.sh` (no new `DEFAULT_*`, still
-  all consistent), and `checks/check-heredocs.sh` (46 heredocs; the 403-line tool
+- **Validation:** `bash -n`, `Debug/check-defaults.sh` (no new `DEFAULT_*`, still
+  all consistent), and `Debug/check-heredocs.sh` (46 heredocs; the 403-line tool
   is `bash -n` clean + shellcheck-clean) all pass.
 
 ---
@@ -7168,7 +7512,7 @@ hardcoded defaults scattered through the prompt loops.
   `DEFAULT_PROVISION_VIVALDI_SUBVOL`, `DEFAULT_PROVISION_FALKON_SUBVOL`,
   `DEFAULT_PROVISION_BRAVE_SUBVOL`, `DEFAULT_PROVISION_THUNDERBIRD_SUBVOL`,
   `DEFAULT_PROVISION_STEAM_SUBVOL`, `DEFAULT_PROVISION_DB_SUBVOLS`.
-- **Dev gate:** `checks/check-defaults.sh` (committed) is a reproducible check
+- **Dev gate:** `Debug/check-defaults.sh` (committed) is a reproducible check
   that every declared `DEFAULT_*` is actually wired to a prompt and every
   referenced `DEFAULT_*` is declared — run it after touching the prompt/defaults
   surface (see AGENTS.md → Validation).
@@ -7356,7 +7700,7 @@ admin can run later on demand.
   `BASH_SOURCE`-relative paths so the folder is relocatable.
 - Surfaced in the header Recovery section and the NEXT STEPS summary (item 7,
   and item 6's re-shadow message now names the actual script).
-- **Validation:** static gates (`bash -n`, `checks/check-heredocs.sh` 45/45,
+- **Validation:** static gates (`bash -n`, `Debug/check-heredocs.sh` 45/45,
   all tools + README clean). Not yet exercised on real hardware —
   verify each wrapper one has its documented use-case on the target medium.
 
@@ -7387,7 +7731,7 @@ change to the user's normal update habit.
   shadow block (or the documented one-liner). The wrapper itself cannot wrap
   xbps's own reinstall (that would recurse), so this accepted tradeoff is
   documented in the header, the NEXT STEPS summary, and this entry.
-- **Validation:** static gates (`bash -n`, `checks/check-heredocs.sh` 41/41,
+- **Validation:** static gates (`bash -n`, `Debug/check-heredocs.sh` 41/41,
   wrapper shellcheck-clean) plus sandbox tests of both resolution modes and the
   recursion guard. Still apply the real-hardware note from beta16: verify a
   live `sudo xbps-install -Su` pair once (done on this box for the standalone
@@ -7429,7 +7773,7 @@ snapper **pre**/**post** snapshot pair:
   the pair of snapshots. Both coexist; a pair created via the wrapper is
   picked up by the menu regen like any other snapshot.
 - **Validation status:** static gates only (`bash -n`,
-  `checks/check-heredocs.sh`). The pre/post wrapper has not been exercised on
+  `Debug/check-heredocs.sh`). The pre/post wrapper has not been exercised on
   real hardware yet — verify on the target medium with a sample
   `sudo void-xbps-snap -Su` and confirm the pair appears in the snapshot boot
   menu.
@@ -7491,7 +7835,7 @@ not `insmod luks` (that module was locked too). First boot always hit
   real-hardware UNPROVEN and Limine is the only exercised pairing — but its
   rationale note now reflects why (safety/unproven, not "cryptodisk needs a
   slot").
-- **Validation status:** static gates pass (`bash -n`, `checks/check-heredocs.sh`
+- **Validation status:** static gates pass (`bash -n`, `Debug/check-heredocs.sh`
   40/40). This combo has NOT been booted on real hardware yet — mandatory
   target-medium test, including: normal boot (single dracut prompt),
   hibernation resume (swapfile still inside LUKS), Snapper snapshot-boot menu
