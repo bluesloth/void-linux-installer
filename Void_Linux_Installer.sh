@@ -1,16 +1,9 @@
 #!/usr/bin/env bash
 set -eE
-# errtrace (-E) makes the ERR trap below fire inside functions/subshells too,
-# not just at the top level.
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.16"
+SCRIPT_VERSION="Version-3.2.17"
 
-# --- Unattended mode / profile (early pass) --------------------------------
-# --profile must be sourced BEFORE the DEFAULT_* knobs below are resolved, so
-# a profile can set them, and --yes must be known before the first prompt.
-# The full option parser below re-validates every option (and rejects unknown
-# ones); this pass only extracts these two so their effect is early enough.
 AUTO_YES="${AUTO_YES:-0}"
 PROFILE_FILE="${PROFILE_FILE:-}"
 _ps_want_profile=0
@@ -30,11 +23,6 @@ if [ -n "$PROFILE_FILE" ]; then
         echo "FATAL: profile '${PROFILE_FILE}' is not readable." >&2
         exit 2
     fi
-    # The profile is a shell fragment sourced as root. It may set INSTALL_MODE,
-    # any DEFAULT_* knob, and the required answers (TARGET_USER, TARGET_HOSTNAME,
-    # ROOT_PASSWORD, TARGET_USER_PASSWORD, ENCRYPT_PASSPHRASE, DEFAULT_DISK, ...).
-    # Only pass profiles you trust.
-    # shellcheck disable=SC1090  # path is user-supplied by design
     . "$PROFILE_FILE"
 fi
 
@@ -132,7 +120,6 @@ DEFAULT_REGION_GAMES_SIZE="${DEFAULT_REGION_GAMES_SIZE:-60G}"
 DEFAULT_QUIET_BOOT="${DEFAULT_QUIET_BOOT:-no}"
 DEFAULT_TEE_BLACKLIST="${DEFAULT_TEE_BLACKLIST:-no}"
 DEFAULT_SWAPFILE_SIZE="${DEFAULT_SWAPFILE_SIZE:-1}"
-# Current-script defaults retained (not present in source defaults)
 DEFAULT_ENCRYPT="${DEFAULT_ENCRYPT:-no}"
 DEFAULT_DISK="${DEFAULT_DISK:-}"
 DEFAULT_OPTIONAL_TIER="${DEFAULT_OPTIONAL_TIER:-2}"
@@ -148,13 +135,11 @@ save_log_to_usb() {
             [ -d "$_usb_m" ] || continue
             [ -w "$_usb_m" ]  || continue
             _usb_dev="$(findmnt -no SOURCE --target "$_usb_m" 2>/dev/null)"
-            # Never write to the disk under install (or its partitions).
             if [ -n "${DISK:-}" ]; then
                 case "${_usb_dev:-}" in
                     "$DISK"*) continue ;;
                 esac
             fi
-            # Never the live medium's loop backing itself.
             case "${_usb_dev:-}" in
                 /dev/loop*) continue ;;
             esac
@@ -235,10 +220,6 @@ done
 : > "$JOURNAL"
 REBOOT_DELAY="${REBOOT_DELAY:-20}"
 if [ "$AUTO_YES" = "1" ]; then
-    # Unattended mode. Every prompt receives an empty line, i.e. its default.
-    # Prompts that genuinely have no default (username, disk, ERASE, passwords,
-    # a custom ESP size, ...) are guarded below: they take the value from the
-    # profile or abort with a message naming the variable to set.
     echo "==> Unattended mode (--yes): prompts accept their defaults; profile values win."
     exec 0< <(yes '')
 fi
@@ -255,7 +236,6 @@ else
     C_RED=""; C_GRN=""; C_YLW=""; C_BLU=""; C_MAG=""; C_CYN=""; C_BOLD=""; C_RST=""
 fi
 
-# Print a visually distinct section banner, e.g. sec_banner "STAGE 1" "DISK MANAGEMENT".
 sec_banner() {
     echo ""
     echo "${C_CYN}==============================================================================${C_RST}"
@@ -263,23 +243,17 @@ sec_banner() {
     echo "${C_CYN}==============================================================================${C_RST}"
 }
 
-# Print a label-then-question pair with an accent color on the label.
-ask() { # ask "label text" "default-suffix-message?"
+ask() {
     printf '%s' "${C_BOLD}${C_YLW}-- ${1}${C_RST}"
 }
 
-# Yes/no prompt suffix with the ENTER answer in capitals: "[Y/n]" = yes,
-# "[y/N]" = no. Every yes/no prompt renders its default through this helper so
-# the format stays identical across the questionnaire (and so a profile that
-# overrides a DEFAULT_* knob also changes what the prompt advertises).
-yn_suffix() { # $1 = default ("true"/"yes"/"y"/"1" = yes)
+yn_suffix() {
     case "${1,,}" in
         true|yes|y|1) printf '[Y/n]' ;;
         *)            printf '[y/N]' ;;
     esac
 }
 
-# Boolean test for the same DEFAULT_* knobs: is_true "yes" -> success.
 is_true() {
     case "${1,,}" in
         true|yes|y|1) return 0 ;;
@@ -287,19 +261,11 @@ is_true() {
     esac
 }
 
-# " (default)" marker for numbered menus: _def_mark <actual> <entry>.
 _def_mark() {
     if [ "$1" = "$2" ]; then printf ' %s(default)%s' "$C_GRN" "$C_RST"; fi
 }
 
-# ---------------------------------------------------------------------------
-# Bundled Limine boot splash: the Void logo on black, 640x480 PNG, embedded as
-# base64 (11.8 KiB decoded, 15.8 KiB of text) so the installer stays one file.
-# Stage 1 decodes it into the target's /tmp after the filesystems are mounted;
-# the chroot stage copies it to the ESP. Express and --yes use it by default,
-# and Custom defaults to it while offering a different local image.
-# ---------------------------------------------------------------------------
-_write_default_splash() { # $1 = output file
+_write_default_splash() {
     base64 -d > "$1" <<'VOID_SPLASH_B64'
 iVBORw0KGgoAAAANSUhEUgAAAoAAAAHgCAYAAAA10dzkAAABhWlDQ1BJQ0MgcHJvZmlsZQAAKJF9
 kT1Iw1AUhU9bpSJVwRYUcchQnSyIijhqFYpQIdQKrTqYvPQPmjQkKS6OgmvBwZ/FqoOLs64OroIg
@@ -513,11 +479,7 @@ YII=
 VOID_SPLASH_B64
 }
 
-# Validate a candidate Limine wallpaper image and normalise WP_EXT. Returns a
-# failure (and leaves WP_SRC/WP_EXT empty) when the file is missing or is not
-# one of the formats Limine reads. Sets a note for very large images, which
-# still install but eat ESP space that kernel copies need.
-_wp_set_src() { # $1 = image path
+_wp_set_src() {
     WP_SRC=""; WP_EXT=""
     [ -n "${1:-}" ] || return 1
     [ -f "$1" ] || return 1
@@ -535,10 +497,6 @@ _wp_set_src() { # $1 = image path
     return 0
 }
 
-# Step counter / breadcrumb. Every questionnaire section starts with one of
-# these so the user always knows where they are and how much is left. The
-# counter only increments when a section is actually entered, so Express mode
-# (which skips whole sections) still shows a contiguous 1..N sequence.
 STEP_NO=0
 STEP_TOTAL=8
 step_begin() {
@@ -547,9 +505,6 @@ step_begin() {
     echo "${C_MAG}─── Step ${STEP_NO}/${STEP_TOTAL} — $* ───${C_RST}"
 }
 
-# Native stores are mandatory for their desktop. Called at the end of the
-# desktop section (and therefore again after a review-time desktop edit) so the
-# store flags can never contradict the chosen desktop.
 _sync_native_store() {
     case "$DESKTOP_ENV" in
         gnome)  INSTALL_OCTOXBPS="false"; INSTALL_GNOME_SOFTWARE="true"
@@ -562,9 +517,6 @@ _sync_native_store() {
     export INSTALL_OCTOXBPS INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER INSTALL_COSMIC_STORE
 }
 
-# Re-derive the answers that depend on the bootloader/encryption pair. Called
-# at the end of those sections so a review-time edit cannot leave a stale ESP
-# size, kernel-access mode, wallpaper, or YubiKey fallback.
 _normalize_boot_state() {
     if [ "${BOOTLOADER:-}" = "grub" ]; then
         if [ "${ENCRYPT:-no}" = "yes" ] && [ "${EFI_PART_SIZE:-}" = "1G" ]; then
@@ -586,10 +538,6 @@ _normalize_boot_state() {
     export EFI_PART_SIZE KERNEL_MODE LIMINE_WALLPAPER YK_FALLBACK
 }
 
-# Turn off per-app subvolume isolation for apps that now live on their own
-# carved region (a /home partition, a /var partition, ...). Idempotent: it runs
-# at the end of the optional-software section and again just before the install
-# so an edit to the disk layout can never leave a stale PROVISION_* flag.
 _fold_region_subvols() {
 if [ -n "${REGION_PARTITIONED:-}" ]; then
     for _rg in $REGION_PARTITIONED; do
@@ -618,9 +566,6 @@ if [ -n "${REGION_PARTITIONED:-}" ]; then
 fi
 }
 
-# Seed every optional-software variable from its DEFAULT_* knob. Custom then
-# re-asks only the groups its tier selects; groups above the tier keep these
-# values. Express calls this once and asks nothing.
 _apply_optional_defaults() {
     INSTALL_FLATPAK="$DEFAULT_FLATPAK"
     INSTALL_BREW="$DEFAULT_BREW"
@@ -718,9 +663,6 @@ _apply_optional_defaults() {
            EXPORT_SSH_KEY SSH_KEY_COMMENT SSH_KEY_PROTECTED
 }
 
-# Re-derive the flags that depend on another optional answer. Runs after the
-# questionnaire and after a review-time edit so a changed Flatpak or container
-# answer cannot leave a Flatpak-only app or an orphaned backend behind.
 _finalize_optional_state() {
     if [ "${INSTALL_FLATPAK:-false}" != "true" ]; then
         INSTALL_HEROIC="false"
@@ -755,11 +697,6 @@ _finalize_optional_state() {
            DISTROBOX_DEFAULT_ENGINE
 }
 
-# Put the expert storage/boot answers back on their defaults when the
-# advanced-storage gate is off. Needed on a review edit that turns the gate off
-# after those sections already ran: otherwise a carved partition or YubiKey
-# unlock would survive the edit that disabled it. The Limine wallpaper is not
-# part of this gate any more, so it is deliberately left alone.
 _reset_advanced_storage_defaults() {
     REGION_HOME_FS="$DEFAULT_REGION_HOME_FS"
     REGION_VAR_FS="$DEFAULT_REGION_VAR_FS"
@@ -776,21 +713,16 @@ _reset_advanced_storage_defaults() {
            YK_MODE YK_FALLBACK YK_SLOT YK_TOUCH
 }
 
-# Re-run one questionnaire section from the review screen, with a visible
-# header so it is obvious the answers above were already accepted.
-_edit_section() { # $1 = section label, $2 = section function
+_edit_section() {
     echo ""
     echo "${C_MAG}─── Editing: $1 (press Enter at any prompt to keep the default) ───${C_RST}"
     "$2"
 }
 
-# Non-fatal note / progress line helper.
 note() { echo "${C_GRN}==>${C_RST} $*"; }
 warn() { echo "${C_YLW}!! ${C_RST}$*" >&2; }
 critical() { echo "${C_RED}!!!! CRITICAL:${C_RST} $*" >&2; }
-# Unattended (--yes) has no human to type a value that has no default. Abort
-# with the exact profile variable the operator must provide, instead of looping.
-unattended_require() { # $1 = variable name, $2 = human description
+unattended_require() {
     if [ -z "${!1:-}" ]; then
         echo "FATAL: unattended mode (--yes) needs $1 (${2}) in the profile." >&2
         exit 1
@@ -831,8 +763,6 @@ esp_size_choose() {
                 ask "Custom ESP size (e.g. 512M, 3G, 10GiB): "
                 read -r ESP_SIZE_CUSTOM
                 _esp_custom="${ESP_SIZE_CUSTOM^^}"
-                # 1 GiB floor (a below-floor or malformed entry is rejected with
-                # an explanation and the menu loops).
                 case "$_esp_custom" in
                     *[!0-9a-gKMG]*|"") echo "Please enter a size like 512M, 3G, or 1024M." >&2 ;;
                     *)
@@ -847,7 +777,6 @@ esp_size_choose() {
                         if [ "$_esp_bytes" -lt 1024 ]; then
                             echo "  ESP too small — floor is 1 GiB (1024M). Try again." >&2
                         else
-                            # Normalize to gdisk's native single-letter K/M/G.
                             case "$_esp_units" in
                                 G) EFI_PART_SIZE="${_esp_custom}"; EFI_PART_SIZE="${_esp_num}G" ;;
                                 M|K)
@@ -871,7 +800,7 @@ esp_size_choose() {
     echo "  Resolved ESP size: ${EFI_PART_SIZE}"
 }
 
-region_size_choose() {  # $1 = region label, $2 = default size, $3 = result var
+region_size_choose() {
     local _rz_label="$1" _rz_def="$2" _rz_var="$3"
     local _rz_in _rz_val _rz_num _rz_unit _rz_ib _rz_norm
     while true; do
@@ -900,7 +829,7 @@ region_size_choose() {  # $1 = region label, $2 = default size, $3 = result var
     done
 }
 
-browse_pick() { # browse_pick <mode> <what-label>
+browse_pick() {
     local _bp_mode="${1:-file}" _bp_label="${2:-file}"
     local _bp_start _bp_ok=0 _bp_src="" _bp_ext="" _bp_i _bp_alias=""
     local -a _bp_items=()
@@ -910,7 +839,6 @@ browse_pick() { # browse_pick <mode> <what-label>
         _bp_start="/root"
     fi
     while [ "$_bp_ok" -eq 0 ]; do
-        # A fresh menu pass carries the copyright-free note that Ctrl-C aborts.
         echo "" >&2
         echo "  Browse for ${_bp_label}: ${C_BOLD}${C_CYN}/${_bp_start#/}${C_RST}" >&2
         echo "  Enter ${C_BOLD}..${C_RST} to go up a level, an absolute/relative path to jump there," >&2
@@ -1004,12 +932,9 @@ echo " ${C_BOLD}${C_CYN}Void Linux Unified Installer${C_RST} — ${C_BOLD}${SCRI
 echo " Bootloader: choose GRUB or Limine below — UEFI and legacy BIOS both supported"
 echo "=============================================================================="
 
-# Best-effort unwind of whatever got mounted, run ONLY on an actual command
-# failure under set -e (trap ... ERR), not on a Ctrl-C or a deliberate exit.
 cleanup_on_failure() {
     ec=$?
 
-    # shellcheck disable=SC2094  # journaled failure trace mirrors the journal's own recent history
     {
         echo "############################################################"
         echo "# Void Linux Installer — FAILURE TRACE — $(date)"
@@ -1035,8 +960,6 @@ cleanup_on_failure() {
     } >> "$JOURNAL" 2>&1 || true
     echo "!! Install failed (exit $ec). Failure trace logged to ${JOURNAL}. Attempting best-effort unwind of /mnt..." >&2
 
-    # Only relevant when BOOTLOADER=grub; harmless no-op otherwise since
-    # the file never exists on a Limine install.
     [ -f /mnt/etc/grub.d/41_snapshots-btrfs ] && chmod +x /mnt/etc/grub.d/41_snapshots-btrfs || true
 
     swapoff /mnt/var/swap/swapfile 2>/dev/null || true
@@ -1121,7 +1044,6 @@ if [ -f "$STATE_FILE" ]; then
         esac
     fi
     if [ "$_do_resume" = "1" ]; then
-        # shellcheck disable=SC1090
         . "$STATE_FILE"
         RESUME=1
         echo "==> Resuming install with saved configuration (skipping prompts & re-partition)."
@@ -1135,7 +1057,7 @@ unset _do_resume _resume_ans
 
 if [ "${LOCAL_CACHE_REUSE:-no}" = "yes" ]; then
     if [ -n "${LOCAL_CACHE_DIR:-}" ] && [ -d "$LOCAL_CACHE_DIR" ] && [ -w "$LOCAL_CACHE_DIR" ]; then
-        : # recorded path still valid
+        :
     else
         _lc_redetect=$(_local_cache_detect || true)
         if [ -n "$_lc_redetect" ]; then
@@ -1154,8 +1076,6 @@ LOCAL_CA=""
 [ "${LOCAL_CACHE_REUSE:-no}" = "yes" ] && [ -n "${LOCAL_CACHE_DIR:-}" ] && LOCAL_CA="-c $LOCAL_CACHE_DIR"
 export LOCAL_CA
 
-# Prompt for root's password first, then the target username, then that
-# user's own password right after — groups the new-account info together
 read_password_twice() {
     local prompt_label="$1"
     local __resultvar="$2"
@@ -1186,13 +1106,13 @@ read_password_twice() {
     pw1=""; pw2=""
 }
 
-_region_carved() { # $1=region name; returns 0 when carved onto its own partition
+_region_carved() {
     case " ${REGION_PARTITIONED:-} " in
         *" $1 "*) return 0 ;;
         *)        return 1 ;;
     esac
 }
-_region_fs_of() { # $1 = lowercase region token (home|var|cache|srv|opt|games)
+_region_fs_of() {
     local _rfv
     if [ "$1" = "games" ]; then
         _rfv="REGION_GAMES"
@@ -1218,10 +1138,6 @@ else
 fi
 
 if [ "$RESUME" != "1" ]; then
-# Installation mode. Express keeps the hardware-derived defaults and asks only
-# for what cannot be guessed safely (accounts, encryption, desktop, target
-# disk, review). Custom runs the full questionnaire. The choice can also be
-# pre-set with --express/--custom or INSTALL_MODE= in the environment.
 if [ -z "${INSTALL_MODE:-}" ]; then
     echo ""
     echo "${C_BOLD}${C_BLU}Installation mode${C_RST}"
@@ -1249,14 +1165,10 @@ case "$INSTALL_MODE" in
         INSTALL_MODE="custom" ;;
 esac
 export INSTALL_MODE
-# Express: accounts, encryption, desktop, disk, review = 5 steps.
-# Custom adds locale/storage, hardware, and optional software = 8 steps.
 if [ "$INSTALL_MODE" = "express" ]; then STEP_TOTAL=5; else STEP_TOTAL=8; fi
 
 _ask_accounts_section() {
 if [ "$INSTALL_MODE" = "express" ]; then
-    # Defaults: DEFAULT_ACCOUNT_MODEL (Ubuntu-style unless overridden) and
-    # DEFAULT_LOGIN_SHELL (bash unless overridden in the environment).
     case "$DEFAULT_ACCOUNT_MODEL" in
         2) ACCOUNT_MODEL="debian" ;;
         3) ACCOUNT_MODEL="ubuntu" ;;
@@ -1339,7 +1251,6 @@ else
     ROOT_PASSWORD=""
 fi
 
-# Prompt for the target account name
 echo ""
 echo "${C_BOLD}${C_BLU}System identity${C_RST}"
 if [ "$AUTO_YES" = "1" ]; then
@@ -1426,11 +1337,6 @@ export TARGET_FQDN
 }
 
 _ask_locale_section() {
-# Advanced-storage gate: data-region carving and YubiKey disk unlock are expert
-# options. They are asked only when this is on; Express always leaves it off,
-# and Custom honours DEFAULT_ADVANCED_STORAGE (also what --yes feeds). The reset
-# below is what makes a review edit that turns the gate off actually discard the
-# earlier expert answers.
 ADVANCED_STORAGE="${ADVANCED_STORAGE:-}"
 if [ "$INSTALL_MODE" = "custom" ]; then
     _adv_default="${ADVANCED_STORAGE:-$DEFAULT_ADVANCED_STORAGE}"
@@ -1558,9 +1464,6 @@ while true; do
                 ask "Type timezone (e.g. Australia/Sydney, or UTC): "
                 read -r TIMEZONE
             fi
-            # Accept Area/City form, or a bare valid single token (e.g. UTC/GMT).
-            # Final validity is enforced against the target's tzdata in the
-            # chroot, which falls back to UTC if the zone is absent.
             if [ -z "$TIMEZONE" ] || ! [[ "$TIMEZONE" =~ ^[A-Za-z_]+(/[A-Za-z_/+-]+)?$ ]]; then
                 echo "Invalid timezone; falling back to America/New_York." >&2
                 TIMEZONE="America/New_York"
@@ -1614,8 +1517,6 @@ while true; do
     esac
 done
 export REPO_PRIMARY
-# Backups stay on the resilient global tiers regardless of the chosen primary —
-# Fastly CDN first, then the load-balanced tier-1 default — for wide failover.
 REPO_BACKUP1="https://repo-fastly.voidlinux.org/current"
 REPO_BACKUP2="https://repo-default.voidlinux.org/current"
 export REPO_BACKUP1 REPO_BACKUP2
@@ -1633,8 +1534,6 @@ else
 fi
 ask "Use a local package cache? $(yn_suffix "$DEFAULT_LOCAL_CACHE") or type an absolute path: "
 read -r LOCAL_CACHE_INPUT
-# Normalise the DEFAULT_* spelling first, so "true"/"1" from a profile behaves
-# like "yes" in the patterns below (and matches what the prompt advertises).
 if is_true "$DEFAULT_LOCAL_CACHE"; then _cache_default="yes"; else _cache_default="no"; fi
 case "${LOCAL_CACHE_INPUT:-$_cache_default}" in
     /* )
@@ -1701,15 +1600,12 @@ while true; do
 done
 export SWAP_BACKEND
 unset _swap_default_label
-# A reusable helper: does the chosen backend provision a disk swapfile?
 if [ "$SWAP_BACKEND" = "swapfile" ] || [ "$SWAP_BACKEND" = "both" ]; then
     SWAPFILE_MODE="true"
 else
     SWAPFILE_MODE="false"
 fi
 
-# Hibernation is only possible with a disk swapfile large enough to hold RAM;
-# it is meaningless (and thus never offered) for zram-only or no-swap.
 if [ "$SWAPFILE_MODE" = "true" ]; then
     echo ""
     if is_true "$DEFAULT_HIBERNATION"; then _hib_default_label="Yes"; else _hib_default_label="No"; fi
@@ -1730,14 +1626,12 @@ export ENABLE_HIBERNATION
 
 if [ "$ENABLE_HIBERNATION" = "true" ]; then
     _RAM_MB=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
-    # Defensive baseline: if RAM can't be read (or reads as 0/non-numeric),
-    # assume 8 GiB so the size never degenerates to a 0-sized swapfile.
     _RAM_MB=${_RAM_MB:-8192}
     if [ "${_RAM_MB}" -le 0 ] 2>/dev/null || ! [[ "${_RAM_MB}" =~ ^[0-9]+$ ]]; then
         _RAM_MB=8192
     fi
-    _RAM_GB=$(( (_RAM_MB + 1023) / 1024 ))   # whole GiB of RAM, rounded up
-    _SWAP_GB=$(( (_RAM_GB * 5 + 3) / 4 ))    # ceil(RAM_GB * 1.25)
+    _RAM_GB=$(( (_RAM_MB + 1023) / 1024 ))
+    _SWAP_GB=$(( (_RAM_GB * 5 + 3) / 4 ))
     SWAPFILE_SIZE="${_SWAP_GB}g"
     unset _RAM_MB _RAM_GB _SWAP_GB
 elif [ "$SWAPFILE_MODE" = "true" ]; then
@@ -1821,7 +1715,6 @@ echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snaps
                         ask "UEFI boot entry label (default ${DEFAULT_LIMINE_NVRAM_LABEL}): "
                         read -r LIMINE_NVRAM_LABEL_INPUT
                         _lbl="${LIMINE_NVRAM_LABEL_INPUT:-$DEFAULT_LIMINE_NVRAM_LABEL}"
-                        # Trim surrounding whitespace in pure bash (no external deps).
                         _lbl="${_lbl#"${_lbl%%[![:space:]]*}"}"
                         _lbl="${_lbl%"${_lbl##*[![:space:]]}"}"
                         if [ -z "$_lbl" ]; then
@@ -1829,7 +1722,6 @@ echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snaps
                             continue
                         fi
                         if [ "${#_lbl}" -gt 80 ]; then
-                            # Soft guard: firmware menus truncate long descriptions.
                             echo "Label too long — keep it under 80 characters." >&2
                             continue
                         fi
@@ -1860,7 +1752,6 @@ echo "  ${C_BOLD}2)${C_RST} ${C_YLW}GRUB${C_RST} — mature, battle-tested snaps
  done
 export BOOTLOADER
 export EFI_PART_SIZE
-# NVRAM answers are set for both branches (GRUB keeps the pre-menu defaults).
 export LIMINE_NVRAM
 export LIMINE_NVRAM_LABEL
 
@@ -1901,8 +1792,6 @@ KERNEL_PKGS="linux"
 export INSTALL_KERNEL_MAINLINE INSTALL_KERNEL_LTS KERNEL_PKGS
 echo "  Resolved kernel set: ${KERNEL_PKGS}"
 else
-    # Express mode: take the DEFAULT_* values without asking. These mirror the
-    # "default" menu entry of each section above exactly.
     case "$DEFAULT_LOCALE" in
         2)  LOCALE="en_GB.UTF-8" ;;
         3)  LOCALE="de_DE.UTF-8" ;;
@@ -1933,7 +1822,6 @@ else
         14) TIMEZONE="Asia/Kolkata" ;;
         *)  TIMEZONE="America/New_York" ;;
     esac
-    # Keep the regional mirror auto-selection identical to the custom path.
     case "$TIMEZONE" in
         America/Sao_Paulo|America/Argentina/*|America/La_Paz|America/Bogota|America/Lima|America/Caracas|America/Santiago|America/Buenos_Aires|America/Mexico_City)
             MIRROR_REGION="south-america"; MIRROR_AUTO="https://void.voidbr.org/voidlinux/current" ;;
@@ -2050,10 +1938,8 @@ if [ "$INSTALL_MODE" = "custom" ]; then
     fi
 fi
 _cc="$(cat /sys/class/dmi/id/chassis_type 2>/dev/null || true)"
-_auto_device_profile="" # resolved inside the loop below per Auto path
+_auto_device_profile=""
 if [ "$INSTALL_MODE" = "express" ]; then
-    # Same rules as menu item 1 (Automatic): chassis type first, then the
-    # Bluetooth hardware probe, without the confirmation prompt.
     case "$_cc" in
         8|9|10|11|14|30|31|32) DEVICE_PROFILE="laptop-bt" ;;
         3|4|5|6|7|13|15) DEVICE_PROFILE="desktop-bt" ;;
@@ -2080,7 +1966,7 @@ while true; do
             case "$_cc" in
                 8|9|10|11|14|30|31|32) DEVICE_PROFILE="laptop-bt" ;;
                 3|4|5|6|7|13|15) DEVICE_PROFILE="desktop-bt" ;;
-                *) DEVICE_PROFILE="laptop-bt" ;;  # unresolvable → historical laptop baseline
+                *) DEVICE_PROFILE="laptop-bt" ;;
             esac
             [ "$_bt_hw" = "yes" ] && case "$DEVICE_PROFILE" in
                 desktop*) DEVICE_PROFILE="desktop-bt" ;;
@@ -2146,7 +2032,7 @@ for _pci in /sys/bus/pci/devices/*/class; do
     _class="$(cat "$_pci" 2>/dev/null || true)"
     case "$_class" in
         0x03*) ;;
-        *) continue ;;  # not a display controller
+        *) continue ;;
     esac
     _dev="${_pci%/class}"
     _vid="$(cat "$_dev/vendor" 2>/dev/null || true)"
@@ -2308,8 +2194,6 @@ else
     echo "  WiFi: no wireless radio detected (${WIFI_HW:-none})"
 fi
 
-# Gap prompt — ONLY on a Broadcom radio. DEFAULT_WIFI_FW=auto → yes; exporting
-# yes|no pins it. Non-Broadcom hardware never sees this prompt.
 case "$WIFI_IDS" in
     *0x14e4:*)
         if [ "$DEFAULT_WIFI_FW" = "auto" ]; then
@@ -2349,8 +2233,6 @@ LIMINE_WALLPAPER_STYLE="stretched"
 WP_SRC=""
 WP_EXT=""
 if [ "$BOOTLOADER" = "limine" ]; then
-    # Style: one of Limine's values; the bundled logo is 4:3 on black, so
-    # "centered" keeps it undistorted and blends with the menu background.
     case "${DEFAULT_LIMINE_WALLPAPER_STYLE,,}" in
         stretched|tiled|centered|raw) LIMINE_WALLPAPER_STYLE="${DEFAULT_LIMINE_WALLPAPER_STYLE,,}" ;;
         *)                            LIMINE_WALLPAPER_STYLE="centered" ;;
@@ -2376,9 +2258,6 @@ if [ "$BOOTLOADER" = "limine" ]; then
             esac
         done
         if [ "$LIMINE_WALLPAPER" = "yes" ]; then
-            # A profile may name its image explicitly; use it without opening
-            # the picker. Otherwise offer the bundled splash and let the user
-            # browse for a replacement.
             if [ -n "${DEFAULT_LIMINE_WALLPAPER_SRC:-}" ] && _wp_set_src "$DEFAULT_LIMINE_WALLPAPER_SRC"; then
                 echo "  Using profile wallpaper: ${WP_SRC}"
             else
@@ -2401,8 +2280,6 @@ if [ "$BOOTLOADER" = "limine" ]; then
                 done
             fi
             if [ -n "$WP_SRC" ]; then
-                # Style is only meaningful for a picture that was not designed
-                # for the screen; the bundled splash keeps its knob default.
                 case "$LIMINE_WALLPAPER_STYLE" in
                     tiled)    _wp_style_default=2; _wp_style_label="tiled" ;;
                     centered) _wp_style_default=3; _wp_style_label="centered" ;;
@@ -2423,9 +2300,6 @@ if [ "$BOOTLOADER" = "limine" ]; then
             unset WP_YN WP_CUSTOM WP_PICK WP_STYLE_INPUT
         fi
     else
-        # Express, --yes and profile runs answer from the DEFAULT_* knobs and
-        # never enter the picker. A profile can point DEFAULT_LIMINE_WALLPAPER_SRC
-        # at its own image; anything unusable falls back to the bundled splash.
         if is_true "$DEFAULT_LIMINE_WALLPAPER"; then LIMINE_WALLPAPER="yes"; else LIMINE_WALLPAPER="none"; fi
         if [ "$LIMINE_WALLPAPER" = "yes" ] && [ -n "${DEFAULT_LIMINE_WALLPAPER_SRC:-}" ]; then
             if ! _wp_set_src "$DEFAULT_LIMINE_WALLPAPER_SRC"; then
@@ -2468,8 +2342,6 @@ if [ "$BOOTLOADER" = "grub" ] && [ "$ENCRYPT" = "yes" ]; then
         echo "  the whole boot tree (grub + every kernel/initramfs) — pick a size."
         esp_size_choose
     else
-        # Express: the GRUB+encryption combination needs the larger ESP that
-        # the menu's default (4 GiB) already provides.
         EFI_PART_SIZE="4G"
         export EFI_PART_SIZE
     fi
@@ -2654,8 +2526,6 @@ if [ "$INSTALL_MODE" = "custom" ] && [ "$ADVANCED_STORAGE" = "yes" ]; then
     elif [[ "$_rh" =~ ^[bB](trfs)?$ ]]; then REGION_GAMES="btrfs"
     else echo "  (default) none"; REGION_GAMES="$DEFAULT_REGION_GAMES"; fi
     unset _rh
-    # Carved regions ask a size prompt (in the fixed carve order); the Btrfs
-    # root always gets the remainder, so it never asks.
     echo "  Carved region size prompts:"
     if [ "$REGION_HOME_FS" = "ext4" ]; then
         region_size_choose "/home" "$DEFAULT_REGION_HOME_SIZE" REGION_HOME_SIZE
@@ -2682,8 +2552,6 @@ if [ "$INSTALL_MODE" = "custom" ] && [ "$ADVANCED_STORAGE" = "yes" ]; then
     [ "$REGION_SRV_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED srv"
     [ "$REGION_OPT_FS"   = "ext4" ]  && REGION_PARTITIONED="$REGION_PARTITIONED opt"
     [ "$REGION_GAMES"    != "none" ] && REGION_PARTITIONED="$REGION_PARTITIONED games"
-    # Unset the size vars of regions that are NOT carved so downstream logic
-    # (install-config, DBG plan) only sees meaningful values.
     [ "$REGION_HOME_FS"  != "ext4" ]  && unset REGION_HOME_SIZE
     [ "$REGION_VAR_FS"   != "ext4" ]  && unset REGION_VAR_SIZE
     [ "$REGION_CACHE_FS" != "ext4" ]  && unset REGION_CACHE_SIZE
@@ -2693,9 +2561,6 @@ if [ "$INSTALL_MODE" = "custom" ] && [ "$ADVANCED_STORAGE" = "yes" ]; then
     [ -n "$REGION_PARTITIONED" ] && echo "  → Carved partitions:${REGION_PARTITIONED}"
     jl "MULTI-FS: carved=${REGION_PARTITIONED:-<none>} home=${REGION_HOME_FS} var=${REGION_VAR_FS} cache=${REGION_CACHE_FS} srv=${REGION_SRV_FS} opt=${REGION_OPT_FS} games=${REGION_GAMES}"
 else
-    # Express, --yes and Custom with advanced storage off: derive the layout
-    # from DEFAULT_REGION_* instead of asking. Resume never reaches this
-    # function — -r skips the whole questionnaire.
     REGION_HOME_FS="$DEFAULT_REGION_HOME_FS"
     REGION_VAR_FS="$DEFAULT_REGION_VAR_FS"
     REGION_CACHE_FS="$DEFAULT_REGION_CACHE_FS"
@@ -2966,9 +2831,6 @@ _sync_native_store
 }
 
 _ask_optional_section() {
-# Seed every optional choice from DEFAULT_* first. The Custom tiers below
-# re-ask only the groups the user selected; groups above that tier keep these
-# values, so Express, --yes and the "None" tier all share one code path.
 _apply_optional_defaults
 
 if [ "$INSTALL_MODE" = "custom" ]; then
@@ -3010,8 +2872,6 @@ fi
 unset _opt_tier_default
 export OPTIONAL_TIER
 
-# Offered only on non-store graphical desktops (cinnamon/xfce/mate/lxqt);
-# GNOME/KDE/COSMIC get their native store automatically.
 if [ "$DESKTOP_ENV" != "none" ] && [ "$DESKTOP_ENV" != "gnome" ] && \
    [ "$DESKTOP_ENV" != "cosmic" ] && [ "$DESKTOP_ENV" != "kde" ]; then
     _INSTALL_STORE_OFFERED="true"
@@ -3036,8 +2896,6 @@ case "$INSTALL_FLATPAK_INPUT" in
 esac
 export INSTALL_FLATPAK
 
-# Consolidated store choice: pick at most one store/package-manager.
-# Offered only on non-store graphical desktops (cinnamon/xfce/mate/lxqt).
 if [ "$_INSTALL_STORE_OFFERED" = "true" ]; then
     echo ""
     echo "${C_BOLD}${C_BLU}Choose an app store / package manager${C_RST}"
@@ -3094,9 +2952,6 @@ if [ "$_INSTALL_STORE_OFFERED" = "true" ]; then
     done
     export INSTALL_OCTOXBPS INSTALL_GNOME_SOFTWARE INSTALL_DISCOVER INSTALL_COSMIC_STORE
 else
-    # GNOME, KDE and COSMIC have a native store: select it automatically so
-    # the plan/config reflect what will be installed. The other desktops reach
-    # the store menu above and default to no store.
     INSTALL_OCTOXBPS="false"
     INSTALL_GNOME_SOFTWARE="false"
     INSTALL_DISCOVER="false"
@@ -3191,8 +3046,6 @@ if [ "$SETUP_WEB_BROWSERS" = "true" ]; then
         export INSTALL_BRAVE
     fi
 else
-    # No web browsers wanted: force every browser install toggle off so
-    # downstream SUBVOL_LIST / provision_browser_subvol gating stays correct.
     INSTALL_FIREFOX="false"
     INSTALL_CHROMIUM="false"
     INSTALL_VIVALDI="false"
@@ -3483,7 +3336,6 @@ if [ "$INSTALL_SSH_SERVER" = "true" ]; then
     esac
     ask "Allow root to log in over SSH (public-key only)? [y/N]: "
     read -r SSH_ROOT_LOGIN_INPUT
-    # y/yes -> prohibit-password (public-key only); default N -> no root login.
     case "${SSH_ROOT_LOGIN_INPUT:-$DEFAULT_SSH_ROOT_LOGIN}" in
         ""|"$DEFAULT_SSH_ROOT_LOGIN") SSH_ROOT_LOGIN="$DEFAULT_SSH_ROOT_LOGIN" ;;
         [yY]*) SSH_ROOT_LOGIN="prohibit-password" ;;
@@ -3525,11 +3377,8 @@ if [ "$IMPORT_SSH_KEY" = "true" ]; then
                 _imported_key_ok="no"
                 if ssh-keygen -y -P "" -f "${SSH_IMPORT_DIR}/imported" \
                         > "${SSH_IMPORT_DIR}/imported.pub" 2>/dev/null; then
-                    # Unencrypted and valid — the derived .pub is authoritative.
                     _imported_key_ok="yes"
                 else
-                    # Not readable with an empty passphrase: either passphrase-
-                    # protected, or not a key at all.
                     if grep -q -- "-----BEGIN .*PRIVATE KEY-----" "${SSH_IMPORT_DIR}/imported"; then
                         _imp_key_pass=""
                         read -r -s -p "  Enter the passphrase for this imported key: " _imp_key_pass
@@ -3617,7 +3466,6 @@ esac
 if [ "$EXPORT_SSH_KEY" = "true" ]; then
     _export_src=""
     [ -f "$SSH_KEYGEN_DIR/id_ed25519" ] && _export_src="$SSH_KEYGEN_DIR/id_ed25519"
-    # shellcheck disable=SC2012  # single newest/most-relevant import copy is intended
     [ -z "$_export_src" ] && [ -f "$SSH_IMPORT_DIR/imported" ] && _export_src="$SSH_IMPORT_DIR/imported"
     if [ -z "$_export_src" ]; then
         echo "  No key present to export (import+generate were both declined)." >&2
@@ -3644,10 +3492,6 @@ echo "  Express: Flatpak=${INSTALL_FLATPAK} Homebrew=${INSTALL_BREW} store=$(cas
 echo "  Express: optional apps, containers and SSH kept at their DEFAULT_* values."
 fi
 
-# ---- Advanced tier: per-app subvolume isolation ---------------------------
-# Only the Advanced tier asks the two master questions. Express, None and the
-# Essentials/Common tiers resolve the per-app table from DEFAULT_SUBVOL_* and
-# never prompt (the table still prints the resulting flags for the log).
 if [ "$INSTALL_MODE" = "custom" ] && [ "$OPTIONAL_TIER" = "3" ]; then
 
 echo ""
@@ -3668,7 +3512,7 @@ echo "     isolated subvolume from day one (no mixing back into @ / @home, and"
 echo "     no migration needed)."
 echo "  Answer 'i' to decide per app instead of one bulk answer."
 
-_subvol_master() { # $1 = prompt text, $2 = boolean default ("true"/"false")
+_subvol_master() {
     local _a _def_out
     case "$2" in
         true|yes) _def_out="yes" ;;
@@ -3697,8 +3541,6 @@ else
         true|yes) SUBVOL_PRECREATE="yes" ;;
         *)        SUBVOL_PRECREATE="no" ;;
     esac
-    # Wording depends on why the table was not asked: Express has no menu,
-    # "None" explicitly skipped it, and Essentials/Common stopped short of it.
     if [ "$INSTALL_MODE" = "express" ]; then
         echo "  Subvolume isolation: DEFAULT_* values (installed=${SUBVOL_ISOLATE_INSTALLED}, precreate=${SUBVOL_PRECREATE})."
     elif [ "${OPTIONAL_TIER:-}" = "4" ]; then
@@ -3710,7 +3552,7 @@ fi
 export SUBVOL_ISOLATE_INSTALLED
 export SUBVOL_PRECREATE
 
-_subvol_ask() { # $1=full prompt text, $2=default("true"/"false")
+_subvol_ask() {
     local _a
     while true; do
         ask "$1" >&2
@@ -3724,7 +3566,6 @@ _subvol_ask() { # $1=full prompt text, $2=default("true"/"false")
     done
 }
 
-# shellcheck disable=SC2016 # deliberate table of unexpanded var names
 SUBVOL_ROWS="
 INSTALL_FIREFOX|PROVISION_FIREFOX_SUBVOL|Firefox
 INSTALL_CHROMIUM|PROVISION_CHROMIUM_SUBVOL|Chromium
@@ -3741,9 +3582,6 @@ INSTALL_PODMAN_ROOTFUL|PROVISION_PODMAN_SUBVOL|Podman (rootful)
 INSTALL_PODMAN_ROOTLESS|PROVISION_PODMAN_ROOTLESS_SUBVOL|Podman (rootless)
 "
 
-# The table is informational: it prints the resulting PROVISION_* flags so the
-# log shows what isolation will look like. On the "None" tier the user asked to
-# skip this cycle entirely, so the table stays silent (the flags are still set).
 _subvol_verbose="true"
 if [ "${OPTIONAL_TIER:-}" = "4" ]; then
     _subvol_verbose="false"
@@ -3776,7 +3614,6 @@ while IFS='|' read -r _iv _pv _label; do
         fi
     fi
     eval "${_pv}=\$_dec"
-    # shellcheck disable=SC2163 # _pv is a dynamically-computed PROVISION_*_SUBVOL name; export deliberately uses the variable name
     export "$_pv"
     if [ "$_subvol_verbose" = "true" ]; then
         echo "  -> ${_pv}=$_dec"
@@ -3803,8 +3640,6 @@ fi
 DISK_LIST=()
 for _cand in "${DISK_CANDIDATE_NAMES[@]}"; do
     _dev="/dev/${_cand}"
-    # Exclude anything currently mounted anywhere (the disk itself or any
-    # partition/child of it) — this is what filters out the live medium.
     if lsblk -n -o MOUNTPOINT "$_dev" 2>/dev/null | grep -q '[^[:space:]]'; then
         continue
     fi
@@ -3895,7 +3730,6 @@ DISK_BYTES="$(lsblk -bdn -o SIZE "$DISK" 2>/dev/null | tr -d '[:space:]' || true
 disk_has_void_install() {
     local _tgt="$1"
     local _probe_dir="" _dev _fstype _found=0 _kid
-    # Read the target's child partition names (list excludes the parent row).
     while IFS= read -r _kid; do
         [ -n "$_kid" ] || continue
         _dev="/dev/${_kid}"
@@ -3904,9 +3738,6 @@ disk_has_void_install() {
         _probe_dir="$(mktemp -d /tmp/void-probe.XXXXXX 2>/dev/null || true)"
         [ -n "$_probe_dir" ] || continue
         if mount -o ro,nosuid,nodev "$_dev" "$_probe_dir" 2>/dev/null; then
-            # Strong Void markers only. os-release ID=void is the definitive
-            # signal; the script's Btrfs subvol layout (@/@root/@home) and
-            # the /etc/void-installer sentinel are corroborating ones.
             if [ -f "$_probe_dir/etc/os-release" ] && grep -qiE '^(ID|ID_LIKE)=["'\'']?void' "$_probe_dir/etc/os-release"; then
                 _found=1
             elif { [ -d "$_probe_dir/@" ] || [ -d "$_probe_dir/@root" ] || [ -d "$_probe_dir/@home" ]; } \
@@ -3954,8 +3785,6 @@ _ask_optional_section
 step_begin "Target disk"
 _ask_disk_section
 
-# The summary is a function so the editable-review loop can redraw it after
-# any section edit without re-printing the step banner.
 _print_review_summary() {
 _rev_de=$(case "$DESKTOP_ENV" in kde) echo KDE Plasma;; cinnamon) echo Cinnamon;; gnome) echo GNOME;; xfce) echo Xfce;; mate) echo MATE;; lxqt) echo LXQt;; cosmic) echo COSMIC;; *) echo "$DESKTOP_ENV";; esac)
 _rev_dm="$DISPLAY_MANAGER"
@@ -4005,9 +3834,6 @@ else
     _rev_acct="$ACCOUNT_MODEL (root locked, user sudo)"
 fi
 echo "${C_BOLD}  Account model    :${C_RST} ${_rev_acct}"
-# Stores and optional software were resolved either by the Custom
-# questionnaire or by the DEFAULT_* knobs in Express. Show the result so an
-# edit to that section is visible on the redrawn summary.
 _rev_store="none"
 if   [ "$INSTALL_GNOME_SOFTWARE" = "true" ]; then _rev_store="GNOME Software"
 elif [ "$INSTALL_DISCOVER" = "true" ];       then _rev_store="KDE Discover"
@@ -4080,9 +3906,6 @@ while true; do
         [rR])
             echo ""
             echo "!! Configuration review declined — restarting the installer so you can revise your choices." >&2
-            # Nothing destructive has happened yet. Drop any stale state file
-            # so the re-run starts clean instead of offering to resume, then
-            # re-exec the same invocation from the top.
             rm -f "$STATE_FILE" 2>/dev/null || true
             exec "$0" "$@"
             ;;
@@ -4110,8 +3933,6 @@ while true; do
 done
 unset _rev_ans _edit_max
 
-# Region edits can change which subvolumes make sense; re-fold before wiping
-# so the answers used by the install always match the final layout.
 _fold_region_subvols
 
 echo ""
@@ -4135,7 +3956,6 @@ fi
 echo "${C_RED}==============================================================================${C_RST}"
 echo ""
 if [ "$_TARGET_HAS_VOID" = "true" ]; then
-    # Elevated bar for the already-installed case: must type ERASE <device>.
     echo "${C_RED}${C_BOLD}  >>> This appears to be an existing Void install. To proceed, type:${C_RST}"
     echo "${C_RED}${C_BOLD}          ERASE ${DISK}${C_RST}"
     echo ""
@@ -4165,7 +3985,6 @@ else
         exit 1
     fi
 fi
-# End of the skipped-on-resume NIC/disk/ERASE block.
 fi
 
 for _rr in $REGION_PARTITIONED; do
@@ -4178,8 +3997,6 @@ NREG=0
 for _rr in $REGION_PARTITIONED; do NREG=$((NREG + 1)); done
 unset _rr
 if [ "$BOOT_MODE" = "bios" ]; then
-    # ef02 goes where the remainder WOULD start: after the regions when they
-    # are carved on the outer disk, otherwise straight after the ESP.
     if [ -n "${REGION_PARTITIONED:-}" ] && [ "$ENCRYPT" != "yes" ]; then
         BIOSBOOT_PN=$((NREG + 2))
     else
@@ -4206,13 +4023,11 @@ else
 fi
 
 if [ -n "${REGION_PARTITIONED:-}" ] && [ "$ENCRYPT" != "yes" ]; then
-    # Outer-disk carve: regions 2..1+nreg, LINUX last (remainder).
     if [[ "$DISK" =~ (nvme|mmcblk) ]]; then
         export PART_SYS="${DISK}p$((NREG + 2 + BIOSBOOT_OFFSET))"
     else
         export PART_SYS="${DISK}$((NREG + 2 + BIOSBOOT_OFFSET))"
     fi
-    # Per-region partition device, in carve order.
     _rr_i=1
     for _rr in $REGION_PARTITIONED; do
         _rr_pn=$((_rr_i + 1))
@@ -4280,8 +4095,6 @@ _size_to_bytes() {
             *)   _mult=1 ;;
         esac
     elif [[ "$_sz" =~ ^([0-9]+)([KMGTPB])$ ]]; then
-        # gdisk single-letter suffix — binary multiples (G=2^30), which is how
-        # sgdisk interprets "40G" / "+4G" in the carve commands.
         _num="${BASH_REMATCH[1]}"
         _unit="${BASH_REMATCH[2]}"
         case "$_unit" in
@@ -4367,7 +4180,6 @@ if [ "$DRY_RUN" = "1" ]; then
 else
 for REPO_ATTEMPT in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2" "$REPO_EXTRA1" "$REPO_EXTRA2"; do
     echo "==> Attempting live-CD package sync against repository: ${REPO_ATTEMPT}"
-    # shellcheck disable=SC2086  # $YK_LIVE_PKGS is a space-separated package list, split on purpose
     if xbps-install -Syu -R "$REPO_ATTEMPT" ${LOCAL_CA} xbps -y && xbps-install -R "$REPO_ATTEMPT" ${LOCAL_CA} gptfdisk parted kpartx btrfs-progs openssl${YK_LIVE_PKGS} -y; then
         LIVECD_SYNC_OK=1
         echo "==> Live-CD package sync succeeded using: ${REPO_ATTEMPT}"
@@ -4418,7 +4230,6 @@ if [ "$RESUME" != "1" ] && [ "$YK_MODE" = "hmac-sha1" ]; then
     else
         YK_TOUCH_OPT=""
         [ "$YK_TOUCH" = "yes" ] && YK_TOUCH_OPT=" -ochal-btn-trig"
-        # shellcheck disable=SC2086  # deliberate split of space-prefixed $YK_TOUCH_OPT into a flag
         if ! ykpersonalize "-${YK_SLOT}" -ochal-resp -ochal-hmac -ohmac-lt64 -oserial-api-visible${YK_TOUCH_OPT} -y 2>&1; then
             echo "FATAL: ykpersonalize failed to program slot ${YK_SLOT}. Check the YubiKey is plugged in (no hub pass-through) and not read-only." >&2
             exit 1
@@ -4549,8 +4360,6 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "=============================================================="
     echo "  Nothing was written to disk. Re-run WITHOUT --dry-run to install for real."
     echo ""
-    # A dry-run persists a state file earlier (so the plan data was collected);
-    # remove it so a later real run isn't offered a pointless "resume".
     rm -f "$STATE_FILE" 2>/dev/null || true
     if [ -d /tmp/ssh-keygen ] || [ -d /tmp/ssh-import ]; then
         shred -u /tmp/ssh-keygen/* /tmp/ssh-import/* 2>/dev/null || true
@@ -4560,7 +4369,6 @@ if [ "$DRY_RUN" = "1" ]; then
     exit 0
 fi
 
-# shellcheck disable=SC2034  # PKG_PREFLIGHT is consumed by the gate loop below
 PKG_PREFLIGHT="
 accountsservice
 acpid
@@ -4733,29 +4541,18 @@ echo ""
 echo "Stage-1 package preflight [PKG-PREFLIGHT]: verifying package names against the live union pool..."
 jl "PKG-PREFLIGHT: begin — checking $(echo "$PKG_PREFLIGHT" | grep -c .) candidate packages"
 
-# 1. Ensure the union pool includes nonfree + multilib repos (needed by e.g.
-#    nvidia, virtualbox-ose, linux-firmware-broadcom, libgamemode-32bit).
-#    Best-effort: if a repo is already present or missing, that is harmless.
 xbps-install -y void-repo-nonfree void-repo-multilib void-repo-multilib-nonfree >/dev/null 2>&1 || true
 
-# 2. Refresh the live package index so queries reflect the current repo state.
 if ! xbps-install -Sy >/dev/null 2>&1; then
     echo "  WARN: live -Sy refresh failed (network/repo hiccup); preflight DEGRADED — skipping package-name gate." >&2
     jl "PKG-PREFLIGHT: DEGRADED — xbps-install -Sy failed (network/repo hiccup); gate skipped"
 else
-    # 3. Sanity probe: base-system MUST resolve. If it doesn't after a
-    #    successful -Sy, something is seriously wrong with the repo config;
-    #    skip the gate with a WARN to avoid a false FATAL.
     if ! xbps-query -Rs "^base-system$" >/dev/null 2>&1; then
         echo "  WARN: base-system is not resolvable after -Sy — repo config issue; preflight DEGRADED — skipping." >&2
         jl "PKG-PREFLIGHT: DEGRADED — base-system not in pool; gate skipped"
     else
-        # 4. Check every candidate against the union pool. xbps-query -Rs with
-        #    an anchored regex does an exact-name search in the cached remote
-        #    index (populated by the -Sy above).
         _pre_missing=""
         _pre_total=0
-        # shellcheck disable=SC2086  # $PKG_PREFLIGHT is deliberately word-split
         for _pre_pkg in $PKG_PREFLIGHT; do
             _pre_total=$((_pre_total + 1))
             if ! xbps-query -Rs "^${_pre_pkg}$" >/dev/null 2>&1; then
@@ -4791,7 +4588,7 @@ if command -v curl >/dev/null 2>&1; then
     [ "$INSTALL_DOCKER" = "true" ] && _pre_probe="$_pre_probe docker"
     _pre_pick=""
     for _pre_m in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2" "$REPO_EXTRA1" "$REPO_EXTRA2"; do
-        case " $_pre_pick " in *" $_pre_m "*) continue ;; esac   # dedupe repeats
+        case " $_pre_pick " in *" $_pre_m "*) continue ;; esac
         _pre_torn=""
         for _pre_p in $_pre_probe; do
             _pre_v=$(xbps-query -M -R --repository="$_pre_m" --property=pkgver "$_pre_p" 2>/dev/null | tail -1)
@@ -4823,15 +4620,11 @@ if command -v curl >/dev/null 2>&1; then
 fi
 
 BTRFS_DEV="$PART_SYS"
-# CRYPT_NAME is the decrypted mapper name (default void-root). It is set from
-# the prompt above when ENCRYPT=yes, but must be defined for every path (even
-# ENCRYPT=no, where it is unused) so derived strings never reference an empty var.
 CRYPT_NAME="${CRYPT_NAME:-void-root}"
 CRYPT_DEV="/dev/mapper/${CRYPT_NAME}"
 
 if [ "$RESUME" != "1" ]; then
     _disk_budget_check || exit 1
-    # Clear disk maps and slice target partitions
     sgdisk -Z "$DISK" && sgdisk -og "$DISK"
     sgdisk -n "1::+${EFI_PART_SIZE}" -t 1:ef00 -c 1:'ESP' "$DISK"
     if [ -n "${REGION_PARTITIONED:-}" ] && [ "$ENCRYPT" != "yes" ]; then
@@ -4869,9 +4662,6 @@ if [ "$RESUME" != "1" ]; then
             echo "==> Closing leftover open mapper ${CRYPT_DEV} from an interrupted run"
             cryptsetup luksClose "$CRYPT_NAME" 2>/dev/null || true
         fi
-        # Fresh: create the LUKS2 container from the typed passphrase. Fed
-        # via stdin so it never appears on the command line or in the
-        # process list. The ESP is formatted after this.
         echo ""
         echo "==> Formatting partition 2 as a LUKS2 container (cryptsetup)"
         printf '%s' "$ENCRYPT_PASSPHRASE" | cryptsetup luksFormat --type luks2 -q --key-file=- "$PART_SYS"
@@ -4922,13 +4712,10 @@ if [ "$RESUME" != "1" ]; then
             unset YK_KEY YK_KEY_FILE
             echo "   YubiKey unlock enabled; passphrase fallback=${YK_FALLBACK}."
         fi
-        # The passphrase has served its purpose (luksFormat+luksOpen). Drop
-        # it from memory now so it cannot linger through the chroot phase.
         unset ENCRYPT_PASSPHRASE
         jl "LUKS2 container created+opened for $PART_SYS -> $BTRFS_DEV"
     fi
 
-    # Apply filesystems
     mkfs.fat -F32 -n EFI "$PART_EFI"
     if [ -n "${REGION_PARTITIONED:-}" ]; then
         for _rr in $REGION_PARTITIONED; do
@@ -5085,10 +4872,6 @@ umount -v /mnt
 BTRFS_OPTS="noatime,compress=zstd:1"
 mount -vo $BTRFS_OPTS,subvol=@ "$BTRFS_DEV" /mnt
 
-# Btrfs mount options are filesystem-wide: a per-subvolume fstab 'nodatacow'
-# is ignored once / is mounted (the root mount's compress=... wins). The
-# durable per-directory fix is the NODATACOW inode flag, which new files
-# inherit. Set it on the still-empty subvolume root before data lands there.
 set_nocow() {
     local _nc_dir="$1"
     if chattr +C "$_nc_dir" 2>/dev/null; then
@@ -5184,8 +4967,6 @@ mount -vo $BTRFS_OPTS,subvol=@root "$BTRFS_DEV" /mnt/root
 
 if [ "$SWAPFILE_MODE" = "true" ]; then
     mount -vo noatime,subvol=@swap "$BTRFS_DEV" /mnt/var/swap
-    # +C makes the swapfile itself NOCOW at creation (btrfs mkswapfile also
-    # sets it, but this covers the retry/edit paths and any other file here).
     set_nocow /mnt/var/swap
 fi
 if [ "$GRUB_ESP_BOOT" = "true" ]; then
@@ -5232,7 +5013,6 @@ cp /var/db/xbps/keys/* /mnt/var/db/xbps/keys/
 BOOTSTRAP_OK=0
 for REPO_ATTEMPT in "$REPO_PRIMARY" "$REPO_BACKUP1" "$REPO_BACKUP2" "$REPO_EXTRA1" "$REPO_EXTRA2"; do
     echo "==> Attempting base-system bootstrap against repository: ${REPO_ATTEMPT}"
-    # shellcheck disable=SC2086  # $LOCAL_CA word-split into -c <dir>; empty = network-only
     if XBPS_ARCH=$ARCH xbps-install -Suv -R "$REPO_ATTEMPT" -r /mnt ${LOCAL_CA} base-system btrfs-progs $KERNEL_PKGS glibc-locales -y; then
         BOOTSTRAP_OK=1
         echo "==> Bootstrap succeeded using: ${REPO_ATTEMPT}"
@@ -5293,8 +5073,6 @@ if ! _region_carved var; then
     echo "UUID=$BTRFS_UUID /var/spool       btrfs noatime,subvol=@spool 0 0" >> /mnt/etc/fstab
 fi
 
-# Region partition rows: source is the region device's own fs UUID; the
-# mountpoint/options repeat the Stage-1 region mount block above.
 if [ -n "${REGION_PARTITIONED:-}" ]; then
     for _rr in $REGION_PARTITIONED; do
         eval "_rr_dev=\${REGION_PART_${_rr}:-}"
@@ -5314,7 +5092,6 @@ if [ -n "${REGION_PARTITIONED:-}" ]; then
             games) _rr_mp="/home/${TARGET_USER}/Games" ; _rr_leaf="home" ;;
             *) echo "FATAL: unknown region '$_rr'." >&2; exit 1 ;;
         esac
-        # fstab totals: ext4=0 2 (fsck), btrfs=0 0 (no fsck / needs Btrfs first).
         if [ "$_rr_fs" = "ext4" ]; then
             echo "UUID=$_rr_uuid $_rr_mp ext4 defaults,noatime 0 2" >> /mnt/etc/fstab
         elif [ "$_rr_leaf" = "var" ] || [ "$_rr_leaf" = "srv" ]; then
@@ -5371,7 +5148,6 @@ echo "UUID=$BTRFS_UUID /root               btrfs noatime,compress=zstd:1,subvol=
 
 : > /mnt/tmp/chroot_env.sh
 chmod 600 /mnt/tmp/chroot_env.sh
-# shellcheck disable=SC1090
 KEYMAP_LIVE=$(sed -n 's/^[[:space:]]*KEYMAP="\([^"]*\)".*/\1/p' /etc/rc.conf 2>/dev/null | tail -1)
 [ -z "${KEYMAP_LIVE:-}" ] && KEYMAP_LIVE="us"
 export KEYMAP_LIVE
@@ -5382,7 +5158,6 @@ if [ "$DESKTOP_ENV" = "cosmic" ]; then
 fi
 export POWER_PPD
 [ "$POWER_PPD" = "true" ] && echo "  NOTE: COSMIC uses power-profiles-daemon; tlp skipped (PPD+tlp conflict)."
-# shellcheck disable=SC2129  # per-line appends, grouped for readability
 echo "export BTRFS_UUID=\"$BTRFS_UUID\"" >> /mnt/tmp/chroot_env.sh
 echo "export KERNEL_PKGS=\"$KERNEL_PKGS\"" >> /mnt/tmp/chroot_env.sh
 echo "export DEVICE_PROFILE=\"$DEVICE_PROFILE\"" >> /mnt/tmp/chroot_env.sh
@@ -5487,14 +5262,12 @@ if [ "$ENCRYPT" = "yes" ]; then
     echo "export LUKS_UUID=\"$LUKS_UUID\"" >> /mnt/tmp/chroot_env.sh
 fi
 if [ "$YK_MODE" = "hmac-sha1" ]; then
-    # shellcheck disable=SC2129  # per-line appends, grouped for readability
     echo "export YK_MODE=\"$YK_MODE\"" >> /mnt/tmp/chroot_env.sh
     echo "export YK_SLOT=\"$YK_SLOT\"" >> /mnt/tmp/chroot_env.sh
     echo "export YK_CHALLENGE=\"$YK_CHALLENGE\"" >> /mnt/tmp/chroot_env.sh
     echo "export YK_FALLBACK=\"$YK_FALLBACK\"" >> /mnt/tmp/chroot_env.sh
     echo "export YK_TOUCH=\"$YK_TOUCH\"" >> /mnt/tmp/chroot_env.sh
 fi
-# shellcheck disable=SC2129  # per-line appends, grouped for readability
 echo "export SESSION_STACK=\"$SESSION_STACK\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_OCTOXBPS=\"$INSTALL_OCTOXBPS\"" >> /mnt/tmp/chroot_env.sh
 echo "export INSTALL_GNOME_SOFTWARE=\"$INSTALL_GNOME_SOFTWARE\"" >> /mnt/tmp/chroot_env.sh
@@ -5639,7 +5412,7 @@ install_pkgs() {
             sleep $((_ipkgs_skew_round * 15))
         fi
     else
-        break   # non-skew failure — do not retry; FATAL below
+        break
     fi
     done
     rm -f "$_ipkgs_err"
@@ -5787,10 +5560,6 @@ install_cosmic() {
     echo "==> COSMIC installed from the store (origin: ${_cosmic_repo})"
 }
 
-# cosmic-store is a single package with both backends compiled in
-# (--features xbps,flatpak); it has no flatpak runtime dependency. It is the
-# only store that lives in the COSMIC repo, so a missing repo is a skip here,
-# not a reason to abort a non-COSMIC desktop install.
 install_cosmic_store() {
     _cosmic_allow_skip=1
     if install_cosmic cosmic-store; then
@@ -6055,7 +5824,6 @@ if [ -n "$(find /tmp/ssh-keygen -maxdepth 1 -type f 2>/dev/null -print -quit)" ]
     else
         echo "WARNING: SSH keys staged but target account '${TARGET_USER:-<unset>}' missing — keys NOT deposited." >&2
     fi
-    # Shred the target staging copies (/tmp inside the chroot).
     shred -u /tmp/ssh-keygen/id_ed25519* /tmp/ssh-import/imported* 2>/dev/null || true
     rm -rf /tmp/ssh-keygen /tmp/ssh-import
 fi
@@ -6081,15 +5849,11 @@ if [ -e "/usr/share/zoneinfo/${TIMEZONE}" ]; then
 else
     echo "WARNING: timezone '${TIMEZONE}' not found in tzdata; leaving /etc/localtime unset (UTC)." >&2
 fi
-# Enable the chosen locale in Void's generation list. Delete any stale entry
-# (commented or active) for this locale, then append the active line, so the
-# generation is both idempotent and correct for any selected locale.
 LOCALE_ENTRY="${LOCALE} ${LOCALE_CODESET}"
 LOCALE_ESC="$(printf '%s' "${LOCALE}" | sed 's/[.[\*^$]/\\&/g')"
 sed -i "/^[#[:space:]]*${LOCALE_ESC}[[:space:]]/d" /etc/default/libc-locales 2>/dev/null || true
 echo "${LOCALE_ENTRY}" >> /etc/default/libc-locales
 xbps-reconfigure -f glibc-locales
-# Activate the chosen language as the system's default LANG.
 echo "LANG=${LOCALE}" > /etc/locale.conf
 [ -n "${KEYMAP_LIVE:-}" ] || KEYMAP_LIVE="us"
 sed -i "s/^[[:space:]]*#\?[[:space:]]*KEYMAP=.*/KEYMAP=\"${KEYMAP_LIVE}\"/" /etc/rc.conf 2>/dev/null || true
@@ -6125,18 +5889,13 @@ fi
 
 if [ "$USER_SHELL" = "/bin/zsh" ]; then
     cat > "/home/${TARGET_USER}/.zshrc" << INNER_EOF
-# Minimal default ~/.zshrc — created by Void_Linux_Installer so the
-# zsh-newuser-install wizard doesn't fire on first login. Edit freely.
-# History.
 HISTFILE=~/.zsh_history
 HISTSIZE=10000
 SAVEHIST=10000
 setopt SHARE_HISTORY
 setopt HIST_IGNORE_DUPS
-# Completion.
 autoload -Uz compinit
 compinit
-# Aliases.
 alias ll='ls -lah'
 alias la='ls -A'
 alias l='ls -lh'
@@ -6146,9 +5905,6 @@ fi
 if [ "$USER_SHELL" = "/usr/bin/fish" ]; then
     mkdir -p "/home/${TARGET_USER}/.config/fish"
     cat > "/home/${TARGET_USER}/.config/fish/config.fish" << INNER_EOF
-# Minimal default ~/.config/fish/config.fish — created by
-# Void_Linux_Installer so the fish_config wizard doesn't fire on first
-# login. Edit freely.
 set fish_greeting
 abbr -a ll 'ls -lah'
 abbr -a la 'ls -A'
@@ -6196,9 +5952,6 @@ if [ "$INSTALL_NVIDIA" = "true" ] || [ "${INSTALL_VIRTUALBOX:-false}" = "true" ]
 fi
 if [ "$INSTALL_NVIDIA" = "true" ]; then
     install_pkgs nvidia
-    # Blacklist nouveau so the open driver cannot bind the device ahead of
-    # the proprietary module (nvidia-dkms installs the udev rules + binary
-    # that prefers the nvidia module once loaded).
     cat > /etc/modprobe.d/50-nvidia.conf << 'INNER_EOF'
 blacklist nouveau
 options nouveau modeset=0
@@ -6225,7 +5978,6 @@ if [ "$HAS_GRAPHICAL" = "yes" ] || [ "${INSTALL_XORG:-false}" = "true" ]; then
         install_pkgs wayland wayland-protocols NetworkManager dbus turnstile seatd acpid xorg
     fi
 else
-    # Headless, no Xorg opt-in: install only the session stack and network layer.
     if [ "$SESSION_STACK" = "elogind" ]; then
         install_pkgs NetworkManager dbus elogind
     else
@@ -6283,7 +6035,6 @@ elif [ "$DISPLAY_MANAGER" = "cosmic-greeter" ]; then
     if ! grep -q '^cosmic-greeter:' /etc/passwd 2>/dev/null; then
         _cg_group_opt=""
         grep -q '^cosmic-greeter:' /etc/group 2>/dev/null && _cg_group_opt="-g cosmic-greeter -G video,input"
-        # shellcheck disable=SC2086  # _cg_group_opt is empty or a fixed flat flag string; deliberate
         useradd -r -M -s /sbin/nologin -d /var/lib/cosmic-greeter -c 'Cosmic Greeter Account' $_cg_group_opt cosmic-greeter 2>/dev/null || \
             echo "WARNING: could not create the cosmic-greeter system user — the greeter may not start." >&2
         unset _cg_group_opt
@@ -6440,13 +6191,6 @@ elif [ "$DESKTOP_ENV" = "kde" ]; then
     install_pkgs kde-plasma kde-baseapps ark kio-admin
 fi
 
-# App-store installation is deliberately one block for every desktop:
-#   GNOME / KDE / COSMIC get their native store automatically (the flags are
-#   set in the store-selection block), while the other desktops only reach it
-#   through the menu. Each store is xbps-native and Flatpak-capable; Flatpak
-#   itself is never pulled in as a dependency. A store whose third-party repo
-#   is unreachable is skipped with a warning instead of installing a build
-#   that cannot manage xbps packages.
 STORE_INSTALLED="none"
 STORE_SKIPPED=""
 if [ "$INSTALL_OCTOXBPS" = "true" ]; then
@@ -6640,8 +6384,6 @@ cat > /usr/share/polkit-1/actions/99-octoxbps-check-nopass.policy << 'INNER_EOF'
 </policyconfig>
 INNER_EOF
 chmod 644 /usr/share/polkit-1/actions/99-octoxbps-check-nopass.policy
-# Only wheel users (hybrid & ubuntu models) get passwordless sync;
-# debian model users are not in wheel and fall back to the auth_self prompt.
 if [ "$ACCOUNT_MODEL" != "debian" ]; then
 cat > /etc/polkit-1/rules.d/90-octoxbps-nopass.rules << 'INNER_EOF'
 polkit.addRule(function(action, subject) {
@@ -6730,16 +6472,12 @@ command -v flatpak >/dev/null 2>&1 || exit 0
 [ -f /var/log/flatpak-firstboot.done ] && exit 0
 exec 9>/var/lock/flatpak-firstboot.lock
 flock -n 9 || exit 0
-# Need a default route (internet reachable) for flathub to resolve
 ip route show default >/dev/null 2>&1 || exit 0
 _fp_home="/home/__TARGET_USER__"
 _fp_qdir="${_fp_home}/.config/void-installer"
 _fp_queue="${_fp_qdir}/flatpak-install-on-first-boot.txt"
 [ -d "$_fp_home" ] || exit 0
 if [ ! -f "$_fp_queue" ]; then
-    # Nothing was ever queued (flatpak installed, every app declined): the
-    # absence of a queue IS a completed queue, so stamp it and stop the
-    # boot-time service from retrying forever.
     touch /var/log/flatpak-firstboot.done
     exit 0
 fi
@@ -6912,9 +6650,6 @@ INNER_EOF
 if [ "${INSTALL_AUDIO:-true}" = "true" ]; then
     install_pkgs alsa-utils alsa-ucm-conf alsa-pipewire pipewire wireplumber sof-firmware libjack-pipewire
     [ "$PROFILE_BT" = "true" ] && install_pkgs libspa-bluetooth
-    # plasma-pa (the Plasma systray volume applet) only means anything under
-    # KDE — Cinnamon's own cinnamon-settings-daemon already provides a volume
-    # applet, no separate package needed.
     [ "$DESKTOP_ENV" = "kde" ] && install_pkgs plasma-pa
 fi
 
@@ -6973,7 +6708,6 @@ chown -R "${TARGET_USER}:${TARGET_USER}" "/home/${TARGET_USER}/.config"
 
 mkdir -p "/home/${TARGET_USER}/.cache"
 
-# Stage-2 copy of the Stage-1 helper (the chroot starts a fresh shell).
 set_nocow() {
     local _nc_dir="$1"
     if [ ! -d "$_nc_dir" ]; then
@@ -7021,9 +6755,6 @@ provision_browser_subvol() {
     local _pbs_fstab="/home/${TARGET_USER}/${_pbs_relpath// /\\040}"
     echo "UUID=${BTRFS_UUID} ${_pbs_fstab} btrfs noatime,subvol=${_pbs_subvol} 0 0" >> /etc/fstab
     if mount "$_pbs_fullpath"; then
-        # NODATACOW via mount options does not survive the root mount's
-        # compress=... (options are filesystem-wide), so mark the fresh subvolume
-        # root with the inode flag; new files inherit it.
         set_nocow "$_pbs_fullpath" || echo "WARNING: NOCOW could not be applied to ${_pbs_fullpath} after mount." >&2
     else
         echo "WARNING: failed to mount ${_pbs_fullpath} (subvol=${_pbs_subvol}) — skipping NOCOW flag." >&2
@@ -7038,12 +6769,6 @@ provision_firefox_subvols() {
     provision_browser_subvol "@mozilla-cache" ".cache/mozilla"
 }
 
-# Mount ~/.cache (@usercache) before any subvolume that lives below it.
-# Mount order matters on Btrfs: if ~/.cache is mounted after ~/.cache/mozilla,
-# it covers the @mozilla-cache mount and the browser cache quietly lands in
-# @usercache (CoW/compressed) instead of the +C subvolume. Doing it here also
-# makes the fstab rows come out parent-first, so a plain `mount -a` rebuilds
-# the nesting correctly on every boot.
 case " ${REGION_PARTITIONED:-} " in
     *" home "*)
         echo "MULTI-FS: home region carved — skipping @usercache fstab/mount (~/.cache lives on the home partition)."
@@ -7273,7 +6998,6 @@ if [ "${LIMINE_WALLPAPER}" = "yes" ]; then
         fi
         break
     done
-    # If nothing was staged/copied, fall back to none so the generator stays quiet.
     if ! ls /boot/efi/limine-splash.* >/dev/null 2>&1; then
         LIMINE_WALLPAPER="none"
     fi
@@ -7281,14 +7005,12 @@ fi
 
 mkdir -p /usr/local/sbin
 cat > /usr/local/sbin/void-limine-env.inc << 'INNER_EOF'
-# shellcheck shell=bash
 load_limine_env() {
     local _env=/etc/void-installer/limine-env
     if [ ! -f "$_env" ]; then
         echo "FATAL: ${_env} missing — was this system installed with BOOTLOADER=limine?" >&2
         exit 1
     fi
-    # shellcheck disable=SC1090
     . "$_env"
 }
 INNER_EOF
@@ -7299,7 +7021,6 @@ cat > /usr/local/sbin/void-limine-write-conf << 'INNER_EOF'
 set -eEo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
 
-# shellcheck disable=SC1090
 . /usr/local/sbin/void-limine-env.inc
 load_limine_env
 
@@ -7333,7 +7054,6 @@ module_path_for() {
 
 NEWEST_KVER=""
 KERNEL_ENTRIES=""
-# shellcheck disable=SC2012  # deliberate sort -V glob list; ls+sort is the version-ordering primitive here
 for _kf in $(ls /boot/efi/void-kernel/vmlinuz-* 2>/dev/null | sort -V -r); do
     _kver="${_kf#/boot/efi/void-kernel/vmlinuz-}"
     [ -f "/boot/efi/void-kernel/initramfs-${_kver}.img" ] || continue
@@ -7341,15 +7061,11 @@ for _kf in $(ls /boot/efi/void-kernel/vmlinuz-* 2>/dev/null | sort -V -r); do
     KERNEL_ENTRIES="${KERNEL_ENTRIES} ${_kver}"
 done
 
-# Default boot entry: prefer the stable `linux` meta package's branch (e.g.
-# 6.18.x), never linux-mainline. NEWEST_KVER remains the fallback (and the
-# final answer when the stable branch is not installed).
 DEFAULT_KVER=""
 _pkg_linux="$(xbps-query -p pkgver linux 2>/dev/null || true)"
 _pkg_branch="${_pkg_linux#linux-}"
 _pkg_branch="${_pkg_branch%%_*}"
 if [ -n "$_pkg_branch" ] && [ -n "$KERNEL_ENTRIES" ]; then
-    # shellcheck disable=SC2086  # deliberate: KERNEL_ENTRIES is a space list
     DEFAULT_KVER="$(printf '%s\n' $KERNEL_ENTRIES | grep -E "^${_pkg_branch//./\\.}\." | sort -V | tail -n1)"
 fi
 [ -n "$DEFAULT_KVER" ] || DEFAULT_KVER="$NEWEST_KVER"
@@ -7410,7 +7126,6 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
     if [ -d /.snapshots ] && [ -n "$DEFAULT_KVER" ]; then
         echo ""
         echo "/+Snapshots"
-        # Numeric/version order, not glob (string) order: #2 before #10.
         for snap_dir in $(printf '%s\n' /.snapshots/*/ | sort -V); do
             [ -d "$snap_dir" ] || continue
             snap_id="$(basename "$snap_dir")"
@@ -7445,8 +7160,6 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
         echo "    protocol: efi_firmware_update_request"
     fi
 } > "$TMP_CONF"
-# Atomic swap — a cron run landing mid-write (e.g. install disk full,
-# process killed) never leaves limine.conf truncated or half-written.
 mv -f "$TMP_CONF" /boot/efi/EFI/BOOT/limine.conf
 if [ "${BOOT_MODE:-uefi}" = "bios" ]; then
     cp -f /boot/efi/EFI/BOOT/limine.conf /boot/efi/limine.conf
@@ -7470,7 +7183,6 @@ cat > /usr/local/sbin/void-limine-sync-kernels << 'INNER_EOF'
 set -eEo pipefail
 export PATH="/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin"
 
-# shellcheck disable=SC1090
 . /usr/local/sbin/void-limine-env.inc
 load_limine_env
 
@@ -7557,9 +7269,6 @@ INNER_EOF
 chmod 0755 /usr/lib/snapper/plugins/00-void-limine-snapper-sync
 echo "Snapper event-driven Limine menu sync installed (/usr/lib/snapper/plugins/00-void-limine-snapper-sync)"
 
-# Initial kernel sync + first limine.conf write (no snapshots exist yet,
-# so the /Snapshots submenu is simply empty/absent — void-limine-write-conf
-# handles that fine, [ -d /.snapshots ] guards it).
 /usr/local/sbin/void-limine-sync-kernels
 /usr/local/sbin/void-limine-write-conf
 
@@ -7586,9 +7295,6 @@ if [ "$INSTALL_FLATPAK" != "true" ] && xbps-query -p pkgver flatpak >/dev/null 2
 fi
 
 cat > /etc/void-installer/install-config << INNER_EOF
-# Void Linux Installer — install-time configuration for THIS machine.
-# Written by Void_Linux_Installer.sh (${SCRIPT_VERSION}) at install time.
-# Human-readable "as-built" summary for recovery/troubleshooting/reproducibility.
 SCRIPT_VERSION="${SCRIPT_VERSION:-<unknown>}"
 INSTALL_MODE="${INSTALL_MODE:-custom}"
 ADVANCED_STORAGE="${ADVANCED_STORAGE:-no}"
@@ -7826,14 +7532,10 @@ fi
 _snap_enabled() {
     [ -f "/etc/snapper/configs/$SNAP_CONFIG" ] || return 1
     [ -d "$SNAP_TIMELINE" ] || return 1
-    # Only bother when the root is actually btrfs (with snapper configured
-    # for it); there is no point snapshotting a non-btrfs root.
     findmnt -no FSTYPE / 2>/dev/null | grep -q '^btrfs$'
 }
 
 _should_snap() {
-    # Snapshot only when we are mutating packages: -S (install) or a bare
-    # -u (update). The `--` end-of-options is irrelevant to detection.
     local _a
     for _a in "$@"; do
         case "$_a" in
@@ -7842,16 +7544,7 @@ _should_snap() {
             -*n*) return 1 ;;
         esac
     done
-    for _a in "$@"; do
-        case "$_a" in
-            -S|--sync) return 0 ;;
-            -Su|-us|-Su*|-S*) return 0 ;;
-            -u|--update) return 0 ;;
-            -U|--upgrade) return 0 ;;
-            --) break ;;
-        esac
-    done
-    return 1
+    return 0
 }
 
 _main() {
@@ -7864,7 +7557,16 @@ _main() {
         exec "$REAL_XBPS" "$@"
     fi
 
-    desc="${DESC:-xbps system update ($(date '+%Y-%m-%d %H:%M:%S'))}"
+    if [ -n "${DESC:-}" ]; then
+        desc="$DESC"
+    else
+        case " $* " in
+            *" -S"*|*" --sync"*|*" -u "*|*" --update"*|*" -U"*|*" --upgrade"*)
+                desc="xbps system update ($(date '+%Y-%m-%d %H:%M:%S'))" ;;
+            *)
+                desc="xbps package install ($(date '+%Y-%m-%d %H:%M:%S'))" ;;
+        esac
+    fi
     echo "==> [void-xbps-snap] before-update snapshot: $desc"
 
     _snap_err="$(mktemp)"
@@ -7872,8 +7574,6 @@ _main() {
         snapper --no-dbus -c "$SNAP_CONFIG" create --type pre \
             --description "$desc" --cleanup number --print-number 2>"$_snap_err"
     )" || {
-        # If the pre snapshot cannot be taken, do not block the update;
-        # fall back to running it unsnapshotted.
         echo "WARNING: could not take pre snapshot; running xbps-install without snapshots." >&2
         if [ -s "$_snap_err" ]; then
             sed 's/^/    snapper: /' "$_snap_err" >&2
@@ -7911,9 +7611,6 @@ fi
 
 mkdir -p /root/tools
 
-# 1) Canonical backup copy of the xbps snapshot wrapper. /usr/local/sbin is
-#    the live home; this pristine copy feeds re-shadow-xbps.sh below and is the
-#    ultimate fallback if /usr/local/sbin is ever lost.
 cp -f /usr/local/sbin/void-xbps-snap /root/tools/void-xbps-snap
 chmod 0755 /root/tools/void-xbps-snap
 
@@ -7948,7 +7645,6 @@ case "$(readlink /usr/bin/xbps-install 2>/dev/null || true)" in
         echo "==> /usr/bin/xbps-install already -> void-xbps-snap; nothing to do."
         ;;
     "")
-        # not a symlink — likely a real ELF (fresh xbps self-update)
         if [ -f /usr/bin/xbps-install ] && [ ! -e "$REAL" ]; then
             mv -n /usr/bin/xbps-install "$REAL"
             echo "==> moved real binary to $REAL"
@@ -7957,7 +7653,6 @@ case "$(readlink /usr/bin/xbps-install 2>/dev/null || true)" in
         echo "==> re-linked /usr/bin/xbps-install -> void-xbps-snap"
         ;;
     *)
-        # a dangling/stale symlink (or wrong target) — fix it
         rm -f /usr/bin/xbps-install
         ln -sf "$WRAPPER" /usr/bin/xbps-install
         echo "==> re-pointed /usr/bin/xbps-install -> void-xbps-snap"
@@ -7973,7 +7668,6 @@ chmod 0755 /root/tools/re-shadow-xbps.sh
 cat > /root/tools/elogind.run.fixed << 'INNER_EOF'
 #!/bin/sh
 exec 2>&1
-# elogind doesn't work right if it starts before dbus
 sv check dbus >/dev/null || exit 1
 if _pid=$(cat /run/elogind.pid 2>/dev/null) && [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null; then
     while kill -0 "$_pid" 2>/dev/null; do
@@ -7981,9 +7675,6 @@ if _pid=$(cat /run/elogind.pid 2>/dev/null) && [ -n "$_pid" ] && kill -0 "$_pid"
     done
     exit 0
 fi
-# No running daemon: start it the stock way. It daemonizes and exits, so
-# runsv will see us exit once; the next respawn finds the pidfile and takes
-# the wait branch above.
 exec /usr/libexec/elogind/elogind.wrapper
 INNER_EOF
 chmod 0755 /root/tools/elogind.run.fixed
@@ -7999,13 +7690,10 @@ TARGET="/etc/sv/elogind/run"
 [ -f "$FIXED" ] || { echo "ERROR: $FIXED missing" >&2; exit 1; }
 [ -f "$TARGET" ] || { echo "ERROR: $TARGET missing" >&2; exit 1; }
 
-# Fast path: already fixed (compare bytes).
 if cmp -s "$FIXED" "$TARGET"; then
     exit 0
 fi
 
-# The target is the stock (or otherwise different) script. Restore ours.
-# Use `install` to preserve mode 0755. Never touch the running daemon.
 install -m 0755 "$FIXED" "$TARGET"
 echo "elogind run script restored to fixed copy (was reverted, likely by upgrade)."
 INNER_EOF
@@ -8052,16 +7740,12 @@ FIXED="/root/tools/gdm.run.fixed"
 TARGET="/etc/sv/gdm/run"
 
 [ -f "$FIXED" ] || { echo "ERROR: $FIXED missing" >&2; exit 1; }
-# gdm is not installed on this box: nothing to do (not an error).
 [ -f "$TARGET" ] || exit 0
 
-# Fast path: already fixed (compare bytes).
 if cmp -s "$FIXED" "$TARGET"; then
     exit 0
 fi
 
-# The target is the stock (or otherwise different) script. Restore ours.
-# Use `install` to preserve mode 0755. Never touch the running gdm.
 install -m 0755 "$FIXED" "$TARGET"
 echo "gdm run script restored to seat0-waiting copy (was reverted, likely by upgrade)."
 INNER_EOF
@@ -8082,7 +7766,6 @@ if [ "$_n" -ge 30 ]; then
     echo "sddm: warning: seat0 not registered after 30s; starting sddm anyway"
 fi
 
-# respect system locale
 [ -r /etc/locale.conf ] && . /etc/locale.conf && export LANG
 
 [ -f ./conf ] && . ./conf
@@ -8100,16 +7783,12 @@ FIXED="/root/tools/sddm.run.fixed"
 TARGET="/etc/sv/sddm/run"
 
 [ -f "$FIXED" ] || { echo "ERROR: $FIXED missing" >&2; exit 1; }
-# sddm is not installed on this box: nothing to do (not an error).
 [ -f "$TARGET" ] || exit 0
 
-# Fast path: already fixed (compare bytes).
 if cmp -s "$FIXED" "$TARGET"; then
     exit 0
 fi
 
-# The target is the stock (or otherwise different) script. Restore ours.
-# Use `install` to preserve mode 0755. Never touch the running sddm.
 install -m 0755 "$FIXED" "$TARGET"
 echo "sddm run script restored to seat0-waiting copy (was reverted, likely by upgrade)."
 INNER_EOF
@@ -8168,13 +7847,11 @@ for entry in $RESTORE_LIST; do
     fi
 done
 
-# Only proceed on a real Limine box: the two executables underly the sync.
 if [ ! -x /usr/local/sbin/void-limine-sync-kernels ] || \
    [ ! -x /usr/local/sbin/void-limine-write-conf ]; then
     echo "This is not a Limine install (limine helpers still absent); nothing to sync." >&2
     exit 0
 fi
-# Only meaningful on a Limine box: fail fast if no ESP limine.conf target.
 [ -d /boot/efi ] || { echo "No /boot/efi mount — aborting limine sync." >&2; exit 1; }
 
 echo "==> [void-limine-sync-kernels]"
@@ -8187,9 +7864,6 @@ chmod 0755 /root/tools/limine-sync.sh
 
 cat > /root/tools/re-provision-snapper.sh << 'INNER_EOF'
 #!/bin/bash
-# [TOOLS] Safely restore/re-tune the snapper 'root' config and (on Limine) the
-# snapshot-boot plugin WITHOUT touching existing snapshots. Safe to re-run.
-# Usage: sudo /root/tools/re-provision-snapper.sh
 set -euo pipefail
 
 if ! command -v snapper >/dev/null 2>&1; then
@@ -8197,8 +7871,6 @@ if ! command -v snapper >/dev/null 2>&1; then
     exit 1
 fi
 
-# Only recreate a MISSING config; never clobber one that exists (avoid the
-# destructive reconciliation that would lose the @snapshots mount/snapshots).
 if [ ! -f /etc/snapper/configs/root ]; then
     echo "==> creating missing snapper 'root' config..."
     snapper --no-dbus -c root create-config / || \
@@ -8208,7 +7880,6 @@ if [ ! -f /etc/snapper/configs/root ]; then
     chmod 750 /.snapshots
 fi
 
-# Re-apply the installer's retention tuning (idempotent sed on existing values).
 CFG=/etc/snapper/configs/root
 sed -i 's/TIMELINE_LIMIT_HOURLY="10"/TIMELINE_LIMIT_HOURLY="3"/g' "$CFG"
 sed -i 's/TIMELINE_LIMIT_DAILY="10"/TIMELINE_LIMIT_DAILY="5"/g' "$CFG"
@@ -8217,12 +7888,10 @@ sed -i 's/TIMELINE_LIMIT_MONTHLY="10"/TIMELINE_LIMIT_MONTHLY="0"/g' "$CFG"
 sed -i 's/TIMELINE_LIMIT_YEARLY="10"/TIMELINE_LIMIT_YEARLY="0"/g' "$CFG"
 sed -i 's/EMPTY_PRE_POST_CLEANUP="false"/EMPTY_PRE_POST_CLEANUP="true"/g' "$CFG"
 
-# runit filter (exclude ephemeral service symlinks from snapshots).
 mkdir -p /etc/snapper/filters
 grep -qx 'var/service/*' /etc/snapper/filters/void-runit.txt 2>/dev/null || \
     echo "var/service/*" >> /etc/snapper/filters/void-runit.txt
 
-# Limine-only: re-install the snapshot-boot menu plugin.
 if [ -x /usr/local/sbin/void-limine-write-conf ] && [ -d /boot/efi ]; then
     mkdir -p /usr/lib/snapper/plugins
     cat > /usr/lib/snapper/plugins/00-void-limine-snapper-sync << 'PLUGIN_EOF'
@@ -8255,9 +7924,6 @@ DEVDIR=""     # btrfs filesystem device path (e.g. /dev/mapper/void-root or raw)
 FSUUID=""     # btrfs filesystem UUID (for the fstab line)
 TOPMNT=""     # temp mountpoint for the top-level tree (subvolid=5)
 
-# Resolve the running root's btrfs source: a device PATH (not UUID), since the
-# btrfs tools + subvolid=5 mount need a real device. Works on LUKS/mapper and
-# raw partitions alike.
 resolve_dev() {
     local src
     src="$(findmnt -no SOURCE / 2>/dev/null)" || die "cannot resolve mounted root device."
@@ -8268,8 +7934,6 @@ resolve_dev() {
     [ -n "$FSUUID" ] || die "cannot resolve btrfs filesystem UUID for $DEVDIR."
 }
 
-# Mount the top-level tree (subvolid=5) at a temp dir. Call unmount_top()
-# when done. This is required for any operation on flat siblings.
 mount_top() {
     TOPMNT="$(mktemp -d)"
     mount -o noatime,subvolid=5 "$DEVDIR" "$TOPMNT" || {
@@ -8314,8 +7978,6 @@ declare -A USER_PROFILE_PATH=(
     [@linuxbrew]="/.linuxbrew"
 )
 
-# Per-user siblings that the installer marks with the +C (NODATACOW) flag.
-# @usercache and @containers-user are deliberately CoW/compressed.
 declare -A USER_NODATACOW=(
     [@mozilla]=1
     [@mozilla-cache]=1
@@ -8338,8 +8000,6 @@ declare -A SYS_MOUNT=(
     [@libvirt]="/var/lib/libvirt"
     [@flatpak]="/var/lib/flatpak"
 )
-# System-path siblings that should be nodatacow (db/disk-churn datadirs) —
-# same `chattr +C` rule as the installer's `[NODATACOW]` subvolumes.
 declare -A SYS_NODATACOW=(
     [@postgresql]=1
     [@mariadb]=1
@@ -8378,8 +8038,6 @@ install_packages() {
     xbps-install -Sy "$@" || die "xbps-install failed for: $*"
 }
 
-# List of packages that own subvol(s) being added via a class (dedup to avoid
-# re-syncing xbps metadata per member).
 class_packages() {
     local cls="$1" sv pkgs=""
     for sv in ${CLASS_SUBVOLS[$cls]:-}; do
@@ -8388,7 +8046,6 @@ class_packages() {
     echo "${pkgs# }"
 }
 
-# List every top-level sibling (direct child of the top-level tree).
 siblings() { btrfs subvolume list -o "$TOPMNT" 2>/dev/null | sed -n 's/.*path \([^ ]*\)$/\1/p'; }
 
 sibling_path() { echo "$TOPMNT/$1"; }
@@ -8490,8 +8147,6 @@ add_subvol() {
         info "creating flat sibling $sv (top-level tree) for $mnt..."
         btrfs subvolume create "$sp" || { unmount_top; die "btrfs subvolume create failed."; }
 
-        # NODATACOW is an inode flag, not a mount option: set it on the empty
-        # subvolume root before any data (migrated or fresh) lands there.
         if [ "$nodatacow" = "1" ]; then
             chattr +C "$sp" 2>/dev/null || { unmount_top; die "chattr +C failed on $sp."; }
             info "NODATACOW inode flag set on $sp (new files inherit it)"
@@ -8509,16 +8164,10 @@ add_subvol() {
         fi
         unmount_top
     elif [ "$nodatacow" = "1" ]; then
-        # Existing sibling mounted at a second mountpoint: the flag lives on
-        # the subvolume root inode, so it is shared with every mountpoint.
         chattr +C "$sp" 2>/dev/null || { unmount_top; die "chattr +C failed on $sp."; }
         info "NODATACOW inode flag set on existing sibling $sp"
     fi
 
-    # The root Btrfs is mounted with compress=zstd:1, and mount options are
-    # filesystem-wide, so a per-subvolume 'nodatacow'/'compress=none' in fstab
-    # is ineffective (and misleading). `noatime` is the only useful per-mount
-    # bit; NODATACOW comes from the +C inode flag above.
     mode="noatime"
     if [ "$nodatacow" = "1" ]; then
         info "mount options: $mode (NODATACOW via chattr +C, per installer [NODATACOW])"
@@ -8527,19 +8176,13 @@ add_subvol() {
         info "mount options: $mode"
     fi
 
-    # fstab is whitespace-delimited, so escape any space in the mountpoint
-    # (e.g. VirtualBox's "VirtualBox VMs") as `\040` — the mount call below
-    # still uses the literal path, it's only the fstab field that's escaped.
     local fstab_path="${mnt// /\\040}"
     echo "UUID=$FSUUID $fstab_path btrfs $mode,subvol=$sv 0 0" >> /etc/fstab
     mount "$mnt"
     info "done: $sv mounted at $mnt (flat sibling; outside Snapper rollback scope)."
 
-    # --install: now that the subvol is live at its runtime path, install the
-    # owning package(s) so their data lands on the isolated subvolume directly.
     if [ "$install" = "1" ] && [ "${ADD_MOUNT:-0}" != "1" ]; then
         if [ -n "$pkgs" ]; then
-            # shellcheck disable=SC2086 # deliberate: $pkgs is a space-separated list of package names
             install_packages $pkgs
             info "installed package(s) for $sv: $pkgs"
         else
@@ -8570,8 +8213,6 @@ cmd_add() {
     done
     [ "$user" = "unset-next" ] && die "--user requires a username (e.g. --user alice)."
 
-    # <subvol> is always the first positional; an explicit <mountpoint> /
-    # <source-dir> come after.
     [ "${#positional[@]}" -ge 1 ] || die "usage: void-subvol-tool.sh add <subvol> <mountpoint> [source-dir] [--nodatacow] [--install] [--user <name>]"
     sv="$(norm_subvol "${positional[0]}")"
     mnt="${positional[1]:-}"
@@ -8589,8 +8230,6 @@ cmd_add() {
         fi
     fi
 
-    # No mountpoint and no --user: if this is a known per-user profile, offer to
-    # prompt for the username instead of demanding the full path.
     if [ -z "$mnt" ] && [ -z "$user" ]; then
         local rel="${USER_PROFILE_PATH[$sv]:-}"
         if [ -n "$rel" ]; then
@@ -8614,7 +8253,6 @@ cmd_add() {
         fi
     fi
 
-    # --user with an explicit mountpoint: warn so a wrong path isn't silent.
     if [ -n "$user" ] && [ -n "${positional[1]:-}" ]; then
         echo "Note: --user $user given with explicit mountpoint — using '$mnt' as typed."
     fi
@@ -8667,8 +8305,6 @@ cmd_add_class() {
         fi
     fi
 
-    # If any member is a per-user profile and no --user was given, prompt once
-    # for the shared username so browsing/mail/steam/virtualbox land under it.
     local sv has_user=0
     for sv in $members; do
         [ -n "${USER_PROFILE_PATH[$sv]:-}" ] && has_user=1
@@ -8713,9 +8349,6 @@ cmd_detach() {
         info "unmounting $mnt..."
         umount "$mnt" 2>/dev/null || true
     done
-    # CRITICAL: BRE parens MUST be escaped (\( \)) — unescaped parens in POSIX
-    # BRE are literal characters, so `subvol=$sv([[:space:],])` would match
-    # nothing and leave every fstab line dangling after the umount above.
     sed -i "\~subvol=$sv\([[:space:],]\)~d" /etc/fstab
     info "detached $sv. Subvolume and data remain on disk. Re-attach with:"
     echo "  sudo /root/tools/void-subvol-tool.sh add $sv $mnt"
@@ -8725,8 +8358,6 @@ cmd_destroy() {
     [ $# -eq 1 ] || die "usage: void-subvol-tool.sh destroy <subvol>"
     local sv fst mnt sp ans
     sv="$(norm_subvol "$1")"
-    # Confirm BEFORE detaching: an aborted destroy must leave the mount and
-    # fstab entry exactly as they were.
     echo "WARNING: this DELETES subvolume $sv and ALL data it holds. Cannot be undone."
     read -r -p "Type YES to confirm: " ans
     [ "$ans" = "YES" ] || die "aborted."
@@ -8760,7 +8391,6 @@ INNER_EOF
 chmod 0755 /root/tools/void-subvol-tool.sh
 
 cat > /root/tools/README.md << 'INNER_EOF'
-# /root/tools — Void Linux maintenance & recovery tools
 
 This folder is shipped by the Void Linux Installer (the same project that built
 this box) and holds the re-runnable maintenance/recovery scripts. They are
@@ -8775,9 +8405,7 @@ Run every tool with **`sudo`** (they write to system-owned paths).
 
 ---
 
-## Tool index
 
-### `re-shadow-xbps.sh` — restore automatic update-snapshots
 **What it does:** repairs the "shadow" that makes every `xbps-install` take an
 automatic snapper pre/post snapshot pair. The real `/usr/bin/xbps-install` lives
 at `/usr/bin/xbps-install.real`, and `/usr/bin/xbps-install` is a symlink to the
@@ -8802,7 +8430,6 @@ every boot or by hand.
 
 ---
 
-### `limine-sync.sh` — force a boot-menu resync (Limine only)
 **What it does:** re-runs the kernel copy + `void-limine-write-conf` to
 regenerate the Limine boot menu (including the `+Snapshots` submenu). If a
 live Limine helper under `/usr/local/sbin` is missing, it **first restores it
@@ -8825,7 +8452,6 @@ mounted.
 
 ---
 
-### Limine engine backups — `void-limine-env.inc`, `void-limine-sync-kernels`, `void-limine-write-conf`
 Canonical pristine copies of the live Limine menu engines that `/usr/local/sbin`
 uses. They are not meant to be run from here (their live home is
 `/usr/local/sbin`, on `PATH`/sourced by the generator); they are the fallback
@@ -8835,7 +8461,6 @@ full reinstall — now `sudo /root/tools/limine-sync.sh` can rebuild it.
 
 ---
 
-### `re-provision-snapper.sh` — safely restore snapper (root config + plugin)
 **What it does:** recreates a *missing* snapper `root` config, re-applies the
 installer's retention/timeline tuning and the runit filter, and (on Limine)
 re-installs the `00-void-limine-snapper-sync` plugin that keeps the snapshot
@@ -8856,7 +8481,6 @@ install (which would have wiped snapshots).
 
 ---
 
-### `void-xbps-snap` — the update-snapshot wrapper (canonical backup)
 Not a separate tool; this is a pristine copy of the `/usr/local/sbin/void-xbps-snap`
 wrapper that `re-shadow-xbps.sh` restores from. You normally never run it
 directly here — it lives on `PATH` via `/usr/local/sbin` already. Its job: when
@@ -8871,7 +8495,6 @@ sudo /root/tools/void-xbps-snap -S <pkg>
 
 ---
 
-### `void-subvol-tool.sh` — add / inspect / detach flat subvolumes (post-install)
 **What it does:** manages the installer's *flat* Btrfs subvolume topology after
 the fact. It creates, checks, detaches, or destroys a **top-level sibling**
 subvolume (never nested inside `@`), so anything you add is automatically
@@ -8905,8 +8528,6 @@ for the username:
 sudo /root/tools/void-subvol-tool.sh add @chromium --user alice      # -> /home/alice/.config/chromium
 sudo /root/tools/void-subvol-tool.sh add @containers-user --user alice   # -> /home/alice/.local/share/containers
 sudo /root/tools/void-subvol-tool.sh add @steam                     # prompts "enter the username..."
-# @game is a MULTI-MOUNT subvol: it mounts at
-# each adopted launcher's datadir with its own fstab line:
 sudo /root/tools/void-subvol-tool.sh add @game --user alice         # mounts at the FULL derived set (.local/share/Steam, .local/share/lutris)
 ```
 Important: as at install (`[PERSONAL-DATA]`/`provision_browser_subvol`), the
@@ -8999,7 +8620,6 @@ class name.
 
 ---
 
-## Notes
 - All tools assume the installer-provisioned layout (btrfs root, a snapper
   `root` config, and — for the Limine tools — Limine as the bootloader).
 - The authoritative, up-to-date copy of these tools + this README lives in the
@@ -9024,8 +8644,6 @@ chmod +x /etc/cron.weekly/fstrim-discard
 mkdir -p /etc/cron.monthly
 cat > /etc/cron.monthly/btrfs-scrub << 'INNER_EOF'
 #!/bin/sh
-# [SCRUB] Monthly btrfs integrity scrub, logged (appended) to
-# /var/log/btrfs-scrub.log.
 export PATH="/usr/bin:/usr/sbin:/bin:/sbin"
 LOG="/var/log/btrfs-scrub.log"
 
@@ -9034,9 +8652,6 @@ if ! command -v btrfs >/dev/null 2>&1; then
     exit 1
 fi
 
-# Bail out cleanly when no btrfs filesystem is mounted (a cheap guard: this
-# installer only ever produces btrfs roots, but nothing should be created
-# on the unlikely non-btrfs box).
 _fslist="$(
     awk '
         { for (i = 1; i <= NF; i++) if ($i == "-") { sep = i; break } }
@@ -9074,7 +8689,6 @@ if [ "$YK_MODE" = "hmac-sha1" ]; then
     mkdir -p /usr/lib/dracut/modules.d/99void-yubikey
     cat > /usr/lib/dracut/modules.d/99void-yubikey/module-setup.sh << 'INNER_EOF'
 #!/bin/bash
-# shellcheck disable=SC2154  # $moddir is set by dracut before module install() is sourced
 
 check() {
     require_binaries ykchalresp || return 1
@@ -9095,60 +8709,48 @@ install() {
 INNER_EOF
     cat > /usr/lib/dracut/modules.d/99void-yubikey/cryptroot-ask.sh << 'INNER_EOF'
 #!/bin/sh
-# shellcheck disable=SC2154  # moddir / luksdev / hookdir are dracut-injected globals
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 NEWROOT=${NEWROOT:-"/sysroot"}
 
-# Don't ask if we already have root.
 [ -f "$NEWROOT"/proc ] && exit 0
 
 . /lib/dracut-lib.sh
 
 [ -d /run/cryptsetup ] || mkdir -m 0700 /run/cryptsetup
 
-# If device name is /dev/dm-X, convert to /dev/mapper/name.
 if [ "${1##/dev/dm-}" != "$1" ]; then
     device="/dev/mapper/$(dmsetup info -c --noheadings -o name "$1")"
 else
     device="$1"
 fi
 
-# Default luksname - luks-UUID.
 luksname=$2
 
-# is_keysource - ask for a passphrase even if an rd.luks.key argument is set.
 is_keysource=${3:-0}
 
-# Number of tries.
 numtries=${4:-10}
 
-# Resolve the target's crypttab entry (name, dev, luksfile, luksoptions).
 if [ -f /etc/crypttab ] && getargbool 1 rd.luks.crypttab -d -n rd_NO_CRYPTTAB; then
     while read -r name dev luksfile luksoptions || [ -n "$name" ]; do
-        # Skip blank lines and comments.
         if [ -z "$name" ] || [ "${name#\#}" != "$name" ]; then
             continue
         fi
 
-        # PARTUUID used in crypttab.
         if [ "${dev%%=*}" = "PARTUUID" ]; then
             if [ "luks-${dev##PARTUUID=}" = "$luksname" ]; then
                 luksname="$name"
                 break
             fi
-        # UUID used in crypttab.
         elif [ "${dev%%=*}" = "UUID" ]; then
             if [ "luks-${dev##UUID=}" = "$luksname" ]; then
                 luksname="$name"
                 break
             fi
-        # ID used in crypttab.
         elif [ "${dev%%=*}" = "ID" ]; then
             if [ "luks-${dev##ID=}" = "$luksname" ]; then
                 luksname="$name"
                 break
             fi
-        # Path used in crypttab.
         else
             cdev=$(readlink -f "$dev")
             mdev=$(readlink -f "$device")
@@ -9161,7 +8763,6 @@ if [ -f /etc/crypttab ] && getargbool 1 rd.luks.crypttab -d -n rd_NO_CRYPTTAB; t
     unset name dev
 fi
 
-# Check if the destination already exists (opened or already being asked).
 [ -b /dev/mapper/"$luksname" ] && exit 0
 asked_file=/tmp/cryptroot-asked-$luksname
 [ -f "$asked_file" ] && exit 0
@@ -9174,7 +8775,6 @@ info "luksOpen $device $luksname $luksfile $luksoptions"
 
 OLD_IFS="$IFS"
 IFS=,
-# shellcheck disable=SC2086
 set -- $luksoptions
 IFS="$OLD_IFS"
 
@@ -9200,14 +8800,12 @@ while [ $# -gt 0 ]; do
             cryptsetupopts="${cryptsetupopts} --${1}"
             ;;
         keyscript=*)
-            # [YUBIKEY] Capture the keyscript path for the boot unlock.
             keyscript="${1#keyscript=}"
             ;;
     esac
     shift
 done
 
-# Parse for allow-discards.
 if strstr "$(cryptsetup --help)" "allow-discards"; then
     if discarduuids=$(getargs "rd.luks.allow-discards"); then
         discarduuids=$(str_replace "$discarduuids" 'luks-' '')
@@ -9225,13 +8823,11 @@ fi
 
 unset allowdiscards
 
-# Fallback to the passphrase prompt (see the keyscript branch below).
 ask_passphrase=1
 
 if [ -n "$keyscript" ] && [ -x "$keyscript" ]; then
     _keyscript_tries=${YTries:-10}
     while [ "$_keyscript_tries" -gt 0 ]; do
-        # shellcheck disable=SC2086  # deliberate word-splitting of $cryptsetupopts (dracut option string)
         if "$keyscript" | cryptsetup -d - $cryptsetupopts luksOpen "$device" "$luksname"; then
             ask_passphrase=0
             break
@@ -9242,7 +8838,6 @@ if [ -n "$keyscript" ] && [ -x "$keyscript" ]; then
     done
     unset _keyscript_tries
 elif [ -n "$luksfile" ] && [ "$luksfile" != "none" ] && [ -e "$luksfile" ]; then
-    # shellcheck disable=SC2086
     if readkey "$luksfile" / "$device" \
         | cryptsetup -d - $cryptsetupopts luksOpen "$device" "$luksname"; then
         ask_passphrase=0
@@ -9269,7 +8864,6 @@ else
         unset tmp
 
         info "Using '$keypath' on '$keydev'"
-        # shellcheck disable=SC2086
         readkey "$keypath" "$keydev" "$device" \
             | cryptsetup -d - $cryptsetupopts luksOpen "$device" "$luksname" \
             && ask_passphrase=0
@@ -9302,7 +8896,6 @@ fi
 
 unset device luksname luksfile
 
-# Mark device as asked.
 : >> "$asked_file"
 
 need_shutdown
@@ -9318,7 +8911,6 @@ fi
 mkdir -p /usr/lib/dracut/modules.d/95snapshot-overlay
 cat > /usr/lib/dracut/modules.d/95snapshot-overlay/module-setup.sh << 'INNER_EOF'
 #!/bin/bash
-# shellcheck disable=SC2154  # $moddir is set by dracut before module install() is sourced
 
 check() {
     require_binaries btrfs || return 1
@@ -9375,7 +8967,6 @@ if [ "$ENCRYPT" = "yes" ] && [ -n "${REGION_PARTITIONED:-}" ]; then
 
     cat > /usr/lib/dracut/modules.d/98void-inner-partscan/module-setup.sh << 'INNER_EOF'
 #!/bin/bash
-# shellcheck disable=SC2154  # $moddir is set by dracut before install() runs
 
 check() {
     require_binaries kpartx || return 1
@@ -9384,9 +8975,6 @@ check() {
 }
 
 depends() {
-    # Numeric 98 > 90crypt: the container must already be open for the
-    # mapper's sysfs dm/name to exist when our rule fires, so pull crypt
-    # explicitly alongside udev-rules.
     echo crypt udev-rules
     return 0
 }
@@ -9402,7 +8990,6 @@ INNER_EOF
 
     cat > /usr/lib/dracut/modules.d/98void-inner-partscan/void-inner-partscan.sh << 'INNER_EOF'
 #!/bin/sh
-# shellcheck disable=SC2154  # DEVNAME is injected by udev at run time
 _dev="${1:-${DEVNAME:-/dev/mapper/__CRYPT_NAME__}}"
 
 [ -b "$_dev" ] || exit 0
@@ -9428,8 +9015,6 @@ INNER_EOF
     cp -f /usr/lib/dracut/modules.d/98void-inner-partscan/void-inner-partscan.sh /usr/bin/void-inner-partscan.sh
     chmod 0755 /usr/bin/void-inner-partscan.sh
 
-    # Bake the mapper name in (rules match + helper fallback): never a raw
-    # typed name — escape sed replacement specials (& / \) before substitution.
     _cn_esc=$(printf '%s' "$CRYPT_NAME" | sed 's/[&/\\]/\\&/g')
     sed -i "s/__CRYPT_NAME__/$_cn_esc/g" \
         /usr/lib/dracut/modules.d/98void-inner-partscan/10-void-inner-partscan.rules
@@ -9520,15 +9105,11 @@ chmod 0755 /etc/sv/udisksd/log/run
 
 cat > /etc/rc.local << 'INNER_EOF'
 #!/bin/sh
-# shellcheck disable=SC2050  # __TOKEN__ placeholders (__BOOTLOADER__ ...) are sed-substituted to real values after generation
 if command -v vkpurge >/dev/null 2>&1; then
     echo "==> Runtime Maintenance: Sweeping unreferenced kernel artifacts..."
     vkpurge rm all >/dev/null 2>&1
 fi
 
-# ~/.cache (@usercache) and ~/.cache/mozilla (@mozilla-cache) are mounted by
-# fstab in parent-then-child order. Do not mount ~/.cache here: doing so after
-# core mount(8) has mounted the child hides @mozilla-cache and defeats its +C.
 
 if [ -x /root/tools/re-shadow-xbps.sh ]; then
     { echo "=== void-reshadow: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
@@ -9642,7 +9223,6 @@ sed -i \
     /etc/rc.local
 chmod +x /etc/rc.local
 
-# shellcheck disable=SC2086  # KERNEL_PKGS is a space-joined word list; per-element args intended
 xbps-reconfigure -f $KERNEL_PKGS
 
 for kver_dir in /lib/modules/*; do
@@ -9714,9 +9294,6 @@ fw_audit_line() { FW_AUDIT_TEXT="${FW_AUDIT_TEXT}${1}"$'\n'; }
 
 fw_audit_line "[fw] Firmware accounting (report-only):"
 
-# linux-firmware-network is the always-kept bulk (every LAN/WLAN/BT vendor
-# wholesale; never prunable — it is pulled by linux-base and is the single
-# split that drags in the Broadcom gap closer).
 if xbps-query -l 2>/dev/null | grep -q '^linux-firmware-network-'; then
     fw_audit_line "  linux-firmware-network : present — always-kept bulk (every LAN/WLAN/Bluetooth vendor wholesale; never prunable)."
 else
@@ -9733,7 +9310,6 @@ else
     fw_audit_line "  linux-firmware-amd      : absent."
 fi
 
-# -intel : Intel GPU/firmware. Same logic as -amd.
 if xbps-query -l 2>/dev/null | grep -q '^linux-firmware-intel-'; then
     if [ "${HAS_INTEL_GPU:-no}" = "yes" ]; then
         fw_audit_line "  linux-firmware-intel    : present — matches this box's probe (Intel GPU present)."
@@ -9744,7 +9320,6 @@ else
     fw_audit_line "  linux-firmware-intel    : absent."
 fi
 
-# -nvidia : NVIDIA GPU firmware. Same logic.
 if xbps-query -l 2>/dev/null | grep -q '^linux-firmware-nvidia-'; then
     if [ "${HAS_NVIDIA_GPU:-no}" = "yes" ]; then
         fw_audit_line "  linux-firmware-nvidia   : present — matches this box's probe (NVIDIA GPU present)."
@@ -9771,13 +9346,11 @@ fi
 if xbps-query -l 2>/dev/null | grep -q '^intel-ucode-'; then
     fw_audit_line "  intel-ucode             : present — the one genuinely pruned package (Intel microcode, installed per live CPU-detect)."
 elif xbps-query -l 2>/dev/null | grep -q '^linux-firmware-amd-'; then
-    : # linux-firmware-amd line already covers the AMD case above; microcode
-       # on AMD is the same split, so do not double-count it here.
+    :
 else
     fw_audit_line "  intel-ucode             : absent (microcode: ${MICROCODE_PKG:-<none>} per live CPU-detect / opt-out)."
 fi
 
-# audio firmware: alsa-firmware + sof-firmware when present.
 _fw_audio=""
 xbps-query -l 2>/dev/null | grep -q '^alsa-firmware-' && _fw_audio="alsa-firmware "
 xbps-query -l 2>/dev/null | grep -q '^sof-firmware-' && _fw_audio="${_fw_audio}sof-firmware"
@@ -9794,8 +9367,6 @@ if [ "$BOOTLOADER" = "limine" ]; then
 fi
 
 if [ "$BOOTLOADER" = "grub" ]; then
-    # No snapshot exists yet (the baseline is created on first boot), so a
-    # plain grub-mkconfig is safe with the 41_snapshots-btrfs hook enabled.
     grub-mkconfig -o /boot/grub/grub.cfg
 fi
 CHROOT_EOF
@@ -9996,5 +9567,3 @@ if [ "$_do_reboot" -eq 1 ]; then
 else
     echo "Reboot skipped — staying at the live shell. When ready, reboot with: ${C_BOLD}reboot${C_RST}"
 fi
-# (No code after the reboot branch is reachable; a stopped run falls through
-# to EOF and returns the user to the live shell prompt.)
