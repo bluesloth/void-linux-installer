@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.17"
+SCRIPT_VERSION="Version-3.2.18"
 
 AUTO_YES="${AUTO_YES:-0}"
 PROFILE_FILE="${PROFILE_FILE:-}"
@@ -7132,6 +7132,20 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
             [ -f "${snap_dir}info.xml" ] || continue
             snap_date="$(sed -n 's:.*<date>\(.*\)</date>.*:\1:p' "${snap_dir}info.xml" | head -n1)"
             snap_desc="$(sed -n 's:.*<description>\(.*\)</description>.*:\1:p' "${snap_dir}info.xml" | head -n1)"
+            snap_type="$(sed -n 's:.*<type>\(.*\)</type>.*:\1:p' "${snap_dir}info.xml" | head -n1)"
+            snap_pre="$(sed -n 's:.*<pre_num>\(.*\)</pre_num>.*:\1:p' "${snap_dir}info.xml" | head -n1)"
+            snap_kind=""
+            case "$snap_type" in
+                pre)
+                    snap_kind=" [pre · rollback point]"
+                    ;;
+                post)
+                    snap_kind=" [post · after change]"
+                    if [ -n "$snap_pre" ]; then
+                        snap_kind="${snap_kind} · pair #${snap_pre}"
+                    fi
+                    ;;
+            esac
             if [ -n "$snap_date" ]; then
                 snap_fmt="$(date -d "$snap_date" '+%b %-d, %Y %H:%M' 2>/dev/null || echo "$snap_date")"
             else
@@ -7139,13 +7153,13 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
             fi
             if [ -n "$snap_fmt" ]; then
                 if [ -n "$snap_desc" ]; then
-                    echo "    //${snap_desc} · ${snap_fmt} (#${snap_id})"
+                    echo "    //${snap_desc}${snap_kind} · ${snap_fmt} (#${snap_id})"
                 else
-                    echo "    //${snap_fmt} (#${snap_id})"
+                    echo "    //${snap_fmt}${snap_kind} (#${snap_id})"
                 fi
             else
                 [ -n "$snap_desc" ] || snap_desc="snapshot ${snap_id}"
-                echo "    //${snap_desc} (#${snap_id})"
+                echo "    //${snap_desc}${snap_kind} (#${snap_id})"
             fi
             echo "    protocol: linux"
             echo "    kernel_path: $(kernel_path_for "$DEFAULT_KVER")"

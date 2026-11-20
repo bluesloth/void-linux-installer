@@ -2,6 +2,23 @@
 
 > **Merged (2026-11-16):** 3.2.08–3.2.16 updates imported from `CHANGELOG-void-installer.md` (Void_Linux_Installer 3.2.16 integration).
 
+## [Version-3.2.18] — 2026-11-20 (pre/post labels in the boot menu) `[SNAP-MENU-LABEL]`
+
+### Fixed
+
+- The `/+Snapshots` submenu of the Limine boot menu built each entry's label
+  from only the snapshot's `<description>` and `<date>` (`void-limine-write-conf`).
+  A snapper pre/post pair shares one description and is taken seconds apart,
+  so both entries rendered identically except for `(#N)` — the menu gave no
+  indication which snapshot was the pre ("before") rollback point and which
+  was the post ("after") member. The generator now also reads `<type>` and
+  `<pre_num>` from each `info.xml` and appends a marker to the label:
+  `[pre · rollback point]` on the pre snapshot and
+  `[post · after change · pair #N]` on the post. Snapshot metadata is untouched
+  and single/timeline snapshots keep their existing labels. Because the label
+  is derived from metadata at regeneration time, existing pairs are clarified
+  the next time the menu is regenerated — no `snapper modify` needed.
+
 ## [Version-3.2.17] — 2026-11-19 (snapshot GUI package installs)
 
 ### Fixed
