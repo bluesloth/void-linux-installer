@@ -2,6 +2,27 @@
 
 > **Merged (2026-11-16):** 3.2.08–3.2.16 updates imported from `CHANGELOG-void-installer.md` (Void_Linux_Installer 3.2.16 integration).
 
+## [Version-3.2.25] — 2026-11-20 (one flatpak prompt per install) `[FLATPAK-POLKIT-LOOP]`
+
+### Fixed
+
+- Corrected the 3.2.23 `[FLATPAK-POLKIT-UNIFORM]` rule, which forced
+  `org.freedesktop.Flatpak.modify-repo` (and the runtime actions) to
+  `auth_admin` alongside the app-install action. A single system Flatpak
+  install calls `modify-repo` repeatedly as it writes the system OSTree repo,
+  so the system helper re-prompted in a loop — "Authentication is required to
+  modify a system repository", then "Authentication is required to install
+  software", then repeat — and the transaction stalled.
+- The rule now forces `auth_admin` on **only** `app-install` and `app-uninstall`.
+  `modify-repo`, `runtime-install` and `runtime-uninstall` return `YES` for
+  local `wheel` users (upstream already allows `modify-repo` for active
+  sessions; `app-install` implies the runtime actions), so they stay silent.
+  One install or removal now produces exactly one prompt on every DE and CLI,
+  and the uniformity goal of 3.2.23 is kept.
+- Nothing else is granted: actions outside that set fall through to upstream
+  policy, and `override-parental-controls` is left at its upstream
+  `AUTH_ADMIN`. Signed Flatpak updates remain silent.
+
 ## [Version-3.2.24] — 2026-11-20 (static gates green again) `[GATE-DRIFT]`
 
 ### Fixed

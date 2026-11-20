@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.24"
+SCRIPT_VERSION="Version-3.2.25"
 
 AUTO_YES="${AUTO_YES:-0}"
 PROFILE_FILE="${PROFILE_FILE:-}"
@@ -6488,15 +6488,23 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
 // [FLATPAK-POLKIT-UNIFORM] System-wide flatpak installs require authentication
 // on every desktop and for every caller. Evaluated before the vendor rule in
 // /usr/share/polkit-1/rules.d/org.freedesktop.Flatpak.rules, which otherwise
-// grants a free pass to active local wheel users (KDE Discover was silent
-// while GNOME Software / COSMIC Store prompted). Signed updates stay silent.
+// grants a free pass to active local wheel users.
+//
+// Only the user-facing app install/remove operations require authentication.
+// modify-repo and signed runtime changes happen many times inside ONE flatpak
+// transaction; forcing those to auth_admin makes the system helper re-prompt
+// in a loop. Keep them silent for local wheel users (upstream already allows
+// modify-repo for active sessions) so one install = exactly one prompt.
 polkit.addRule(function(action, subject) {
     if (action.id == "org.freedesktop.Flatpak.app-install" ||
-        action.id == "org.freedesktop.Flatpak.runtime-install" ||
-        action.id == "org.freedesktop.Flatpak.app-uninstall" ||
-        action.id == "org.freedesktop.Flatpak.runtime-uninstall" ||
-        action.id == "org.freedesktop.Flatpak.modify-repo") {
+        action.id == "org.freedesktop.Flatpak.app-uninstall") {
         return polkit.Result.AUTH_ADMIN;
+    }
+    if ((action.id == "org.freedesktop.Flatpak.runtime-install" ||
+         action.id == "org.freedesktop.Flatpak.runtime-uninstall" ||
+         action.id == "org.freedesktop.Flatpak.modify-repo") &&
+        subject.local && subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
     }
     return polkit.Result.NOT_HANDLED;
 });
