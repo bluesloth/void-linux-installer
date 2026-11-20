@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.20"
+SCRIPT_VERSION="Version-3.2.21"
 
 AUTO_YES="${AUTO_YES:-0}"
 PROFILE_FILE="${PROFILE_FILE:-}"
@@ -46,7 +46,11 @@ DEFAULT_TIMEZONE="${DEFAULT_TIMEZONE:-1}"
 DEFAULT_LOCAL_CACHE="${DEFAULT_LOCAL_CACHE:-auto}"
 if [ "${DEFAULT_LOCAL_CACHE}" = "auto" ]; then
     _cache_found=0
-    for _media in /run/media/*/xbps-cachedir-x86_64 /run/media/*/xbps-cachedir-x86_64-musl; do
+    for _media in /run/media/*/xbps-cachedir-x86_64 \
+                  /run/media/*/*/xbps-cachedir-x86_64 \
+                  /run/media/*/xbps-cachedir-x86_64-musl \
+                  /run/media/*/*/xbps-cachedir-x86_64-musl \
+                  /xbps-cachedir-x86_64 /xbps-cachedir-x86_64-musl; do
         if [ -d "$_media" ] && [ "$(ls -A "$_media" 2>/dev/null | wc -l)" -gt 0 ]; then
             DEFAULT_LOCAL_CACHE="yes"
             _cache_found=1

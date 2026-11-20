@@ -2,6 +2,20 @@
 
 > **Merged (2026-11-16):** 3.2.08–3.2.16 updates imported from `CHANGELOG-void-installer.md` (Void_Linux_Installer 3.2.16 integration).
 
+## [Version-3.2.21] — 2026-11-20 (local-cache default matches detection) `[LOCAL-CACHE-DEFAULT]`
+
+### Fixed
+
+- `DEFAULT_LOCAL_CACHE=auto` resolved to `no` on a normal udisks2-mounted
+  stick because its check only scanned `/run/media/*/xbps-cachedir-<arch>`
+  (one level), while a mount is `/run/media/<user>/<uuid>/…` (two levels). The
+  "Use a local package cache?" prompt therefore advertised `[y/N]` even when
+  the prompt-time detector `_local_cache_detect()` had found the cache and
+  printed its path. The startup check now scans the same locations
+  (`/run/media/*/*/xbps-cachedir-*` and `/xbps-cachedir-*`), so the advertised
+  default agrees with the cache that will actually be used. Answering `y` or
+  typing a path was unaffected.
+
 ## [Version-3.2.20] — 2026-11-20 (collapsed Limine snapshot menu) `[SNAP-MENU-COLLAPSE]`
 
 ### Fixed
