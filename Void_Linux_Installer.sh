@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.18"
+SCRIPT_VERSION="Version-3.2.19"
 
 AUTO_YES="${AUTO_YES:-0}"
 PROFILE_FILE="${PROFILE_FILE:-}"
@@ -6270,6 +6270,88 @@ INNER_EOF
         esac
     fi
     unset _greeter_bg _greeter_bg_candidate _greeter_bg_name
+fi
+
+if [ "$DISPLAY_MANAGER" = "gdm" ]; then
+    _gdm_bg=""
+    for _gdm_bg_name in adwaita-d.jpg adwaita-d.jxl adwaita-d.png; do
+        _gdm_bg_candidate="$(find /usr/share/backgrounds -maxdepth 2 -type f \
+            -name "$_gdm_bg_name" 2>/dev/null | head -1)" || true
+        [[ -n "$_gdm_bg_candidate" ]] && { _gdm_bg="$_gdm_bg_candidate"; break; }
+    done
+    if [[ -z "$_gdm_bg" ]]; then
+        install_pkgs gnome-backgrounds
+        for _gdm_bg_name in adwaita-d.jpg adwaita-d.jxl adwaita-d.png; do
+            _gdm_bg_candidate="$(find /usr/share/backgrounds -maxdepth 2 -type f \
+                -name "$_gdm_bg_name" 2>/dev/null | head -1)" || true
+            [[ -n "$_gdm_bg_candidate" ]] && { _gdm_bg="$_gdm_bg_candidate"; break; }
+        done
+        if [[ -z "$_gdm_bg" ]]; then
+            _gdm_bg="$(find /usr/share/backgrounds -maxdepth 5 -type f \
+                \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' \
+                   -o -name '*.svg' -o -name '*.jxl' -o -name '*.webp' \) \
+                2>/dev/null | head -1)" || true
+        fi
+    fi
+    if [[ -n "$_gdm_bg" ]]; then
+        install -d -m 0755 /usr/share/void-gdm-background \
+            "/usr/share/gnome-shell/extensions/void-gdm-background@localhost"
+        cat > /usr/share/void-gdm-background/gdm.css << GDMCSS_EOF
+    background-image: url("file://${_gdm_bg}");
+    background-size: cover;
+    background-position: center;
+}
+GDMCSS_EOF
+        cat > "/usr/share/gnome-shell/extensions/void-gdm-background@localhost/metadata.json" << 'GDMJSON_EOF'
+{
+  "uuid": "void-gdm-background@localhost",
+  "name": "Void GDM Background",
+  "description": "Set a background image on the GDM login screen.",
+  "shell-version": [ "46", "47", "48", "49", "50", "51", "52" ],
+  "session-modes": [ "gdm" ]
+}
+GDMJSON_EOF
+        cat > "/usr/share/gnome-shell/extensions/void-gdm-background@localhost/extension.js" << 'GDMJS_EOF'
+// Void GDM background — loaded only in the "gdm" shell session mode.
+import Gio from 'gi://Gio';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
+
+const STYLESHEET = '/usr/share/void-gdm-background/gdm.css';
+
+export default class VoidGdmBackground extends Extension {
+    enable() {
+        if (!Gio.File.new_for_path(STYLESHEET).query_exists(null))
+            return;
+        Main.setThemeStylesheet(STYLESHEET);
+        Main.loadTheme();
+    }
+    disable() {
+        Main.setThemeStylesheet(null);
+        Main.loadTheme();
+    }
+}
+GDMJS_EOF
+        install -d -m 0755 /etc/dconf/profile /etc/dconf/db/gdm.d
+        cat > /etc/dconf/profile/gdm << 'GDMPROFILE_EOF'
+user-db:user
+system-db:gdm
+file-db:/usr/share/gdm/greeter-dconf-defaults
+GDMPROFILE_EOF
+        cat > /etc/dconf/db/gdm.d/00-void-gdm-background << 'GDMKEY_EOF'
+[org/gnome/shell]
+enabled-extensions=['void-gdm-background@localhost']
+GDMKEY_EOF
+        if command -v dconf >/dev/null 2>&1; then
+            dconf update
+        else
+            echo "WARNING: [GDM-BACKGROUND] dconf missing; extension enabled only on next dconf update." >&2
+        fi
+        echo "==> [GDM-BACKGROUND] greeter wallpaper: ${_gdm_bg}"
+    else
+        echo "WARNING: [GDM-BACKGROUND] no wallpaper found; greeter keeps its flat grey." >&2
+    fi
+    unset _gdm_bg _gdm_bg_candidate _gdm_bg_name
 fi
 
 case "$DESKTOP_ENV" in

@@ -2,6 +2,25 @@
 
 > **Merged (2026-11-16):** 3.2.08–3.2.16 updates imported from `CHANGELOG-void-installer.md` (Void_Linux_Installer 3.2.16 integration).
 
+## [Version-3.2.19] — 2026-11-20 (GDM greeter background) `[GDM-BACKGROUND]`
+
+### Fixed
+
+- The GDM login screen was a flat grey (`#222226`). GNOME Shell 48 creates no
+  background actor in greeter mode, so the wallpaper set for the user session
+  has no effect there and upstream exposes no gsettings path. A small gdm-mode
+  shell extension (`void-gdm-background@localhost`) now applies an
+  *application* stylesheet that overrides `#lockDialogGroup` with a real
+  background image — the same mechanism the `user-theme` extension uses, but
+  declared `session-modes: [gdm]` (the stock user-theme extension defaults to
+  `[user]` and cannot load in the greeter). The `gnome-backgrounds` Adwaita
+  dark image is preferred; any installed wallpaper is the fallback, and
+  `gnome-backgrounds` is installed if none is present. The extension is enabled
+  for the greeter through an added `system-db:gdm` in the dconf profile plus
+  `dconf update`, so no package-owned file is modified and a gdm/gnome-shell
+  update cannot silently undo it. LightDM's existing greeter-background block
+  is unchanged.
+
 ## [Version-3.2.18] — 2026-11-20 (pre/post labels in the boot menu) `[SNAP-MENU-LABEL]`
 
 ### Fixed
