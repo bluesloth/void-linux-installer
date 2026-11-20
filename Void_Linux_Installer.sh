@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.21"
+SCRIPT_VERSION="Version-3.2.22"
 
 AUTO_YES="${AUTO_YES:-0}"
 PROFILE_FILE="${PROFILE_FILE:-}"
@@ -2620,21 +2620,18 @@ echo "${C_BOLD}${C_BLU}Choose desktop environment${C_RST}"
 echo "  ${C_BOLD}1)${C_RST} ${C_GRN}KDE Plasma (default)${C_RST} — Wayland session, this script's"
 echo "     primary tested path."
 echo "  ${C_BOLD}2)${C_RST} GNOME — Wayland session, confirmed available on Void."
-echo "  ${C_BOLD}3)${C_RST} Cinnamon (X11) — Wayland session not yet packaged by Void."
-echo "  ${C_BOLD}4)${C_RST} Xfce (X11) — lightweight GTK desktop, ships as Void's default"
+echo "  ${C_BOLD}3)${C_RST} ${C_GRN}COSMIC${C_RST} — the System76 desktop, installed from this"
+echo "     project's own repo at https://bluesloth.github.io/void-linux-cosmic/"
+echo "     (audit: https://github.com/bluesloth/void-linux-cosmic), whose COSMIC"
+echo "     1.10 templates are built from scratch, tracking System76 / Pop!_OS COSMIC."
+echo "     Its signing key is PINNED in this installer and machine-verified after"
+echo "     every sync. The repo URL is checked for reachability at runtime; if it"
+echo "     is unavailable the install aborts cleanly rather than failing mid-way."
+echo "  ${C_BOLD}4)${C_RST} Cinnamon (X11) — Wayland session not yet packaged by Void."
+echo "  ${C_BOLD}5)${C_RST} Xfce (X11) — lightweight GTK desktop, ships as Void's default"
 echo "     graphical live-medium flavor."
-echo "  ${C_BOLD}5)${C_RST} MATE (X11) — classic GNOME 2-style GTK desktop."
-echo "  ${C_BOLD}6)${C_RST} LXQt (X11) — lightweight Qt desktop."
-echo "  ${C_BOLD}7)${C_RST} ${C_RED}COSMIC (third-party repo)${C_RST} — the System76 desktop. NOT in the"
-echo "     official Void repositories: installed from the community repo at"
-echo "     https://bluesloth.github.io/void-linux-cosmic/ (audit:"
-echo "     https://github.com/bluesloth/void-linux-cosmic), whose COSMIC 1.10"
-echo "     templates are built from scratch, tracking System76 / Pop!_OS COSMIC."
-echo "     Its signing key is PINNED in this installer"
-echo "     and machine-verified after every sync. It is a third-party"
-echo "     signing-trust choice made at your own risk — audit the repo before"
-echo "     installing. The repo URL is verified reachable at runtime; if it is"
-echo "     unavailable the install aborts cleanly rather than failing mid-way."
+echo "  ${C_BOLD}6)${C_RST} MATE (X11) — classic GNOME 2-style GTK desktop."
+echo "  ${C_BOLD}7)${C_RST} LXQt (X11) — lightweight Qt desktop."
 echo "  ${C_BOLD}8)${C_RST} ${C_GRN}none (console login only)${C_RST} — no desktop environment; a headless/"
 echo "     server base that boots to a console. Pairs naturally with the"
 echo "     display-manager '${C_BOLD}none${C_RST}' option below; the Xorg/Wayland base and"
@@ -2642,11 +2639,11 @@ echo "     the audio stack then become explicit opt-ins."
 while true; do
     case "$DEFAULT_DESKTOP" in
         2) _desktop_default_label="GNOME" ;;
-        3) _desktop_default_label="Cinnamon" ;;
-        4) _desktop_default_label="Xfce" ;;
-        5) _desktop_default_label="MATE" ;;
-        6) _desktop_default_label="LXQt" ;;
-        7) _desktop_default_label="COSMIC" ;;
+        3) _desktop_default_label="COSMIC" ;;
+        4) _desktop_default_label="Cinnamon" ;;
+        5) _desktop_default_label="Xfce" ;;
+        6) _desktop_default_label="MATE" ;;
+        7) _desktop_default_label="LXQt" ;;
         8) _desktop_default_label="none" ;;
         *) _desktop_default_label="KDE Plasma" ;;
     esac
@@ -2656,11 +2653,11 @@ while true; do
     case "$DESKTOP_ENV_INPUT" in
         ""|1) DESKTOP_ENV="kde"; break ;;
         2) DESKTOP_ENV="gnome"; break ;;
-        3) DESKTOP_ENV="cinnamon"; break ;;
-        4) DESKTOP_ENV="xfce"; break ;;
-        5) DESKTOP_ENV="mate"; break ;;
-        6) DESKTOP_ENV="lxqt"; break ;;
-        7) DESKTOP_ENV="cosmic"; break ;;
+        3) DESKTOP_ENV="cosmic"; break ;;
+        4) DESKTOP_ENV="cinnamon"; break ;;
+        5) DESKTOP_ENV="xfce"; break ;;
+        6) DESKTOP_ENV="mate"; break ;;
+        7) DESKTOP_ENV="lxqt"; break ;;
         8) DESKTOP_ENV="none"; break ;;
         *) echo "Please enter 1, 2, 3, 4, 5, 6, 7, or 8." >&2 ;;
     esac

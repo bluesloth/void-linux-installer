@@ -2,6 +2,22 @@
 
 > **Merged (2026-11-16):** 3.2.08–3.2.16 updates imported from `CHANGELOG-void-installer.md` (Void_Linux_Installer 3.2.16 integration).
 
+## [Version-3.2.22] — 2026-11-20 (COSMIC in the DE menu) `[COSMIC-MENU-ORDER]`
+
+### Changed
+
+- The desktop-environment menu now lists **COSMIC as option 3**, directly
+  after GNOME and above Cinnamon; Cinnamon/Xfce/MATE/LXQt shift to 4–7 and
+  `none` stays 8. Both the displayed numbers and the input/default-label maps
+  were updated together, so `DEFAULT_DESKTOP=3` now selects COSMIC (it used to
+  select Cinnamon).
+- COSMIC is no longer shown in red as a "third-party repo / at your own risk"
+  choice. It comes from this project's own repo, whose signing key is pinned
+  and machine-verified, so the menu now presents it as a normal first-class
+  option while keeping the factual repo URL, audit URL and reachability/
+  abort-on-unavailable notes. INSTALL_PROMPTS.md's DE list follows the new
+  order.
+
 ## [Version-3.2.21] — 2026-11-20 (local-cache default matches detection) `[LOCAL-CACHE-DEFAULT]`
 
 ### Fixed

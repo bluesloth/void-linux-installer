@@ -2,7 +2,7 @@
 
 > **BEST-EFFORT CONVENIENCE GUIDE — NOT SOURCE OF TRUTH.**
 > This document is a human-readable snapshot of the interactive prompts in
-> `Void_Linux_Installer.sh` (current version: **Version-3.2.21**). It exists
+> `Void_Linux_Installer.sh` (current version: **Version-3.2.22**). It exists
 > purely to make planning/QA easier. The script's own prompt code is the
 > authoritative behavior — **this guide can drift out of sync and becomes
 > stale if the script changes.**
@@ -206,9 +206,11 @@ and the final summary/review.
 ## 6. Desktop & session
 
 - **Desktop environment [1-8] (default `DEFAULT_DESKTOP`: 1 KDE Plasma)** —
-  KDE Plasma, Cinnamon, GNOME, Xfce, MATE, LXQt, COSMIC, or headless/none (as
-  listed by the script). Store auto-selection depends on DE (GNOME→GNOME
-  Software, KDE→KDE Discover, COSMIC→Cosmic Store).
+  KDE Plasma, GNOME, COSMIC, Cinnamon, Xfce, MATE, LXQt, or headless/none (as
+  listed by the script). COSMIC is offered without a warning colour: it comes
+  from this project's own repo with a pinned, machine-verified signing key.
+  Store auto-selection depends on DE (GNOME→GNOME Software, KDE→KDE Discover,
+  COSMIC→Cosmic Store).
 - **Display manager** — chosen/recommended per desktop (e.g. SDDM, LightDM,
   GDM, or cosmic-greeter for COSMIC) with the script’s presented options;
   Express uses the recommended DM.
