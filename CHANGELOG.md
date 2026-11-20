@@ -2,6 +2,27 @@
 
 > **Merged (2026-11-16):** 3.2.08–3.2.16 updates imported from `CHANGELOG-void-installer.md` (Void_Linux_Installer 3.2.16 integration).
 
+## [Version-3.2.23] — 2026-11-20 (uniform flatpak authentication) `[FLATPAK-POLKIT-UNIFORM]`
+
+### Fixed
+
+- System-wide Flatpak installs now require authentication identically on every
+  desktop and for every caller. Flatpak's shipped polkit rule grants `YES` to
+  an **active, local** `wheel` user for `app-install`, `runtime-install`,
+  `app-uninstall`, `runtime-uninstall` and `modify-repo`. KDE Discover runs in
+  the user's active session and was silent, while GNOME Software and COSMIC
+  Store drive the same system installation from a D-Bus-activated service with
+  an inactive subject, so they fell through to `auth_admin` and prompted.
+- A package-installed rule at `/etc/polkit-1/rules.d/50-void-flatpak-auth.rules`
+  (written when `INSTALL_FLATPAK=true`) now returns `AUTH_ADMIN` for exactly
+  those five actions. `/etc` rules are read before `/usr/share` and polkit
+  stops at the first rule that returns a verdict, so this overrides the vendor
+  rule without editing a package-owned file. Installs from the CLI, Discover,
+  GNOME Software and COSMIC Store all prompt; no action gains new privilege.
+- `app-update`, `runtime-update` and `update-remote` are deliberately **not**
+  touched — they keep their upstream `allow_active=yes`, so background/signed
+  Flatpak updates remain silent and no update notifier grows a password prompt.
+
 ## [Version-3.2.22] — 2026-11-20 (COSMIC in the DE menu) `[COSMIC-MENU-ORDER]`
 
 ### Changed

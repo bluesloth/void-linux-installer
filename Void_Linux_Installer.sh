@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.22"
+SCRIPT_VERSION="Version-3.2.23"
 
 AUTO_YES="${AUTO_YES:-0}"
 PROFILE_FILE="${PROFILE_FILE:-}"
@@ -6485,6 +6485,25 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
     install_pkgs flatpak fuse fuse3
     flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || \
         echo "WARNING: could not add flathub remote at install time. It will be re-attempted, non-blocking, at first boot (see [FLATHUB-RCL])." >&2
+    mkdir -p /etc/polkit-1/rules.d
+    cat > /etc/polkit-1/rules.d/50-void-flatpak-auth.rules << 'INNER_EOF'
+// [FLATPAK-POLKIT-UNIFORM] System-wide flatpak installs require authentication
+// on every desktop and for every caller. Evaluated before the vendor rule in
+// /usr/share/polkit-1/rules.d/org.freedesktop.Flatpak.rules, which otherwise
+// grants a free pass to active local wheel users (KDE Discover was silent
+// while GNOME Software / COSMIC Store prompted). Signed updates stay silent.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.Flatpak.app-install" ||
+        action.id == "org.freedesktop.Flatpak.runtime-install" ||
+        action.id == "org.freedesktop.Flatpak.app-uninstall" ||
+        action.id == "org.freedesktop.Flatpak.runtime-uninstall" ||
+        action.id == "org.freedesktop.Flatpak.modify-repo") {
+        return polkit.Result.AUTH_ADMIN;
+    }
+    return polkit.Result.NOT_HANDLED;
+});
+INNER_EOF
+    chmod 644 /etc/polkit-1/rules.d/50-void-flatpak-auth.rules
 fi
 
 if [ "$INSTALL_BREW" = "true" ]; then
