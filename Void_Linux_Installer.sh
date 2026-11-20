@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.23"
+SCRIPT_VERSION="Version-3.2.24"
 
 AUTO_YES="${AUTO_YES:-0}"
 PROFILE_FILE="${PROFILE_FILE:-}"
@@ -104,7 +104,6 @@ DEFAULT_IMPORT_SSH_KEY="${DEFAULT_IMPORT_SSH_KEY:-false}"
 DEFAULT_GENERATE_SSH_KEY="${DEFAULT_GENERATE_SSH_KEY:-false}"
 DEFAULT_SSH_KEY_PROTECTED="${DEFAULT_SSH_KEY_PROTECTED:-yes}"
 DEFAULT_EXPORT_SSH_KEY="${DEFAULT_EXPORT_SSH_KEY:-false}"
-DEFAULT_SSH_SERVER="${DEFAULT_SSH_SERVER:-false}"
 DEFAULT_INSTALL_NVIDIA="${DEFAULT_INSTALL_NVIDIA:-auto}"
 DEFAULT_WIFI_FW="${DEFAULT_WIFI_FW:-auto}"
 DEFAULT_MICROCODE="${DEFAULT_MICROCODE:-auto}"
@@ -123,7 +122,6 @@ DEFAULT_REGION_OPT_SIZE="${DEFAULT_REGION_OPT_SIZE:-4G}"
 DEFAULT_REGION_GAMES_SIZE="${DEFAULT_REGION_GAMES_SIZE:-60G}"
 DEFAULT_QUIET_BOOT="${DEFAULT_QUIET_BOOT:-no}"
 DEFAULT_TEE_BLACKLIST="${DEFAULT_TEE_BLACKLIST:-no}"
-DEFAULT_SWAPFILE_SIZE="${DEFAULT_SWAPFILE_SIZE:-1}"
 DEFAULT_ENCRYPT="${DEFAULT_ENCRYPT:-no}"
 DEFAULT_DISK="${DEFAULT_DISK:-}"
 DEFAULT_OPTIONAL_TIER="${DEFAULT_OPTIONAL_TIER:-2}"
@@ -7163,14 +7161,14 @@ for _kf in $(ls /boot/efi/void-kernel/vmlinuz-* 2>/dev/null | sort -V -r); do
     KERNEL_ENTRIES="${KERNEL_ENTRIES} ${_kver}"
 done
 
-DEFAULT_KVER=""
+RESOLVED_DEFAULT_KVER=""
 _pkg_linux="$(xbps-query -p pkgver linux 2>/dev/null || true)"
 _pkg_branch="${_pkg_linux#linux-}"
 _pkg_branch="${_pkg_branch%%_*}"
 if [ -n "$_pkg_branch" ] && [ -n "$KERNEL_ENTRIES" ]; then
-    DEFAULT_KVER="$(printf '%s\n' $KERNEL_ENTRIES | grep -E "^${_pkg_branch//./\\.}\." | sort -V | tail -n1)"
+    RESOLVED_DEFAULT_KVER="$(printf '%s\n' $KERNEL_ENTRIES | grep -E "^${_pkg_branch//./\\.}\." | sort -V | tail -n1)"
 fi
-[ -n "$DEFAULT_KVER" ] || DEFAULT_KVER="$NEWEST_KVER"
+[ -n "$RESOLVED_DEFAULT_KVER" ] || RESOLVED_DEFAULT_KVER="$NEWEST_KVER"
 unset _pkg_linux _pkg_branch
 
 if [ -z "$NEWEST_KVER" ]; then
@@ -7180,8 +7178,8 @@ fi
 TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
 {
     echo "timeout: 5"
-    if [ -n "$DEFAULT_KVER" ]; then
-        echo "default_entry: Void Linux/Void Linux (${DEFAULT_KVER})"
+    if [ -n "$RESOLVED_DEFAULT_KVER" ]; then
+        echo "default_entry: Void Linux/Void Linux (${RESOLVED_DEFAULT_KVER})"
     else
         echo "default_entry: 1"
     fi
@@ -7225,7 +7223,7 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
         echo "    module_path: $(module_path_for "$_kver")"
     done
 
-    if [ -d /.snapshots ] && [ -n "$DEFAULT_KVER" ]; then
+    if [ -d /.snapshots ] && [ -n "$RESOLVED_DEFAULT_KVER" ]; then
         echo ""
         echo "/Snapshots"
         for snap_dir in $(printf '%s\n' /.snapshots/*/ | sort -V); do
@@ -7264,9 +7262,9 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
                 echo "    //${snap_desc}${snap_kind} (#${snap_id})"
             fi
             echo "    protocol: linux"
-            echo "    kernel_path: $(kernel_path_for "$DEFAULT_KVER")"
+            echo "    kernel_path: $(kernel_path_for "$RESOLVED_DEFAULT_KVER")"
             echo "    kernel_cmdline: ${BASE_CMD/rootflags=subvol=@/rootflags=subvol=@snapshots\/${snap_id}\/snapshot} rd.live.overlay.overlayfs=1"
-            echo "    module_path: $(module_path_for "$DEFAULT_KVER")"
+            echo "    module_path: $(module_path_for "$RESOLVED_DEFAULT_KVER")"
         done
     fi
 

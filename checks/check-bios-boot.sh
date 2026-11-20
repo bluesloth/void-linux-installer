@@ -61,8 +61,10 @@ else
     bad "detection runs before the RESUME gate" "detect=$_nd resume=$_nr"
 fi
 
+# NET_INTERFACE_MATCH was removed with the br0/virt rework in Version-3.2.16;
+# it is no longer a resume-state variable, so do not require it here.
 check "BOOT_MODE in resume-state var list" \
-      'TARGET_DOMAIN TARGET_FQDN NET_INTERFACE_MATCH BOOTLOADER BOOT_MODE \'
+      'TARGET_DOMAIN TARGET_FQDN BOOTLOADER BOOT_MODE \'
 check "BOOT_MODE exported into Stage-2 chroot env" \
       'echo "export BOOT_MODE=\"$BOOT_MODE\"" >> /mnt/tmp/chroot_env.sh'
 check "BOOT_MODE recorded in install-config" 'BOOT_MODE="${BOOT_MODE:-<unset>}"'

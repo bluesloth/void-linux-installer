@@ -2,6 +2,30 @@
 
 > **Merged (2026-11-16):** 3.2.08–3.2.16 updates imported from `CHANGELOG-void-installer.md` (Void_Linux_Installer 3.2.16 integration).
 
+## [Version-3.2.24] — 2026-11-20 (static gates green again) `[GATE-DRIFT]`
+
+### Fixed
+
+- Cleared all six failures that had left the committed static gates red since
+  the 3.2.16 working-tree import, with **no runtime behavior change**:
+  - `DEFAULT_SSH_SERVER` was a dead duplicate of `DEFAULT_INSTALL_SSH_SERVER`
+    (the prompt consumes the latter); it is removed.
+  - `DEFAULT_SWAPFILE_SIZE` was never read — swap size is either computed from
+    RAM for hibernation or chosen 4G/2G at the prompt; it is removed.
+  - The limine generator's computed `DEFAULT_KVER` was misclassified as a
+    prompt default; it is now `RESOLVED_DEFAULT_KVER`.
+  - `check-defaults.sh` only matched `$NAME` / `${NAME}`, so a real wiring via
+    `${DEFAULT_LIMINE_WALLPAPER_STYLE,,}` looked unwired. It now matches any
+    `${NAME…` expansion form.
+  - `check-bios-boot.sh` still required `NET_INTERFACE_MATCH` in the
+    resume-state var list, although that variable was removed with the
+    br0/virt rework in Version-3.2.16. The stale expectation is gone.
+  - The script header again states `legacy BIOS` support, as the BIOS gate's
+    user-facing-claims check expects.
+- All gates green: `bash -n`; `check-heredocs.sh` 82 ALL CLEAN;
+  `check-defaults.sh` ALL CONSISTENT; `check-pkg-preflight.sh` ALL COVERED
+  (166 preflight / 169 install literals); `check-bios-boot.sh` **42/42**.
+
 ## [Version-3.2.23] — 2026-11-20 (uniform flatpak authentication) `[FLATPAK-POLKIT-UNIFORM]`
 
 ### Fixed

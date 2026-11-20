@@ -58,7 +58,10 @@ for name in $(printf '%s\n' "${!DECLARED[@]}" | sort); do
         if [ "$ln" -ge $((decl_line - 1)) ] && [ "$ln" -le $((decl_line + 1)) ]; then
             continue
         fi
-        if [[ "${LINES[$i]}" == *"\${$name}"* || "${LINES[$i]}" == *"\$$name"* ]]; then
+        # Match $NAME, ${NAME}, and parameter expansions like ${NAME,,} or
+        # ${NAME:-fallback}: the expansion form must not hide a real wiring.
+        _brace_ref='$'"{$name"
+        if [[ "${LINES[$i]}" == *"$_brace_ref"* || "${LINES[$i]}" == *"\$$name"* ]]; then
             wired=1
             break
         fi
