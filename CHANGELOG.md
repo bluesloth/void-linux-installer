@@ -2,6 +2,19 @@
 
 > **Merged (2026-11-16):** 3.2.08–3.2.16 updates imported from `CHANGELOG-void-installer.md` (Void_Linux_Installer 3.2.16 integration).
 
+## [Version-3.2.20] — 2026-11-20 (collapsed Limine snapshot menu) `[SNAP-MENU-COLLAPSE]`
+
+### Fixed
+
+- The Limine `+Snapshots` directory was declared `/+Snapshots` in
+  `void-limine-write-conf`. Limine's `+` marker means "expanded by default",
+  so every snapshot entry was laid out on the boot screen and the list grew
+  with each pre/post pair and timeline snapshot. The directory is now
+  `/Snapshots` (collapsed): the boot screen shows a single `Snapshots` line,
+  which can be selected and expanded with Enter when a rollback target is
+  needed. The `/+Void Linux` kernel submenu and all snapshot labels are
+  unchanged.
+
 ## [Version-3.2.19] — 2026-11-20 (GDM greeter background) `[GDM-BACKGROUND]`
 
 ### Fixed

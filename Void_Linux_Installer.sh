@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.19"
+SCRIPT_VERSION="Version-3.2.20"
 
 AUTO_YES="${AUTO_YES:-0}"
 PROFILE_FILE="${PROFILE_FILE:-}"
@@ -7207,7 +7207,7 @@ TMP_CONF="$(mktemp /boot/efi/EFI/BOOT/limine.conf.XXXXXX)"
 
     if [ -d /.snapshots ] && [ -n "$DEFAULT_KVER" ]; then
         echo ""
-        echo "/+Snapshots"
+        echo "/Snapshots"
         for snap_dir in $(printf '%s\n' /.snapshots/*/ | sort -V); do
             [ -d "$snap_dir" ] || continue
             snap_id="$(basename "$snap_dir")"
