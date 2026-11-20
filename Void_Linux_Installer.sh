@@ -2,7 +2,7 @@
 set -eE
 set -o pipefail
 
-SCRIPT_VERSION="Version-3.2.25"
+SCRIPT_VERSION="Version-3.2.26"
 
 AUTO_YES="${AUTO_YES:-0}"
 PROFILE_FILE="${PROFILE_FILE:-}"
@@ -6491,14 +6491,15 @@ if [ "$INSTALL_FLATPAK" = "true" ]; then
 // grants a free pass to active local wheel users.
 //
 // Only the user-facing app install/remove operations require authentication.
+// Use auth_admin_keep (upstream's active-session default): flatpak checks
+// app-install once per ref, so the cache makes one install = one prompt.
 // modify-repo and signed runtime changes happen many times inside ONE flatpak
-// transaction; forcing those to auth_admin makes the system helper re-prompt
-// in a loop. Keep them silent for local wheel users (upstream already allows
-// modify-repo for active sessions) so one install = exactly one prompt.
+// transaction and stay silent for local wheel users (upstream already allows
+// modify-repo for active sessions).
 polkit.addRule(function(action, subject) {
     if (action.id == "org.freedesktop.Flatpak.app-install" ||
         action.id == "org.freedesktop.Flatpak.app-uninstall") {
-        return polkit.Result.AUTH_ADMIN;
+        return polkit.Result.AUTH_ADMIN_KEEP;
     }
     if ((action.id == "org.freedesktop.Flatpak.runtime-install" ||
          action.id == "org.freedesktop.Flatpak.runtime-uninstall" ||

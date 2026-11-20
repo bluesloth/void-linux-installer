@@ -2,6 +2,21 @@
 
 > **Merged (2026-11-16):** 3.2.08–3.2.16 updates imported from `CHANGELOG-void-installer.md` (Void_Linux_Installer 3.2.16 integration).
 
+## [Version-3.2.26] — 2026-11-20 (one prompt, cached) `[FLATPAK-POLKIT-KEEP]`
+
+### Fixed
+
+- Operator live test of 3.2.25 showed the install completed but the
+  "Authentication is required to install software" prompt still repeated:
+  Flatpak checks `app-install` once per ref in a transaction, and 3.2.25 used
+  plain `AUTH_ADMIN`, which does not cache the authorization.
+- Install and remove now use `AUTH_ADMIN_KEEP` — upstream's own default for
+  active subjects — so the single authorization is reused for the rest of the
+  transaction. Verified on the operator's box: VLC installed after exactly one
+  prompt, with no repository prompt and no repeat.
+- The silent actions from 3.2.25 (`modify-repo`, `runtime-install`,
+  `runtime-uninstall` for local `wheel` users) are unchanged.
+
 ## [Version-3.2.25] — 2026-11-20 (one flatpak prompt per install) `[FLATPAK-POLKIT-LOOP]`
 
 ### Fixed
